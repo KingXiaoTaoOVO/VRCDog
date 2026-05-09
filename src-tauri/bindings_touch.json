@@ -1,0 +1,39 @@
+{
+  "name": "Default bindings for VrcDog (Touch)",
+  "controller_type": "oculus_touch",
+  "last_edited_by": "VrcDog",
+  "bindings": {
+    "/actions/main": {
+      "sources": [
+        {
+          "mode": "button",
+          "path": "/user/hand/right/input/trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TranslateTrigger"
+            }
+          }
+        },
+        {
+          "mode": "button",
+          "path": "/user/hand/right/input/grip",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/GripScale"
+            }
+          }
+        },
+        {
+          "mode": "joystick",
+          "path": "/user/hand/left/input/joystick",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/ClearTranslation"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "description": "Default bindings for Oculus Touch Controllers"
+}

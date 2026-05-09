@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tauri + Vue + Typescript App</title>
+  </head>
+
+  <body>
+    <div id="app">
+      <style>
+        body, html { margin: 0; padding: 0; height: 100%; background-color: #fffbeb; font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif !important; }
+        #initial-loader {
+          position: fixed;
+          top: 0; left: 0; width: 100%; height: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 99999;
+        }
+        .vrcdog-spinner {
+          width: 48px;
+          height: 48px;
+          border: 4px solid rgba(245, 158, 11, 0.3); /* amber-500 with opacity */
+          border-top-color: #f59e0b; /* amber-500 */
+          border-radius: 50%;
+          animation: vrcdog-spin 1s ease-in-out infinite;
+          margin-bottom: 16px;
+        }
+        .vrcdog-loading-text {
+          font-family: system-ui, -apple-system, sans-serif;
+          color: #b45309; /* amber-700 */
+          font-weight: bold;
+          font-size: 14px;
+          letter-spacing: 1px;
+          animation: vrcdog-pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes vrcdog-spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes vrcdog-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      </style>
+      <div id="initial-loader">
+        <div class="vrcdog-spinner"></div>
+        <div class="vrcdog-loading-text">Loading VrcDog...</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

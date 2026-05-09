@@ -1,0 +1,57 @@
+{
+  "actions": [
+    {
+      "name": "/actions/main/in/TranslateTrigger",
+      "type": "boolean",
+      "requirement": "mandatory"
+    },
+    {
+      "name": "/actions/main/in/GripScale",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/main/in/ClearTranslation",
+      "type": "boolean",
+      "requirement": "optional"
+    }
+  ],
+  "action_sets": [
+    {
+      "name": "/actions/main",
+      "usage": "leftright"
+    }
+  ],
+  "default_bindings": [
+    {
+      "controller_type": "knuckles",
+      "binding_url": "bindings_index.json"
+    },
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "bindings_vive.json"
+    },
+    {
+      "controller_type": "oculus_touch",
+      "binding_url": "bindings_touch.json"
+    }
+  ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "actions": {
+        "/actions/main/in/TranslateTrigger": "Show Scan Frame / Translate",
+        "/actions/main/in/GripScale": "Hold to scale overlay",
+        "/actions/main/in/ClearTranslation": "Clear translation"
+      }
+    },
+    {
+      "language_tag": "zh_CN",
+      "actions": {
+        "/actions/main/in/TranslateTrigger": "显示扫描框/触发翻译",
+        "/actions/main/in/GripScale": "按住缩放截图框",
+        "/actions/main/in/ClearTranslation": "清除翻译结果"
+      }
+    }
+  ]
+}

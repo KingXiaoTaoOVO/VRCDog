@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #f59e0b;      /* 暖阳黄 Amber-500 */
+  --color-primary-hover: #d97706;/* Amber-600 */
+  --color-background: #fffbeb;   /* 奶白黄 Amber-50 */
+  --color-surface: rgba(255, 255, 255, 0.85); /* 软糯白透 */
+  --color-surface-hover: rgba(255, 255, 255, 0.95);
+  --color-text: #451a03;         /* 深咖色，替代纯黑，显得温柔 */
+  --color-text-muted: #78350f;   /* 中咖色 */
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+}
+
+@layer base {
+  body {
+    @apply text-text antialiased;
+    background-color: transparent !important;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    font-family: "Comic Sans MS", "Nunito", "Quicksand", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  
+  #app {
+    width: 100vw;
+    height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(245, 158, 11, 0.3); /* 半透明暖黄 */
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(245, 158, 11, 0.6);
+  }
+}
+
+/* 可爱狗狗风的圆润玻璃面板 */
+.glass-panel {
+  background: var(--color-surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 10px 40px -10px rgba(245, 158, 11, 0.2), 
+              0 0 10px rgba(255, 255, 255, 0.8) inset;
+  border-radius: 32px; /* 极致大圆角 */
+}
+
+.glass-panel-hover:hover {
+  background: var(--color-surface-hover);
+  border-color: rgba(255, 255, 255, 1);
+  box-shadow: 0 20px 40px -10px rgba(245, 158, 11, 0.3), 
+              0 0 15px rgba(255, 255, 255, 0.9) inset;
+  transform: translateY(-4px) scale(1.01);
+}
+
+/* Q弹按钮通用样式 */
+.btn-cute {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.btn-cute:active {
+  transform: scale(0.9) !important;
+}
