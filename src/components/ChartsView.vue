@@ -381,23 +381,55 @@ onUnmounted(() => {
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- 周活跃图表 -->
-            <div class="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white shadow-lg shadow-slate-200/40">
-              <h2 class="font-extrabold text-slate-900 mb-6 flex items-center gap-3 text-lg">
+            <div class="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white shadow-lg shadow-slate-200/40 flex flex-col min-h-0">
+              <h2 class="font-extrabold text-slate-900 mb-6 flex items-center gap-3 text-lg shrink-0">
                 <span class="p-1.5 bg-sky-50 rounded-lg text-sky-500"><TrendingUp :size="20" /></span>
                 {{ t('charts.weekly_trend') }}
               </h2>
-              <div class="flex items-end justify-between gap-3 h-48 px-2">
+              <div class="flex-1 flex items-end justify-between gap-3 h-48 px-2 relative border border-slate-100 rounded-2xl bg-gradient-to-b from-white to-slate-50/50 shadow-inner overflow-hidden pt-8 pb-4">
+                
+                <!-- Horizontal Grid Lines -->
+                <div class="absolute inset-0 z-0 flex flex-col justify-between pt-12 pb-10 px-6 pointer-events-none">
+                  <div class="w-full border-t border-dashed border-slate-200 opacity-40"></div>
+                  <div class="w-full border-t border-dashed border-slate-200 opacity-40"></div>
+                  <div class="w-full border-t border-dashed border-slate-200 opacity-40"></div>
+                  <div class="w-full border-t border-dashed border-slate-200 opacity-40"></div>
+                </div>
+
                 <div
                   v-for="(count, idx) in weeklyActivity"
                   :key="idx"
-                  class="flex-1 flex flex-col items-center gap-2 group"
+                  class="flex-1 flex flex-col items-center group z-10 w-full h-full justify-end relative"
                 >
-                  <span class="text-xs font-bold text-sky-600 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0">{{ count }}</span>
-                  <div
-                    class="w-full max-w-[48px] rounded-t-xl transition-all duration-700 bg-gradient-to-t from-sky-500 to-sky-300 group-hover:from-sky-400 group-hover:to-sky-200 shadow-sm"
-                    :style="{ height: (count / maxWeekly * 100) + '%', minHeight: count > 0 ? '12px' : '4px' }"
-                  />
-                  <span class="text-xs text-slate-500 font-bold mt-2">{{ dayLabels[idx] }}</span>
+                  <!-- Background Track -->
+                  <div class="absolute bottom-[28px] top-0 w-full max-w-[32px] rounded-xl bg-slate-200/50 transition-colors"></div>
+
+                  <!-- Chart Bar Wrapper -->
+                  <div class="w-full max-w-[32px] flex flex-col justify-end relative mb-3"
+                       :style="{ height: 'calc(100% - 28px)' }">
+                       
+                    <!-- The Active Bar -->
+                    <div
+                      class="w-full rounded-xl transition-all duration-700 ease-out relative shadow-sm cursor-pointer hover:brightness-110" 
+                      :style="{ 
+                        height: `${Math.max((count / maxWeekly) * 100, 2)}%`,
+                        background: `linear-gradient(to top, #38bdf8, #bae6fd)`,
+                        opacity: count === 0 ? 0.3 : 1
+                      }"
+                    >
+                      <!-- Tooltip -->
+                      <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-slate-800 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-all transform group-hover:-translate-y-1 whitespace-nowrap shadow-xl pointer-events-none z-20">
+                        {{ count }} <span class="text-slate-400 font-normal">Events</span>
+                        <!-- little arrow -->
+                        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- X-Axis Label -->
+                  <span class="text-xs font-bold text-slate-500 h-[16px] flex items-center">
+                    {{ dayLabels[idx] }}
+                  </span>
                 </div>
               </div>
             </div>

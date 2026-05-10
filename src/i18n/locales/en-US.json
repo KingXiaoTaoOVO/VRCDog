@@ -348,7 +348,11 @@
     "auto_ac653a57": "自动检测",
     "auto_129d0594": "目标语言",
     "auto_31cba103": "输入 {{ t('settings.api_key') }}",
-    "auto_d205ac69": "例如: gpt-4o 或 deepseek-chat"
+    "auto_d205ac69": "例如: gpt-4o 或 deepseek-chat",
+    "auto_launch_title": "Auto Launch Apps",
+    "auto_launch_desc": "Apps to launch automatically when VRChat starts",
+    "kill_apps_on_exit": "Kill these apps when VRChat exits",
+    "auto_launch_list": "App list (one path per line)"
   },
   "status_presets": {
     "title": "Status Presets",

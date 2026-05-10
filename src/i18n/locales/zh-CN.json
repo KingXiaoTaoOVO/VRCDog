@@ -357,7 +357,11 @@
     "auto_ac653a57": "自动检测",
     "auto_129d0594": "目标语言",
     "auto_31cba103": "输入 {{ t('settings.api_key') }}",
-    "auto_d205ac69": "例如: gpt-4o 或 deepseek-chat"
+    "auto_d205ac69": "例如: gpt-4o 或 deepseek-chat",
+    "auto_launch_title": "自动启动程序",
+    "auto_launch_desc": "配置在 VRChat 启动时一并打开的应用程序",
+    "kill_apps_on_exit": "在 VRChat 退出时自动关闭这些程序",
+    "auto_launch_list": "程序路径列表 (每行一个，支持绝对路径)"
   },
   "status_presets": {
     "title": "状态预设",
@@ -470,7 +474,10 @@
     "no_friend_logs": "暂无好友动态",
     "status_online": "上线了",
     "status_offline": "下线了",
-    "status_location": "切换位置"
+    "status_location": "切换位置",
+    "type_player_joined": "玩家加入",
+    "type_player_left": "玩家离开",
+    "type_instance_joined": "进入实例"
   },
   "friend_log": {
     "all": "全部",

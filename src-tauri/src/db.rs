@@ -17,6 +17,7 @@ impl DbState {
         app_dir.push("vrcdog.db");
 
         let conn = Connection::open(app_dir).expect("Failed to open SQLite database");
+        conn.busy_timeout(std::time::Duration::from_secs(5)).expect("Failed to set busy timeout");
 
         // Apply SQLite Performance Optimizations
         conn.execute_batch(

@@ -46,6 +46,9 @@ import BilidownView from './components/BilidownView.vue';
 import DirectOpenModal from './components/DirectOpenModal.vue';
 import UserProfileModal from './components/UserProfileModal.vue';
 import EntityDetailModals from './components/EntityDetailModals.vue';
+import GlobalSearchModal from './components/GlobalSearchModal.vue';
+import CustomNavModal from './components/CustomNavModal.vue';
+import { Menu, ChevronUp, ChevronRight, X as XIcon, MessageSquare } from 'lucide-vue-next';
 import { Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser } from './types/vrc';
@@ -85,9 +88,74 @@ const serverMenuPerms = ref<Record<string, boolean>>({});
 const serverThemePerms = ref<Record<string, boolean>>({});
 const serverModePerms = ref<Record<string, boolean>>({});
 
-const filteredSidebarTabs = computed(() => {
-  if (!clientServerUrl.value || Object.keys(serverMenuPerms.value).length === 0) return sidebarTabs;
-  return sidebarTabs.filter(tab => serverMenuPerms.value[tab.key] !== false);
+const showCustomNavModal = ref(false);
+const showVrcxMenu = ref(false);
+const customNavConfig = ref<any[]>([]);
+
+const loadCustomNavConfig = async () => {
+  try {
+     const str = await DbApi.getSetting({ key: 'custom_nav_config' });
+     if (str) {
+        customNavConfig.value = JSON.parse(str);
+     }
+  } catch(e) {}
+};
+
+const saveCustomNavConfig = async (newConfig: any[] | null) => {
+   showCustomNavModal.value = false;
+   if (newConfig === null) {
+       customNavConfig.value = [];
+       await DbApi.saveSetting({ key: 'custom_nav_config', value: '[]' });
+       return;
+   }
+   customNavConfig.value = newConfig.map((n: any) => ({ key: n.key, visible: n.visible }));
+   await DbApi.saveSetting({ key: 'custom_nav_config', value: JSON.stringify(customNavConfig.value) });
+};
+
+const activeSidebarTabs = computed(() => {
+  let baseTabs = sidebarTabs.filter(tab => {
+     if (clientServerUrl.value && Object.keys(serverMenuPerms.value).length > 0) {
+        if (serverMenuPerms.value[tab.key] === false) return false;
+     }
+     return true;
+  });
+  if (customNavConfig.value.length === 0) return baseTabs;
+  
+  const result: any[] = [];
+  customNavConfig.value.forEach((cfg: any) => {
+      if (cfg.visible !== false) {
+         const t = baseTabs.find(b => b.key === cfg.key);
+         if (t) result.push(t);
+      }
+  });
+  baseTabs.forEach(t => {
+     if (!customNavConfig.value.find((c: any) => c.key === t.key)) result.push(t);
+  });
+  return result;
+});
+
+const editableNavConfig = computed(() => {
+  let baseTabs = sidebarTabs.filter(tab => {
+     if (clientServerUrl.value && Object.keys(serverMenuPerms.value).length > 0) {
+        if (serverMenuPerms.value[tab.key] === false) return false;
+     }
+     return true;
+  });
+  if (customNavConfig.value.length === 0) return baseTabs.map(t => ({ ...t, visible: true }));
+  
+  const result: any[] = [];
+  customNavConfig.value.forEach((cfg: any) => {
+      const t = baseTabs.find(b => b.key === cfg.key);
+      if (t) {
+         result.push({ ...t, visible: cfg.visible !== false });
+      }
+  });
+  baseTabs.forEach(t => {
+     if (!customNavConfig.value.find((c: any) => c.key === t.key)) {
+         result.push({ ...t, visible: true });
+     }
+  });
+  return result;
 });
 
 const filteredThemes = computed(() => {
@@ -163,6 +231,7 @@ import { useSystemContextStore } from './stores/systemContext';
 onMounted(async () => {
   const sysCtx = useSystemContextStore();
   sysCtx.startPolling();
+  await loadCustomNavConfig();
   
   try {
     appVersion.value = await getVersion();
@@ -1162,9 +1231,9 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div class="flex-1 space-y-1 overflow-y-auto">
+      <div class="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
         <button
-          v-for="tab in filteredSidebarTabs"
+          v-for="tab in activeSidebarTabs"
           :key="tab.key"
           class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border font-bold transition-all text-left text-sm"
           :style="activeTab === tab.key ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong, borderColor: currentTheme.colors.borderStrong } : { color: currentTheme.colors.textSoft, borderColor: 'transparent' }"
@@ -1180,10 +1249,13 @@ onMounted(async () => {
 
       <!-- 用户信息 + 退出 -->
       <div
-        class="mt-auto pt-3 border-t space-y-2"
+        class="mt-auto pt-3 border-t space-y-2 relative"
         :style="{ borderColor: currentTheme.colors.borderSoft }"
       >
-        <div class="flex items-center gap-2.5">
+        <div 
+          class="flex items-center gap-2.5 cursor-pointer hover:bg-black/5 p-1.5 -ml-1.5 rounded-xl transition-colors relative"
+          @click="showVrcxMenu = !showVrcxMenu"
+        >
           <VrcAvatar
             :user="currentUser"
             custom-class="w-9 h-9 rounded-xl object-cover flex-shrink-0"
@@ -1267,6 +1339,40 @@ onMounted(async () => {
           >
             <LogOut :size="14" /> {{ $t('app.logout') }}
           </button>
+        </div>
+
+        <!-- VRCX-like Settings Menu -->
+        <div 
+          v-if="showVrcxMenu" 
+          class="absolute bottom-full left-0 mb-3 w-[220px] bg-[#1e1f22] border border-white/10 shadow-2xl rounded-xl overflow-hidden text-slate-200 z-50 animate-fade-in"
+        >
+          <div class="p-3 flex items-center justify-between border-b border-white/5 bg-[#2b2d31]">
+            <div class="flex items-center gap-2">
+              <MessageSquare class="w-4 h-4 text-white" />
+              <span class="font-bold text-[13px] text-white">VRCX ♥</span>
+            </div>
+            <span class="text-[11px] text-slate-400">2026.05.10</span>
+          </div>
+          <div class="py-1">
+            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-white/10 transition-colors" @click="activeTab='settings'; showVrcxMenu=false">设置</button>
+            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-white/10 transition-colors">
+              主题 <ChevronRight class="w-4 h-4 text-slate-400" />
+            </button>
+            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-white/10 transition-colors">
+              行高密度 <ChevronRight class="w-4 h-4 text-slate-400" />
+            </button>
+            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-white/10 transition-colors" @click="showCustomNavModal = true; showVrcxMenu=false">
+              自定义导航栏
+            </button>
+          </div>
+          <div class="py-1 border-t border-white/5">
+            <button 
+              class="w-full text-left px-4 py-2 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
+              @click="handleLogout(false); showVrcxMenu=false"
+            >
+              退出登录
+            </button>
+          </div>
         </div>
 
         <div
@@ -1356,6 +1462,17 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- Global Search Modal -->
+    <GlobalSearchModal @navigate="(tab) => activeTab = tab" />
+
+    <!-- Custom Navigation Modal -->
+    <CustomNavModal
+      v-if="showCustomNavModal"
+      :initial-nav-config="editableNavConfig"
+      @close="showCustomNavModal = false"
+      @save="saveCustomNavConfig"
+    />
   </div>
 </template>
 

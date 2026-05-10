@@ -99,12 +99,27 @@ const handleDirectOpen = (e: any) => {
   }
 };
 
+const handleGlobalSearch = (e: any) => {
+  const { type, query } = e.detail;
+  searchQuery.value = query || '';
+  if (type === 'user') searchType.value = 'users';
+  else if (type === 'world') searchType.value = 'worlds';
+  else if (type === 'avatar') searchType.value = 'avatars';
+  else if (type === 'group') searchType.value = 'groups';
+  
+  if (searchQuery.value.trim()) {
+    doSearch();
+  }
+};
+
 onMounted(() => {
   window.addEventListener('vrc-open-detail', handleDirectOpen);
+  window.addEventListener('vrc-global-search', handleGlobalSearch);
 });
 
 onUnmounted(() => {
   window.removeEventListener('vrc-open-detail', handleDirectOpen);
+  window.removeEventListener('vrc-global-search', handleGlobalSearch);
 });
 </script>
 

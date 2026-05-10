@@ -25,6 +25,9 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   const isLoadingAvatars = ref(false);
 
   // Local Data
+    const activityLogs = ref<any[]>([]);
+  const isLoadingActivity = ref(false);
+
   const localNote = ref('');
   const isSavingNote = ref(false);
 
@@ -44,6 +47,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     groups.value = [];
     createdWorlds.value = [];
     createdAvatars.value = [];
+    activityLogs.value = [];
     localNote.value = '';
     
     // Parallel Fetch core info & local data
@@ -82,6 +86,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     fetchGroups(userId);
     fetchCreatedWorlds(userId);
     fetchCreatedAvatars(userId);
+    fetchActivityLogs(userId);
   };
 
   const saveLocalNote = async () => {
@@ -153,7 +158,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       }
 
       // Background fetch
-      const res = await VrcApi.request('/worlds', 'GET', { user: userId, n: 60 });
+      const res = await VrcApi.request('/worlds', 'GET', { userId: userId, n: 60 });
       if (Array.isArray(res)) {
         createdWorlds.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -181,7 +186,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
         } catch(e) {}
       }
 
-      const res = await VrcApi.request('/avatars', 'GET', { user: userId, n: 60 });
+      const res = await VrcApi.request('/avatars', 'GET', { userId: userId, n: 60 });
       if (Array.isArray(res)) {
         createdAvatars.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -190,6 +195,20 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       console.warn("Failed to fetch created avatars", err);
     } finally {
       isLoadingAvatars.value = false;
+    }
+  };
+
+    const fetchActivityLogs = async (userId: string) => {
+    isLoadingActivity.value = true;
+    try {
+      const logs = await DbApi.getFriendLogs({ userId, limit: 100 });
+      if (Array.isArray(logs)) {
+        activityLogs.value = logs;
+      }
+    } catch (err) {
+      console.warn("Failed to fetch activity logs", err);
+    } finally {
+      isLoadingActivity.value = false;
     }
   };
 
@@ -226,12 +245,15 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingGroups,
     isLoadingWorlds,
     isLoadingAvatars,
+    isLoadingActivity,
+    activityLogs,
     openProfile,
     closeProfile,
     fetchMutualFriends,
     fetchGroups,
     fetchCreatedWorlds,
     fetchCreatedAvatars,
+    fetchActivityLogs,
     saveLocalNote
   };
 });

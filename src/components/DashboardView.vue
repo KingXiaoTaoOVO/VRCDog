@@ -6,6 +6,7 @@ import VrcAvatar from './VrcAvatar.vue';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser } from '../types/vrc';
 import { useUserProfileStore } from '../stores/userProfile';
+import { currentTheme } from '../theme';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
@@ -29,8 +30,8 @@ const fetchData = async () => {
     const instances = new Set(online.map((f: VrcUser) => f.location).filter((loc: string | undefined) => loc && loc !== 'private'));
     activeInstancesCount.value = instances.size;
     
-    // 获取最近几个在线好友
-    recentFriends.value = online.slice(0, 8);
+    // 获取所有的在线好友
+    recentFriends.value = online;
 
     // 2. 获取服务器状态
     const statusRes = await VrcApi.getServerStatus();
@@ -189,46 +190,80 @@ const openPlayerProfile = (friend: VrcUser) => {
     <!-- Main Content Area -->
     <div class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0 z-10">
       <!-- Activity Heatmap -->
-      <div class="lg:col-span-2 bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 flex flex-col relative overflow-hidden">
+      <div class="lg:col-span-2 bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 flex flex-col relative overflow-hidden min-h-0">
         <div class="flex items-center justify-between mb-6">
           <h3 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
-            <TrendingUp class="w-5 h-5 text-indigo-500" />
+            <TrendingUp class="w-5 h-5" :style="{ color: currentTheme.colors.primaryBtnBg }" />
             {{ t('dashboard.weekly_trend') }}
           </h3>
-          <div class="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold border border-indigo-100">
+          <div class="px-3 py-1 rounded-lg text-xs font-bold border"
+               :style="{ backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong, borderColor: currentTheme.colors.borderStrong }">
             7 Days Activity
           </div>
         </div>
         
-        <div class="flex-1 bg-gradient-to-b from-slate-50/50 to-indigo-50/30 rounded-2xl border border-slate-100/80 flex items-end justify-around pt-8 pb-4 px-6 overflow-hidden relative shadow-inner">
+        <div class="flex-1 rounded-2xl border flex items-end justify-around pt-8 pb-4 px-6 overflow-hidden relative shadow-inner"
+             :style="{ 
+               background: `linear-gradient(to bottom, ${currentTheme.colors.bgMain}, ${currentTheme.colors.activeBg})`,
+               borderColor: currentTheme.colors.borderStrong 
+             }">
+             
+          <!-- Horizontal Grid Lines -->
+          <div class="absolute inset-0 z-0 flex flex-col justify-between pt-12 pb-10 px-6 pointer-events-none">
+            <div class="w-full border-t border-dashed" :style="{ borderColor: currentTheme.colors.borderStrong, opacity: 0.4 }"></div>
+            <div class="w-full border-t border-dashed" :style="{ borderColor: currentTheme.colors.borderStrong, opacity: 0.4 }"></div>
+            <div class="w-full border-t border-dashed" :style="{ borderColor: currentTheme.colors.borderStrong, opacity: 0.4 }"></div>
+            <div class="w-full border-t border-dashed" :style="{ borderColor: currentTheme.colors.borderStrong, opacity: 0.4 }"></div>
+          </div>
+
           <div
             v-for="(val, idx) in heatmapData"
             :key="idx"
-            class="flex flex-col items-center gap-3 group z-10 w-1/8 h-full justify-end relative"
+            class="flex flex-col items-center group z-10 w-[10%] h-full justify-end relative"
           >
-            <div
-              class="w-full max-w-[48px] bg-gradient-to-t from-indigo-500 to-indigo-400 rounded-xl transition-all duration-700 ease-out relative group-hover:from-indigo-400 group-hover:to-indigo-300 shadow-sm border border-indigo-400/20" 
-              :style="{ height: `${Math.max((val / Math.max(...heatmapData, 1)) * 80, 10)}%` }"
-            >
-              <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-slate-800 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-all transform group-hover:-translate-y-1 whitespace-nowrap shadow-xl pointer-events-none z-20">
-                {{ val }} <span class="text-slate-400 font-normal">Events</span>
-                <!-- little arrow -->
-                <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+            <!-- Background Track (Full Height of Chart Area) -->
+            <div class="absolute bottom-[28px] top-0 w-full max-w-[40px] rounded-xl transition-colors"
+                 :style="{ backgroundColor: currentTheme.colors.borderStrong, opacity: 0.15 }">
+            </div>
+
+            <!-- Chart Bar Wrapper for positioning -->
+            <div class="w-full max-w-[40px] flex flex-col justify-end relative mb-3"
+                 :style="{ height: 'calc(100% - 28px)' }">
+                 
+              <!-- The Active Bar -->
+              <div
+                class="w-full rounded-xl transition-all duration-700 ease-out relative shadow-md cursor-pointer hover:brightness-110" 
+                :style="{ 
+                  height: `${Math.max((val / Math.max(...heatmapData, 1)) * 100, 2)}%`,
+                  background: `linear-gradient(to top, ${currentTheme.colors.primaryBtnHover}, ${currentTheme.colors.primaryBtnBg})`,
+                  opacity: val === 0 ? 0.3 : 1
+                }"
+              >
+                <!-- Tooltip -->
+                <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-slate-800 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-all transform group-hover:-translate-y-1 whitespace-nowrap shadow-xl pointer-events-none z-20">
+                  {{ val }} <span class="text-slate-400 font-normal">Events</span>
+                  <!-- little arrow -->
+                  <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                </div>
               </div>
             </div>
-            <span class="text-xs font-bold text-slate-500 group-hover:text-indigo-600 transition-colors">{{ t(`dashboard.days.${idx}`) }}</span>
+            
+            <!-- X-Axis Label -->
+            <span class="text-xs font-bold transition-colors h-[16px] flex items-center" :style="{ color: currentTheme.colors.textSoft }">
+              {{ t(`dashboard.days.${idx}`) }}
+            </span>
           </div>
         </div>
       </div>
       
       <!-- Active Friends List -->
-      <div class="bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 flex flex-col">
-        <div class="flex items-center justify-between mb-6">
+      <div class="bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-6 shrink-0">
           <h3 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
             <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             {{ t('dashboard.active_friends') }}
           </h3>
-          <span class="text-xs font-bold text-slate-400">{{ recentFriends.length }} Online</span>
+          <span class="text-xs font-bold text-slate-400">{{ onlineFriendsCount }} Online</span>
         </div>
         
         <div class="flex-1 overflow-y-auto custom-scrollbar space-y-1.5 pr-2 -mr-2">

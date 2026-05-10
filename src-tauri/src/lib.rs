@@ -138,8 +138,7 @@ pub fn run() {
             if let Ok(quit_i) = tauri::menu::MenuItem::with_id(app, "quit", "退出 VrcDog", true, None::<&str>) {
                 if let Ok(show_i) = tauri::menu::MenuItem::with_id(app, "show", "显示主面板", true, None::<&str>) {
                     if let Ok(menu) = tauri::menu::Menu::with_items(app, &[&show_i, &quit_i]) {
-                        let _ = tauri::tray::TrayIconBuilder::new()
-                            .icon(app.default_window_icon().unwrap().clone())
+                        let mut tray = tauri::tray::TrayIconBuilder::new()
                             .menu(&menu)
                             .on_menu_event(|app, event| match event.id.as_ref() {
                                 "quit" => {
@@ -165,8 +164,13 @@ pub fn run() {
                                         let _ = window.set_focus();
                                     }
                                 }
-                            })
-                            .build(app);
+                            });
+                            
+                        if let Some(icon) = app.default_window_icon() {
+                            tray = tray.icon(icon.clone());
+                        }
+                        
+                        let _ = tray.build(app);
                     }
                 }
             }

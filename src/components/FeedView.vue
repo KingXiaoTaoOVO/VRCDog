@@ -15,6 +15,7 @@ interface LogEvent {
   content: string;
   userData?: any;
   loadingData?: boolean;
+  user_id?: string;
 }
 
 const activeTab = ref<'game' | 'friend'>('game');
@@ -51,7 +52,9 @@ const fetchLogs = async () => {
         ['Player Joined', 'Player Left', 'Instance Joined'].includes(e.event_type)
       );
       
-      for (const evt of newEvents) {
+      events.value = newEvents;
+      
+      for (const evt of events.value) {
          if (evt.event_type === 'Player Joined' || evt.event_type === 'Player Left') {
             if (resolvedNames.has(evt.content)) {
                evt.userData = resolvedNames.get(evt.content);
@@ -60,7 +63,6 @@ const fetchLogs = async () => {
             }
          }
       }
-      events.value = newEvents;
     } else {
       const res: any = await DbApi.getFriendLogs({ limit: 500, offset: 0 });
       friendEvents.value = res;
@@ -91,10 +93,27 @@ const resolvePlayerData = async (evt: LogEvent) => {
   if (evt.loadingData) return;
   evt.loadingData = true;
   try {
-    const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(evt.content)}&n=1`, 'GET');
-    if (res && res.length > 0 && res[0].displayName === evt.content) {
-      evt.userData = res[0];
-      resolvedNames.set(evt.content, res[0]);
+    let searchName = evt.content;
+    let userId = null;
+    const match = evt.content.match(/^(.*?)\s+\((usr_[A-Za-z0-9-]+)\)$/);
+    if (match) {
+      searchName = match[1];
+      userId = match[2];
+      evt.user_id = userId;
+    }
+
+    if (userId) {
+       const res = await VrcApi.request(`/api/1/users/${userId}`, 'GET');
+       if (res && res.id === userId) {
+          evt.userData = res;
+          resolvedNames.set(evt.content, res);
+       }
+    } else {
+       const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(searchName)}&n=1`, 'GET');
+       if (res && res.length > 0) {
+          evt.userData = res[0];
+          resolvedNames.set(evt.content, res[0]);
+       }
     }
   } catch (e) {
     console.warn(`Failed to resolve player data for ${evt.content}`);
@@ -281,13 +300,13 @@ const getEventMeta = (type: string) => {
                     class="flex items-center gap-3 p-2 rounded-xl border border-slate-100 bg-slate-50"
                   >
                     <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold uppercase relative">
-                      <span v-if="!evt.loadingData">{{ evt.content.charAt(0) }}</span>
+                      <span v-if="!evt.loadingData">{{ evt.content.replace(/\s+\(usr_.*\)$/, '').charAt(0) }}</span>
                       <div
                         v-else
                         class="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full"
                       />
                     </div>
-                    <span class="font-extrabold text-sm truncate max-w-[150px]">{{ evt.content }}</span>
+                    <span class="font-extrabold text-sm truncate max-w-[150px]">{{ evt.content.replace(/\s+\(usr_.*\)$/, '') }}</span>
                   </div>
                 </div>
               

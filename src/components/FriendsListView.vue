@@ -1,53 +1,54 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted } from 'vue';
-import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
-import { RefreshCcw, Search, MapPin, Loader2, Users } from 'lucide-vue-next';
-import VrcResourceCard from './VrcResourceCard.vue';
-import type { VrcUser } from '../types/vrc';
+import { VrcApi, DbApi } from "../api";
+import { Search, RefreshCcw, Bell, Settings, ChevronDown, ChevronRight } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
 
-const onlineFriends = ref<VrcUser[]>([]);
-const offlineFriends = ref<VrcUser[]>([]);
+const onlineFriends = ref<any[]>([]);
+const activeFriends = ref<any[]>([]); // 活跃中 (仅登录网页端)
+const offlineFriends = ref<any[]>([]);
 const loading = ref(true);
 const errorMsg = ref('');
 const searchQuery = ref('');
 
-const favoriteGroups = ref<any[]>([]);
-const favorites = ref<any[]>([]);
-const collapsedGroups = ref<Set<string>>(new Set());
+const activeTab = ref<'friends' | 'groups'>('friends');
 
-const toggleGroup = (groupName: string) => {
-  if (collapsedGroups.value.has(groupName)) {
-    collapsedGroups.value.delete(groupName);
+// Accordion states
+const collapsedSections = ref<Set<string>>(new Set(['active', 'offline']));
+
+const toggleSection = (sectionName: string) => {
+  if (collapsedSections.value.has(sectionName)) {
+    collapsedSections.value.delete(sectionName);
   } else {
-    collapsedGroups.value.add(groupName);
+    collapsedSections.value.add(sectionName);
   }
 };
+
+const currentUser = ref<any>(null);
 
 const fetchFriends = async () => {
   loading.value = true;
   errorMsg.value = '';
   try {
-    // 1. Fetch cached friends
-    const cached: any[] = await DbApi.getCachedFriends() || [];
-    
-    // 2. Fetch friend favorite groups
-    try {
-      const groupsRes: any = await VrcApi.getFavoriteGroups();
-      favoriteGroups.value = Array.isArray(groupsRes) ? groupsRes.filter(g => g.type === 'friend') : [];
-      
-      const favsRes: any = await VrcApi.getFavorites({ type: 'friend', n: 100 });
-      favorites.value = Array.isArray(favsRes) ? favsRes : [];
-    } catch (err) {
-      console.warn('Failed to fetch favorite groups, fallback to normal list');
+    // Current user mock or fetch
+    const current = await VrcApi.getCurrentUser().catch(() => null);
+    if (current) {
+      currentUser.value = current;
     }
 
+    const cached: any[] = await DbApi.getCachedFriends() || [];
+    
     onlineFriends.value = cached.filter((f: any) => f.location && f.location !== 'offline');
-    offlineFriends.value = cached.filter((f: any) => !f.location || f.location === 'offline');
+    
+    // In VRChat, active usually means location is 'offline' but status is not 'offline', or similar.
+    // For now we mock 'active' users as those with location 'offline' but status != 'offline'
+    activeFriends.value = cached.filter((f: any) => f.location === 'offline' && f.status && f.status !== 'offline');
+    
+    offlineFriends.value = cached.filter((f: any) => f.location === 'offline' && (!f.status || f.status === 'offline'));
   } catch (err: any) {
     errorMsg.value = err.message || err;
   } finally {
@@ -66,202 +67,330 @@ onUnmounted(() => {
   window.removeEventListener('vrc-pipeline-event', fetchFriends);
 });
 
-const allFriends = computed(() => [...onlineFriends.value, ...offlineFriends.value]);
 const onlineCount = computed(() => onlineFriends.value.length);
-const offlineCount = computed(() => offlineFriends.value.length);
-const totalCount = computed(() => allFriends.value.length);
+const totalCount = computed(() => onlineFriends.value.length + activeFriends.value.length + offlineFriends.value.length);
 
+// Extract Trust Color
+const getTrustColor = (tags: string[]) => {
+  if (!tags) return '#CCCCCC'; // Visitor
+  if (tags.includes('system_trust_legend') || tags.includes('system_trust_veteran')) return '#8143e6'; // Trusted (Purple)
+  if (tags.includes('system_trust_trusted')) return '#ff7b42'; // Known (Orange)
+  if (tags.includes('system_trust_known')) return '#2bcf5c'; // User (Green)
+  if (tags.includes('system_trust_basic')) return '#1778ff'; // New User (Blue)
+  return '#CCCCCC'; // Visitor
+};
+
+// Grouping Logic matching VRCX
 const groupedFriends = computed(() => {
-  const result: { name: string; displayName: string; isOffline: boolean; friends: any[] }[] = [];
-  
-  const favMap = new Map<string, Set<string>>(); // friendId -> Set<groupName>
-  favorites.value.forEach(f => {
-    if (!favMap.has(f.favoriteId)) favMap.set(f.favoriteId, new Set());
-    favMap.get(f.favoriteId)!.add(f.tags[0]); 
-  });
+  let q = searchQuery.value.toLowerCase();
+  let list = onlineFriends.value;
+  if (q) list = list.filter(f => f.displayName?.toLowerCase().includes(q));
 
-  // 1. Favorite Groups
-  favoriteGroups.value.forEach(g => {
-    const friendsInGroup = onlineFriends.value.filter(f => favMap.get(f.id)?.has(g.name));
-    if (friendsInGroup.length > 0) {
-      result.push({
-        name: g.name,
-        displayName: g.displayName,
-        isOffline: false,
-        friends: friendsInGroup
-      });
+  // Same Room (Location sharing logic: Group by location if > 1 friend in it)
+  const locationMap = new Map<string, any[]>();
+  list.forEach(f => {
+    if (f.location && f.location !== 'private') {
+      if (!locationMap.has(f.location)) locationMap.set(f.location, []);
+      locationMap.get(f.location)!.push(f);
     }
   });
 
-  // 2. Active (Online but not in any favorite group)
-  const activeFriends = onlineFriends.value.filter(f => !favMap.has(f.id));
-  if (activeFriends.length > 0) {
-    result.push({
-      name: 'active',
-      displayName: t('status.online') || '在线',
-      isOffline: false,
-      friends: activeFriends
-    });
-  }
+  const sameRoomGroups: { location: string, locationName: string, flag: string, friends: any[] }[] = [];
+  const justOnline: any[] = [];
 
-  // 3. Offline
-  if (offlineFriends.value.length > 0) {
-    result.push({
-      name: 'offline',
-      displayName: t('status.offline') || '离线',
-      isOffline: true,
-      friends: offlineFriends.value
-    });
-  }
+  locationMap.forEach((friendsInLoc, loc) => {
+    if (friendsInLoc.length > 1) { // 2 or more friends in the same instance
+      let locName = friendsInLoc[0]?.location || '未知房间';
+      let flag = '🌐';
+      if (locName.includes('JP')) flag = '🇯🇵';
+      else if (locName.includes('US')) flag = '🇺🇸';
+      else if (locName.includes('CN')) flag = '🇨🇳';
+      else if (locName.includes('EU')) flag = '🇪🇺';
+      else if (locName.includes('KR')) flag = '🇰🇷';
+      
+      // Clean up location name for display
+      let displayLoc = locName.split('~')[0];
+      
+      sameRoomGroups.push({ location: loc, locationName: displayLoc, flag, friends: friendsInLoc });
+    } else {
+      justOnline.push(friendsInLoc[0]);
+    }
+  });
 
-  return result;
-});
+  sameRoomGroups.sort((a, b) => b.friends.length - a.friends.length);
+  list.filter(f => f.location === 'private').forEach(f => justOnline.push(f));
+  justOnline.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
 
-const filteredGroupedFriends = computed(() => {
-  const q = searchQuery.value.toLowerCase();
-  if (!q) return groupedFriends.value;
-  
-  return groupedFriends.value.map(g => ({
-    ...g,
-    friends: g.friends.filter(f => f.displayName?.toLowerCase().includes(q))
-  })).filter(g => g.friends.length > 0);
+  return {
+    sameRoom: sameRoomGroups,
+    online: justOnline
+  };
 });
 
 const openDetail = (friend: any) => {
   profileStore.openProfile(friend.id, friend);
 };
+
+// Status dot color
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'active': return '#22c55e'; // green-500
+    case 'join me': return '#3b82f6'; // blue-500
+    case 'ask me': return '#f97316'; // orange-500
+    case 'busy': return '#ef4444'; // red-500
+    default: return '#94a3b8'; // slate-400
+  }
+};
+
+const getFlag = (locName: string) => {
+  if (!locName) return '🌐';
+  if (locName.includes('JP')) return '🇯🇵';
+  if (locName.includes('US')) return '🇺🇸';
+  if (locName.includes('CN')) return '🇨🇳';
+  if (locName.includes('EU')) return '🇪🇺';
+  if (locName.includes('KR')) return '🇰🇷';
+  return '🌐';
+};
+
+const cleanLocName = (loc: string) => {
+  if (loc === 'private') return '位于私人房间';
+  return loc?.split('~')[0] || '未知位置';
+};
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
-    <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
-
-    <div class="flex items-center justify-between mb-8 shrink-0 z-10">
-      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
-        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-          <Users class="w-6 h-6 text-indigo-600" />
-        </span>
-        {{ t('friends_list.title') }}
-      </h1>
-      <div class="flex items-center gap-3">
-        <span class="text-xs font-bold px-3 py-1.5 rounded-xl bg-green-100 text-green-700 border border-green-200 shadow-sm">🟢 {{ onlineCount }}</span>
-        <span class="text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 border border-slate-200 shadow-sm">⚫ {{ offlineCount }}</span>
-        <span class="text-xs font-bold px-3 py-1.5 rounded-xl bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-sm">{{ t('friends_list.total_count', { count: totalCount }) }}</span>
-        <button
-          class="p-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 shadow-sm border border-slate-200 transition-colors"
-          @click="fetchFriends"
-        >
-          <RefreshCcw
-            class="w-5 h-5"
-            :class="{'animate-spin text-indigo-600': loading}"
-          />
-        </button>
-      </div>
-    </div>
-
-    <!-- 搜索框 -->
-    <div class="relative mb-6 shrink-0 z-10">
-      <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-        <Search class="h-4 w-4 text-slate-400" />
-      </div>
-      <input
-        v-model="searchQuery"
-        type="text"
-        class="block w-full pl-12 pr-4 py-3 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
-        :placeholder="t('friends_list.search_placeholder')"
-      >
-    </div>
-
-    <div
-      v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
-    >
-      {{ errorMsg }}
-    </div>
-
-    <!-- 加载中 -->
-    <div
-      v-if="loading && allFriends.length === 0"
-      class="flex-1 flex flex-col items-center justify-center text-indigo-500/80 z-10"
-    >
-      <Loader2
-        class="animate-spin mb-4"
-        :size="48"
-      />
-      <p class="font-extrabold text-lg tracking-wide">
-        {{ t('friends_list.loading') }}
-      </p>
-    </div>
-
-    <!-- 好友列表 -->
-    <div
-      v-else
-      class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative"
-    >
-      <div
-        v-for="group in filteredGroupedFriends"
-        :key="group.name"
-        class="mb-8"
-      >
-        <!-- 分组标题 -->
-        <div
-          class="sticky top-0 bg-slate-50/90 backdrop-blur py-2 px-2 z-20 flex items-center justify-between cursor-pointer group/header rounded-lg mb-3"
-          @click="toggleGroup(group.name)"
-        >
-          <h2 class="text-sm font-extrabold text-slate-700 uppercase tracking-widest flex items-center gap-2 group-hover/header:text-indigo-600 transition-colors">
-            <div
-              class="w-1.5 h-1.5 rounded-full"
-              :class="group.isOffline ? 'bg-slate-400' : 'bg-green-500 shadow shadow-green-500/50'"
-            />
-            {{ group.displayName }}
-            <span class="bg-slate-200/50 text-slate-500 px-2 py-0.5 rounded-md text-[10px]">{{ group.friends.length }}</span>
-          </h2>
-          <div
-            class="text-slate-400 text-xs font-bold transition-transform"
-            :class="collapsedGroups.has(group.name) ? '' : 'rotate-180'"
+  <div class="h-full w-full flex justify-center bg-[#111214] text-slate-200 overflow-hidden">
+    <!-- Main container mimicking VRCX right sidebar -->
+    <div class="w-full max-w-[340px] h-full flex flex-col bg-[#1a1b1e] border-l border-r border-[#2c2d31]">
+      
+      <!-- Top Bar -->
+      <div class="flex items-center gap-2 p-2 border-b border-[#2c2d31]">
+        <div class="flex-1 relative flex items-center bg-[#242528] rounded px-3 py-1.5 focus-within:ring-1 focus-within:ring-slate-500 transition-all">
+          <Search class="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="w-full bg-transparent text-[13px] text-slate-200 placeholder-slate-500 outline-none"
+            placeholder="搜索"
           >
-            ▼
+          <div class="flex items-center gap-1 shrink-0 ml-2">
+            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-slate-400 border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">Ctrl</kbd>
+            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-slate-400 border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">K</kbd>
           </div>
         </div>
-        
-        <!-- 分组内容 -->
-        <div
-          v-show="!collapsedGroups.has(group.name)"
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 px-2"
-        >
-          <VrcResourceCard
-            v-for="friend in group.friends"
-            :key="friend.id"
-            type="user"
-            :data="friend"
-            :is-user="true"
-            minimal
-            @click="openDetail(friend)"
-          />
-        </div>
+        <button class="p-1.5 text-slate-400 hover:text-slate-200 transition-colors" @click="fetchFriends" title="刷新">
+          <RefreshCcw class="w-4 h-4" :class="{'animate-spin text-white': loading}" />
+        </button>
+        <button class="p-1.5 text-slate-400 hover:text-slate-200 transition-colors" title="通知">
+          <Bell class="w-4 h-4" />
+        </button>
+        <button class="p-1.5 text-slate-400 hover:text-slate-200 transition-colors" title="设置">
+          <Settings class="w-4 h-4" />
+        </button>
       </div>
 
-      <div
-        v-if="filteredGroupedFriends.length === 0"
-        class="h-full flex flex-col items-center justify-center text-slate-400 pt-20"
-      >
-        <Users
-          class="mb-4 opacity-30"
-          :size="64"
-        />
-        <p class="font-bold text-xl text-slate-500">
-          暂无数据
-        </p>
+      <!-- Tabs -->
+      <div class="flex border-b border-[#2c2d31]">
+        <button 
+          class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
+          :class="activeTab === 'friends' ? 'text-white' : 'text-slate-500 hover:text-slate-300'"
+          @click="activeTab = 'friends'"
+        >
+          好友 ({{ onlineCount }}/{{ totalCount }})
+          <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-white"></div>
+        </button>
+        <button 
+          class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
+          :class="activeTab === 'groups' ? 'text-white' : 'text-slate-500 hover:text-slate-300'"
+          @click="activeTab = 'groups'"
+        >
+          群组房间 (0)
+          <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-white"></div>
+        </button>
+      </div>
+
+      <!-- Content Area -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar">
+        
+        <div v-if="loading && onlineCount === 0" class="flex justify-center items-center h-20 text-slate-500">
+          <RefreshCcw class="w-5 h-5 animate-spin" />
+        </div>
+
+        <template v-else-if="activeTab === 'friends'">
+          
+          <!-- 我 (Me) -->
+          <div class="mb-2 mt-2">
+            <div 
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              @click="toggleSection('me')"
+            >
+              <component :is="collapsedSections.has('me') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              我
+            </div>
+            <div v-show="!collapsedSections.has('me')" class="mt-1 pl-2">
+              <div class="flex items-center gap-3 py-1.5 px-4 rounded-md transition-colors">
+                <div class="relative shrink-0">
+                  <img :src="currentUser?.currentAvatarThumbnailImageUrl || currentUser?.profilePicOverride || 'https://via.placeholder.com/150'" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e] bg-green-500"></div>
+                </div>
+                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
+                  <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(currentUser?.tags) }">
+                    {{ currentUser?.displayName || 'King小韬' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 同一房间 (Same Room) -->
+          <div v-if="groupedFriends.sameRoom.length > 0" class="mb-2">
+            <div 
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              @click="toggleSection('sameRoom')"
+            >
+              <component :is="collapsedSections.has('sameRoom') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              同一房间 — {{ groupedFriends.sameRoom.length }}
+            </div>
+            
+            <div v-show="!collapsedSections.has('sameRoom')" class="mt-1">
+              <template v-for="group in groupedFriends.sameRoom" :key="group.location">
+                <!-- Location Header -->
+                <div class="flex items-center gap-2 py-1 px-6 text-[12px] font-medium text-slate-200">
+                  <span class="text-[13px]">{{ group.flag }}</span>
+                  <span class="truncate max-w-[200px]">{{ group.locationName }}</span>
+                  <span class="ml-1 shrink-0">({{ group.friends.length }})</span>
+                </div>
+                <!-- Friends in Location -->
+                <div 
+                  v-for="friend in group.friends" 
+                  :key="friend.id"
+                  class="flex items-center gap-3 py-1.5 px-6 ml-4 mr-2 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                  @click="openDetail(friend)"
+                >
+                  <div class="relative shrink-0">
+                    <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
+                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e]" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
+                  </div>
+                  <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
+                    <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
+                      {{ friend.displayName }}
+                    </span>
+                    <span class="text-[11px] text-[#8e9297] mt-0.5">10分钟</span> <!-- Mock time to match design -->
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 在线 (Online) -->
+          <div v-if="groupedFriends.online.length > 0" class="mb-2">
+            <div 
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              @click="toggleSection('online')"
+            >
+              <component :is="collapsedSections.has('online') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              在线 — {{ groupedFriends.online.length }}
+            </div>
+            
+            <div v-show="!collapsedSections.has('online')" class="mt-1 pl-2 pr-2">
+              <div 
+                v-for="friend in groupedFriends.online" 
+                :key="friend.id"
+                class="flex items-center gap-3 py-2 px-4 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                @click="openDetail(friend)"
+              >
+                <div class="relative shrink-0">
+                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e]" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
+                </div>
+                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
+                  <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
+                    {{ friend.displayName }}
+                  </span>
+                  <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-[#8e9297] truncate">
+                    <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80">🔒</span>
+                    <span v-else class="shrink-0 text-[12px]">{{ getFlag(friend.location) }}</span>
+                    <span class="truncate">{{ cleanLocName(friend.location) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 活跃中 (Active on website) -->
+          <div v-if="activeFriends.length > 0 && !searchQuery" class="mb-2">
+            <div 
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              @click="toggleSection('active')"
+            >
+              <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              活跃中 (仅登录网页端) — {{ activeFriends.length }}
+            </div>
+            <div v-show="!collapsedSections.has('active')" class="mt-1 pl-2 pr-2">
+              <div 
+                v-for="friend in activeFriends" 
+                :key="friend.id"
+                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                @click="openDetail(friend)"
+              >
+                <div class="relative shrink-0">
+                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e]" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
+                </div>
+                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
+                  <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
+                    {{ friend.displayName }}
+                  </span>
+                  <span class="text-[11px] text-[#8e9297] mt-0.5 truncate">活跃中</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 离线 (Offline) -->
+          <div v-if="offlineFriends.length > 0 && !searchQuery" class="mb-4">
+            <div 
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-400 select-none"
+              @click="toggleSection('offline')"
+            >
+              <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-500" />
+              离线 — {{ offlineFriends.length }}
+            </div>
+            <div v-show="!collapsedSections.has('offline')" class="mt-1 pl-2 pr-2 opacity-60 hover:opacity-100 transition-opacity">
+              <div 
+                v-for="friend in offlineFriends" 
+                :key="friend.id"
+                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                @click="openDetail(friend)"
+              >
+                <div class="relative shrink-0">
+                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31] grayscale" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e] bg-slate-500"></div>
+                </div>
+                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
+                  <span class="text-[13px] font-bold truncate text-[#8e9297]">
+                    {{ friend.displayName }}
+                  </span>
+                  <span class="text-[11px] text-[#6b6f75] mt-0.5 truncate">离线</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </template>
+        
+        <div v-else class="h-full flex flex-col items-center justify-center text-slate-500 text-sm font-medium">
+          暂无群组房间
+        </div>
+
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar { width: 8px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #3f4147; border-radius: 4px; border: 2px solid #1a1b1e; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #565860; }
 </style>
