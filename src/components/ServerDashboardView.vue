@@ -681,6 +681,9 @@
 </template>
 
 <script setup lang="ts">
+import { useToast } from "../composables/useToast";
+
+const toast = useToast();
 import { ref, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
 import { Server, Globe, Monitor, LogOut, Play, Square, Activity, Radar, ChevronRight, Terminal, Users, Shield, Star, Trash2, ShieldAlert, Snowflake, Check, Save } from 'lucide-vue-next';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
@@ -821,7 +824,7 @@ const openBanDialog = (u: UserRecord) => { dialogUser.value = u; banReason.value
 const confirmBan = () => {
   if (!dialogUser.value) return;
   if (!banReason.value.trim()) {
-    alert(t('role.please_input_ban_reason'));
+    toast.info(t('role.please_input_ban_reason'));
     return;
   }
   adminPost('/api/admin/ban', { user_id: dialogUser.value.user_id, reason: banReason.value.trim(), duration_hours: banDuration.value || null });
@@ -835,7 +838,7 @@ const openFreezeDialog = (u: UserRecord) => { dialogUser.value = u; freezeReason
 const confirmFreeze = () => {
   if (!dialogUser.value) return;
   if (!freezeReason.value.trim()) {
-    alert(t('role.please_input_freeze_reason'));
+    toast.info(t('role.please_input_freeze_reason'));
     return;
   }
   adminPost('/api/admin/freeze', { user_id: dialogUser.value.user_id, reason: freezeReason.value.trim() });
@@ -864,7 +867,7 @@ const saveRole = async () => {
   try {
     const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, 'POST', selectedRole.value);
     if(data.success) {
-      alert(t('settings.saved'));
+      toast.info(t('settings.saved'));
       fetchRoles();
     }
   } catch (e: any) { 
@@ -883,7 +886,7 @@ const deleteRole = async (role_id: string) => {
        fetchRoles(); fetchUsers();
     } else {
        addLog(`[WARN] ${data.message}`);
-       alert(data.message);
+       toast.info(data.message);
     }
   } catch {}
 };

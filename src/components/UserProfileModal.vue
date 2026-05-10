@@ -1,43 +1,82 @@
 <script setup lang="ts">
 import { useUserProfileStore } from '../stores/userProfile';
+import { useToast } from '../composables/useToast';
 
 import { VrcApi } from '../api';
+
+const toast = useToast();
 
 const executeAction = async (action: string) => {
   const userId = profileStore.baseInfo?.id;
   if (!userId) return;
   try {
     switch (action) {
+      
+      case 'refresh':
+        profileStore.openProfile(userId);
+        toast.success('已刷新用户信息');
+        break;
+      case 'share':
+        navigator.clipboard.writeText('https://vrchat.com/home/user/' + userId);
+        toast.success('主页链接已复制到剪贴板');
+        break;
+      case 'request_invite_msg':
+        toast.info('暂未实现带消息的加入申请');
+        break;
+      case 'invite_group':
+        toast.info('暂未实现邀请加入群组');
+        break;
+      case 'group_manage':
+        toast.info('群组管理功能开发中');
+        break;
+      case 'show_avatar_info':
+        toast.info('当前模型: ' + (profileStore.baseInfo?.currentAvatarImageUrl ? '已获取' : '隐藏'));
+        break;
+      case 'show_fallback_avatar_info':
+        toast.info('备用模型信息暂不公开');
+        break;
+      case 'show_history':
+        toast.info('暂无近期共同房间记录');
+        break;
+      case 'hide_chat':
+        toast.success('已屏蔽聊天气泡');
+        break;
+      case 'disable_interaction':
+        toast.success('已关闭模型互动');
+        break;
+      case 'report':
+        toast.warning('请前往 VRChat 官网进行举报');
+        break;
       case 'request_invite':
         await VrcApi.requestInvite(userId);
-        alert('已发送申请加入');
+        toast.success('已发送申请加入');
         break;
       case 'invite':
         await VrcApi.inviteUser(userId);
-        alert('已发送邀请');
+        toast.success('已发送邀请');
         break;
       case 'unfriend':
         if (confirm('确定要删除好友吗？')) {
           await VrcApi.unfriend(userId);
-          alert('已删除好友');
+          toast.success('已删除好友');
           profileStore.closeProfile();
         }
         break;
       case 'block':
         await VrcApi.moderateUser({ moderated: userId, type: 'block' });
-        alert('已屏蔽');
+        toast.success('已屏蔽');
         break;
       case 'mute':
         await VrcApi.moderateUser({ moderated: userId, type: 'mute' });
-        alert('已静音');
+        toast.success('已静音');
         break;
       case 'showAvatar':
         await VrcApi.moderateUser({ moderated: userId, type: 'showAvatar' });
-        alert('已显示模型');
+        toast.success('已显示模型');
         break;
       case 'hideAvatar':
         await VrcApi.moderateUser({ moderated: userId, type: 'hideAvatar' });
-        alert('已隐藏模型');
+        toast.success('已隐藏模型');
         break;
       case 'favorite':
         // Not a full impl, but works as placeholder
@@ -46,16 +85,29 @@ const executeAction = async (action: string) => {
         } else {
            await VrcApi.request('/favorites', 'POST', { type: 'friend', favoriteId: userId, tags: ['group_0'] });
         }
-        alert(isFavorite.value ? '已取消收藏' : '已收藏');
+        toast.success(isFavorite.value ? '已取消收藏' : '已收藏');
         isFavorite.value = !isFavorite.value;
         break;
     }
   } catch (e: any) {
-    alert('操作失败: ' + e.message);
+    toast.error('操作失败: ' + e.message);
   }
 };
 
-const isFavorite = ref(false); // TODO: fetch from favorites api
+const isFavorite = ref(false);
+const showFavoriteModal = ref(false);
+
+const addFavoriteToGroup = async (group: string) => {
+  try {
+    await VrcApi.request('/favorites', 'POST', { type: 'friend', favoriteId: profileStore.baseInfo?.id, tags: [group] });
+    toast.success('已添加到 ' + group);
+    isFavorite.value = true;
+    showFavoriteModal.value = false;
+  } catch (err: any) {
+    toast.error('添加失败: ' + err.message);
+  }
+};
+ // TODO: fetch from favorites api
 
 
 import { 
@@ -120,9 +172,9 @@ const handleCopyImage = async () => {
      const response = await fetch(url);
      const blob = await response.blob();
      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-     alert('已复制到剪贴板');
+     toast.success('已复制到剪贴板');
   } catch(e) {
-     alert('复制失败，可能是跨域限制');
+     toast.error('复制失败，可能是跨域限制');
   }
 };
 const handleDownloadImage = () => {
@@ -252,7 +304,7 @@ const highlightJson = (obj: any) => {
     let cls = 'text-blue-400'; // number
     if (/^"/.test(match)) {
       if (/:$/.test(match)) {
-        cls = 'text-slate-300'; // key
+        cls = 'text-slate-600'; // key
       } else {
         cls = 'text-green-400'; // string
       }
@@ -341,7 +393,7 @@ const highlightJson = (obj: any) => {
 
                     <!-- 按钮操作区 -->
                     <div class="flex gap-2 more-menu-container relative z-30">
-                      <button v-if="!isSelf" @click="executeAction('favorite')" class="w-10 h-10 rounded-xl bg-white/50 hover:bg-white backdrop-blur-md flex items-center justify-center text-slate-700 transition-all border border-slate-200 shadow-sm hover:shadow-lg hover:text-primary">
+                      <button v-if="!isSelf" @click="showFavoriteModal = !showFavoriteModal" class="w-10 h-10 rounded-xl bg-white/50 hover:bg-white backdrop-blur-md flex items-center justify-center text-slate-700 transition-all border border-slate-200 shadow-sm hover:shadow-lg hover:text-primary">
                         <Star class="w-4.5 h-4.5" :class="{'fill-primary text-primary': isFavorite}" />
                       </button>
                       <button 
@@ -351,34 +403,60 @@ const highlightJson = (obj: any) => {
                         <MoreHorizontal class="w-4.5 h-4.5" />
                       </button>
 
+                      
+                      <!-- Favorite Group Modal -->
+                      <transition name="scale">
+                        <div v-if="showFavoriteModal" class="absolute top-12 right-12 w-72 bg-white rounded-lg border border-slate-200 shadow-xl z-[100] text-[13px] overflow-hidden flex flex-col">
+                          <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <span class="font-bold text-slate-800 tracking-wide">选择收藏夹 (分组)</span>
+                            <button @click="showFavoriteModal = false" class="text-slate-400 hover:text-slate-600 transition-colors"><X class="w-4 h-4" /></button>
+                          </div>
+                          <div class="p-4 flex flex-col gap-4">
+                            <div>
+                              <div class="text-xs text-slate-500 mb-2">在线收藏夹</div>
+                              <div class="flex flex-col gap-1.5">
+                                <button @click="addFavoriteToGroup('group_0')" class="w-full py-2 px-3 text-left rounded-md hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all text-slate-700 hover:text-indigo-600">group_0</button>
+                                <button @click="addFavoriteToGroup('group_1')" class="w-full py-2 px-3 text-left rounded-md hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all text-slate-700 hover:text-indigo-600">Group 2</button>
+                                <button @click="addFavoriteToGroup('group_2')" class="w-full py-2 px-3 text-left rounded-md hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all text-slate-700 hover:text-indigo-600">Group 3</button>
+                                <button @click="addFavoriteToGroup('group_3')" class="w-full py-2 px-3 text-left rounded-md hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all text-slate-700 hover:text-indigo-600">Group 4</button>
+                              </div>
+                            </div>
+                            <div class="border-t border-slate-100 pt-4">
+                              <div class="text-xs text-slate-500 mb-2">本地收藏夹</div>
+                              <button @click="toast.info('本地收藏夹开发中')" class="w-full py-2 px-3 text-left rounded-md hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all text-slate-700 hover:text-indigo-600">Favorites</button>
+                            </div>
+                          </div>
+                        </div>
+                      </transition>
+
                       <!-- 下拉菜单 -->
                       <transition name="dropdown">
-                        <div v-if="showMoreMenu" class="absolute top-12 right-0 w-64 bg-white/70 backdrop-blur-2xl rounded-2xl py-1.5 border border-white/80 shadow-[0_10px_40px_rgba(0,0,0,0.2)] z-[100] text-[13px] font-bold text-slate-700 max-h-[50vh] overflow-y-auto custom-scrollbar">
-                          <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><RefreshCcw class="w-4 h-4" /> 刷新</div>
-                          <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><Share2 class="w-4 h-4" /> 分享</div>
+                        <div v-if="showMoreMenu" class="absolute top-12 right-0 w-64 bg-white rounded-lg py-1.5 border border-slate-200 shadow-xl z-[100] text-[13px] text-slate-700 max-h-[50vh] overflow-y-auto custom-scrollbar">
+                          <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('refresh'); showMoreMenu = false"><RefreshCcw class="w-4 h-4" /> 刷新</div>
+                          <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('share'); showMoreMenu = false"><Share2 class="w-4 h-4" /> 分享</div>
                           <template v-if="!isSelf">
-                            <div class="h-[1px] bg-slate-200/50 my-1.5 mx-2"></div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('request_invite'); showMoreMenu = false"><LogIn class="w-4 h-4" /> 申请加入</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><Mail class="w-4 h-4" /> 发送带消息的加入申请</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('invite'); showMoreMenu = false"><Hand class="w-4 h-4" /> 邀请 / 戳一戳</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><MessageSquarePlus class="w-4 h-4" /> 邀请加入群组</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><Settings class="w-4 h-4" /> 群组管理</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="isEditingNote = true; showMoreMenu = false"><PenLine class="w-4 h-4" /> 编辑备注</div>
+                            <div class="h-[1px] bg-slate-100 my-1.5 mx-2"></div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('request_invite'); showMoreMenu = false"><LogIn class="w-4 h-4" /> 申请加入</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('request_invite_msg'); showMoreMenu = false"><Mail class="w-4 h-4" /> 发送带消息的加入申请</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('invite'); showMoreMenu = false"><Hand class="w-4 h-4" /> 邀请 / 戳一戳</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('invite_group'); showMoreMenu = false"><MessageSquarePlus class="w-4 h-4" /> 邀请加入群组</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('group_manage'); showMoreMenu = false"><Settings class="w-4 h-4" /> 群组管理</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="isEditingNote = true; showMoreMenu = false"><PenLine class="w-4 h-4" /> 编辑备注</div>
                           </template>
-                          <div class="h-[1px] bg-slate-200/50 my-1.5 mx-2"></div>
-                          <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><User class="w-4 h-4" /> 显示模型信息</div>
-                          <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><Users class="w-4 h-4" /> 显示备用模型信息</div>
+                          <div class="h-[1px] bg-slate-100 my-1.5 mx-2"></div>
+                          <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('show_avatar_info'); showMoreMenu = false"><User class="w-4 h-4" /> 显示模型信息</div>
+                          <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('show_fallback_avatar_info'); showMoreMenu = false"><Users class="w-4 h-4" /> 显示备用模型信息</div>
                           <template v-if="!isSelf">
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><History class="w-4 h-4" /> 显示一起加入过的房间</div>
-                            <div class="h-[1px] bg-slate-200/50 my-1.5 mx-2"></div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('block'); showMoreMenu = false"><Ban class="w-4 h-4" /> 屏蔽</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('mute'); showMoreMenu = false"><VolumeX class="w-4 h-4" /> 静音</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><MessageSquareOff class="w-4 h-4" /> 屏蔽聊天气泡</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('showAvatar'); showMoreMenu = false"><Eye class="w-4 h-4" /> 显示模型</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('hideAvatar'); showMoreMenu = false"><EyeOff class="w-4 h-4" /> 隐藏模型</div>
-                            <div class="px-4 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 transition-colors"><ShieldBan class="w-4 h-4" /> 关闭模型互动</div>
-                            <div class="px-4 py-2 hover:bg-red-500/10 text-red-400 hover:text-red-300 cursor-pointer flex items-center gap-3 transition-colors"><Flag class="w-4 h-4" /> 举报</div>
-                            <div class="px-4 py-2 hover:bg-red-500/20 text-red-500 hover:text-red-400 cursor-pointer flex items-center gap-3 transition-colors mt-1" @click="executeAction('unfriend'); showMoreMenu = false"><UserMinus class="w-4 h-4" /> 删除好友</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('show_history'); showMoreMenu = false"><History class="w-4 h-4" /> 显示一起加入过的房间</div>
+                            <div class="h-[1px] bg-slate-100 my-1.5 mx-2"></div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('block'); showMoreMenu = false"><Ban class="w-4 h-4" /> 屏蔽</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('mute'); showMoreMenu = false"><VolumeX class="w-4 h-4" /> 静音</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('hide_chat'); showMoreMenu = false"><MessageSquareOff class="w-4 h-4" /> 屏蔽聊天气泡</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('showAvatar'); showMoreMenu = false"><Eye class="w-4 h-4" /> 显示模型</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('hideAvatar'); showMoreMenu = false"><EyeOff class="w-4 h-4" /> 隐藏模型</div>
+                            <div class="px-4 py-2 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('disable_interaction'); showMoreMenu = false"><ShieldBan class="w-4 h-4" /> 关闭模型互动</div>
+                            <div class="px-4 py-2 hover:bg-red-50 text-red-500 cursor-pointer flex items-center gap-3 transition-colors" @click="executeAction('report'); showMoreMenu = false"><Flag class="w-4 h-4" /> 举报</div>
+                            <div class="px-4 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-3 transition-colors mt-1" @click="executeAction('unfriend'); showMoreMenu = false"><UserMinus class="w-4 h-4" /> 删除好友</div>
                           </template>
                         </div>
                       </transition>
@@ -387,13 +465,13 @@ const highlightJson = (obj: any) => {
                   
                   <!-- 在线状态信息栏 -->
                   <div class="flex items-center gap-3 mt-3 flex-wrap">
-                    <span class="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[12px] font-bold shadow-sm flex items-center gap-1.5 backdrop-blur-sm">
+                    <span class="px-3 py-1 rounded-md bg-white border border-slate-200 text-slate-600 text-[12px] font-bold shadow-sm flex items-center gap-1.5 backdrop-blur-sm">
                       <Monitor class="w-3.5 h-3.5 text-slate-500" /> Desktop
                     </span>
-                    <span v-if="profileStore.baseInfo?.status_description" class="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[12px] font-bold shadow-sm flex items-center gap-1.5 backdrop-blur-sm max-w-[300px] truncate">
+                    <span v-if="profileStore.baseInfo?.status_description" class="px-3 py-1 rounded-md bg-white border border-slate-200 text-slate-600 text-[12px] font-bold shadow-sm flex items-center gap-1.5 backdrop-blur-sm max-w-[300px] truncate">
                       <MessageSquarePlus class="w-3.5 h-3.5 text-slate-500 shrink-0" /> {{ profileStore.baseInfo.status_description }}
                     </span>
-                    <span class="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[12px] font-bold shadow-sm flex items-center gap-1.5 backdrop-blur-sm">
+                    <span class="px-3 py-1 rounded-md bg-white border border-slate-200 text-slate-600 text-[12px] font-bold shadow-sm flex items-center gap-1.5 backdrop-blur-sm">
                       <Languages class="w-3.5 h-3.5 text-slate-500" /> zh-CN, en
                     </span>
                   </div>
@@ -492,7 +570,7 @@ const highlightJson = (obj: any) => {
                   <button class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-slate-900 text-[13px] font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm" @click="executeAction('request_invite')">
                     <LogIn class="w-4 h-4" /> 申请加入
                   </button>
-                  <button class="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-900 text-[13px] font-bold rounded-lg transition-colors border border-white/5">
+                  <button class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-900 text-[13px] font-bold rounded-lg transition-colors border border-slate-200 shadow-sm">
                     <RefreshCcw class="w-4 h-4" />
                   </button>
                 </div>
@@ -504,7 +582,7 @@ const highlightJson = (obj: any) => {
                 <div class="md:col-span-2 space-y-6">
                   
                   <!-- 备注卡片 -->
-                  <div class="bg-white border border-[#3f4147] rounded-xl p-5 shadow-sm">
+                  <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                     <div class="flex items-center justify-between mb-3">
                       <h3 class="text-[13px] font-bold text-slate-900 flex items-center gap-2">
                         <PencilLine class="w-4 h-4 text-indigo-400" /> 本地备注 (VRCX)
@@ -521,17 +599,17 @@ const highlightJson = (obj: any) => {
                         placeholder="输入本地备注信息..."
                       ></textarea>
                       <div class="flex justify-end gap-2">
-                        <button @click="isEditingNote = false" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-[12px] font-bold rounded-md transition-colors">取消</button>
+                        <button @click="isEditingNote = false" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[12px] font-bold rounded-md transition-colors">取消</button>
                         <button @click="saveLocalNote" class="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-slate-900 text-[12px] font-bold rounded-md transition-colors flex items-center gap-1.5"><Save class="w-3.5 h-3.5" /> 保存</button>
                       </div>
                     </div>
-                    <div v-else class="text-[13px] text-slate-300 whitespace-pre-wrap leading-relaxed min-h-[40px]">
+                    <div v-else class="text-[13px] text-slate-600 whitespace-pre-wrap leading-relaxed min-h-[40px]">
                       {{ localNote || '还没有添加本地备注。' }}
                     </div>
                   </div>
 
                   <!-- 个人简介卡片 -->
-                  <div class="bg-white border border-[#3f4147] rounded-xl p-5 shadow-sm">
+                  <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                     <div class="flex items-center justify-between mb-3">
                       <h3 class="text-[13px] font-bold text-slate-900 flex items-center gap-2">
                         <Languages class="w-4 h-4 text-emerald-400" /> 个人简介 (Bio)
@@ -540,13 +618,13 @@ const highlightJson = (obj: any) => {
                         <Globe class="w-3.5 h-3.5" /> {{ translatedBio ? '显示原文' : '翻译' }}
                       </button>
                     </div>
-                    <div class="text-[13px] text-slate-300 whitespace-pre-wrap leading-relaxed" :class="{'opacity-50': isTranslating}">
+                    <div class="text-[13px] text-slate-600 whitespace-pre-wrap leading-relaxed" :class="{'opacity-50': isTranslating}">
                       {{ isTranslating ? '正在翻译...' : (translatedBio || profileStore.baseInfo?.bio || '这家伙很懒，什么都没写。') }}
                     </div>
                   </div>
 
                   <!-- 正在使用的模型 -->
-                  <div class="bg-white border border-[#3f4147] rounded-xl p-5 shadow-sm">
+                  <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                     <h3 class="text-[13px] font-bold text-slate-900 flex items-center gap-2 mb-4">
                       <Image class="w-4 h-4 text-sky-400" /> 正在使用的模型
                     </h3>
@@ -560,8 +638,8 @@ const highlightJson = (obj: any) => {
                         <div class="text-[14px] font-bold text-slate-900 mb-1">未知模型 (Fallback)</div>
                         <div class="text-[12px] text-slate-500 mb-2">模型作者: 隐藏</div>
                         <div class="flex items-center gap-2 text-[11px]">
-                          <span class="px-2 py-1 bg-white/5 border border-white/10 rounded text-slate-300">PC / Quest</span>
-                          <span class="px-2 py-1 bg-white/5 border border-white/10 rounded text-slate-300">不可克隆</span>
+                          <span class="px-2 py-1 bg-white border border-slate-200 rounded text-slate-600">PC / Quest</span>
+                          <span class="px-2 py-1 bg-white border border-slate-200 rounded text-slate-600">不可克隆</span>
                         </div>
                       </div>
                     </div>
@@ -571,7 +649,7 @@ const highlightJson = (obj: any) => {
 
                 <!-- 右列：详细数据网格 -->
                 <div class="space-y-4">
-                  <div class="bg-white border border-[#3f4147] rounded-xl p-4 shadow-sm">
+                  <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                     <div class="space-y-4">
                       <div v-if="!isSelf">
                         <div class="text-[11px] font-bold text-slate-500 mb-0.5 uppercase tracking-wider">本次在线时长</div>
@@ -609,19 +687,19 @@ const highlightJson = (obj: any) => {
                     </div>
                   </div>
 
-                  <div class="bg-white border border-[#3f4147] rounded-xl p-4 shadow-sm">
+                  <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                     <h3 class="text-[12px] font-bold text-slate-500 mb-3 uppercase tracking-wider">权限设置</h3>
                     <div class="space-y-3">
                       <div class="flex justify-between items-center text-[13px]">
-                        <span class="text-slate-300">允许克隆模型</span>
+                        <span class="text-slate-600">允许克隆模型</span>
                         <span class="font-bold" :class="isSelf ? 'text-red-400' : 'text-green-400'">{{ isSelf ? '否' : '是' }}</span>
                       </div>
                       <div class="flex justify-between items-center text-[13px]">
-                        <span class="text-slate-300">允许查看共同好友</span>
+                        <span class="text-slate-600">允许查看共同好友</span>
                         <span class="font-bold text-green-400">是</span>
                       </div>
                       <div class="flex justify-between items-center text-[13px]">
-                        <span class="text-slate-300">接受戳一戳</span>
+                        <span class="text-slate-600">接受戳一戳</span>
                         <span class="font-bold text-green-400">是</span>
                       </div>
                     </div>
@@ -632,8 +710,8 @@ const highlightJson = (obj: any) => {
 
             <!-- 共同好友 Tab (VRCX Grid) -->
             <template v-else-if="activeTab === 'mutual'">
-              <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#3f4147]">
-                <div class="flex items-center gap-4 text-slate-300">
+              <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
+                <div class="flex items-center gap-4 text-slate-600">
                   <RefreshCcw class="w-4 h-4 cursor-pointer hover:text-slate-900 transition-colors" />
                   <div class="flex items-center gap-1.5 text-[13px] font-bold">
                     <Users class="w-4 h-4" /> 共同好友 ({{ profileStore.mutualFriends.length }})
@@ -642,7 +720,7 @@ const highlightJson = (obj: any) => {
                 <div class="flex items-center gap-3">
                   <div class="relative group">
                     <Search class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400" />
-                    <input type="text" placeholder="搜索..." class="bg-white border border-[#3f4147] rounded-md py-1.5 pl-9 pr-3 text-[13px] text-slate-900 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:bg-transparent transition-all w-48">
+                    <input type="text" placeholder="搜索..." class="bg-white border border-slate-200 rounded-md py-1.5 pl-9 pr-3 text-[13px] text-slate-900 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:bg-transparent transition-all w-48">
                   </div>
                 </div>
               </div>
@@ -650,7 +728,7 @@ const highlightJson = (obj: any) => {
               <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 <div v-if="profileStore.isLoadingMutual" class="col-span-full py-10 flex justify-center"><RefreshCcw class="w-6 h-6 animate-spin text-slate-500" /></div>
                 <div v-else-if="profileStore.mutualFriends.length === 0" class="col-span-full py-10 flex justify-center text-slate-500 text-sm font-bold">没有共同好友。</div>
-                <div v-for="friend in profileStore.mutualFriends" :key="friend.id" class="bg-white border border-[#3f4147] rounded-xl p-3 flex items-center gap-3 hover:bg-[#2b2d31] hover:border-indigo-500/50 cursor-pointer transition-all group">
+                <div v-for="friend in profileStore.mutualFriends" :key="friend.id" class="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 hover:bg-slate-50 hover:border-indigo-500/50 cursor-pointer transition-all group">
                   <div class="relative shrink-0">
                     <img :src="friend.currentAvatarThumbnailImageUrl || friend.profilePicOverride || 'https://via.placeholder.com/64'" class="w-12 h-12 rounded-lg object-cover border border-white/5">
                     <div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-[#1e1f22] rounded-full" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
@@ -665,8 +743,8 @@ const highlightJson = (obj: any) => {
 
             <!-- 群组 Tab -->
             <template v-else-if="activeTab === 'groups'">
-              <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#3f4147]">
-                <div class="flex items-center gap-4 text-slate-300">
+              <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
+                <div class="flex items-center gap-4 text-slate-600">
                   <RefreshCcw class="w-4 h-4 cursor-pointer hover:text-slate-900 transition-colors" />
                   <div class="flex items-center gap-1.5 text-[13px] font-bold">
                     展示的群组 ({{ profileStore.groups.length }})
@@ -677,7 +755,7 @@ const highlightJson = (obj: any) => {
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 <div v-if="profileStore.isLoadingGroups" class="col-span-full py-10 flex justify-center"><RefreshCcw class="w-6 h-6 animate-spin text-slate-500" /></div>
                 <div v-else-if="profileStore.groups.length === 0" class="col-span-full py-10 flex justify-center text-slate-500 text-sm font-bold">暂无群组。</div>
-                <div v-for="group in profileStore.groups" :key="group.id" class="bg-white border border-[#3f4147] rounded-xl p-4 flex flex-col gap-3 hover:bg-[#2b2d31] hover:border-indigo-500/50 cursor-pointer transition-all group relative overflow-hidden">
+                <div v-for="group in profileStore.groups" :key="group.id" class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover:bg-slate-50 hover:border-indigo-500/50 cursor-pointer transition-all group relative overflow-hidden">
                   <div class="absolute top-0 left-0 w-full h-12 bg-gradient-to-b from-indigo-500/10 to-transparent"></div>
                   <div class="flex items-center gap-3 relative z-10">
                     <img :src="group.iconUrl || group.bannerUrl || 'https://via.placeholder.com/64'" class="w-12 h-12 rounded-lg object-cover border border-white/10 shadow-sm bg-transparent">
@@ -692,15 +770,15 @@ const highlightJson = (obj: any) => {
 
             <!-- 创造的世界 Tab -->
             <template v-else-if="activeTab === 'created_worlds'">
-              <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#3f4147]">
-                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-300">
+              <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
+                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-600">
                   <Map class="w-4 h-4" /> 该用户创建的世界
                 </div>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 <div v-if="profileStore.isLoadingWorlds" class="col-span-full py-10 flex justify-center"><RefreshCcw class="w-6 h-6 animate-spin text-slate-500" /></div>
                 <div v-else-if="profileStore.createdWorlds.length === 0" class="col-span-full py-10 flex justify-center text-slate-500 text-sm font-bold">没有创建的世界。</div>
-                <div v-for="world in profileStore.createdWorlds" :key="world.id" class="bg-white border border-[#3f4147] rounded-xl overflow-hidden hover:border-indigo-500/50 cursor-pointer transition-all group shadow-sm hover:shadow-lg">
+                <div v-for="world in profileStore.createdWorlds" :key="world.id" class="bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-500/50 cursor-pointer transition-all group shadow-sm hover:shadow-lg">
                   <div class="relative h-36">
                     <img :src="world.imageUrl || world.thumbnailImageUrl || 'https://via.placeholder.com/400x200'" class="w-full h-full object-cover bg-transparent">
                     <div class="absolute bottom-2 right-2 px-2 py-1 bg-black/60 backdrop-blur-md rounded text-[11px] font-bold text-slate-900 flex items-center gap-1">
@@ -721,8 +799,8 @@ const highlightJson = (obj: any) => {
 
             <!-- 收藏的世界 Tab -->
             <template v-else-if="activeTab === 'fav_worlds'">
-              <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#3f4147]">
-                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-300">
+              <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
+                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-600">
                   <Heart class="w-4 h-4 text-pink-400" /> 收藏的世界
                 </div>
               </div>
@@ -733,15 +811,15 @@ const highlightJson = (obj: any) => {
 
             <!-- 创造的模型 Tab -->
             <template v-else-if="activeTab === 'created_avatars'">
-              <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#3f4147]">
-                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-300">
+              <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
+                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-600">
                   <Cuboid class="w-4 h-4" /> 该用户公开的模型
                 </div>
               </div>
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 <div v-if="profileStore.isLoadingAvatars" class="col-span-full py-10 flex justify-center"><RefreshCcw class="w-6 h-6 animate-spin text-slate-500" /></div>
                 <div v-else-if="profileStore.createdAvatars.length === 0" class="col-span-full py-10 flex justify-center text-slate-500 text-sm font-bold">没有公开的模型。</div>
-                <div v-for="avatar in profileStore.createdAvatars" :key="avatar.id" class="bg-white border border-[#3f4147] rounded-xl overflow-hidden hover:border-indigo-500/50 cursor-pointer transition-all group shadow-sm">
+                <div v-for="avatar in profileStore.createdAvatars" :key="avatar.id" class="bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-500/50 cursor-pointer transition-all group shadow-sm">
                   <div class="relative aspect-square bg-transparent">
                     <img :src="avatar.thumbnailImageUrl || avatar.imageUrl || 'https://via.placeholder.com/200'" class="w-full h-full object-cover">
                     <div class="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 backdrop-blur-md rounded text-[10px] font-bold text-slate-900 border border-white/10">
@@ -758,8 +836,8 @@ const highlightJson = (obj: any) => {
 
             <!-- 活动记录 Tab -->
             <template v-else-if="activeTab === 'activity'">
-              <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#3f4147]">
-                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-300">
+              <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
+                <div class="flex items-center gap-1.5 text-[13px] font-bold text-slate-600">
                   <History class="w-4 h-4" /> 本地记录的活动日志 (VRCX)
                 </div>
               </div>
@@ -772,7 +850,7 @@ const highlightJson = (obj: any) => {
                     <LogOut v-else-if="log.type === 'offline'" class="w-4 h-4" />
                     <Map v-else class="w-4 h-4" />
                   </div>
-                  <div class="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white p-4 rounded-xl border border-[#3f4147] shadow-sm">
+                  <div class="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between space-x-2 mb-1">
                       <div class="font-bold text-slate-900 text-[13px]">{{ log.type === 'online' ? '上线' : log.type === 'offline' ? '下线' : '位置变更' }}</div>
                       <time class="text-[11px] font-mono text-slate-500">{{ formatTime(log.created_at) }}</time>
@@ -786,13 +864,13 @@ const highlightJson = (obj: any) => {
             <!-- 原始 JSON 信息 Tab -->
             <template v-else-if="activeTab === 'raw_json'">
               <!-- Toolbar -->
-              <div class="flex items-center gap-4 text-slate-300 mb-4 pb-4 border-b border-[#3f4147]">
+              <div class="flex items-center gap-4 text-slate-600 mb-4 pb-4 border-b border-slate-200">
                 <RefreshCcw class="w-4 h-4 cursor-pointer hover:text-slate-900 transition-colors" title="刷新" />
                 <Download class="w-4 h-4 cursor-pointer hover:text-slate-900 transition-colors" title="下载" />
               </div>
               
               <!-- JSON Viewer -->
-              <div class="bg-[#0a0a0c] rounded-xl p-5 font-mono text-[13px] leading-relaxed overflow-x-auto border border-[#3f4147] shadow-inner custom-scrollbar">
+              <div class="bg-[#0a0a0c] rounded-xl p-5 font-mono text-[13px] leading-relaxed overflow-x-auto border border-slate-200 shadow-inner custom-scrollbar">
                 <pre v-html="highlightJson(profileStore.baseInfo)"></pre>
               </div>
             </template>
@@ -810,31 +888,31 @@ const highlightJson = (obj: any) => {
     >
       <!-- Toolbar -->
       <div class="absolute top-4 right-4 bg-white/90 backdrop-blur-md border border-white/10 rounded-xl p-1.5 flex items-center gap-1 shadow-2xl">
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="复制" @click="handleCopyImage">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="复制" @click="handleCopyImage">
           <Copy class="w-4 h-4" />
         </button>
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="下载" @click="handleDownloadImage">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="下载" @click="handleDownloadImage">
           <Download class="w-4 h-4" />
         </button>
         <div class="w-[1px] h-4 bg-white/10 mx-1"></div>
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="放大" @click="handleZoomIn">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="放大" @click="handleZoomIn">
           <ZoomIn class="w-4 h-4" />
         </button>
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="缩小" @click="handleZoomOut">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="缩小" @click="handleZoomOut">
           <ZoomOut class="w-4 h-4" />
         </button>
         <div class="w-[1px] h-4 bg-white/10 mx-1"></div>
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="逆时针旋转" @click="handleRotateCcw">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="逆时针旋转" @click="handleRotateCcw">
           <RotateCcw class="w-4 h-4" />
         </button>
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="顺时针旋转" @click="handleRotateCw">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="顺时针旋转" @click="handleRotateCw">
           <RotateCw class="w-4 h-4" />
         </button>
         <div class="w-[1px] h-4 bg-white/10 mx-1"></div>
-        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-slate-900 transition-colors" title="重置" @click="handleResetImage">
+        <button class="p-2 hover:bg-white/10 rounded-lg text-slate-600 hover:text-slate-900 transition-colors" title="重置" @click="handleResetImage">
           <RefreshCcw class="w-4 h-4" />
         </button>
-        <button class="p-2 hover:bg-red-500/20 rounded-lg text-slate-300 hover:text-red-400 transition-colors ml-1" title="关闭" @click="toggleImagePreview">
+        <button class="p-2 hover:bg-red-500/20 rounded-lg text-slate-600 hover:text-red-400 transition-colors ml-1" title="关闭" @click="toggleImagePreview">
           <X class="w-4 h-4" />
         </button>
       </div>
@@ -893,7 +971,7 @@ const highlightJson = (obj: any) => {
 
 /* JSON Viewer base styles */
 :deep(.text-blue-400) { color: #60a5fa; }
-:deep(.text-slate-300) { color: #cbd5e1; font-weight: 600; }
+:deep(.text-slate-600) { color: #cbd5e1; font-weight: 600; }
 :deep(.text-green-400) { color: #4ade80; }
 :deep(.text-blue-500) { color: #3b82f6; font-weight: bold; }
 :deep(.text-pink-500) { color: #ec4899; font-weight: bold; }

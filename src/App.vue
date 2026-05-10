@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { useToast } from "./composables/useToast";
+
+const toast = useToast();
 import { ref, onMounted, computed } from "vue";
+import ToastContainer from "./components/ToastContainer.vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
@@ -624,7 +628,7 @@ const handleUninstallSpecific = async (target: string) => {
     if (!isTauri()) throw new Error("普通浏览器不能执行卸载");
     await SysApi.uninstallSoftware({ target });
     await checkEnvironment();
-  } catch (err: any) { alert(err.message || err); await checkEnvironment(); }
+  } catch (err: any) { toast.error(err.message || err); await checkEnvironment(); }
 };
 
 const handleDialogConfirm = async (config: any) => {
@@ -803,6 +807,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <ToastContainer />
   <OverlayView v-if="isOverlayMode" />
   
   <ServerDashboardView

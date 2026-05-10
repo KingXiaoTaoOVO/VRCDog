@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useToast } from "../composables/useToast";
+
+const toast = useToast();
 import { ref, onMounted, computed } from 'vue';
 import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2 } from 'lucide-vue-next';
 import { GalleryApi, SysApi } from '../api';
@@ -106,7 +109,7 @@ const previewImage = ref<GalleryImage | null>(null);
 const copyPath = async (path: string) => {
   try {
     await navigator.clipboard.writeText(path);
-    alert(t('gallery.copied_alert'));
+    toast.info(t('gallery.copied_alert'));
   } catch (e) {
     console.warn(e);
   }
@@ -120,7 +123,7 @@ const deleteImage = async (img: GalleryImage) => {
     images.value = images.value.filter(i => i.path !== img.path);
   } catch (err) {
     console.error('Failed to delete image:', err);
-    alert('删除失败 (Failed to delete)');
+    toast.error('删除失败 (Failed to delete)');
   }
 };
 
@@ -148,15 +151,15 @@ const uploadToVrcPlus = async () => {
       try {
         const base64data = reader.result as string;
         await VrcApi.uploadVrcPlusImage(base64data, 'gallery');
-        alert("上传成功！可在 VRChat 游戏中或 VRCX 画廊中查看。");
+        toast.info("上传成功！可在 VRChat 游戏中或 VRCX 画廊中查看。");
       } catch (err: any) {
-        alert("上传失败: " + (err.message || err));
+        toast.error("上传失败: " + (err.message || err));
       } finally {
         uploadingToVrcPlus.value = false;
       }
     };
   } catch (err: any) {
-    alert("读取文件失败: " + (err.message || err));
+    toast.error("读取文件失败: " + (err.message || err));
     uploadingToVrcPlus.value = false;
   }
 };

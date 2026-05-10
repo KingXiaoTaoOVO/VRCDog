@@ -1,60 +1,63 @@
-name: 'Release'
+name: Release VRCDog
 
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch:
+      - 'v*' # 当推送以 v 开头的 tag 时触发，例如 v5.0.1
 
 jobs:
   release:
     strategy:
       fail-fast: false
       matrix:
-        settings:
-          - host: windows-latest
-            target: x86_64-pc-windows-msvc
+        platform: [windows-latest] # 我们目前只针对 Windows 打包
 
-    name: Build & Release - ${{ matrix.settings.target }}
-    runs-on: ${{ matrix.settings.host }}
-    
-    permissions:
-      contents: write
-      
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: pnpm/action-setup@v3
         with:
-          targets: ${{ matrix.settings.target }}
-
-      - name: Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
+          version: 8
+          run_install: false
 
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Build Tauri App
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          # 用于自动更新包的签名。必须在 GitHub 仓库设置中添加这两个 Secret!
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
-          releaseName: 'VRCDog v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
+          tagName: ${{ github.ref_name }} # 使用触发该工作流的 tag 作为版本号
+          releaseName: 'VRCDog ${{ github.ref_name }}'
+          releaseBody: |
+            ## VRC狗狗管家 更新发布
+            有关此版本的详细更新内容，请参阅提交历史。
+            
+            如果使用安装包，请下载 `VRCDog_x.x.x_x64_zh-CN.msi`。
+            如果有疑问，请加入我们的交流群。
           releaseDraft: false
           prerelease: false
+          # 自动合并更新文件以便生成 updater.json
+          updaterJsonKeepUniversal: false

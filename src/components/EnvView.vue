@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useToast } from "../composables/useToast";
+
+const toast = useToast();
 import { ref, onMounted, computed } from "vue";
 import { isTauri, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -89,7 +92,7 @@ const executeUninstall = async () => {
       await checkEnvironment();
     }, 3000);
   } catch (err: any) { 
-    alert(err.message || err); 
+    toast.error(err.message || err); 
     await checkEnvironment(); 
   }
 };
@@ -113,7 +116,7 @@ const executeLaunch = async (target: string) => {
     if (!isTauri()) throw new Error(t('env.launch_browser_error'));
     await SysApi.launchSoftware({ target });
   } catch (err: any) {
-    alert(err.message || err);
+    toast.error(err.message || err);
   }
 };
 
@@ -135,7 +138,7 @@ const handleDialogConfirm = async (config: any) => {
     await SysApi.installSoftware({ target, path: config.path, tool: config.tool, autoDelete: config.autoDelete });
     await checkEnvironment();
   } catch (error: any) {
-    alert(error.message || error);
+    toast.error(error.message || error);
     await checkEnvironment();
   }
 };
@@ -185,7 +188,7 @@ const loadVpmRepo = async () => {
     }
   } catch (err: any) {
     console.error("Failed to load VPM Repo:", err);
-    alert(t('env.parse_err') + err.message);
+    toast.error(t('env.parse_err') + err.message);
   } finally {
     isVpmLoading.value = false;
   }
@@ -214,7 +217,7 @@ const scanLocalDeps = async () => {
     }
   } catch (err: any) {
     console.error("Failed to scan local dependencies:", err);
-    alert(t('env.scan_err') + (err.message || err));
+    toast.error(t('env.scan_err') + (err.message || err));
   } finally {
     isVpmLoading.value = false;
   }
@@ -230,7 +233,7 @@ const addToAlcom = (url: string) => {
 
 const copyVpmUrl = () => {
   navigator.clipboard.writeText(vpmRepoUrl.value);
-  alert(t('gallery.copied_alert'));
+  toast.info(t('gallery.copied_alert'));
 };
 
 onMounted(() => {

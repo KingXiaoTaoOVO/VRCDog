@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useToast } from "../composables/useToast";
+
+const toast = useToast();
 import { useEntityModalStore } from '../stores/entityModal';
 import BaseModal from './BaseModal.vue';
 import VrcAvatar from './VrcAvatar.vue';
@@ -49,14 +52,14 @@ const handleAvatarUpload = async (e: Event) => {
                await VrcApi.updateAvatar(entityStore.selectedAvatar.id, {
                    imageUrl: fileUrl
                });
-               alert(t('entity_modal.upload_avatar_success'));
+               toast.info(t('entity_modal.upload_avatar_success'));
                entityStore.closeAvatar();
             } else {
                throw new Error(t('entity_modal.no_url_returned'));
             }
         }
       } catch (err: any) {
-        alert(t('entity_modal.upload_failed') + (err.message || err));
+        toast.error(t('entity_modal.upload_failed') + (err.message || err));
       } finally {
         isUploadingImage.value = false;
       }
@@ -91,14 +94,14 @@ const handleWorldUpload = async (e: Event) => {
                await VrcApi.updateWorld(entityStore.selectedWorld.id, {
                    imageUrl: fileUrl
                });
-               alert(t('entity_modal.upload_world_success'));
+               toast.info(t('entity_modal.upload_world_success'));
                entityStore.closeWorld();
             } else {
                throw new Error(t('entity_modal.no_url_returned'));
             }
         }
       } catch (err: any) {
-        alert(t('entity_modal.upload_failed') + (err.message || err));
+        toast.error(t('entity_modal.upload_failed') + (err.message || err));
       } finally {
         isUploadingWorldImage.value = false;
       }

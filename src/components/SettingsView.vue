@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useToast } from "../composables/useToast";
+
+const toast = useToast();
 import { ref, onMounted, computed, watch } from 'vue';
 import { Settings, Save, Trash2, Globe, Monitor, Shield, HardDrive, Bell, Gamepad2, Check, DownloadCloud, Play, Rocket, Loader2 } from 'lucide-vue-next';
 import { SysApi, DbApi } from '../api';
@@ -294,9 +297,9 @@ const clearAuth = async () => {
 const registerSteamVR = async () => {
   try {
     await invoke('sys_register_steamvr_autostart');
-    alert(t('settings.steamvr_register_success'));
+    toast.info(t('settings.steamvr_register_success'));
   } catch (err: any) {
-    alert(t('settings.steamvr_register_fail').replace('{error}', err));
+    toast.error(t('settings.steamvr_register_fail').replace('{error}', err));
   }
 };
 
@@ -304,7 +307,7 @@ const openBindings = async () => {
   try {
     await invoke('sys_open_steamvr_bindings');
   } catch (err: any) {
-    alert(t('settings.steamvr_bindings_fail').replace('{error}', err));
+    toast.error(t('settings.steamvr_bindings_fail').replace('{error}', err));
   }
 };
 
