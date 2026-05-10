@@ -1,6 +1,7 @@
 use crate::AppResult;
 use std::fs;
 use std::path::PathBuf;
+use tauri::Manager;
 
 #[tauri::command]
 pub async fn sys_clear_vrchat_cache() -> AppResult<u64> {
@@ -130,6 +131,45 @@ pub async fn sys_set_autostart(enable: bool) -> crate::AppResult<()> {
 }
 
 #[tauri::command]
+pub async fn sys_register_url_scheme(enable: bool) -> crate::AppResult<()> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
+        let scheme = "vrcx";
+
+        if enable {
+            let (key, _) = hkcr.create_subkey(scheme).map_err(|e| e.to_string())?;
+            key.set_value("", &format!("URL:{} Protocol", scheme)).map_err(|e| e.to_string())?;
+            key.set_value("URL Protocol", &"").map_err(|e| e.to_string())?;
+
+            let (icon_key, _) = key.create_subkey("DefaultIcon").map_err(|e| e.to_string())?;
+            let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+            icon_key.set_value("", &format!("{},1", exe_path.to_string_lossy())).map_err(|e| e.to_string())?;
+
+            let (cmd_key, _) = key.create_subkey("shell\\open\\command").map_err(|e| e.to_string())?;
+            cmd_key.set_value("", &format!("\"{}\" \"%1\"", exe_path.to_string_lossy())).map_err(|e| e.to_string())?;
+        } else {
+            let _ = hkcr.delete_subkey_all(scheme);
+        }
+        
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("URL scheme is only supported on Windows".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn sys_get_launch_args() -> Result<Vec<String>, String> {
+    Ok(std::env::args().collect())
+}
+
+#[tauri::command]
 pub async fn sys_open_dir(target: String) -> Result<(), String> {
     let mut path = PathBuf::new();
     
@@ -154,7 +194,29 @@ pub async fn sys_open_dir(target: String) -> Result<(), String> {
             }
         },
         "screenshots" => {
-            if let Some(mut pic_dir) = dirs::picture_dir() {
+            let mut custom_path = None;
+            if let Some(mut config_path) = dirs::data_local_dir() {
+                config_path.pop();
+                config_path.push("LocalLow");
+                config_path.push("VRChat");
+                config_path.push("VRChat");
+                config_path.push("config.json");
+                if config_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&config_path) {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(p) = parsed.get("pictureOutputFolder").and_then(|v| v.as_str()) {
+                                let cp = std::path::PathBuf::from(p);
+                                if cp.exists() {
+                                    custom_path = Some(cp);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(cp) = custom_path {
+                path = cp;
+            } else if let Some(mut pic_dir) = dirs::picture_dir() {
                 pic_dir.push("VRChat");
                 path = pic_dir;
             }
@@ -265,3 +327,129 @@ pub async fn sys_open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn sys_get_vrc_screenshot_dir() -> Result<String, String> {
+    if let Some(mut config_path) = dirs::data_local_dir() {
+        config_path.pop();
+        config_path.push("LocalLow");
+        config_path.push("VRChat");
+        config_path.push("VRChat");
+        config_path.push("config.json");
+        if config_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(p) = parsed.get("pictureOutputFolder").and_then(|v| v.as_str()) {
+                        return Ok(p.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    if let Some(mut pic_dir) = dirs::picture_dir() {
+        pic_dir.push("VRChat");
+        return Ok(pic_dir.to_string_lossy().to_string());
+    }
+    
+    Ok("".to_string())
+}
+
+#[tauri::command]
+pub async fn sys_set_vrc_screenshot_dir(path: String) -> Result<(), String> {
+    if let Some(mut config_path) = dirs::data_local_dir() {
+        config_path.pop();
+        config_path.push("LocalLow");
+        config_path.push("VRChat");
+        config_path.push("VRChat");
+        
+        if !config_path.exists() {
+            std::fs::create_dir_all(&config_path).map_err(|e| format!("无法创建VRChat配置目录: {}", e))?;
+        }
+        
+        config_path.push("config.json");
+        
+        let mut config_json = serde_json::json!({});
+        if config_path.exists() {
+            let content = std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string());
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                if parsed.is_object() {
+                    config_json = parsed;
+                }
+            }
+        }
+        
+        if let Some(obj) = config_json.as_object_mut() {
+            obj.insert("pictureOutputFolder".to_string(), serde_json::json!(path));
+        }
+        
+        std::fs::write(&config_path, serde_json::to_string_pretty(&config_json).unwrap())
+            .map_err(|e| format!("无法写入 config.json: {}", e))?;
+            
+        Ok(())
+    } else {
+        Err("找不到 Local AppData 目录".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn sys_get_vrc_config() -> Result<String, String> {
+    if let Some(mut config_path) = dirs::data_local_dir() {
+        config_path.pop();
+        config_path.push("LocalLow");
+        config_path.push("VRChat");
+        config_path.push("VRChat");
+        config_path.push("config.json");
+        
+        if config_path.exists() {
+            let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+            return Ok(content);
+        } else {
+            return Ok("{}".to_string());
+        }
+    }
+    Err("Cannot find AppData directory".to_string())
+}
+
+#[tauri::command]
+pub async fn sys_save_vrc_config(content: String) -> Result<(), String> {
+    if let Some(mut config_path) = dirs::data_local_dir() {
+        config_path.pop();
+        config_path.push("LocalLow");
+        config_path.push("VRChat");
+        config_path.push("VRChat");
+        
+        if !config_path.exists() {
+            std::fs::create_dir_all(&config_path).map_err(|e| format!("Cannot create VRC directory: {}", e))?;
+        }
+        
+        config_path.push("config.json");
+        
+        std::fs::write(&config_path, content).map_err(|e| format!("Cannot write config.json: {}", e))?;
+        Ok(())
+    } else {
+        Err("Cannot find AppData directory".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Result<(), String> {
+    if let Ok(mut app_dir) = app.path().app_data_dir() {
+        app_dir.push("vrcdog.db");
+        if app_dir.exists() {
+            std::fs::copy(&app_dir, &dest_path).map_err(|e| format!("Backup failed: {}", e))?;
+            return Ok(());
+        }
+        return Err("Database file not found".to_string());
+    }
+    Err("Cannot resolve app data directory".to_string())
+}
+
+#[tauri::command]
+pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Result<(), String> {
+    if let Ok(mut app_dir) = app.path().app_data_dir() {
+        app_dir.push("vrcdog.db");
+        std::fs::copy(&src_path, &app_dir).map_err(|e| format!("Restore failed: {}", e))?;
+        return Ok(());
+    }
+    Err("Cannot resolve app data directory".to_string())
+}

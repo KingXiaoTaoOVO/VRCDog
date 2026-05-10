@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { ShieldAlert, UserX, VolumeX, EyeOff, Search, Unlock } from 'lucide-vue-next';
+import { ref, onMounted, computed } from 'vue';
+import { ShieldAlert, UserX, VolumeX, EyeOff, Search, Unlock, Shield } from 'lucide-vue-next';
 import { VrcApi } from '../api';
 import { useI18n } from 'vue-i18n';
+import VrcResourceCard from './VrcResourceCard.vue';
+import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
+const profileStore = useUserProfileStore();
 
 const activeTab = ref('blocked');
 const searchQuery = ref('');
@@ -12,6 +15,8 @@ const searchQuery = ref('');
 const moderations = ref<any[]>([]);
 const loading = ref(true);
 const errorMsg = ref('');
+
+const resolvedUsers = new Map<string, any>();
 
 const fetchModerations = async () => {
   loading.value = true;
@@ -23,8 +28,15 @@ const fetchModerations = async () => {
       name: m.targetDisplayName,
       type: m.type === 'block' ? 'blocked' : m.type === 'mute' ? 'muted' : m.type === 'hideAvatar' ? 'hidden' : m.type,
       date: new Date(m.created).toLocaleDateString(),
-      reason: '' // VRChat API doesn't usually return reasons unless locally stored
+      reason: '', // VRChat API doesn't usually return reasons unless locally stored
+      userData: null,
+      loadingData: false
     }));
+    
+    // Begin fetching user details in background
+    for (const m of moderations.value) {
+       resolveModeratedUser(m);
+    }
   } catch (err: any) {
     errorMsg.value = err.message || err;
   } finally {
@@ -32,13 +44,31 @@ const fetchModerations = async () => {
   }
 };
 
+const resolveModeratedUser = async (m: any) => {
+  if (resolvedUsers.has(m.targetUserId)) {
+     m.userData = resolvedUsers.get(m.targetUserId);
+     return;
+  }
+  
+  m.loadingData = true;
+  try {
+     const res = await VrcApi.request(`/api/1/users/${m.targetUserId}`, 'GET');
+     m.userData = res;
+     resolvedUsers.set(m.targetUserId, res);
+  } catch (e) {
+     console.warn(`Failed to fetch user ${m.targetUserId}`, e);
+  } finally {
+     m.loadingData = false;
+  }
+};
+
 onMounted(() => {
   fetchModerations();
 });
 
-const getFiltered = (type: string) => {
-  return moderations.value.filter((m: any) => m.type === type && (m.name || '').toLowerCase().includes(searchQuery.value.toLowerCase()));
-};
+const filteredModerations = computed(() => {
+  return moderations.value.filter((m: any) => m.type === activeTab.value && (m.name || '').toLowerCase().includes(searchQuery.value.toLowerCase()));
+});
 
 const unblock = async (id: string) => {
   try {
@@ -48,41 +78,51 @@ const unblock = async (id: string) => {
     errorMsg.value = err.message || err;
   }
 };
+
+const openPlayerProfile = (m: any) => {
+  if (m.userData) {
+    profileStore.openProfile(m.userData.id, m.userData);
+  }
+};
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <header class="mb-6 flex justify-between items-end">
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
-        <h1 class="text-3xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-3">
-          {{ t('moderation.title') }}
-          <span class="inline-flex items-center justify-center p-1.5 bg-red-100 rounded-xl">
-            <ShieldAlert class="w-6 h-6 text-red-600" />
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+            <Shield class="w-6 h-6 text-indigo-600" />
           </span>
+          {{ t('moderation.title') }}
         </h1>
-        <p class="text-amber-700/80 font-medium mt-1">
+        <p class="text-slate-500 font-medium mt-2 text-sm ml-1">
           {{ t('moderation.subtitle') }}
         </p>
       </div>
       
-      <div class="flex gap-2 bg-white/50 p-1 rounded-xl backdrop-blur border border-red-100">
+      <div class="flex gap-2 bg-white/60 backdrop-blur-md p-1.5 rounded-2xl shadow-sm border border-slate-200/60">
         <button
-          :class="activeTab === 'blocked' ? 'bg-red-500 text-white shadow-md' : 'text-red-700 hover:bg-red-100'"
-          class="px-4 py-1.5 rounded-lg font-bold text-sm transition-all flex items-center gap-1"
+          :class="activeTab === 'blocked' ? 'bg-red-500 text-white shadow-md shadow-red-500/30' : 'text-slate-500 hover:bg-white hover:text-red-500'"
+          class="px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
           @click="activeTab = 'blocked'"
         >
           <UserX :size="16" /> {{ t('moderation.tab_blocked') }}
         </button>
         <button
-          :class="activeTab === 'muted' ? 'bg-orange-500 text-white shadow-md' : 'text-orange-700 hover:bg-orange-100'"
-          class="px-4 py-1.5 rounded-lg font-bold text-sm transition-all flex items-center gap-1"
+          :class="activeTab === 'muted' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'text-slate-500 hover:bg-white hover:text-orange-500'"
+          class="px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
           @click="activeTab = 'muted'"
         >
           <VolumeX :size="16" /> {{ t('moderation.tab_muted') }}
         </button>
         <button
-          :class="activeTab === 'hidden' ? 'bg-purple-500 text-white shadow-md' : 'text-purple-700 hover:bg-purple-100'"
-          class="px-4 py-1.5 rounded-lg font-bold text-sm transition-all flex items-center gap-1"
+          :class="activeTab === 'hidden' ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30' : 'text-slate-500 hover:bg-white hover:text-purple-500'"
+          class="px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
           @click="activeTab = 'hidden'"
         >
           <EyeOff :size="16" /> {{ t('moderation.tab_hidden') }}
@@ -90,58 +130,113 @@ const unblock = async (id: string) => {
       </div>
     </header>
 
-    <div class="flex-1 bg-white/60 backdrop-blur-md border-2 border-white rounded-3xl p-6 shadow-lg flex flex-col">
-      <div class="relative mb-6 w-full max-w-md">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-red-300 w-5 h-5" />
+    <div class="flex-1 flex flex-col overflow-hidden z-10 relative">
+      <!-- Search Bar -->
+      <div class="relative mb-6 shrink-0 w-full max-w-md">
+        <Search class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
         <input
           v-model="searchQuery"
           type="text"
           :placeholder="t('moderation.search_placeholder')"
-          class="w-full pl-10 pr-4 py-2.5 bg-white border border-red-100 focus:border-red-400 focus:ring-0 rounded-xl outline-none transition-colors text-amber-900 font-medium"
+          class="w-full pl-12 pr-4 py-3 bg-white/70 backdrop-blur-xl border border-white shadow-sm hover:shadow-md focus:shadow-md focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all text-slate-800 text-sm font-bold placeholder:text-slate-400 placeholder:font-medium"
         >
       </div>
 
-      <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+      <div class="flex-1 overflow-y-auto custom-scrollbar pr-2">
         <div
-          v-if="getFiltered(activeTab).length === 0"
-          class="h-full flex flex-col items-center justify-center text-red-900/30"
+          v-if="filteredModerations.length === 0"
+          class="h-full flex flex-col items-center justify-center text-slate-400"
         >
-          <ShieldAlert class="w-16 h-16 mb-4 opacity-50" />
-          <p class="font-bold text-lg">
+          <ShieldAlert class="w-16 h-16 mb-4 opacity-30 text-slate-400" />
+          <p class="font-extrabold text-lg text-slate-500">
             {{ t('moderation.empty') }}
           </p>
-          <p class="text-sm mt-1">
+          <p class="text-sm mt-2 text-slate-500 font-medium">
             {{ t('moderation.empty_desc') }}
           </p>
         </div>
 
         <div
-          v-for="item in getFiltered(activeTab)"
-          :key="item.id"
-          class="flex items-center justify-between p-4 bg-white rounded-2xl border border-red-50 hover:border-red-200 transition-colors shadow-sm group"
+          v-else
+          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-4"
         >
-          <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-500">
-              <UserX v-if="item.type==='blocked'" />
-              <VolumeX v-else-if="item.type==='muted'" />
-              <EyeOff v-else />
-            </div>
-            <div>
-              <h3 class="font-bold text-amber-950 text-lg">
-                {{ item.name }}
-              </h3>
-              <div class="flex items-center gap-3 mt-1 text-xs font-bold text-red-900/40">
-                <span class="bg-red-50 px-2 py-0.5 rounded-md">{{ item.date }}</span>
-                <span v-if="item.reason">{{ t('moderation.reason', { reason: item.reason }) }}</span>
+          <div
+            v-for="item in filteredModerations"
+            :key="item.id"
+            class="relative group bg-white/80 backdrop-blur-md rounded-3xl border border-slate-200 hover:border-indigo-300 shadow-sm hover:shadow-lg transition-all overflow-hidden flex flex-col hover:-translate-y-1"
+          >
+            <div
+              class="flex-1 p-3 cursor-pointer"
+              @click="openPlayerProfile(item)"
+            >
+              <VrcResourceCard
+                v-if="item.userData"
+                type="avatar"
+                :data="item.userData"
+                :is-user="true"
+                :minimal="true"
+              />
+              <div
+                v-else
+                class="flex items-center gap-4 p-3 rounded-2xl bg-slate-50/50 border border-slate-100"
+              >
+                <div class="w-12 h-12 rounded-xl bg-slate-200/60 flex items-center justify-center text-slate-500 font-black uppercase text-lg shadow-inner relative shrink-0">
+                  <span v-if="!item.loadingData">{{ item.name.charAt(0) }}</span>
+                  <div
+                    v-else
+                    class="animate-spin w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full"
+                  />
+                </div>
+                <div class="min-w-0">
+                  <h3
+                    class="font-extrabold text-base text-slate-800 truncate group-hover:text-indigo-600 transition-colors"
+                    :title="item.name"
+                  >
+                    {{ item.name }}
+                  </h3>
+                  <p class="text-[10px] text-slate-400 font-mono font-bold mt-1 truncate">
+                    {{ item.targetUserId }}
+                  </p>
+                </div>
               </div>
             </div>
+             
+            <!-- Action Bar -->
+            <div class="px-5 py-4 bg-slate-50/50 backdrop-blur border-t border-slate-100 flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div 
+                  class="w-7 h-7 rounded-lg flex items-center justify-center shadow-sm"
+                  :class="{
+                    'bg-red-100 text-red-600 border border-red-200/50': item.type === 'blocked',
+                    'bg-orange-100 text-orange-600 border border-orange-200/50': item.type === 'muted',
+                    'bg-purple-100 text-purple-600 border border-purple-200/50': item.type === 'hidden',
+                  }"
+                >
+                  <UserX
+                    v-if="item.type==='blocked'"
+                    :size="14"
+                  />
+                  <VolumeX
+                    v-else-if="item.type==='muted'"
+                    :size="14"
+                  />
+                  <EyeOff
+                    v-else
+                    :size="14"
+                  />
+                </div>
+                <span class="text-[11px] font-bold text-slate-500">{{ item.date }}</span>
+              </div>
+                
+              <button
+                class="px-4 py-2 bg-white border border-slate-200 hover:bg-red-500 hover:border-red-500 hover:text-white hover:shadow-md text-slate-600 rounded-xl font-bold transition-all flex items-center gap-2 text-xs shadow-sm active:scale-95"
+                title="Remove Moderation"
+                @click="unblock(item.id)"
+              >
+                <Unlock :size="14" /> {{ t('moderation.unblock') }}
+              </button>
+            </div>
           </div>
-          <button
-            class="px-4 py-2 bg-red-50 hover:bg-red-500 text-red-600 hover:text-white rounded-xl font-bold transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 text-sm"
-            @click="unblock(item.id)"
-          >
-            <Unlock :size="14" /> {{ t('moderation.unblock') }}
-          </button>
         </div>
       </div>
     </div>
@@ -151,6 +246,6 @@ const unblock = async (id: string) => {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(239, 68, 68, 0.2); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(239, 68, 68, 0.4); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.5); }
 </style>

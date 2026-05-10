@@ -9,6 +9,58 @@ use std::sync::{Mutex, OnceLock};
 static DISCORD_CLIENT: OnceLock<Mutex<DiscordIpcClient>> = OnceLock::new();
 static AUDIO_PROCESS: OnceLock<Mutex<Option<std::process::Child>>> = OnceLock::new();
 static OSC_AUTOMATION: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>> = OnceLock::new();
+static AUTO_LAUNCH_APPS: OnceLock<Mutex<Vec<std::process::Child>>> = OnceLock::new();
+
+#[tauri::command]
+pub fn sys_start_auto_launch_apps(apps: Vec<String>) -> AppResult<()> {
+    let mut procs = AUTO_LAUNCH_APPS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+    if !procs.is_empty() { return Ok(()); } // Already launched
+
+    for app in apps {
+        let app = app.trim();
+        if app.is_empty() { continue; }
+        
+        // Simple manual parsing to handle quotes and arguments
+        let (cmd, args) = if app.starts_with('"') {
+            if let Some(end_idx) = app[1..].find('"') {
+                let cmd = &app[1..=end_idx];
+                let args_str = app[end_idx + 2..].trim();
+                let args = args_str.split_whitespace().collect::<Vec<_>>();
+                (cmd, args)
+            } else {
+                (app.trim_matches('"'), vec![])
+            }
+        } else if let Some(exe_idx) = app.to_lowercase().find(".exe ") {
+            let cmd = &app[..exe_idx + 4];
+            let args_str = app[exe_idx + 5..].trim();
+            let args = args_str.split_whitespace().collect::<Vec<_>>();
+            (cmd, args)
+        } else {
+            let parts: Vec<&str> = app.split_whitespace().collect();
+            if parts.len() > 1 && !app.to_lowercase().contains(".exe") {
+                 (parts[0], parts[1..].to_vec())
+            } else {
+                 (app, vec![])
+            }
+        };
+        
+        // Launch and save actual child process so we can kill it later
+        if let Ok(child) = Command::new(cmd).args(args).spawn() {
+            procs.push(child);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sys_kill_auto_launch_apps() -> AppResult<()> {
+    let mut procs = AUTO_LAUNCH_APPS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+    for mut child in procs.drain(..) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub fn sys_is_vrchat_running() -> AppResult<bool> {
@@ -36,6 +88,15 @@ pub fn sys_launch_vrchat(launch_args: Option<String>) -> AppResult<()> {
         .spawn()
         .map_err(|e| crate::AppError::from(e.to_string()))?;
         
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sys_kill_vrchat() -> AppResult<()> {
+    // Windows only: kill VRChat.exe
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "VRChat.exe"])
+        .output();
     Ok(())
 }
 

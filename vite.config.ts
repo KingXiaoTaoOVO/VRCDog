@@ -33,4 +33,21 @@ export default defineConfig(async () => ({
   optimizeDeps: {
     entries: ['index.html'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vue')) {
+              return 'vendor-vue';
+            }
+            if (id.includes('lucide')) {
+              return 'vendor-lucide';
+            }
+            return 'vendor';
+          }
+        }
+      }
+    }
+  }
 }));

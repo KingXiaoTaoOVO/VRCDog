@@ -191,6 +191,63 @@ export const VrcApi = {
     }
   },
 
+  uploadRequest: async (url: string, method: string = 'PUT', base64Data: string, mimeType: string) => {
+    let effectiveAuthCookie = null;
+    try {
+      effectiveAuthCookie = await invoke<string | null>('db_get_auth');
+    } catch {}
+
+    const headers = { 'Content-Type': mimeType };
+    const res: any = await safeInvoke('vrc_execute', {
+      options: { url, method, headers, body: base64Data, body_is_base64: true, auth_cookie: effectiveAuthCookie }
+    });
+
+    if (res.status >= 400) {
+      throw new Error(`Upload Failed: ${res.status} ${res.data}`);
+    }
+    try {
+      return res.data ? JSON.parse(res.data) : res;
+    } catch {
+      return res.data;
+    }
+  },
+
+  uploadVrcPlusImage: async (base64Data: string, tag: 'gallery' | 'emoji' | 'icon' | 'avatarimage' | 'avatargallery' | 'worldimage' = 'gallery', entityId?: string) => {
+    let effectiveAuthCookie = null;
+    try {
+      effectiveAuthCookie = await invoke<string | null>('db_get_auth');
+    } catch {}
+
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+
+    const formData: any[] = [
+      { name: 'tag', value: tag },
+      { name: 'file', file_name: 'image.png', file_content_base64: cleanBase64, file_mime: 'image/png' }
+    ];
+    
+    if (entityId) {
+        if (tag === 'avatargallery') {
+            formData.push({ name: 'galleryId', value: entityId });
+        } else {
+            formData.push({ name: 'entityId', value: entityId });
+        }
+    }
+
+    const res: any = await safeInvoke('vrc_execute', {
+      options: { 
+        url: 'https://api.vrchat.cloud/api/1/file/image', 
+        method: 'POST', 
+        form_data: formData,
+        auth_cookie: effectiveAuthCookie 
+      }
+    });
+
+    if (res.status >= 400) {
+      throw new Error(`VRC+ Image Upload Failed: ${res.status} ${res.data}`);
+    }
+    return res.data ? JSON.parse(res.data) : res;
+  },
+
   getServerStatus: () => VrcApi.request('https://status.vrchat.com/api/v2/status.json', 'GET', null, undefined, { Referer: 'https://vrcx.app' }),
   fetchConfig: () => VrcApi.request('/config'),
 
@@ -264,6 +321,8 @@ export const VrcApi = {
   searchWorlds: (params: any) => VrcApi.request('/worlds', 'GET', { search: params.query || params.search, n: params.n || 20, offset: params.offset || 0 }),
   searchGroups: (params: any) => VrcApi.request('/groups', 'GET', { search: params.query || params.search, n: params.n || 20, offset: params.offset || 0 }),
   getWorld: (params: any) => VrcApi.request(`/worlds/${params.worldId || params}`),
+  updateWorld: (id: string, params: any) => VrcApi.request(`/worlds/${id}`, 'PUT', params),
+  createInstance: (params: any) => VrcApi.request('/instances', 'POST', params),
 
   updateStatus: (params: any) => VrcApi.request(`/users/${params.userId || params.user_id}`, 'PUT', { status: params.status, statusDescription: params.statusDescription }),
 
@@ -286,6 +345,7 @@ export const VrcApi = {
     return VrcApi.request('/avatars', 'GET', q);
   },
   getAvatar: (params: any) => VrcApi.request(`/avatars/${params.avatarId || params}`),
+  updateAvatar: (id: string, params: any) => VrcApi.request(`/avatars/${id}`, 'PUT', params),
   selectAvatar: (params: any) => VrcApi.request(`/avatars/${params.avatarId || params}/select`, 'PUT'),
 
   getFavorites: (params: any) => {
@@ -294,22 +354,67 @@ export const VrcApi = {
     if (params.type) q.type = params.type;
     return VrcApi.request('/favorites', 'GET', q);
   },
-  getFavoriteWorlds: (params: any) => VrcApi.request('/worlds/favorites', 'GET', { n: params?.n || 60, offset: params?.offset || 0 }),
-  getFavoriteAvatars: (params: any) => VrcApi.request('/avatars/favorites', 'GET', { n: params?.n || 60, offset: params?.offset || 0 }),
+  getFavoriteWorlds: (params: any) => {
+    const q: any = { n: params?.n || 60, offset: params?.offset || 0 };
+    if (params?.tag && params.tag !== 'all') q.tag = params.tag;
+    return VrcApi.request('/worlds/favorites', 'GET', q);
+  },
+  getFavoriteAvatars: (params: any) => {
+    const q: any = { n: params?.n || 60, offset: params?.offset || 0 };
+    if (params?.tag && params.tag !== 'all') q.tag = params.tag;
+    return VrcApi.request('/avatars/favorites', 'GET', q);
+  },
+  getFavoriteGroups: () => VrcApi.request('/favorite/groups'),
 
-  getGroups: () => VrcApi.request('/users/me/groups'),
+  getGroups: async () => {
+    const user: any = await VrcApi.getCurrentUser();
+    if (!user || !user.id) throw new Error("Not logged in");
+    return VrcApi.request(`/users/${user.id}/groups`);
+  },
   getGroup: (params: any) => VrcApi.request(`/groups/${params.groupId || params}`),
   getModerations: () => VrcApi.request('/auth/user/playermoderations'),
+  moderateUser: (params: { moderated: string; type: 'block' | 'mute' | 'hideAvatar' | 'showAvatar' | 'interactOn' | 'interactOff' }) => VrcApi.request('/auth/user/playermoderations', 'POST', params),
+  unmoderateUser: (params: { moderated: string; type: 'block' | 'mute' | 'hideAvatar' | 'showAvatar' | 'interactOn' | 'interactOff' }) => VrcApi.request('/auth/user/unplayermoderate', 'PUT', params),
 
   friendRequest: (params: any) => VrcApi.request(`/user/${params.userId || params}/friendRequest`, 'POST'),
   unfriend: (params: any) => VrcApi.request(`/auth/user/friends/${params.userId || params}`, 'DELETE'),
   inviteMyself: (params: any) => VrcApi.request(`/invite/myself/to/${params.worldId}:${params.instanceId}`, 'POST'),
+  inviteUser: (params: any) => VrcApi.request(`/invite/${params.userId || params}`, 'POST', { instanceId: params.instanceId }),
+  requestInvite: (params: any) => VrcApi.request(`/requestInvite/${params.userId || params}`, 'POST'),
+
+  // Group Admin Endpoints
+  getGroupMembers: (params: { groupId: string; n?: number; offset?: number; sort?: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/members`, 'GET', { n: params.n || 100, offset: params.offset || 0, sort: params.sort || 'joinedAt:desc' }),
+  getGroupJoinRequests: (params: { groupId: string; n?: number; offset?: number }) => 
+    VrcApi.request(`/groups/${params.groupId}/requests`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
+  respondGroupJoinRequest: (params: { groupId: string; userId: string; action: 'accept' | 'reject' }) => 
+    VrcApi.request(`/groups/${params.groupId}/requests/${params.userId}`, 'PUT', { action: params.action }),
+  getGroupRoles: (params: { groupId: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/roles`, 'GET'),
+  addGroupRole: (params: { groupId: string; userId: string; roleId: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/members/${params.userId}/roles/${params.roleId}`, 'POST'),
+  removeGroupRole: (params: { groupId: string; userId: string; roleId: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/members/${params.userId}/roles/${params.roleId}`, 'DELETE'),
+  kickGroupMember: (params: { groupId: string; userId: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/members/${params.userId}`, 'DELETE'),
+  getGroupAuditLogs: (params: { groupId: string; n?: number; offset?: number }) => 
+    VrcApi.request(`/groups/${params.groupId}/auditLogs`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
+  getGroupBans: (params: { groupId: string; n?: number; offset?: number }) => 
+    VrcApi.request(`/groups/${params.groupId}/bans`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
+  banGroupMember: (params: { groupId: string; userId: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/bans`, 'POST', { userId: params.userId }),
+  unbanGroupMember: (params: { groupId: string; userId: string }) => 
+    VrcApi.request(`/groups/${params.groupId}/bans/${params.userId}`, 'DELETE'),
+  getUserGroupPermissions: (params: { userId?: string }) => 
+    VrcApi.request(`/users/${params.userId || 'me'}/groups/permissions`, 'GET'),
 };
 
 export const DbApi = {
   getAuth: () => safeInvoke<string | null>('db_get_auth'),
   saveAuth: (params: any) => safeInvoke<void>('db_save_auth', params),
   clearAuth: () => safeInvoke<void>('db_clear_auth'),
+  clearGameLogs: () => safeInvoke<void>('db_clear_game_logs'),
+  clearFriendLogs: () => safeInvoke<void>('db_clear_friend_logs'),
   getHeatmap: () => safeInvoke<any[]>('db_get_heatmap'),
   getHeatmapDetails: (params: { day: number, hour: number }) => safeInvoke<any[]>('db_get_heatmap_details', params),
   getNotes: () => safeInvoke<any[]>('db_get_all_notes'),
@@ -346,6 +451,10 @@ export const DbApi = {
   addFavoriteAvatar: (params: { avatarId: string; name: string; imageUrl?: string | null; authorId?: string | null; authorName?: string | null }) => safeInvoke<void>('db_add_favorite_avatar', params),
   getFavoriteAvatars: () => safeInvoke<any[]>('db_get_favorite_avatars'),
   removeFavoriteAvatar: (params: { avatarId: string }) => safeInvoke<void>('db_remove_favorite_avatar', params),
+
+  // API Cache
+  getApiCache: (params: { key: string }) => safeInvoke<string | null>('db_get_api_cache', params),
+  saveApiCache: (params: { key: string, data: string }) => safeInvoke<void>('db_save_api_cache', params),
 };
 
 export const SysApi = {
@@ -357,6 +466,7 @@ export const SysApi = {
   clearVrcCache: () => safeInvoke<number>('sys_clear_vrchat_cache'),
   isVrcRunning: () => safeInvoke<boolean>('sys_is_vrchat_running'),
   launchVrc: (params?: { launchArgs?: string }) => safeInvoke<void>('sys_launch_vrchat', params),
+  killVrc: () => safeInvoke<void>('sys_kill_vrchat'),
   sendOscParam: (params: { address: string; value: number }) => safeInvoke<void>('sys_send_osc_param', params),
   sendOscChatbox: (params: { text: string; complete: boolean }) => safeInvoke<void>('sys_send_osc_chatbox', params),
   setDiscordRpc: (params: { details: string; state: string }) => safeInvoke<void>('sys_set_discord_rpc', params),
@@ -365,6 +475,8 @@ export const SysApi = {
   stopAudioCapture: () => safeInvoke<void>('sys_stop_audio_capture'),
   startOscAutomation: () => safeInvoke<void>('sys_start_osc_automation'),
   stopOscAutomation: () => safeInvoke<void>('sys_stop_osc_automation'),
+  startAutoLaunchApps: (params: { apps: string[] }) => safeInvoke<void>('sys_start_auto_launch_apps', params),
+  killAutoLaunchApps: () => safeInvoke<void>('sys_kill_auto_launch_apps'),
   showInExplorer: (params: { path: string }) => safeInvoke<void>('sys_show_in_explorer', params),
   verifyServerPassword: (params: { password: string }) => safeInvoke<void>('sys_verify_server_password', params),
   startServer: (params: { host: string, port: number }) => safeInvoke<void>('sys_start_server', params),
@@ -373,7 +485,15 @@ export const SysApi = {
   pingServer: (params: { url: string }) => safeInvoke<string>('sys_ping_server', params),
   openNewClient: () => safeInvoke<void>('sys_open_new_client'),
   setAutostart: (params: { enable: boolean }) => safeInvoke<void>('sys_set_autostart', params),
+  registerUrlScheme: (params: { enable: boolean }) => safeInvoke<void>('sys_register_url_scheme', params),
+  getLaunchArgs: () => safeInvoke<string[]>('sys_get_launch_args'),
   openDir: (params: { target: string }) => safeInvoke<void>('sys_open_dir', params),
+  getVrcScreenshotDir: () => safeInvoke<string>('sys_get_vrc_screenshot_dir'),
+  setVrcScreenshotDir: (params: { path: string }) => safeInvoke<void>('sys_set_vrc_screenshot_dir', params),
+  getVrcConfig: () => safeInvoke<string>('sys_get_vrc_config'),
+  saveVrcConfig: (params: { content: string }) => safeInvoke<void>('sys_save_vrc_config', params),
+  backupDatabase: (params: { destPath: string }) => safeInvoke<void>('sys_backup_database', params),
+  restoreDatabase: (params: { srcPath: string }) => safeInvoke<void>('sys_restore_database', params),
 };
 
 export const GamelogApi = {
@@ -382,6 +502,7 @@ export const GamelogApi = {
 
 export const GalleryApi = {
   getImages: (params?: { limit?: number; offset?: number }) => safeInvoke<any[]>('gallery_get_images', params || {}),
+  deleteImage: (params: { path: string }) => safeInvoke<void>('gallery_delete_image', params),
 };
 
 export const OvrApi = {

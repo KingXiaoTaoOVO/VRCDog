@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
-import { Users, Loader2, Shield, Search } from 'lucide-vue-next';
+import { Users, Loader2, Shield, Search, Check, UsersRound } from 'lucide-vue-next';
 import VrcAvatar from './VrcAvatar.vue';
+import VrcResourceCard from './VrcResourceCard.vue';
+import BaseModal from './BaseModal.vue';
 import { useI18n } from 'vue-i18n';
 import type { VrcGroup } from '../types/vrc';
 
@@ -20,7 +22,8 @@ const fetchGroups = async () => {
   errorMsg.value = '';
   try {
     const res: any = await VrcApi.getGroups();
-    groups.value = Array.isArray(res) ? res : [];
+    const list = Array.isArray(res) ? res : [];
+    groups.value = list.map(g => g.group || g);
   } catch (err: any) {
     errorMsg.value = err.message || err;
   } finally {
@@ -28,12 +31,13 @@ const fetchGroups = async () => {
   }
 };
 
-const openGroupDetail = async (groupId: string) => {
+const openGroupDetail = async (group: any) => {
+  const groupId = group.groupId || group.id;
   loadingGroup.value = true;
   selectedGroup.value = null;
   try {
-    const group: any = await VrcApi.getGroup({ groupId: groupId });
-    selectedGroup.value = group;
+    const fetchedGroup: any = await VrcApi.getGroup({ groupId: groupId });
+    selectedGroup.value = fetchedGroup;
   } catch (err: any) {
     errorMsg.value = err.message || err;
   } finally {
@@ -56,29 +60,33 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
-      <h1 class="text-2xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-2">
-        <Users
-          class="text-indigo-500"
-          :size="28"
-        /> {{ t('groups.title') }}
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 shrink-0 z-10">
+      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+          <Users class="w-6 h-6 text-indigo-600" />
+        </span>
+        {{ t('groups.title') }}
       </h1>
       <div class="flex items-center gap-2">
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search class="h-4 w-4 text-indigo-400" />
+            <Search class="h-4 w-4 text-slate-400" />
           </div>
           <input
             v-model="searchQuery"
             type="text"
-            class="block w-64 pl-10 pr-4 py-2 bg-white/80 backdrop-blur border border-indigo-200 rounded-xl text-indigo-900 placeholder-indigo-400 focus:outline-none focus:border-indigo-400 text-sm transition-colors"
+            class="block w-64 pl-10 pr-4 py-2 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
             :placeholder="t('groups.search_placeholder')"
           >
         </div>
         <button
           :disabled="loading"
-          class="p-2 rounded-xl bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+          class="p-2.5 rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all disabled:opacity-50"
           @click="fetchGroups"
         >
           <Loader2
@@ -96,165 +104,141 @@ onMounted(() => {
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4"
+      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
 
-    <div class="flex-1 overflow-y-auto pr-1">
+    <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading && groups.length === 0"
-        class="flex items-center justify-center py-12 text-indigo-500 font-bold"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
       >
         <Loader2
-          class="animate-spin mr-2"
-          :size="24"
-        /> {{ t('groups.loading') }}
+          class="animate-spin mb-4"
+          :size="48"
+        />
+        <span class="font-extrabold text-lg tracking-wide">{{ t('groups.loading') }}</span>
       </div>
 
       <div
         v-else-if="groups.length === 0"
-        class="text-center text-indigo-500 py-12 text-sm bg-white/50 backdrop-blur rounded-2xl border-2 border-dashed border-indigo-200 font-bold"
+        class="h-full flex flex-col items-center justify-center text-slate-400"
       >
         <Users
-          class="mx-auto mb-3 opacity-50"
-          :size="48"
+          class="mb-4 opacity-30"
+          :size="64"
         />
-        {{ t('groups.no_groups') }} 🐕
+        <p class="font-bold text-xl text-slate-500">
+          {{ t('groups.no_groups') }}
+        </p>
       </div>
 
       <div
         v-else
-        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-10"
       >
-        <div
+        <VrcResourceCard
           v-for="group in filteredGroups"
           :key="group.groupId || group.id"
-          class="bg-white/80 backdrop-blur rounded-2xl overflow-hidden border border-indigo-100 hover:border-indigo-300 transition-all shadow-sm hover:shadow-md cursor-pointer group flex flex-col"
-          @click="openGroupDetail(group.groupId || group.id)"
-        >
-          <div class="h-24 bg-indigo-50 relative overflow-hidden flex-shrink-0">
-            <VrcAvatar
-              :user="group"
-              :url="group.bannerUrl"
-              custom-class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80"
-            />
-          </div>
-          <div class="p-4 flex gap-3 -mt-8 relative flex-1">
-            <VrcAvatar
-              :user="group"
-              :url="group.iconUrl"
-              custom-class="w-14 h-14 rounded-xl object-cover border-4 border-white shadow-sm bg-indigo-50 flex-shrink-0"
-            />
-            <div class="flex-1 min-w-0 pt-6">
-              <h3 class="font-bold text-indigo-900 text-sm truncate">
-                {{ group.name }}
-              </h3>
-              <p class="text-[10px] text-indigo-600 truncate mt-1">
-                {{ group.shortCode }}
-              </p>
-            </div>
-          </div>
-        </div>
+          type="group"
+          :data="group"
+          @click="openGroupDetail(group)"
+        />
       </div>
     </div>
 
     <!-- 群组详情弹窗 -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div
-          v-if="selectedGroup || loadingGroup"
-          class="fixed inset-0 z-50 flex items-center justify-center p-4"
-        >
-          <div
-            class="absolute inset-0 bg-black/30 backdrop-blur-sm"
-            @click="selectedGroup = null"
+    <BaseModal
+      :show="!!selectedGroup"
+      :loading="loadingGroup"
+      @close="selectedGroup = null"
+    >
+      <template v-if="selectedGroup">
+        <div class="h-32 bg-slate-900 relative overflow-hidden rounded-t-2xl">
+          <VrcAvatar
+            :user="selectedGroup"
+            :url="selectedGroup.bannerUrl"
+            custom-class="w-full h-full object-cover opacity-80"
           />
-          <div class="bg-white/95 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden border border-indigo-100 flex flex-col max-h-[90vh]">
-            <div
-              v-if="loadingGroup"
-              class="p-12 text-center"
-            >
-              <Loader2
-                class="animate-spin mx-auto text-indigo-500"
-                :size="32"
+          <button
+            class="absolute top-4 right-4 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
+            @click="selectedGroup = null"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="p-6 relative">
+          <div class="flex gap-4 mb-4">
+            <div class="w-20 h-20 -mt-12 rounded-xl border-4 border-white shadow-md bg-white flex-shrink-0 relative z-10 overflow-hidden">
+              <VrcAvatar
+                :user="selectedGroup"
+                :url="selectedGroup.iconUrl"
+                custom-class="w-full h-full object-cover"
               />
             </div>
-            <template v-else-if="selectedGroup">
-              <div class="h-40 bg-indigo-50 relative overflow-hidden flex-shrink-0">
-                <VrcAvatar
-                  :user="selectedGroup"
-                  :url="selectedGroup.bannerUrl"
-                  custom-class="w-full h-full object-cover opacity-80"
-                />
-                <button
-                  class="absolute top-3 right-3 p-1.5 rounded-full bg-black/20 hover:bg-black/40 text-white backdrop-blur"
-                  @click="selectedGroup = null"
-                >
-                  ✕
-                </button>
+            <div class="flex-1 pb-1 min-w-0">
+              <h2 class="text-xl font-black text-slate-900 truncate">
+                {{ selectedGroup.name }}
+              </h2>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="text-xs font-bold text-slate-500 uppercase">{{ selectedGroup.shortCode }}</span>
+                <span class="w-1 h-1 rounded-full bg-slate-300" />
+                <span class="text-xs font-bold text-indigo-600 flex items-center gap-1"><UsersRound :size="12" /> {{ selectedGroup.memberCount || 0 }} {{ t('global.groups.members') }}</span>
               </div>
-              <div class="p-6 -mt-10 relative flex-1 overflow-y-auto">
-                <div class="flex items-end gap-4 mb-4">
-                  <VrcAvatar
-                    :user="selectedGroup"
-                    :url="selectedGroup.iconUrl"
-                    custom-class="w-20 h-20 rounded-2xl object-cover border-4 border-white shadow-lg bg-indigo-50"
-                  />
-                  <div class="flex-1 min-w-0 pb-1">
-                    <h2 class="text-xl font-extrabold text-[#451a03] truncate">
-                      {{ selectedGroup.name }}
-                    </h2>
-                    <p class="text-sm font-bold text-indigo-700">
-                      {{ selectedGroup.shortCode }}
-                    </p>
-                  </div>
-                </div>
-                
-                <p class="text-sm text-gray-700 mb-6 leading-relaxed whitespace-pre-wrap">
-                  {{ selectedGroup.description }}
-                </p>
-                
-                <div class="grid grid-cols-2 gap-3">
-                  <div class="bg-indigo-50 rounded-xl p-3 flex items-center gap-2">
-                    <Users
-                      class="text-indigo-500"
-                      :size="16"
-                    />
-                    <div>
-                      <p class="text-lg font-extrabold text-indigo-700">
-                        {{ selectedGroup.memberCount || 0 }}
-                      </p>
-                      <p class="text-[10px] text-indigo-600 font-bold">
-                        {{ t('groups.member_count') }}
-                      </p>
-                    </div>
-                  </div>
-                  <div class="bg-indigo-50 rounded-xl p-3 flex items-center gap-2">
-                    <Shield
-                      class="text-indigo-500"
-                      :size="16"
-                    />
-                    <div>
-                      <p class="text-lg font-extrabold text-indigo-700">
-                        {{ selectedGroup.privacy || 'Public' }}
-                      </p>
-                      <p class="text-[10px] text-indigo-600 font-bold">
-                        {{ t('groups.privacy') }}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </template>
+            </div>
+          </div>
+          
+          <div class="mb-5">
+            <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar">
+              {{ selectedGroup.description || t('global.groups.no_desc') }}
+            </p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mb-5">
+            <div class="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col justify-center">
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                隐私状态
+              </p>
+              <p class="text-sm font-black text-slate-800 flex items-center gap-1">
+                <Shield
+                  :size="14"
+                  class="text-blue-500"
+                /> {{ selectedGroup.privacy === 'public' ? t('global.groups.public') : t('global.groups.private') }}
+              </p>
+            </div>
+            <div class="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col justify-center">
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                加入方式
+              </p>
+              <p class="text-sm font-black text-slate-800 flex items-center gap-1">
+                <Check
+                  :size="14"
+                  class="text-green-500"
+                /> {{ selectedGroup.joinState === 'open' ? '自由加入' : (selectedGroup.joinState === 'request' ? '需申请' : '邀请制') }}
+              </p>
+            </div>
+          </div>
+          
+          <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
+            <div class="text-xs text-slate-400 font-mono">
+              {{ selectedGroup.id }}
+            </div>
+            <button
+              class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors shadow-sm" 
+            >
+              在 VRChat 中查看
+            </button>
           </div>
         </div>
-      </Transition>
-    </Teleport>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
 <style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 </style>

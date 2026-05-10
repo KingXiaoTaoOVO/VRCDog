@@ -23,7 +23,7 @@ const topWorlds = ref<Array<{id: string, count: number, name: string, thumbnail?
 const dayLabels = computed(() => {
   const days = t('charts.days');
   if (Array.isArray(days)) return days;
-  return ['一', '二', '三', '四', '五', '六', '日'];
+  return [t('charts.day_1'), t('charts.day_2'), t('charts.day_3'), t('charts.day_4'), t('charts.day_5'), t('charts.day_6'), t('charts.day_7')];
 });
 
 const calculateTopWorlds = async (friends: VrcUser[]) => {
@@ -270,112 +270,165 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-gray-50/50 p-2">
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
     <!-- 顶部导航 Tab -->
-    <div class="flex items-center gap-6 border-b border-gray-200 mb-4 px-2">
+    <div class="flex items-center gap-6 border-b border-slate-200/60 mb-6 shrink-0 z-10">
       <button
-        :class="currentTab === 'overview' ? 'border-b-2 border-violet-600 text-violet-800 font-bold' : 'text-gray-500 hover:text-gray-700 font-medium'"
-        class="py-3 px-1 transition-colors text-sm flex items-center gap-2"
+        :class="currentTab === 'overview' ? 'border-b-2 border-indigo-600 text-indigo-700 font-bold' : 'border-b-2 border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 font-medium'"
+        class="py-3 px-2 transition-all text-sm flex items-center gap-2"
         @click="currentTab = 'overview'"
       >
         <LayoutDashboard :size="16" /> {{ t('charts.overview') }}
       </button>
       <button
-        :class="currentTab === 'network' ? 'border-b-2 border-violet-600 text-violet-800 font-bold' : 'text-gray-500 hover:text-gray-700 font-medium'"
-        class="py-3 px-1 transition-colors text-sm flex items-center gap-2"
+        :class="currentTab === 'network' ? 'border-b-2 border-indigo-600 text-indigo-700 font-bold' : 'border-b-2 border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 font-medium'"
+        class="py-3 px-2 transition-all text-sm flex items-center gap-2"
         @click="currentTab = 'network'"
       >
         <Network :size="16" /> {{ t('charts.network') }}
       </button>
       <button
-        :class="currentTab === 'worlds' ? 'border-b-2 border-violet-600 text-violet-800 font-bold' : 'text-gray-500 hover:text-gray-700 font-medium'"
-        class="py-3 px-1 transition-colors text-sm flex items-center gap-2"
+        :class="currentTab === 'worlds' ? 'border-b-2 border-indigo-600 text-indigo-700 font-bold' : 'border-b-2 border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 font-medium'"
+        class="py-3 px-2 transition-all text-sm flex items-center gap-2"
         @click="currentTab = 'worlds'"
       >
         <Trophy :size="16" /> {{ t('charts.top_worlds') }}
       </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-2 custom-scrollbar">
+    <div class="flex-1 overflow-y-auto custom-scrollbar z-10 relative pr-2">
       <div
         v-if="loading"
-        class="flex flex-col items-center justify-center py-20 text-violet-600/70"
+        class="flex flex-col items-center justify-center py-20 text-indigo-500/80 h-full"
       >
-        <div class="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin mb-4"></div>
-        <span class="font-bold text-lg">{{ t('charts.analyzing') }}</span>
+        <div class="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
+        <span class="font-extrabold text-lg tracking-wide">{{ t('charts.analyzing') }}</span>
       </div>
 
       <template v-else>
         <!-- 概览面板 -->
-        <div v-show="currentTab === 'overview'" class="space-y-6">
+        <div
+          v-show="currentTab === 'overview'"
+          class="space-y-6"
+        >
           <!-- 统计卡片 -->
           <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div class="bg-white rounded-xl p-5 border border-violet-100 shadow-sm text-center transform transition-all hover:scale-105 hover:shadow-md">
-              <Users class="mx-auto mb-2 text-violet-500" :size="24" />
-              <div class="text-3xl font-black text-violet-800 mb-1">{{ friendStats.total }}</div>
-              <div class="text-xs text-violet-600 font-bold">{{ t('charts.total_friends') }}</div>
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl p-5 border border-slate-200 shadow-sm text-center transform transition-all hover:-translate-y-1 hover:shadow-lg hover:border-indigo-300">
+              <Users
+                class="mx-auto mb-3 text-indigo-500"
+                :size="24"
+              />
+              <div class="text-3xl font-black text-slate-800 mb-1 tracking-tight">
+                {{ friendStats.total }}
+              </div>
+              <div class="text-xs text-slate-500 font-bold">
+                {{ t('charts.total_friends') }}
+              </div>
             </div>
-            <div class="bg-white rounded-xl p-5 border border-green-100 shadow-sm text-center transform transition-all hover:scale-105 hover:shadow-md">
-              <Activity class="mx-auto mb-2 text-green-500" :size="24" />
-              <div class="text-3xl font-black text-green-700 mb-1">{{ friendStats.online }}</div>
-              <div class="text-xs text-green-600 font-bold">{{ t('charts.online') }} ({{ onlinePercent }}%)</div>
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl p-5 border border-slate-200 shadow-sm text-center transform transition-all hover:-translate-y-1 hover:shadow-lg hover:border-emerald-300">
+              <Activity
+                class="mx-auto mb-3 text-emerald-500"
+                :size="24"
+              />
+              <div class="text-3xl font-black text-slate-800 mb-1 tracking-tight">
+                {{ friendStats.online }}
+              </div>
+              <div class="text-xs text-slate-500 font-bold">
+                {{ t('charts.online') }} <span class="text-emerald-600">({{ onlinePercent }}%)</span>
+              </div>
             </div>
-            <div class="bg-white rounded-xl p-5 border border-blue-100 shadow-sm text-center transform transition-all hover:scale-105 hover:shadow-md">
-              <div class="w-6 h-6 rounded-full bg-blue-500 mx-auto mb-2 shadow-inner" />
-              <div class="text-3xl font-black text-blue-700 mb-1">{{ friendStats.joinMe }}</div>
-              <div class="text-xs text-blue-600 font-bold">{{ t('charts.join_me') }}</div>
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl p-5 border border-slate-200 shadow-sm text-center transform transition-all hover:-translate-y-1 hover:shadow-lg hover:border-blue-300">
+              <div class="w-6 h-6 rounded-full bg-blue-500 shadow-md shadow-blue-500/20 mx-auto mb-3" />
+              <div class="text-3xl font-black text-slate-800 mb-1 tracking-tight">
+                {{ friendStats.joinMe }}
+              </div>
+              <div class="text-xs text-slate-500 font-bold">
+                {{ t('charts.join_me') }}
+              </div>
             </div>
-            <div class="bg-white rounded-xl p-5 border border-orange-100 shadow-sm text-center transform transition-all hover:scale-105 hover:shadow-md">
-              <div class="w-6 h-6 rounded-full bg-orange-500 mx-auto mb-2 shadow-inner" />
-              <div class="text-3xl font-black text-orange-700 mb-1">{{ friendStats.askMe }}</div>
-              <div class="text-xs text-orange-600 font-bold">{{ t('charts.ask_me') }}</div>
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl p-5 border border-slate-200 shadow-sm text-center transform transition-all hover:-translate-y-1 hover:shadow-lg hover:border-orange-300">
+              <div class="w-6 h-6 rounded-full bg-orange-500 shadow-md shadow-orange-500/20 mx-auto mb-3" />
+              <div class="text-3xl font-black text-slate-800 mb-1 tracking-tight">
+                {{ friendStats.askMe }}
+              </div>
+              <div class="text-xs text-slate-500 font-bold">
+                {{ t('charts.ask_me') }}
+              </div>
             </div>
-            <div class="bg-white rounded-xl p-5 border border-red-100 shadow-sm text-center transform transition-all hover:scale-105 hover:shadow-md">
-              <div class="w-6 h-6 rounded-full bg-red-500 mx-auto mb-2 shadow-inner" />
-              <div class="text-3xl font-black text-red-700 mb-1">{{ friendStats.busy }}</div>
-              <div class="text-xs text-red-600 font-bold">{{ t('charts.busy') }}</div>
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl p-5 border border-slate-200 shadow-sm text-center transform transition-all hover:-translate-y-1 hover:shadow-lg hover:border-red-300">
+              <div class="w-6 h-6 rounded-full bg-red-500 shadow-md shadow-red-500/20 mx-auto mb-3" />
+              <div class="text-3xl font-black text-slate-800 mb-1 tracking-tight">
+                {{ friendStats.busy }}
+              </div>
+              <div class="text-xs text-slate-500 font-bold">
+                {{ t('charts.busy') }}
+              </div>
             </div>
-            <div class="bg-white rounded-xl p-5 border border-gray-200 shadow-sm text-center transform transition-all hover:scale-105 hover:shadow-md">
-              <div class="w-6 h-6 rounded-full bg-gray-400 mx-auto mb-2 shadow-inner" />
-              <div class="text-3xl font-black text-gray-600 mb-1">{{ friendStats.offline }}</div>
-              <div class="text-xs text-gray-500 font-bold">{{ t('charts.offline') }}</div>
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl p-5 border border-slate-200 shadow-sm text-center transform transition-all hover:-translate-y-1 hover:shadow-lg hover:border-slate-300">
+              <div class="w-6 h-6 rounded-full bg-slate-400 shadow-md shadow-slate-400/20 mx-auto mb-3" />
+              <div class="text-3xl font-black text-slate-800 mb-1 tracking-tight">
+                {{ friendStats.offline }}
+              </div>
+              <div class="text-xs text-slate-500 font-bold">
+                {{ t('charts.offline') }}
+              </div>
             </div>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- 周活跃图表 -->
-            <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-              <h2 class="font-extrabold text-gray-900 mb-6 flex items-center gap-2 text-lg">
-                <TrendingUp class="text-violet-500" :size="20" /> {{ t('charts.weekly_trend') }}
+            <div class="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white shadow-lg shadow-slate-200/40">
+              <h2 class="font-extrabold text-slate-900 mb-6 flex items-center gap-3 text-lg">
+                <span class="p-1.5 bg-sky-50 rounded-lg text-sky-500"><TrendingUp :size="20" /></span>
+                {{ t('charts.weekly_trend') }}
               </h2>
               <div class="flex items-end justify-between gap-3 h-48 px-2">
-                <div v-for="(count, idx) in weeklyActivity" :key="idx" class="flex-1 flex flex-col items-center gap-2 group">
-                  <span class="text-xs font-bold text-violet-700 opacity-0 group-hover:opacity-100 transition-opacity">{{ count }}</span>
+                <div
+                  v-for="(count, idx) in weeklyActivity"
+                  :key="idx"
+                  class="flex-1 flex flex-col items-center gap-2 group"
+                >
+                  <span class="text-xs font-bold text-sky-600 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0">{{ count }}</span>
                   <div
-                    class="w-full max-w-[40px] rounded-t-xl transition-all duration-700 bg-gradient-to-t from-violet-600 to-violet-400 group-hover:from-violet-500 group-hover:to-violet-300 shadow-md"
+                    class="w-full max-w-[48px] rounded-t-xl transition-all duration-700 bg-gradient-to-t from-sky-500 to-sky-300 group-hover:from-sky-400 group-hover:to-sky-200 shadow-sm"
                     :style="{ height: (count / maxWeekly * 100) + '%', minHeight: count > 0 ? '12px' : '4px' }"
                   />
-                  <span class="text-xs text-gray-600 font-bold mt-2">{{ dayLabels[idx] }}</span>
+                  <span class="text-xs text-slate-500 font-bold mt-2">{{ dayLabels[idx] }}</span>
                 </div>
               </div>
             </div>
 
             <!-- 最近事件摘要 -->
-            <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-              <h3 class="font-extrabold text-gray-900 mb-4 flex items-center gap-2 text-lg">
-                <Clock class="text-violet-500" :size="20" /> {{ t('charts.recent_events') }}
+            <div class="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white shadow-lg shadow-slate-200/40 flex flex-col">
+              <h3 class="font-extrabold text-slate-900 mb-4 flex items-center gap-3 text-lg">
+                <span class="p-1.5 bg-indigo-50 rounded-lg text-indigo-600"><Clock :size="20" /></span>
+                {{ t('charts.recent_events') }}
               </h3>
-              <div v-if="recentLogs.length === 0" class="text-sm text-gray-400 text-center py-10 font-medium">
+              <div
+                v-if="recentLogs.length === 0"
+                class="flex-1 flex items-center justify-center text-sm text-slate-400 font-bold"
+              >
                 {{ t('charts.no_events') }}
               </div>
-              <div v-else class="space-y-3 max-h-56 overflow-y-auto custom-scrollbar pr-2">
-                <div v-for="log in recentLogs.slice(0, 10)" :key="log.id" class="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors">
+              <div
+                v-else
+                class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-2"
+              >
+                <div
+                  v-for="log in recentLogs.slice(0, 10)"
+                  :key="log.id"
+                  class="flex items-center gap-3 p-3 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 transition-colors shadow-sm"
+                >
                   <span
-                    class="w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-sm"
-                    :class="log.event_type === 'online' ? 'bg-green-500' : log.event_type === 'offline' ? 'bg-gray-400' : 'bg-violet-500'"
+                    class="w-3 h-3 rounded-full flex-shrink-0 shadow-sm"
+                    :class="log.event_type === 'online' ? 'bg-emerald-500' : log.event_type === 'offline' ? 'bg-slate-400' : 'bg-indigo-500'"
                   />
-                  <span class="text-gray-800 font-bold truncate flex-1 text-sm">{{ log.display_name || t('charts.system') }}</span>
-                  <span class="text-gray-400 text-xs font-medium bg-gray-100 px-2 py-1 rounded-md">{{ log.created_at?.slice(11, 16) }}</span>
+                  <span class="text-slate-800 font-bold truncate flex-1 text-sm">{{ log.display_name || t('charts.system') }}</span>
+                  <span class="text-slate-500 text-xs font-bold bg-slate-100 px-2.5 py-1 rounded-lg">{{ log.created_at?.slice(11, 16) }}</span>
                 </div>
               </div>
             </div>
@@ -383,90 +436,163 @@ onUnmounted(() => {
         </div>
 
         <!-- 关系网拓扑图面板 (共同好友) -->
-        <div v-show="currentTab === 'network'" class="h-full min-h-[500px] bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col">
-          <div class="mb-2 flex justify-between items-center">
+        <div
+          v-show="currentTab === 'network'"
+          class="h-full min-h-[500px] bg-white/70 backdrop-blur-xl rounded-3xl border border-white shadow-lg shadow-slate-200/40 p-6 flex flex-col"
+        >
+          <div class="mb-4 flex justify-between items-start">
             <div>
-              <h2 class="font-extrabold text-gray-900 flex items-center gap-2 text-lg">
-                <Network class="text-violet-500" :size="20" /> 共同好友拓扑图
+              <h2 class="font-extrabold text-slate-900 flex items-center gap-3 text-lg">
+                <span class="p-1.5 bg-indigo-50 rounded-lg text-indigo-600"><Network :size="20" /></span>
+                {{ t('charts.mutual_topology') }}
               </h2>
-              <p class="text-xs text-gray-500 mt-1">展示您与好友之间的相互联系与社区聚类</p>
+              <p class="text-xs text-slate-500 mt-2 font-medium ml-1">
+                {{ t('charts.mutual_desc') }}
+              </p>
             </div>
             
             <div class="flex items-center gap-4">
-              <div v-if="isFetchingMutuals" class="flex flex-col items-end">
-                <span class="text-xs font-bold text-violet-600 mb-1">
-                  正在扫描: {{ mutualFetchProgress.current }} / {{ mutualFetchProgress.total }}
+              <div
+                v-if="isFetchingMutuals"
+                class="flex flex-col items-end"
+              >
+                <span class="text-xs font-bold text-indigo-600 mb-1.5">
+                  {{ t('charts.scanning') }} {{ mutualFetchProgress.current }} / {{ mutualFetchProgress.total }}
                 </span>
-                <div class="w-32 h-2 bg-gray-100 rounded-full overflow-hidden shadow-inner">
-                  <div class="h-full bg-violet-500 transition-all duration-300" :style="{ width: `${mutualFetchProgress.total ? (mutualFetchProgress.current / mutualFetchProgress.total) * 100 : 0}%` }"></div>
+                <div class="w-40 h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200/50">
+                  <div
+                    class="h-full bg-indigo-500 transition-all duration-300"
+                    :style="{ width: `${mutualFetchProgress.total ? (mutualFetchProgress.current / mutualFetchProgress.total) * 100 : 0}%` }"
+                  />
                 </div>
               </div>
               <button 
                 v-else-if="!mutualGraphReady"
+                class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-indigo-500/30 transition-all active:scale-95 flex items-center gap-2"
                 @click="fetchMutualFriends"
-                class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-lg shadow-sm transition-colors flex items-center gap-2"
               >
-                <Network :size="16" />
-                开始生成拓扑图
+                <Network :size="18" />
+                {{ t('charts.generate_topology') }}
               </button>
               <button 
                 v-else
+                class="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-300 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center gap-2"
                 @click="fetchMutualFriends"
-                class="px-4 py-2 bg-white border border-violet-200 text-violet-600 hover:bg-violet-50 text-sm font-bold rounded-lg shadow-sm transition-colors flex items-center gap-2"
               >
-                重新生成
+                {{ t('charts.regenerate') }}
               </button>
             </div>
           </div>
 
-          <div v-if="!mutualGraphReady && !isFetchingMutuals" class="flex-1 flex flex-col items-center justify-center text-gray-400 mt-4 border-2 border-dashed border-gray-100 rounded-xl">
-            <Network :size="48" class="mb-4 opacity-50 text-gray-300" />
-            <p class="font-bold text-lg text-gray-600">无拓扑图数据</p>
-            <p class="text-sm mt-2 text-center max-w-sm">点击右上角按钮开始扫描。由于需要获取所有好友的共同好友列表，这可能需要一定时间，具体取决于您的好友数量。</p>
+          <div
+            v-if="!mutualGraphReady && !isFetchingMutuals"
+            class="flex-1 flex flex-col items-center justify-center text-slate-400 mt-2 border-2 border-dashed border-slate-200 rounded-2xl bg-white/50"
+          >
+            <Network
+              :size="64"
+              class="mb-4 opacity-30 text-slate-400"
+            />
+            <p class="font-bold text-xl text-slate-500">
+              {{ t('charts.no_topology_data') }}
+            </p>
+            <p class="text-sm mt-2 text-center max-w-md font-medium">
+              {{ t('charts.topology_help') }}
+            </p>
           </div>
           
-          <div v-else-if="isFetchingMutuals && mutualGraphNodes.length === 0" class="flex-1 flex flex-col items-center justify-center text-violet-500 mt-4 border-2 border-dashed border-violet-100 rounded-xl bg-violet-50/30">
-            <div class="w-10 h-10 border-4 border-violet-300 border-t-violet-600 rounded-full animate-spin mb-4"></div>
-            <p class="font-bold text-lg animate-pulse">正在深度遍历关系网...</p>
-            <p class="text-xs text-violet-400 mt-2">请耐心等待，正在拉取 VRChat 服务器数据</p>
+          <div
+            v-else-if="isFetchingMutuals && mutualGraphNodes.length === 0"
+            class="flex-1 flex flex-col items-center justify-center text-indigo-600 mt-2 border-2 border-dashed border-indigo-200 rounded-2xl bg-indigo-50/50"
+          >
+            <div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-6" />
+            <p class="font-extrabold text-xl tracking-wide animate-pulse">
+              {{ t('charts.traversing_network') }}
+            </p>
+            <p class="text-sm text-indigo-400 mt-2 font-bold">
+              {{ t('charts.pulling_data') }}
+            </p>
           </div>
 
-          <div v-show="mutualGraphReady" ref="networkChartRef" class="flex-1 w-full rounded-lg bg-gray-50 mt-2 border border-gray-100 shadow-inner overflow-hidden relative">
-            <div v-if="isFetchingMutuals" class="absolute top-2 right-2 z-10 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold text-violet-600 shadow-sm border border-violet-100 flex items-center gap-2">
-              <div class="w-2 h-2 bg-violet-500 rounded-full animate-ping"></div>
-              图表数据实时更新中...
+          <div
+            v-show="mutualGraphReady"
+            ref="networkChartRef"
+            class="flex-1 w-full rounded-2xl bg-white mt-2 border border-slate-100 shadow-inner overflow-hidden relative"
+          >
+            <div
+              v-if="isFetchingMutuals"
+              class="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur px-4 py-2 rounded-xl text-xs font-bold text-indigo-600 shadow-sm border border-indigo-100 flex items-center gap-2"
+            >
+              <div class="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-ping" />
+              {{ t('charts.updating_realtime') }}
             </div>
           </div>
         </div>
 
         <!-- 热门世界排行榜面板 -->
-        <div v-show="currentTab === 'worlds'" class="space-y-4">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-            <h2 class="font-extrabold text-gray-900 mb-6 flex items-center gap-2 text-lg">
-              <Globe2 class="text-violet-500" :size="20" /> {{ t('charts.top_worlds_title') }}
+        <div
+          v-show="currentTab === 'worlds'"
+          class="space-y-4"
+        >
+          <div class="bg-white/70 backdrop-blur-xl rounded-3xl border border-white shadow-lg shadow-slate-200/40 p-6">
+            <h2 class="font-extrabold text-slate-900 mb-6 flex items-center gap-3 text-lg">
+              <span class="p-1.5 bg-indigo-50 rounded-lg text-indigo-600"><Globe2 :size="20" /></span>
+              {{ t('charts.top_worlds_title') }}
             </h2>
             
-            <div v-if="topWorlds.length === 0" class="text-center py-20 text-gray-400">
-              <Trophy :size="48" class="mx-auto mb-4 opacity-50 text-gray-300" />
-              <p class="font-bold">{{ t('charts.no_data') }}</p>
-              <p class="text-sm mt-1">{{ t('charts.no_data_desc') }}</p>
+            <div
+              v-if="topWorlds.length === 0"
+              class="flex flex-col items-center justify-center py-20 text-slate-400"
+            >
+              <Trophy
+                :size="64"
+                class="mb-4 opacity-30"
+              />
+              <p class="font-bold text-xl">
+                {{ t('charts.no_data') }}
+              </p>
+              <p class="text-sm mt-2 font-medium">
+                {{ t('charts.no_data_desc') }}
+              </p>
             </div>
 
-            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div v-for="(world, index) in topWorlds" :key="world.id" class="flex items-center gap-4 p-3 rounded-xl border border-gray-50 hover:border-violet-200 bg-gray-50/50 hover:bg-violet-50/30 transition-colors group">
+            <div
+              v-else
+              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+            >
+              <div
+                v-for="(world, index) in topWorlds"
+                :key="world.id"
+                class="flex items-center gap-4 p-4 rounded-2xl border border-slate-200 hover:border-indigo-300 bg-white hover:shadow-md transition-all group"
+              >
                 <div class="w-8 flex justify-center">
-                  <span class="text-xl font-black" :class="index === 0 ? 'text-yellow-500' : index === 1 ? 'text-gray-400' : index === 2 ? 'text-amber-700' : 'text-gray-300'">
+                  <span
+                    class="text-2xl font-black drop-shadow-sm"
+                    :class="index === 0 ? 'text-indigo-400' : index === 1 ? 'text-slate-300' : index === 2 ? 'text-orange-400' : 'text-slate-200'"
+                  >
                     #{{ index + 1 }}
                   </span>
                 </div>
-                <div class="w-14 h-14 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0 relative">
-                  <img v-if="world.thumbnail" :src="world.thumbnail" class="w-full h-full object-cover" referrerpolicy="no-referrer" />
-                  <Globe2 v-else class="w-full h-full p-3 text-gray-400" />
+                <div class="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden flex-shrink-0 relative shadow-inner">
+                  <img
+                    v-if="world.thumbnail"
+                    :src="world.thumbnail"
+                    class="w-full h-full object-cover"
+                    referrerpolicy="no-referrer"
+                  >
+                  <Globe2
+                    v-else
+                    class="w-full h-full p-4 text-slate-300"
+                  />
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 class="font-bold text-gray-900 truncate group-hover:text-violet-700 transition-colors">{{ world.name }}</h3>
-                  <div class="flex items-center gap-1 mt-1 text-xs text-gray-500 font-medium">
-                    <Users :size="12" /> {{ world.count }} {{ t('charts.friends_in_world') }}
+                  <h3 class="font-bold text-slate-900 truncate group-hover:text-indigo-600 transition-colors text-base">
+                    {{ world.name }}
+                  </h3>
+                  <div class="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 font-bold">
+                    <Users
+                      :size="14"
+                      class="text-indigo-400"
+                    /> {{ world.count }} {{ t('charts.friends_in_world') }}
                   </div>
                 </div>
               </div>

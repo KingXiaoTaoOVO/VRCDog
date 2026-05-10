@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
 import { Heart, Globe, UserCircle, Loader2 } from 'lucide-vue-next';
 import VrcAvatarComp from './VrcAvatar.vue';
+import VrcResourceCard from './VrcResourceCard.vue';
 import { useI18n } from 'vue-i18n';
 import type { VrcWorld, VrcAvatar } from '../types/vrc';
 
@@ -10,205 +11,259 @@ const { t } = useI18n();
 
 const favoriteWorlds = ref<VrcWorld[]>([]);
 const favoriteAvatars = ref<VrcAvatar[]>([]);
+const favGroups = ref<any[]>([]);
+
 const loadingWorlds = ref(true);
 const loadingAvatars = ref(true);
+const loadingGroups = ref(true);
+
 const activeTab = ref<'worlds' | 'avatars'>('worlds');
+const activeGroup = ref<string>('all');
 
 const errorMsg = ref('');
 
-const fetchFavorites = async () => {
-  errorMsg.value = '';
-  loadingWorlds.value = true;
-  loadingAvatars.value = true;
-  
+const fetchGroups = async () => {
+  loadingGroups.value = true;
   try {
-    const localRes: any = await DbApi.getFavoriteWorlds();
-    const vrcRes: any = await VrcApi.getFavoriteWorlds({});
-    const local = Array.isArray(localRes) ? localRes.map(w => ({...w, id: w.world_id || w.id, imageUrl: w.image_url, authorName: w.author_name})) : [];
-    const vrc = Array.isArray(vrcRes) ? vrcRes : [];
-    
-    // Deduplicate by ID
-    const combined = [...vrc, ...local];
-    const unique = combined.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-    favoriteWorlds.value = unique;
+    const res: any = await VrcApi.getFavoriteGroups();
+    favGroups.value = Array.isArray(res) ? res : [];
   } catch (err: any) {
-    console.warn('Failed to fetch favorite worlds:', err);
-    errorMsg.value = t('favorites.error_worlds') || '无法加载收藏世界';
+    console.warn('Failed to fetch favorite groups:', err);
   } finally {
-    loadingWorlds.value = false;
-  }
-
-  try {
-    const localRes: any = await DbApi.getFavoriteAvatars();
-    const vrcRes: any = await VrcApi.getFavoriteAvatars({});
-    const local = Array.isArray(localRes) ? localRes.map(a => ({...a, id: a.avatar_id || a.id, imageUrl: a.image_url, authorName: a.author_name})) : [];
-    const vrc = Array.isArray(vrcRes) ? vrcRes : [];
-    
-    // Deduplicate by ID
-    const combined = [...vrc, ...local];
-    const unique = combined.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-    favoriteAvatars.value = unique;
-  } catch (err: any) {
-    console.warn('Failed to fetch favorite avatars:', err);
-    errorMsg.value = t('favorites.error_avatars') || '无法加载收藏头像';
-  } finally {
-    loadingAvatars.value = false;
+    loadingGroups.value = false;
   }
 };
 
+const fetchFavorites = async () => {
+  errorMsg.value = '';
+  
+  if (activeTab.value === 'worlds') {
+    loadingWorlds.value = true;
+    try {
+      const localRes: any = activeGroup.value === 'all' ? await DbApi.getFavoriteWorlds() : [];
+      const vrcRes: any = await VrcApi.getFavoriteWorlds({ tag: activeGroup.value === 'all' ? undefined : activeGroup.value });
+      
+      const local = Array.isArray(localRes) ? localRes.map(w => ({...w, id: w.world_id || w.id, imageUrl: w.image_url, authorName: w.author_name})) : [];
+      const vrc = Array.isArray(vrcRes) ? vrcRes : [];
+      
+      const combined = [...vrc, ...local];
+      favoriteWorlds.value = combined.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+    } catch (err: any) {
+      errorMsg.value = t('favorites.error_worlds') || '无法加载收藏世界';
+    } finally {
+      loadingWorlds.value = false;
+    }
+  } else {
+    loadingAvatars.value = true;
+    try {
+      const localRes: any = activeGroup.value === 'all' ? await DbApi.getFavoriteAvatars() : [];
+      const vrcRes: any = await VrcApi.getFavoriteAvatars({ tag: activeGroup.value === 'all' ? undefined : activeGroup.value });
+      
+      const local = Array.isArray(localRes) ? localRes.map(a => ({...a, id: a.avatar_id || a.id, imageUrl: a.image_url, authorName: a.author_name})) : [];
+      const vrc = Array.isArray(vrcRes) ? vrcRes : [];
+      
+      const combined = [...vrc, ...local];
+      favoriteAvatars.value = combined.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+    } catch (err: any) {
+      errorMsg.value = t('favorites.error_avatars') || '无法加载收藏头像';
+    } finally {
+      loadingAvatars.value = false;
+    }
+  }
+};
+
+watch(activeTab, () => {
+  activeGroup.value = 'all';
+  fetchFavorites();
+});
+
+watch(activeGroup, () => {
+  fetchFavorites();
+});
+
+const getGroupsByType = (type: string) => {
+  return favGroups.value.filter(g => g.type === type);
+};
+
 onMounted(() => {
+  fetchGroups();
   fetchFavorites();
 });
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="flex items-center justify-between mb-4">
-      <h1 class="text-2xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-2">
-        <Heart
-          class="text-pink-500"
-          :size="28"
-        /> {{ t('favorites.title') }}
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <!-- 顶部控制栏 -->
+    <div class="flex items-center justify-between mb-8 shrink-0 z-10">
+      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+          <Heart class="w-6 h-6 text-indigo-600" />
+        </span>
+        {{ t('favorites.title') }}
       </h1>
-      <div class="flex rounded-xl border border-pink-200 overflow-hidden bg-white/80 text-sm font-bold shadow-sm">
+      <div class="flex rounded-xl border border-slate-200 overflow-hidden bg-white/80 text-sm font-bold shadow-sm p-1">
         <button
-          :class="activeTab === 'worlds' ? 'bg-pink-500 text-white' : 'text-pink-700 hover:bg-pink-50'"
-          class="px-4 py-2 flex items-center gap-1 transition-colors"
+          :class="activeTab === 'worlds' ? 'bg-indigo-600 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-slate-600 hover:bg-slate-100 rounded-lg'"
+          class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'worlds'"
         >
-          <Globe :size="14" /> {{ t('favorites.worlds') }}
+          <Globe :size="16" /> {{ t('favorites.worlds') }}
         </button>
         <button
-          :class="activeTab === 'avatars' ? 'bg-pink-500 text-white' : 'text-pink-700 hover:bg-pink-50'"
-          class="px-4 py-2 flex items-center gap-1 transition-colors"
+          :class="activeTab === 'avatars' ? 'bg-indigo-600 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-slate-600 hover:bg-slate-100 rounded-lg'"
+          class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'avatars'"
         >
-          <UserCircle :size="14" /> {{ t('favorites.avatars') }}
+          <UserCircle :size="16" /> {{ t('favorites.avatars') }}
         </button>
       </div>
     </div>
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4"
+      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
 
-    <div class="flex-1 overflow-y-auto pr-1">
-      <!-- Worlds Tab -->
-      <div v-if="activeTab === 'worlds'">
+    <!-- 主体：侧边栏 + 内容区 -->
+    <div class="flex-1 flex gap-6 overflow-hidden z-10">
+      <!-- 左侧收藏夹列表 -->
+      <div class="w-56 flex-shrink-0 bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg shadow-slate-200/40 p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
+        <button
+          class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between"
+          :class="activeGroup === 'all' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-700 hover:bg-slate-100'"
+          @click="activeGroup = 'all'"
+        >
+          <span>{{ t('favorites.all_groups') === 'favorites.all_groups' ? '全部收藏' : t('favorites.all_groups') }}</span>
+        </button>
+        
         <div
-          v-if="loadingWorlds"
-          class="flex items-center justify-center py-12 text-pink-500"
+          v-if="loadingGroups"
+          class="py-4 text-center text-indigo-400"
         >
           <Loader2
-            class="animate-spin mr-2"
-            :size="24"
-          /> {{ t('favorites.loading_worlds') }}
-        </div>
-        <div
-          v-else-if="favoriteWorlds.length === 0"
-          class="flex flex-col items-center justify-center py-20 text-pink-900/40"
-        >
-          <Heart
-            class="mb-4 opacity-50"
-            :size="48"
+            class="animate-spin mx-auto"
+            :size="20"
           />
-          <p class="font-bold text-lg">
-            {{ t('search.no_results') || '暂无数据' }}
-          </p>
-          <p class="text-sm mt-1">
-            {{ t('favorites.no_worlds') }}
-          </p>
         </div>
-        <div
-          v-else
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-        >
-          <div
-            v-for="world in favoriteWorlds"
-            :key="world.id" 
-            class="bg-white/80 backdrop-blur rounded-2xl overflow-hidden border border-pink-100 hover:border-pink-300 transition-all shadow-sm group"
+        
+        <template v-else>
+          <button
+            v-for="group in getGroupsByType(activeTab === 'worlds' ? 'world' : 'avatar')"
+            :key="group.id"
+            class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between group/btn"
+            :class="activeGroup === group.name ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-700 hover:bg-slate-100'"
+            @click="activeGroup = group.name"
           >
-            <div class="h-32 bg-pink-50 relative overflow-hidden">
-              <VrcAvatarComp
-                :user="world"
-                :url="world.imageUrl || world.image_url || world.thumbnailImageUrl"
-                custom-class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              />
-            </div>
-            <div class="p-4">
-              <h3 class="font-bold text-pink-900 text-sm truncate">
-                {{ world.name }}
-              </h3>
-              <p
-                v-if="world.authorName || world.author_name"
-                class="text-[10px] text-pink-600 truncate mt-1"
-              >
-                by {{ world.authorName || world.author_name }}
-              </p>
-            </div>
-          </div>
-        </div>
+            <span
+              class="truncate flex-1"
+              :title="group.displayName"
+            >{{ group.displayName }}</span>
+            <span
+              class="text-[10px] font-mono px-1.5 py-0.5 rounded-md ml-2 flex-shrink-0 transition-colors"
+              :class="activeGroup === group.name ? 'bg-indigo-500 text-indigo-50' : 'bg-slate-200 text-slate-500 group-hover/btn:bg-slate-300'"
+            >
+              {{ group.visibility === 'private' ? t('global.fav.private') : t('global.fav.public') }}
+            </span>
+          </button>
+        </template>
       </div>
 
-      <!-- Avatars Tab -->
-      <div v-if="activeTab === 'avatars'">
-        <div
-          v-if="loadingAvatars"
-          class="flex items-center justify-center py-12 text-pink-500"
-        >
-          <Loader2
-            class="animate-spin mr-2"
-            :size="24"
-          /> {{ t('favorites.loading_avatars') }}
-        </div>
-        <div
-          v-else-if="favoriteAvatars.length === 0"
-          class="flex flex-col items-center justify-center py-20 text-pink-900/40"
-        >
-          <Heart
-            class="mb-4 opacity-50"
-            :size="48"
-          />
-          <p class="font-bold text-lg">
-            {{ t('search.no_results') || '暂无数据' }}
-          </p>
-          <p class="text-sm mt-1">
-            {{ t('favorites.no_avatars') }}
-          </p>
-        </div>
-        <div
-          v-else
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-        >
+      <!-- 右侧内容区 -->
+      <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+        <!-- Worlds Tab -->
+        <div v-if="activeTab === 'worlds'">
           <div
-            v-for="avatar in favoriteAvatars"
-            :key="avatar.id" 
-            class="bg-white/80 backdrop-blur rounded-2xl overflow-hidden border border-pink-100 hover:border-pink-300 transition-all shadow-sm group"
+            v-if="loadingWorlds"
+            class="flex items-center justify-center py-12 text-indigo-500 font-bold"
           >
-            <div class="h-48 bg-pink-50 relative overflow-hidden">
-              <VrcAvatarComp
-                :user="avatar"
-                :url="avatar.imageUrl || avatar.image_url || avatar.thumbnailImageUrl || avatar.currentAvatarThumbnailImageUrl || avatar.currentAvatarImageUrl"
-                custom-class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              />
-            </div>
-            <div class="p-4">
-              <h3 class="font-bold text-pink-900 text-sm truncate">
-                {{ avatar.name }}
-              </h3>
-              <p
-                v-if="avatar.authorName || avatar.author_name"
-                class="text-[10px] text-pink-600 truncate mt-1"
-              >
-                by {{ avatar.authorName || avatar.author_name }}
-              </p>
-            </div>
+            <Loader2
+              class="animate-spin mr-2"
+              :size="24"
+            /> {{ t('favorites.loading_worlds') }}
+          </div>
+          <div
+            v-else-if="favoriteWorlds.length === 0"
+            class="flex flex-col items-center justify-center py-32 text-slate-400"
+          >
+            <Heart
+              class="mb-4 opacity-30"
+              :size="64"
+            />
+            <p class="font-bold text-xl text-slate-500">
+              {{ t('search.no_results') || '暂无数据' }}
+            </p>
+            <p class="text-sm mt-2 font-medium">
+              {{ t('favorites.no_worlds') }}
+            </p>
+          </div>
+          <div
+            v-else
+            class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+          >
+            <VrcResourceCard
+              v-for="world in favoriteWorlds"
+              :key="world.id" 
+              type="world"
+              :data="world"
+            />
+          </div>
+        </div>
+
+        <!-- Avatars Tab -->
+        <div v-if="activeTab === 'avatars'">
+          <div
+            v-if="loadingAvatars"
+            class="flex items-center justify-center py-12 text-indigo-500 font-bold"
+          >
+            <Loader2
+              class="animate-spin mr-2"
+              :size="24"
+            /> {{ t('favorites.loading_avatars') }}
+          </div>
+          <div
+            v-else-if="favoriteAvatars.length === 0"
+            class="flex flex-col items-center justify-center py-32 text-slate-400"
+          >
+            <Heart
+              class="mb-4 opacity-30"
+              :size="64"
+            />
+            <p class="font-bold text-xl text-slate-500">
+              {{ t('search.no_results') || '暂无数据' }}
+            </p>
+            <p class="text-sm mt-2 font-medium">
+              {{ t('favorites.no_avatars') }}
+            </p>
+          </div>
+          <div
+            v-else
+            class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-10"
+          >
+            <VrcResourceCard
+              v-for="avatar in favoriteAvatars"
+              :key="avatar.id"
+              type="avatar"
+              :data="avatar"
+            />
           </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+</style>

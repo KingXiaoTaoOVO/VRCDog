@@ -57,7 +57,7 @@ onMounted(() => {
 <template>
   <!-- 使用琥珀色主题的半透明背景，通过 mousedown 手动调用 startDragging() 实现完美拖拽 -->
   <div
-    class="h-screen w-screen overflow-hidden bg-amber-100/30 backdrop-blur-sm border border-amber-300/30 rounded-lg flex flex-col justify-end p-4 pb-8 select-none"
+    class="h-screen w-screen overflow-hidden bg-indigo-50/30 backdrop-blur-sm border border-indigo-300/30 rounded-lg flex flex-col justify-end p-4 pb-8 select-none"
     @mousedown="startDrag"
   >
     <!-- 没有任何记录时的提示语 -->
@@ -85,7 +85,7 @@ onMounted(() => {
       >
         <div
           class="max-w-[85%] rounded-2xl p-3 shadow-lg backdrop-blur-md border border-white/20"
-          :class="log.type === 'self' ? 'bg-amber-500/80 text-white rounded-br-sm' : 'bg-white/80 text-gray-800 rounded-bl-sm'"
+          :class="log.type === 'self' ? 'bg-indigo-500/80 text-white rounded-br-sm' : 'bg-white/80 text-slate-800 rounded-bl-sm'"
         >
           <p class="text-[13px] opacity-80 font-medium mb-0.5">
             {{ log.text }}

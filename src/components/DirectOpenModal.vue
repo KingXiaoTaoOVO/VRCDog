@@ -56,7 +56,7 @@ const submit = async () => {
     if (match) {
       id = match[0];
     } else {
-      throw new Error(t('direct_open.invalid_id') || '无效的链接或 UUID 格式');
+      throw new Error(t('direct_open.invalid_id'));
     }
 
     let detailData: any = null;
@@ -72,7 +72,7 @@ const submit = async () => {
       detailData = await VrcApi.getAvatar({ avatarId: id });
       type = 'avatar';
     } else if (id.startsWith('grp_')) {
-      throw new Error(t('direct_open.group_not_supported') || '群组解析暂不支持');
+      throw new Error(t('direct_open.group_not_supported'));
     }
 
     if (detailData) {
@@ -83,7 +83,7 @@ const submit = async () => {
       show.value = false;
     }
   } catch (err: any) {
-    errorMsg.value = err.message || '获取信息失败';
+    errorMsg.value = err.message || t('direct_open.fetch_fail');
   } finally {
     loading.value = false;
   }
@@ -96,33 +96,42 @@ const submit = async () => {
     :loading="loading"
     @close="show = false"
   >
-    <div class="p-6 bg-gray-900 rounded-xl text-white w-96 max-w-full">
-      <h2 class="text-xl font-bold mb-2">{{ t('direct_open.title') || '直接打开' }}</h2>
-      <p class="text-xs text-gray-400 mb-4">{{ t('direct_open.desc') || '输入玩家 / 世界 / 房间 / 模型链接 或 UUID' }}</p>
+    <div class="p-6 bg-slate-900 rounded-xl text-white w-96 max-w-full">
+      <h2 class="text-xl font-bold mb-2">
+        {{ t('direct_open.title') }}
+      </h2>
+      <p class="text-xs text-slate-400 mb-4">
+        {{ t('direct_open.desc') }}
+      </p>
       
       <input
         id="direct-open-input"
         v-model="inputUrl"
         type="text"
-        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-white transition-colors mb-4"
+        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-white transition-colors mb-4"
         @keyup.enter="submit"
       >
       
-      <p v-if="errorMsg" class="text-red-400 text-xs mb-4">{{ errorMsg }}</p>
+      <p
+        v-if="errorMsg"
+        class="text-red-400 text-xs mb-4"
+      >
+        {{ errorMsg }}
+      </p>
 
       <div class="flex justify-end gap-3">
         <button
-          class="px-5 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+          class="px-5 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
           @click="show = false"
         >
-          {{ t('direct_open.cancel') || '取消' }}
+          {{ t('direct_open.cancel') }}
         </button>
         <button
-          class="px-5 py-2 bg-white text-black hover:bg-gray-200 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+          class="px-5 py-2 bg-white text-black hover:bg-slate-200 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
           :disabled="!inputUrl.trim() || loading"
           @click="submit"
         >
-          {{ t('direct_open.confirm') || '确定' }}
+          {{ t('direct_open.confirm') }}
         </button>
       </div>
     </div>

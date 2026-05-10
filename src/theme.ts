@@ -8,14 +8,14 @@ export const themes = {
     logo: new URL('./assets/dog.jpg', import.meta.url).href,
     appTitle: 'VrcDog',
     colors: {
-      bgMain: '#fffbeb', // amber-50
-      blob1: 'rgba(251, 207, 232, 0.4)', // pink-200/40
-      blob2: 'rgba(253, 230, 138, 0.4)', // amber-200/40
-      borderSoft: 'rgba(254, 243, 199, 1)', // amber-100
-      borderStrong: 'rgba(253, 230, 138, 1)', // amber-200
-      textStrong: '#78350f', // amber-900
-      textSoft: '#b45309', // amber-700
-      activeBg: 'rgba(254, 243, 199, 0.5)', // amber-100/50
+      bgMain: '#f8fafc', // slate-50
+      blob1: 'rgba(199, 210, 254, 0.4)', // indigo-200/40
+      blob2: 'rgba(191, 219, 254, 0.4)', // blue-200/40
+      borderSoft: 'rgba(241, 245, 249, 1)', // slate-100
+      borderStrong: 'rgba(226, 232, 240, 1)', // slate-200
+      textStrong: '#0f172a', // slate-900
+      textSoft: '#475569', // slate-600
+      activeBg: 'rgba(224, 231, 255, 0.5)', // indigo-100/50
       primaryBtnBg: '#6366f1', // indigo-500
       primaryBtnHover: '#4f46e5', // indigo-600
     }
@@ -80,11 +80,11 @@ export type ThemeId = keyof typeof themes;
 
 import { useStorage } from '@vueuse/core';
 
-export const currentThemeId = useStorage<ThemeId>('app-theme', 'helmet');
+export const currentThemeId = useStorage<ThemeId>('app-theme', 'dog');
 
 // Ensure the loaded theme actually exists, fallback if not
 if (!themes[currentThemeId.value]) {
-  currentThemeId.value = 'helmet';
+  currentThemeId.value = 'dog';
 }
 
 export const currentTheme = computed(() => themes[currentThemeId.value]);

@@ -31,7 +31,7 @@ const dialogConfig = ref({ title: '', target: '', isVccSelection: false });
 const checkEnvironment = async () => {
   hubStatus.value = 'checking'; unityStatus.value = 'checking'; toolStatus.value = 'checking';
   try {
-    if (!isTauri()) throw new Error("浏览器模式");
+    if (!isTauri()) throw new Error(t('env.browser_mode_error'));
     const result = await SysApi.checkSystemStatus();
     hubStatus.value = result.hub_installed ? 'installed' : 'not_installed';
     unityStatus.value = result.unity_installed ? 'installed' : 'not_installed';
@@ -82,7 +82,7 @@ const executeUninstall = async () => {
   if (target === 'tool' || target === 'vcc' || target === 'alcom') toolStatus.value = 'checking';
   
   try {
-    if (!isTauri()) throw new Error("普通浏览器不能执行卸载");
+    if (!isTauri()) throw new Error(t('env.uninstall_browser_error'));
     await SysApi.uninstallSoftware({ target });
     // Add a timeout because uninstallers run asynchronously
     setTimeout(async () => {
@@ -110,7 +110,7 @@ const handleLaunch = async (target: string) => {
 const executeLaunch = async (target: string) => {
   showLaunchToolConfirm.value = false;
   try {
-    if (!isTauri()) throw new Error("浏览器模式无法启动本地软件");
+    if (!isTauri()) throw new Error(t('env.launch_browser_error'));
     await SysApi.launchSoftware({ target });
   } catch (err: any) {
     alert(err.message || err);
@@ -239,10 +239,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <header class="flex items-center justify-between mb-8">
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <header class="flex items-center justify-between mb-8 shrink-0 z-10">
       <div class="flex items-center gap-4">
-        <div class="w-14 h-14 rounded-full overflow-hidden border-4 border-white shadow-lg shadow-amber-200/50 flex-shrink-0 bg-white">
+        <div class="w-14 h-14 rounded-2xl overflow-hidden border border-slate-200 shadow-lg shadow-indigo-200/50 flex-shrink-0 bg-white">
           <img
             :src="dogImg"
             class="w-full h-full object-cover"
@@ -250,17 +254,17 @@ onMounted(() => {
           >
         </div>
         <div>
-          <h1 class="text-2xl font-extrabold text-[#451a03] tracking-tight mb-0.5 flex items-center gap-2">
-            {{ t('env.title') }} <Bone class="w-5 h-5 text-amber-500 inline-block animate-bounce" />
+          <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight mb-1 flex items-center gap-2">
+            {{ t('env.title') }} <Bone class="w-6 h-6 text-indigo-500 inline-block animate-bounce" />
           </h1>
-          <p class="text-amber-700 font-medium text-sm">
+          <p class="text-slate-500 font-bold text-sm">
             {{ t('env.subtitle') }}
           </p>
         </div>
       </div>
       <div class="flex gap-2">
         <button
-          class="flex items-center gap-2 px-4 py-2 rounded-full bg-white hover:bg-amber-50 text-amber-700 shadow-sm border border-amber-100 transition-colors text-sm font-bold"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 hover:text-indigo-600 shadow-sm border border-slate-200 transition-all active:scale-95 text-sm font-bold"
           @click="checkEnvironment"
         >
           <RefreshCcw
@@ -270,15 +274,15 @@ onMounted(() => {
           {{ t('env.check') }}
         </button>
         <button
-          class="p-2 rounded-full bg-white hover:bg-amber-50 text-amber-700 shadow-sm border border-amber-100 transition-colors"
+          class="p-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-600 hover:text-indigo-600 shadow-sm border border-slate-200 transition-all active:scale-95"
           @click="showSettings = true"
         >
-          <Settings class="w-4 h-4" />
+          <Settings class="w-5 h-5" />
         </button>
       </div>
     </header>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 overflow-y-auto pr-1 items-stretch content-start pb-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 overflow-y-auto pr-2 custom-scrollbar items-stretch content-start pb-6 z-10 relative">
       <!-- Status Cards -->
       <StatusCard
         title="Unity Hub"
@@ -318,92 +322,129 @@ onMounted(() => {
       />
 
       <!-- VCC Dependency Management Section -->
-      <div class="col-span-1 md:col-span-3 mt-4 glass-panel p-6 rounded-3xl shadow-sm">
-        <h2 class="text-xl font-extrabold text-[#451a03] mb-4 flex items-center gap-2">
-          {{ t('env.vcc_lib_title') }} <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{{ t('env.vcc_lib_beta') }}</span>
+      <div class="col-span-1 md:col-span-3 mt-2 bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-white shadow-lg shadow-slate-200/40">
+        <h2 class="text-xl font-extrabold text-slate-900 mb-6 flex items-center gap-3">
+          <span class="p-1.5 bg-indigo-50 rounded-lg text-indigo-600">
+            <Bone :size="20" />
+          </span>
+          {{ t('env.vcc_lib_title') }} <span class="text-[10px] uppercase font-black tracking-wider bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{{ t('env.vcc_lib_beta') }}</span>
         </h2>
         
         <!-- Repo Header -->
-        <div class="flex items-center gap-2 mb-4">
-          <input 
-            v-model="vpmRepoUrl" 
-            class="flex-1 bg-white border-2 border-amber-100 rounded-xl px-4 py-2 text-sm text-amber-900 focus:outline-none focus:border-amber-400 font-mono shadow-inner"
-            placeholder="https://vpm.domain.com/index.json"
-          >
-          <button 
-            class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-500/20 transition-colors flex items-center gap-2"
-            @click="scanLocalDeps"
-          >
-            <Search :class="{'animate-pulse': isVpmLoading}" class="w-4 h-4" /> {{ t('env.scan_local') }}
-          </button>
-          <button 
-            class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-md shadow-emerald-500/20 transition-colors flex items-center gap-2"
-            @click="loadVpmRepo"
-          >
-            <RefreshCcw :class="{'animate-spin': isVpmLoading}" class="w-4 h-4" /> {{ t('env.load_net_repo') }}
-          </button>
-          <button 
-            class="p-2 bg-white hover:bg-amber-50 text-amber-600 border border-amber-200 rounded-xl transition-colors"
-            @click="copyVpmUrl"
-            :title="t('env.copy_url')"
-          >
-            <Copy class="w-4 h-4" />
-          </button>
+        <div class="flex flex-col xl:flex-row items-center gap-3 mb-6">
+          <div class="relative w-full flex-1">
+            <input 
+              v-model="vpmRepoUrl" 
+              class="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
+              placeholder="https://vpm.domain.com/index.json"
+            >
+            <button 
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+              :title="t('env.copy_url')"
+              @click="copyVpmUrl"
+            >
+              <Copy class="w-4 h-4" />
+            </button>
+          </div>
+          
+          <div class="flex w-full xl:w-auto gap-3">
+            <button 
+              class="flex-1 xl:flex-none px-4 py-2.5 bg-white border border-slate-200 hover:border-indigo-300 text-slate-700 hover:text-indigo-700 rounded-xl font-bold shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              @click="scanLocalDeps"
+            >
+              <Search
+                :class="{'animate-pulse': isVpmLoading}"
+                class="w-4 h-4"
+              /> {{ t('env.scan_local') }}
+            </button>
+            <button 
+              class="flex-1 xl:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-sm shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              @click="loadVpmRepo"
+            >
+              <RefreshCcw
+                :class="{'animate-spin': isVpmLoading}"
+                class="w-4 h-4"
+              /> {{ t('env.load_net_repo') }}
+            </button>
+          </div>
         </div>
 
         <!-- Search Bar -->
         <div class="relative mb-4">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
+          <Search class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input 
             v-model="vpmSearch"
-            class="w-full bg-white/60 border-2 border-amber-50 rounded-xl pl-10 pr-4 py-2 text-sm text-amber-900 focus:outline-none focus:border-amber-300 transition-colors"
+            class="w-full bg-white border border-slate-200 rounded-xl pl-11 pr-4 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm placeholder:text-slate-400 placeholder:font-medium"
             :placeholder="t('env.search_pkg')"
           >
         </div>
 
         <!-- Packages Table -->
-        <div class="bg-white/80 rounded-2xl border border-amber-100 overflow-hidden">
-          <table class="w-full text-left text-sm text-amber-900">
-            <thead class="bg-amber-50 border-b border-amber-100 font-bold">
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <table class="w-full text-left text-sm text-slate-800">
+            <thead class="bg-slate-50 border-b border-slate-200 font-extrabold text-slate-600">
               <tr>
-                <th class="px-4 py-3">{{ t('env.pkg_name') }}</th>
-                <th class="px-4 py-3">{{ t('env.pkg_version') }}</th>
-                <th class="px-4 py-3">{{ t('env.pkg_author') }}</th>
-                <th class="px-4 py-3 text-right">{{ t('env.pkg_action') }}</th>
+                <th class="px-5 py-3.5">
+                  {{ t('env.pkg_name') }}
+                </th>
+                <th class="px-5 py-3.5">
+                  {{ t('env.pkg_version') }}
+                </th>
+                <th class="px-5 py-3.5">
+                  {{ t('env.pkg_author') }}
+                </th>
+                <th class="px-5 py-3.5 text-right">
+                  {{ t('env.pkg_action') }}
+                </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-amber-50">
-              <tr v-for="pkg in filteredVpmPackages" :key="pkg.name" class="hover:bg-amber-50/50 transition-colors">
-                <td class="px-4 py-3">
-                  <div class="font-bold">{{ pkg.displayName || pkg.name }}</div>
-                  <div class="text-xs text-amber-600/70 truncate max-w-[200px]">{{ pkg.description || pkg.name }}</div>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="pkg in filteredVpmPackages"
+                :key="pkg.name"
+                class="hover:bg-indigo-50/40 transition-colors"
+              >
+                <td class="px-5 py-3.5">
+                  <div class="font-extrabold text-slate-900">
+                    {{ pkg.displayName || pkg.name }}
+                  </div>
+                  <div class="text-xs text-slate-500 font-medium truncate max-w-[250px] mt-0.5">
+                    {{ pkg.description || pkg.name }}
+                  </div>
                 </td>
-                <td class="px-4 py-3 font-mono text-xs">{{ pkg.version }}</td>
-                <td class="px-4 py-3 text-xs">{{ pkg.author?.name || 'Unknown' }}</td>
-                <td class="px-4 py-3 text-right space-x-2">
+                <td class="px-5 py-3.5 font-mono text-xs font-bold text-slate-600">
+                  {{ pkg.version }}
+                </td>
+                <td class="px-5 py-3.5 text-xs font-bold text-slate-600">
+                  {{ pkg.author?.name || 'Unknown' }}
+                </td>
+                <td class="px-5 py-3.5 text-right space-x-2">
                   <template v-if="!pkg.isLocal">
                     <button 
-                      class="text-xs font-bold text-white bg-[#f59e0b] hover:bg-[#d97706] px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+                      class="text-[11px] font-extrabold text-slate-600 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 px-3 py-1.5 rounded-lg shadow-sm transition-colors"
                       @click="addToVcc(vpmRepoUrl)"
                     >
                       VCC Add
                     </button>
                     <button 
-                      class="text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+                      class="text-[11px] font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg shadow-sm shadow-indigo-500/20 transition-colors"
                       @click="addToAlcom(vpmRepoUrl)"
                     >
                       ALCOM Add
                     </button>
                   </template>
                   <template v-else>
-                    <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                    <span class="text-[11px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200/50 inline-block">
                       {{ t('env.installed') }}
                     </span>
                   </template>
                 </td>
               </tr>
               <tr v-if="filteredVpmPackages.length === 0 && !isVpmLoading">
-                <td colspan="4" class="px-4 py-8 text-center text-amber-600/60 font-bold">
+                <td
+                  colspan="4"
+                  class="px-5 py-12 text-center text-slate-400 font-bold"
+                >
                   {{ t('env.no_pkg_found') }}
                 </td>
               </tr>
@@ -432,33 +473,33 @@ onMounted(() => {
           class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             @click="showUninstallConfirm = false"
           />
-          <div class="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-2 border-white">
+          <div class="bg-white/90 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border border-white">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> 确认卸载?
               </h3>
               <button
-                class="p-1 rounded-full hover:bg-black/5 text-gray-500 transition-colors"
+                class="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                 @click="showUninstallConfirm = false"
               >
                 <X class="w-5 h-5" />
               </button>
             </div>
-            <p class="text-gray-600 text-sm mb-6 font-bold">
-              您确定要卸载 <span class="text-[#451a03]">{{ confirmUninstallTarget === 'hub' ? 'Unity Hub' : (confirmUninstallTarget === 'unity' ? 'Unity 2022.3.22f1' : (confirmUninstallTarget === 'vcc' ? 'VCC' : (confirmUninstallTarget === 'alcom' ? 'ALCOM' : 'Creator Tools'))) }}</span> 吗？卸载后需要重新安装。
+            <p class="text-slate-600 text-sm mb-6 font-bold leading-relaxed">
+              {{ t('env.uninstall_desc_1') }} <span class="text-slate-900">{{ confirmUninstallTarget === 'hub' ? 'Unity Hub' : (confirmUninstallTarget === 'unity' ? 'Unity 2022.3.22f1' : (confirmUninstallTarget === 'vcc' ? 'VCC' : (confirmUninstallTarget === 'alcom' ? 'ALCOM' : 'Creator Tools'))) }}</span> {{ t('env.uninstall_desc_2') }}
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors"
                 @click="showUninstallConfirm = false"
               >
                 取消
               </button>
               <button
-                class="flex-1 py-2.5 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/30 border-2 border-red-400 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/30 transition-colors"
                 @click="executeUninstall"
               >
                 确认卸载
@@ -477,33 +518,33 @@ onMounted(() => {
           class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             @click="showLaunchToolConfirm = false"
           />
-          <div class="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-2 border-white">
+          <div class="bg-white/90 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border border-white">
             <div class="flex justify-between items-center mb-4">
-              <h3 class="text-xl font-extrabold text-amber-600 flex items-center gap-2">
+              <h3 class="text-xl font-extrabold text-indigo-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> 选择启动工具
               </h3>
               <button
-                class="p-1 rounded-full hover:bg-black/5 text-gray-500 transition-colors"
+                class="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                 @click="showLaunchToolConfirm = false"
               >
                 <X class="w-5 h-5" />
               </button>
             </div>
-            <p class="text-gray-600 text-sm mb-6 font-bold">
-              系统检测到您同时安装了 <span class="text-[#451a03]">VCC</span> 和 <span class="text-[#451a03]">ALCOM</span>，请选择您要启动的工具：
+            <p class="text-slate-600 text-sm mb-6 font-bold leading-relaxed">
+              {{ t('env.detect_multiple_tools') }} <span class="text-slate-900">VCC</span> {{ t('env.and') }} <span class="text-slate-900">ALCOM</span>{{ t('env.please_select_launch') }}
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-lg shadow-amber-500/30 border-2 border-amber-400 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-500/30 transition-colors"
                 @click="executeLaunch('vcc')"
               >
                 启动 VCC
               </button>
               <button
-                class="flex-1 py-2.5 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-500/30 border-2 border-indigo-400 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold shadow-lg shadow-slate-900/30 transition-colors"
                 @click="executeLaunch('alcom')"
               >
                 启动 ALCOM
@@ -522,33 +563,33 @@ onMounted(() => {
           class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             @click="showUninstallToolSelection = false"
           />
-          <div class="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-2 border-white">
+          <div class="bg-white/90 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border border-white">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> 选择卸载工具
               </h3>
               <button
-                class="p-1 rounded-full hover:bg-black/5 text-gray-500 transition-colors"
+                class="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                 @click="showUninstallToolSelection = false"
               >
                 <X class="w-5 h-5" />
               </button>
             </div>
-            <p class="text-gray-600 text-sm mb-6 font-bold">
-              系统检测到您同时安装了 <span class="text-[#451a03]">VCC</span> 和 <span class="text-[#451a03]">ALCOM</span>，请选择您要卸载的工具：
+            <p class="text-slate-600 text-sm mb-6 font-bold leading-relaxed">
+              {{ t('env.detect_multiple_tools') }} <span class="text-slate-900">VCC</span> {{ t('env.and') }} <span class="text-slate-900">ALCOM</span>{{ t('env.please_select_uninstall') }}
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-lg shadow-amber-500/30 border-2 border-amber-400 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/30 transition-colors"
                 @click="handleUninstallSelection('vcc')"
               >
                 卸载 VCC
               </button>
               <button
-                class="flex-1 py-2.5 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-500/30 border-2 border-indigo-400 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold shadow-lg shadow-orange-500/30 transition-colors"
                 @click="handleUninstallSelection('alcom')"
               >
                 卸载 ALCOM
@@ -564,40 +605,40 @@ onMounted(() => {
       <Transition name="fade">
         <div
           v-if="showSettings"
-          class="fixed inset-0 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 z-[70] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             @click="showSettings = false"
           />
-          <div class="bg-white/90 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-8 border-2 border-white">
+          <div class="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-8 border border-white">
             <div class="flex justify-between items-center mb-6">
-              <h2 class="text-2xl font-bold text-[#451a03] flex items-center gap-2">
-                {{ t('env.settings') }} <Settings class="w-5 h-5 text-amber-500" />
+              <h2 class="text-2xl font-extrabold text-slate-900 flex items-center gap-2">
+                {{ t('env.settings') }} <Settings class="w-5 h-5 text-indigo-500" />
               </h2>
               <button
-                class="p-2 rounded-full hover:bg-black/5 text-amber-700 transition-colors"
+                class="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                 @click="showSettings = false"
               >
                 <X class="w-6 h-6" />
               </button>
             </div>
             <div class="space-y-4 text-center">
-              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-amber-200 shadow-inner mb-4">
+              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 shadow-md mb-4 bg-white">
                 <img
                   :src="dogImg"
                   class="w-full h-full object-cover"
                 >
               </div>
-              <h3 class="text-xl font-bold text-[#451a03]">
+              <h3 class="text-xl font-black text-slate-900">
                 VrcDog {{ t('env.dog_manager') }}
               </h3>
-              <p class="text-amber-700/80 text-sm">
+              <p class="text-slate-500 font-bold text-sm">
                 v1.1.0 {{ t('env.dog_social') }}
               </p>
-              <div class="pt-6 border-t border-amber-100">
-                <p class="text-sm text-amber-800 flex items-center justify-center gap-1">
-                  Made with <Heart class="w-4 h-4 text-pink-400 fill-pink-400 animate-pulse" /> for VRChat
+              <div class="pt-6 border-t border-slate-100">
+                <p class="text-sm font-bold text-slate-400 flex items-center justify-center gap-1.5">
+                  Made with <Heart class="w-4 h-4 text-pink-500 fill-pink-500 animate-pulse" /> for VRChat
                 </p>
               </div>
             </div>

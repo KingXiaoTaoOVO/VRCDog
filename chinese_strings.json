@@ -1,0 +1,58 @@
+[
+  {
+    "line": 770,
+    "text": "<Gamepad2 class=\"text-indigo-500\" :size=\"20\"/> 事件{{ t('settings.state_on') }}{{ t('settings.state_off') }}"
+  },
+  {
+    "line": 921,
+    "text": "<p class=\"text-xs text-slate-400 mb-4\">建议在 VRChat 的 “config.json” 中停用原生的 {{ t('settings.discord_rpc_title') }}来防止冲突</p>"
+  },
+  {
+    "line": 1029,
+    "text": "<div class=\"text-sm font-bold text-slate-800 w-1/3\">输入 {{ t('settings.api_key') }}</div>"
+  },
+  {
+    "line": 1050,
+    "text": "<div class=\"text-sm font-bold text-slate-800 w-1/3\">输入 {{ t('settings.api_key') }}</div>"
+  },
+  {
+    "line": 1103,
+    "text": "{{ t('settings.kill_apps_on_exit')settings.state_off') }}闭这些程序' }}"
+  },
+  {
+    "line": 1156,
+    "text": "<p class=\"text-xs text-red-500 font-normal mt-0.5\">更改后必须重启生效。如果您遇到显示问题，请尝试{{ t('settings.state_off') }}闭此选项。</p>"
+  },
+  {
+    "line": 1173,
+    "text": "<div class=\"text-sm font-bold text-slate-800\">使用本应用打{{ t('settings.state_on') }}本地文件</div>"
+  },
+  {
+    "line": 1210,
+    "text": "{{ vrcConfigSaving ? '保存中...' : '保存配置' }}"
+  },
+  {
+    "line": 1223,
+    "text": "<div v-if=\"vrcConfigError\" class=\"mb-3 text-xs font-bold px-3 py-2 rounded-lg\" :class=\"vrcConfigError.includes('成功') ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'\">"
+  },
+  {
+    "line": 1288,
+    "text": "{{ t('settings.vr_overlay_enable')settings.state_on') }}启 OVR 叠加层 (Overlay)' }}"
+  },
+  {
+    "line": 1418,
+    "text": "打{{ t('settings.state_on') }}按键绑定面板 (浏览器)"
+  },
+  {
+    "line": 1510,
+    "text": "<option value=\"en\">英语</option>"
+  },
+  {
+    "line": 1512,
+    "text": "<option value=\"ko\">韩语</option>"
+  },
+  {
+    "line": 1521,
+    "text": "<option value=\"en\">英语</option>"
+  }
+]

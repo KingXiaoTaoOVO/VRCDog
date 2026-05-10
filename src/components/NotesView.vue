@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
-import { StickyNote, Save } from 'lucide-vue-next';
+import { StickyNote, Save, Loader2, Edit3, X } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -57,87 +57,112 @@ onMounted(() => fetchNotes());
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-extrabold text-[#451a03] flex items-center gap-2">
-        <StickyNote
-          class="text-amber-500"
-          :size="24"
-        /> {{ t('notes.title') }}
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <div class="flex items-center justify-between mb-8 shrink-0 z-10">
+      <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+          <StickyNote class="w-6 h-6 text-indigo-600" />
+        </span>
+        {{ t('notes.title') }}
       </h2>
-      <span class="bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-bold text-xs">
+      <span class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2">
         {{ t('notes.count', { count: notes.length }) }}
       </span>
     </div>
 
-    <div
-      v-if="loading"
-      class="text-center py-8 text-amber-500 font-bold animate-pulse"
-    >
-      {{ t('notes.loading') }}
-    </div>
-
-    <div
-      v-else-if="notes.length === 0"
-      class="bg-white/80 backdrop-blur rounded-2xl p-8 border-2 border-amber-100 text-center text-amber-600"
-    >
-      <StickyNote
-        class="mx-auto mb-4 text-amber-300"
-        :size="48"
-      />
-      <p class="font-bold">
-        {{ t('notes.empty') }}
-      </p>
-      <p class="text-sm mt-1">
-        {{ t('notes.empty_desc') }}
-      </p>
-    </div>
-
-    <div
-      v-else
-      class="space-y-3"
-    >
+    <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
-        v-for="note in notes"
-        :key="note.user_id"
-        class="bg-white/80 backdrop-blur rounded-2xl p-4 border-2 border-amber-50 hover:border-amber-200 transition-all"
+        v-if="loading"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
       >
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="font-bold text-amber-900">
-            {{ note.display_name }}
-          </h3>
-          <span class="text-[10px] text-amber-500">{{ note.updated_at }}</span>
-        </div>
+        <Loader2
+          class="animate-spin mb-4"
+          :size="48"
+        />
+        <span class="font-extrabold text-lg tracking-wide">{{ t('notes.loading') }}</span>
+      </div>
 
-        <div v-if="editingId === note.user_id">
-          <textarea
-            v-model="editText"
-            class="w-full px-3 py-2 rounded-xl border-2 border-amber-200 focus:border-amber-400 focus:ring-0 outline-none bg-amber-50/50 text-sm resize-none"
-            rows="3"
-          />
-          <div class="flex gap-2 mt-2 justify-end">
-            <button
-              class="text-xs text-amber-600 hover:text-amber-800 font-bold px-3 py-1 rounded-lg hover:bg-amber-50"
-              @click="cancelEdit"
-            >
-              {{ t('notes.cancel') }}
-            </button>
-            <button
-              class="text-xs bg-amber-500 text-white font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 flex items-center gap-1"
-              @click="saveEdit(note)"
-            >
-              <Save :size="12" /> {{ t('notes.save') }}
-            </button>
-          </div>
-        </div>
+      <div
+        v-else-if="notes.length === 0"
+        class="h-full flex flex-col items-center justify-center text-slate-400"
+      >
+        <StickyNote
+          class="mb-4 opacity-30"
+          :size="64"
+        />
+        <p class="font-bold text-xl text-slate-500">
+          {{ t('notes.empty') }}
+        </p>
+        <p class="text-sm mt-2 font-medium">
+          {{ t('notes.empty_desc') }}
+        </p>
+      </div>
+
+      <div
+        v-else
+        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-10"
+      >
         <div
-          v-else
-          class="text-sm text-amber-800 cursor-pointer hover:bg-amber-50 rounded-lg p-2 -m-1 transition-colors"
-          @click="startEdit(note)"
+          v-for="note in notes"
+          :key="note.user_id"
+          class="bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col group relative"
         >
-          {{ note.note || t('notes.click_to_add') }}
+          <div class="flex items-start justify-between mb-3 border-b border-slate-100 pb-3">
+            <h3 class="font-bold text-slate-900 text-base truncate pr-2">
+              {{ note.display_name }}
+            </h3>
+            <span class="text-[10px] text-slate-400 font-mono tracking-tighter whitespace-nowrap pt-1 flex-shrink-0">{{ note.updated_at }}</span>
+          </div>
+
+          <div
+            v-if="editingId === note.user_id"
+            class="flex-1 flex flex-col"
+          >
+            <textarea
+              v-model="editText"
+              class="w-full flex-1 min-h-[100px] px-3 py-2 rounded-xl border border-indigo-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none bg-indigo-50/30 text-sm resize-none transition-all custom-scrollbar"
+              :placeholder="t('global.auto_b351a1e4')"
+            />
+            <div class="flex gap-2 mt-3 justify-end">
+              <button
+                class="text-xs text-slate-500 hover:text-slate-700 font-bold px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1"
+                @click="cancelEdit"
+              >
+                <X :size="14" /> {{ t('notes.cancel') }}
+              </button>
+              <button
+                class="text-xs bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-500/30 transition-colors flex items-center gap-1.5"
+                @click="saveEdit(note)"
+              >
+                <Save :size="14" /> {{ t('notes.save') }}
+              </button>
+            </div>
+          </div>
+          <div
+            v-else
+            class="flex-1 text-sm text-slate-700 leading-relaxed cursor-pointer hover:bg-slate-50 rounded-xl p-3 -mx-3 transition-colors relative"
+            @click="startEdit(note)"
+          >
+            <div class="whitespace-pre-wrap line-clamp-5">
+              {{ note.note || t('notes.click_to_add') }}
+            </div>
+            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded-lg shadow-sm border border-slate-100 text-indigo-500">
+              <Edit3 :size="14" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+</style>

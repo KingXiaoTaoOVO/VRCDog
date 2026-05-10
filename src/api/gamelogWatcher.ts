@@ -1,4 +1,4 @@
-import { GamelogApi, DbApi } from './index';
+import { GamelogApi, DbApi, SysApi } from './index';
 
 let watcherTimer: number | null = null;
 let isWatching = false;
@@ -39,6 +39,23 @@ async function pollGamelog() {
     if (savedCount > 0) {
       console.log(`[LogWatcher] Found ${savedCount} new game log events.`);
       window.dispatchEvent(new CustomEvent('vrc-gamelog-updated'));
+      
+      // Dynamic Discord RPC update
+      try {
+        const settings = await DbApi.getAllSettings();
+        if (settings && settings.discordRpcEnabled === 'true' && settings.discordRpcEnableWorldIntegration === 'true') {
+          const joinedEvent = logs.find((l: any) => l.event_type === 'Instance Joined');
+          if (joinedEvent) {
+             const worldName = joinedEvent.content;
+             await SysApi.setDiscordRpc({
+               details: settings.discordRpcShowWorldName === 'true' ? `Playing in ${worldName}` : 'In VRChat',
+               state: 'Active'
+             });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to update dynamic discord RPC', err);
+      }
     }
   } catch (err) {
     console.warn('[LogWatcher] Error reading logs:', err);

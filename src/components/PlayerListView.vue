@@ -1,27 +1,31 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import { GamelogApi } from "../api";
-import { Users, LogIn, Search, MapPin, Bone } from 'lucide-vue-next';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { GamelogApi, VrcApi, DbApi } from "../api";
+import { Users, Search, MapPin, Bone, StickyNote } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import VrcResourceCard from './VrcResourceCard.vue';
+import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
+const profileStore = useUserProfileStore();
 
 interface Player {
   name: string;
   joinTime: string;
+  userData?: any;
+  loadingData?: boolean;
+  note?: string;
 }
 
 const currentRoom = ref(t('player_list.unknown_instance'));
 const players = ref<Player[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
-let timer: number | null = null;
+const resolvedNames = new Set<string>();
 
 const fetchPlayerList = async () => {
   try {
-    const res = await GamelogApi.getLatestGamelogs({ maxLines: 5000 });
-    // 从旧到新遍历，以构建当前房间状态
-    // res 是从新到旧排序的，所以我们要 reverse 一下
+    const res = await DbApi.getGameLogs({ limit: 5000 });
     const chronological = [...res].reverse();
     
     let currentPlayers = new Map<string, string>();
@@ -29,7 +33,7 @@ const fetchPlayerList = async () => {
 
     for (const evt of chronological) {
       if (evt.event_type === 'Instance Joined') {
-        currentPlayers.clear(); // 新房间，清空列表
+        currentPlayers.clear();
         roomName = evt.content;
       } else if (evt.event_type === 'Player Joined') {
         currentPlayers.set(evt.content, evt.time);
@@ -39,10 +43,27 @@ const fetchPlayerList = async () => {
     }
 
     currentRoom.value = roomName;
-    players.value = Array.from(currentPlayers.entries()).map(([name, joinTime]) => ({
-      name,
-      joinTime
-    })).sort((a, b) => b.joinTime.localeCompare(a.joinTime));
+    
+    // Merge new players into existing list to preserve resolved user data
+    const newPlayerMap = new Map(
+      Array.from(currentPlayers.entries()).map(([name, joinTime]) => [name, joinTime])
+    );
+    
+    const updatedPlayers: Player[] = [];
+    
+    for (const [name, joinTime] of newPlayerMap.entries()) {
+      const existing = players.value.find(p => p.name === name);
+      if (existing) {
+        updatedPlayers.push(existing);
+      } else {
+        const newPlayer: Player = { name, joinTime, loadingData: false };
+        updatedPlayers.push(newPlayer);
+        // Async resolve user data
+        resolvePlayerData(newPlayer);
+      }
+    }
+
+    players.value = updatedPlayers.sort((a, b) => b.joinTime.localeCompare(a.joinTime));
 
   } catch (err) {
     console.error(err);
@@ -51,102 +72,173 @@ const fetchPlayerList = async () => {
   }
 };
 
+const resolvePlayerData = async (player: Player) => {
+  if (resolvedNames.has(player.name) || player.loadingData) return;
+  player.loadingData = true;
+  try {
+    const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(player.name)}&n=1`, 'GET');
+    const p = players.value.find(x => x.name === player.name) || player;
+    if (res && res.length > 0 && res[0].displayName === player.name) {
+      p.userData = res[0];
+      
+      try {
+        const noteRes = await DbApi.getNote({ targetId: res[0].id });
+        if (noteRes && noteRes.note) {
+           p.note = noteRes.note;
+        }
+      } catch (e) { /* ignore */ }
+      
+      resolvedNames.add(player.name);
+    }
+  } catch (e) {
+    console.warn(`Failed to resolve player data for ${player.name}`);
+  } finally {
+    const p = players.value.find(x => x.name === player.name) || player;
+    p.loadingData = false;
+  }
+};
+
 onMounted(() => {
   fetchPlayerList();
-  timer = setInterval(fetchPlayerList, 5000) as unknown as number; // 5秒轮询
+  window.addEventListener('vrc-gamelog-updated', fetchPlayerList);
 });
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  window.removeEventListener('vrc-gamelog-updated', fetchPlayerList);
 });
 
-const getFilteredPlayers = () => {
+const filteredPlayers = computed(() => {
   if (!searchQuery.value) return players.value;
-  return players.value.filter(p => p.name.toLowerCase().includes(searchQuery.value.toLowerCase()));
+  const q = searchQuery.value.toLowerCase();
+  return players.value.filter(p => p.name.toLowerCase().includes(q));
+});
+
+const openPlayerProfile = (player: Player) => {
+  if (player.userData) {
+    profileStore.openProfile(player.userData.id, player.userData);
+  }
 };
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <header class="mb-6 flex justify-between items-end">
+  <div class="h-full flex flex-col bg-slate-50 p-6 rounded-3xl relative">
+    <header class="mb-6 flex justify-between items-end shrink-0">
       <div>
-        <h1 class="text-3xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-3">
+        <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
           {{ t('player_list.title') }}
-          <span class="inline-flex items-center justify-center p-1.5 bg-green-100 rounded-xl">
-            <Users class="w-6 h-6 text-green-600" />
+          <span class="inline-flex items-center justify-center p-1.5 bg-blue-100 rounded-xl shadow-sm">
+            <Users class="w-5 h-5 text-blue-600" />
           </span>
         </h1>
-        <p class="text-amber-700/80 font-medium mt-1 flex items-center gap-1">
-          <MapPin :size="14" /> {{ t('player_list.current_location') }} <span class="font-bold text-amber-900 bg-amber-100 px-2 rounded-md">{{ currentRoom }}</span>
+        <p class="text-slate-600 font-medium mt-2 flex items-center gap-1.5 text-sm">
+          <MapPin
+            :size="14"
+            class="text-slate-400"
+          /> {{ t('player_list.current_location') }} 
+          <span class="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">{{ currentRoom }}</span>
         </p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-sm font-bold text-amber-800 bg-amber-100 px-3 py-1 rounded-full border border-amber-200">
+        <span class="text-xs font-bold text-blue-800 bg-blue-100/80 px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
           {{ t('player_list.total_players', { count: players.length }) }}
         </span>
       </div>
     </header>
 
-    <div class="flex-1 bg-white/60 backdrop-blur-md border-2 border-white rounded-3xl p-6 shadow-lg flex flex-col">
-      <div class="relative mb-6">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-amber-300 w-5 h-5" />
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Search -->
+      <div class="relative mb-4 shrink-0">
+        <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
         <input
           v-model="searchQuery"
           type="text"
           :placeholder="t('player_list.search_placeholder')"
-          class="w-full pl-10 pr-4 py-2.5 bg-white border border-amber-100 focus:border-green-400 focus:ring-0 rounded-xl outline-none transition-colors text-amber-900 font-medium"
+          class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 rounded-xl outline-none transition-all text-slate-800 text-sm shadow-sm"
         >
       </div>
 
-      <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+      <!-- Player List Grid -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
         <div
           v-if="loading && players.length === 0"
-          class="h-full flex flex-col items-center justify-center text-green-500 opacity-70"
+          class="h-full flex flex-col items-center justify-center text-blue-500 opacity-70"
         >
           <Bone
             class="animate-bounce mb-4"
             :size="48"
           />
-          <p class="font-bold">
+          <p class="font-bold text-sm tracking-wide">
             {{ t('player_list.loading') }}
           </p>
         </div>
 
         <div
           v-else-if="players.length === 0"
-          class="h-full flex flex-col items-center justify-center text-amber-900/40"
+          class="h-full flex flex-col items-center justify-center text-slate-400"
         >
           <Users
             class="mb-4 opacity-50"
             :size="48"
           />
-          <p class="font-bold text-lg">
+          <p class="font-bold text-base">
             {{ t('player_list.no_data') }}
           </p>
-          <p class="text-sm mt-1">
+          <p class="text-xs mt-1 text-slate-500">
             {{ t('player_list.no_players') }}
           </p>
         </div>
 
         <div
-          v-for="player in getFilteredPlayers()"
-          :key="player.name"
-          class="flex items-center justify-between p-4 bg-white rounded-2xl border border-amber-50 hover:border-green-200 transition-colors shadow-sm group"
+          v-else
+          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
         >
-          <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-500 font-bold text-xl uppercase">
-              {{ player.name.charAt(0) }}
-            </div>
-            <div>
-              <h3 class="font-bold text-amber-950 text-lg">
-                {{ player.name }}
-              </h3>
-              <div class="flex items-center gap-1 mt-1 text-xs font-bold text-amber-900/40">
-                <LogIn
-                  :size="12"
-                  class="text-green-500"
-                /> {{ t('player_list.joined_at') }}{{ player.joinTime }}
+          <div
+            v-for="player in filteredPlayers"
+            :key="player.name"
+            class="relative group"
+          >
+            <VrcResourceCard
+              v-if="player.userData"
+              type="avatar"
+              :data="player.userData"
+              :is-user="true"
+              @click="openPlayerProfile(player)"
+            />
+            
+            <div
+              v-else
+              class="h-32 bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm flex items-center justify-center relative"
+            >
+              <div
+                v-if="player.loadingData"
+                class="absolute inset-0 bg-slate-50 flex items-center justify-center"
+              >
+                <div class="animate-pulse w-8 h-8 rounded-full bg-slate-200" />
               </div>
+              <div
+                v-else
+                class="text-center p-4"
+              >
+                <div class="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-black text-xl uppercase mx-auto mb-2 border border-slate-200 shadow-sm">
+                  {{ player.name.charAt(0) }}
+                </div>
+                <h3 class="font-bold text-slate-700 text-sm truncate max-w-[150px] mx-auto">
+                  {{ player.name }}
+                </h3>
+              </div>
+            </div>
+
+            <!-- Note Badge -->
+            <div
+              v-if="player.note"
+              class="absolute top-2 left-2 bg-yellow-100/90 backdrop-blur-md text-yellow-800 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold border border-yellow-300/50 shadow-sm z-10 max-w-[120px]"
+            >
+              <StickyNote :size="10" /> <span class="truncate">{{ player.note }}</span>
+            </div>
+
+            <!-- Join Time Badge -->
+            <div class="absolute top-2 right-2 bg-black/60 backdrop-blur-md text-white text-[9px] px-1.5 py-0.5 rounded uppercase font-mono font-bold border border-white/10 opacity-80 pointer-events-none z-10 shadow-sm">
+              {{ player.joinTime }}
             </div>
           </div>
         </div>
@@ -158,6 +250,6 @@ const getFilteredPlayers = () => {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 197, 94, 0.2); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(34, 197, 94, 0.4); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.5); }
 </style>

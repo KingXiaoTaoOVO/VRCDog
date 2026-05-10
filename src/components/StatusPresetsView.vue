@@ -41,10 +41,10 @@ const showForm = ref(false);
 const form = ref({ status: 'active', status_description: '', name: '' });
 
 const statusOptions = computed(() => [
-  { value: 'active', label: t('status_presets.active'), color: 'bg-green-500' },
-  { value: 'join me', label: t('status_presets.join_me'), color: 'bg-blue-500' },
-  { value: 'ask me', label: t('status_presets.ask_me'), color: 'bg-orange-500' },
-  { value: 'busy', label: t('status_presets.busy'), color: 'bg-red-500' },
+  { value: 'active', label: t('status_presets.active'), color: 'bg-green-500 shadow-green-500/20' },
+  { value: 'join me', label: t('status_presets.join_me'), color: 'bg-blue-500 shadow-blue-500/20' },
+  { value: 'ask me', label: t('status_presets.ask_me'), color: 'bg-orange-500 shadow-orange-500/20' },
+  { value: 'busy', label: t('status_presets.busy'), color: 'bg-red-500 shadow-red-500/20' },
 ]);
 
 const fetchPresets = async () => {
@@ -93,7 +93,7 @@ const deletePreset = async (id: number) => {
 };
 
 const getStatusColor = (status: string) => {
-  return statusOptions.value.find(o => o.value === status)?.color || 'bg-gray-400';
+  return statusOptions.value.find(o => o.value === status)?.color || 'bg-slate-400';
 };
 
 const getLocalizedName = (name: string) => {
@@ -114,42 +114,46 @@ onMounted(() => fetchPresets());
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center justify-between mb-6">
-      <h2 class="text-2xl font-extrabold text-[#451a03] flex items-center gap-2">
-        <Sparkles
-          class="text-amber-500"
-          :size="24"
-        /> {{ t('status_presets.title') }}
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <div class="flex items-center justify-between mb-8 shrink-0 z-10">
+      <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+          <Sparkles class="w-6 h-6 text-indigo-600" />
+        </span>
+        {{ t('status_presets.title') }}
       </h2>
       <button
-        class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md flex items-center gap-1 transition-colors"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
         @click="showForm = !showForm"
       >
-        <Plus :size="14" /> {{ t('status_presets.add_preset') }}
+        <Plus :size="16" /> {{ t('status_presets.add_preset') }}
       </button>
     </div>
 
     <!-- 新增表单 -->
     <div
       v-if="showForm"
-      class="bg-white/90 backdrop-blur rounded-2xl p-5 border-2 border-amber-200 mb-6 shadow-sm"
+      class="bg-white/90 backdrop-blur-xl rounded-2xl p-6 border border-slate-200 mb-6 shadow-md z-10 relative"
     >
-      <div class="grid grid-cols-2 gap-4 mb-4">
+      <div class="grid grid-cols-2 gap-5 mb-5">
         <div>
-          <label class="block text-xs font-bold text-amber-900 mb-1">{{ t('status_presets.preset_name') }}</label>
+          <label class="block text-xs font-extrabold text-slate-700 mb-2 tracking-wide">{{ t('status_presets.preset_name') }}</label>
           <input
             v-model="form.name"
             type="text"
             :placeholder="t('status_presets.preset_name_placeholder')"
-            class="w-full px-3 py-2 rounded-xl border-2 border-amber-100 focus:border-amber-400 focus:ring-0 outline-none text-sm bg-amber-50/30"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-slate-50 transition-all font-medium text-slate-900"
           >
         </div>
         <div>
-          <label class="block text-xs font-bold text-amber-900 mb-1">{{ t('status_presets.status_type') }}</label>
+          <label class="block text-xs font-extrabold text-slate-700 mb-2 tracking-wide">{{ t('status_presets.status_type') }}</label>
           <select
             v-model="form.status"
-            class="w-full px-3 py-2 rounded-xl border-2 border-amber-100 focus:border-amber-400 focus:ring-0 outline-none text-sm bg-amber-50/30"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-slate-50 transition-all font-medium text-slate-900"
           >
             <option
               v-for="opt in statusOptions"
@@ -161,104 +165,125 @@ onMounted(() => fetchPresets());
           </select>
         </div>
       </div>
-      <div class="mb-4">
-        <label class="block text-xs font-bold text-amber-900 mb-1">{{ t('status_presets.status_desc') }}</label>
+      <div class="mb-5">
+        <label class="block text-xs font-extrabold text-slate-700 mb-2 tracking-wide">{{ t('status_presets.status_desc') }}</label>
         <input
           v-model="form.status_description"
           type="text"
           :placeholder="t('status_presets.status_desc_placeholder')"
-          class="w-full px-3 py-2 rounded-xl border-2 border-amber-100 focus:border-amber-400 focus:ring-0 outline-none text-sm bg-amber-50/30"
+          class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-slate-50 transition-all font-medium text-slate-900"
         >
       </div>
-      <div class="flex gap-2 justify-end">
+      <div class="flex gap-3 justify-end pt-2 border-t border-slate-100">
         <button
-          class="text-xs text-amber-600 hover:text-amber-800 font-bold px-4 py-2 rounded-lg"
+          class="text-sm text-slate-500 hover:text-slate-700 font-bold px-4 py-2 rounded-xl hover:bg-slate-100 transition-colors"
           @click="showForm = false"
         >
           {{ t('status_presets.cancel') }}
         </button>
         <button
-          class="text-xs bg-green-500 text-white font-bold px-4 py-2 rounded-xl hover:bg-green-600 flex items-center gap-1"
+          class="text-sm bg-indigo-600 text-white font-bold px-5 py-2 rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-colors"
           @click="addPreset"
         >
-          <Zap :size="12" /> {{ t('status_presets.save') }}
+          <Zap :size="16" /> {{ t('status_presets.save') }}
         </button>
       </div>
     </div>
 
     <!-- 预设列表 -->
-    <div
-      v-if="loading"
-      class="text-center py-8 text-amber-500 font-bold animate-pulse"
-    >
-      {{ t('status_presets.loading') }}
-    </div>
-
-    <div
-      v-else-if="presets.length === 0 && !showForm"
-      class="bg-white/80 backdrop-blur rounded-2xl p-8 border-2 border-amber-100 text-center text-amber-600"
-    >
-      <Sparkles
-        class="mx-auto mb-4 text-amber-300"
-        :size="48"
-      />
-      <p class="font-bold">
-        {{ t('status_presets.no_presets') }}
-      </p>
-      <p class="text-sm mt-1">
-        {{ t('status_presets.no_presets_desc') }}
-      </p>
-    </div>
-
-    <div
-      v-else
-      class="grid grid-cols-1 md:grid-cols-2 gap-3"
-    >
+    <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
-        v-for="(preset, idx) in presets"
-        :key="preset.id ?? idx"
-        class="bg-white/80 backdrop-blur rounded-2xl p-4 border-2 border-amber-50 hover:border-amber-200 transition-all flex items-center gap-3 group"
+        v-if="loading"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
+      >
+        <Loader2
+          class="animate-spin mb-4"
+          :size="48"
+        />
+        <span class="font-extrabold text-lg tracking-wide">{{ t('status_presets.loading') }}</span>
+      </div>
+
+      <div
+        v-else-if="presets.length === 0 && !showForm"
+        class="h-full flex flex-col items-center justify-center text-slate-400"
+      >
+        <Sparkles
+          class="mb-4 opacity-30"
+          :size="64"
+        />
+        <p class="font-bold text-xl text-slate-500">
+          {{ t('status_presets.no_presets') }}
+        </p>
+        <p class="text-sm mt-2 font-medium">
+          {{ t('status_presets.no_presets_desc') }}
+        </p>
+      </div>
+
+      <div
+        v-else
+        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-10"
       >
         <div
-          class="w-3 h-3 rounded-full"
-          :class="getStatusColor(preset.status)"
-        />
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-amber-900 text-sm">
-            {{ getLocalizedName(preset.name) }}
-          </h3>
-          <p class="text-xs text-amber-600 truncate">
-            {{ getLocalizedDesc(preset.status_description) }}
-          </p>
+          v-for="(preset, idx) in presets"
+          :key="preset.id ?? idx"
+          class="bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col gap-4 group relative"
+        >
+          <div class="flex items-start gap-3">
+            <div
+              class="w-3.5 h-3.5 rounded-full mt-1 flex-shrink-0 shadow-sm"
+              :class="getStatusColor(preset.status)"
+            />
+            <div class="flex-1 min-w-0">
+              <h3 class="font-bold text-slate-900 text-base truncate pr-6">
+                {{ getLocalizedName(preset.name) }}
+              </h3>
+              <p class="text-sm text-slate-600 mt-1 line-clamp-2 leading-relaxed">
+                {{ getLocalizedDesc(preset.status_description) }}
+              </p>
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-end gap-2 mt-auto border-t border-slate-100 pt-3">
+            <button
+              v-if="props.userId"
+              :disabled="applyingId === preset.id"
+              class="flex-1 flex justify-center items-center gap-1.5 py-2 rounded-xl text-sm font-bold transition-all"
+              :class="appliedId === preset.id ? 'bg-green-100 text-green-700' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-700'"
+              @click="applyPreset(preset)"
+            >
+              <Check
+                v-if="appliedId === preset.id"
+                :size="16"
+              />
+              <Loader2
+                v-else-if="applyingId === preset.id"
+                :size="16"
+                class="animate-spin"
+              />
+              <Send
+                v-else
+                :size="16"
+              />
+              <span v-if="appliedId === preset.id">{{ t('status_presets.applied') === 'status_presets.applied' ? '已应用' : t('status_presets.applied') }}</span>
+              <span v-else>{{ t('status_presets.apply') === 'status_presets.apply' ? '应用预设' : t('status_presets.apply') }}</span>
+            </button>
+            <button
+              class="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+              :title="t('global.auto_8767ff08')"
+              @click="deletePreset(preset.id!)"
+            >
+              <Trash2 :size="18" />
+            </button>
+          </div>
         </div>
-        <button
-          v-if="props.userId"
-          :disabled="applyingId === preset.id"
-          class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
-          :class="appliedId === preset.id ? 'bg-green-100 text-green-600' : 'hover:bg-blue-50 text-blue-500 hover:text-blue-700'"
-          @click="applyPreset(preset)"
-        >
-          <Check
-            v-if="appliedId === preset.id"
-            :size="14"
-          />
-          <Loader2
-            v-else-if="applyingId === preset.id"
-            :size="14"
-            class="animate-spin"
-          />
-          <Send
-            v-else
-            :size="14"
-          />
-        </button>
-        <button
-          class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600 transition-all"
-          @click="deletePreset(preset.id!)"
-        >
-          <Trash2 :size="14" />
-        </button>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+</style>

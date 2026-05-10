@@ -160,11 +160,22 @@ pub async fn vrc_get_image_bytes(
 }
 
 #[derive(Deserialize)]
+pub struct FormDataPart {
+    pub name: String,
+    pub value: Option<String>,
+    pub file_name: Option<String>,
+    pub file_content_base64: Option<String>,
+    pub file_mime: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct RequestOptions {
     pub url: String,
     pub method: String,
     pub headers: Option<std::collections::HashMap<String, String>>,
     pub body: Option<String>,
+    pub body_is_base64: Option<bool>,
+    pub form_data: Option<Vec<FormDataPart>>,
     pub auth_cookie: Option<String>,
 }
 
@@ -234,8 +245,34 @@ pub async fn vrc_execute(
         }
     }
 
-    if let Some(body) = options.body {
-        req = req.body(body);
+    if let Some(form_data_parts) = options.form_data {
+        let mut form = reqwest::multipart::Form::new();
+        for part in form_data_parts {
+            if let Some(val) = part.value {
+                form = form.text(part.name, val);
+            } else if let Some(b64) = part.file_content_base64 {
+                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64) {
+                    let mut part_req = reqwest::multipart::Part::bytes(bytes);
+                    if let Some(fname) = part.file_name {
+                        part_req = part_req.file_name(fname);
+                    }
+                    if let Some(mime) = part.file_mime {
+                        part_req = part_req.mime_str(&mime).unwrap();
+                    }
+                    form = form.part(part.name, part_req);
+                }
+            }
+        }
+        req = req.multipart(form);
+    } else if let Some(body) = options.body {
+        if options.body_is_base64.unwrap_or(false) {
+            match base64::engine::general_purpose::STANDARD.decode(&body) {
+                Ok(bytes) => req = req.body(bytes),
+                Err(e) => return Err(format!("Base64 Decode Error: {}", e)),
+            }
+        } else {
+            req = req.body(body);
+        }
     }
 
     let res = req.send().await.map_err(|e| e.to_string())?;

@@ -31,7 +31,7 @@ const config = ref({
     transTargetLang: 'zh',
     transApiKey: '',
     transLlmModel: '',
-    transLlmPrompt: '你是一个翻译专家，综合所有的 OCR 乱入文本，给出现在最好的目标语言。',
+    transLlmPrompt: t('ovr.trans_llm_prompt_default'),
     overlayTextColor: '#FFFFFF',
     overlayBgColor: '#000000',
     overlayBgOpacity: 0.5,
@@ -208,10 +208,10 @@ const vrDashboardTab = ref('basic');
 
 // Sample OCR demo content
 const ocrSamples = [
-  { original: 'Welcome to this world!\nPlease enjoy your stay.', translated: '欢迎来到这个世界！\n请享受你的旅程。' },
-  { original: 'Press trigger to interact\nwith objects around you.', translated: '按下扳机键与周围的\n物体进行互动。' },
-  { original: 'This avatar is private.\nYou cannot clone it.', translated: '此模型为私密模型。\n你无法复制它。' },
-  { original: 'Instance capacity: 20/40\nRegion: US West', translated: '房间容量: 20/40\n地区: 美国西部' },
+  { original: 'Welcome to this world!\nPlease enjoy your stay.', translated: t('ovr.sim_text_1_trans') },
+  { original: 'Press trigger to interact\nwith objects around you.', translated: t('ovr.sim_text_2_trans') },
+  { original: 'This avatar is private.\nYou cannot clone it.', translated: t('ovr.sim_text_3_trans') },
+  { original: 'Instance capacity: 20/40\nRegion: US West', translated: t('ovr.sim_text_4_trans') },
 ];
 const currentSampleIdx = ref(0);
 const currentSample = computed(() => ocrSamples[currentSampleIdx.value]);
@@ -316,9 +316,9 @@ watch(config, (newConfig) => {
   configSyncTimeout = setTimeout(async () => {
     try {
       await invoke('ovr_sync_ovras_ini', { payload: JSON.stringify(newConfig) });
-      showToast(t('ovr.toast_sync_success') || 'OVR 设置已自动同步至 SteamVR', 'success');
+      showToast(t('ovr.toast_sync_success'), 'success');
     } catch (error) {
-      showToast((t('ovr.toast_sync_fail') || '同步失败: {error}').replace('{error}', String(error)), 'error');
+      showToast(t('ovr.toast_sync_fail').replace('{error}', String(error)), 'error');
     }
   }, 1000); // 1000ms debounce
 }, { deep: true });
@@ -338,13 +338,13 @@ const toggleAutoScan = async () => {
   if (autoScanRunning.value) {
     await OvrApi.stopAutoScan();
     autoScanRunning.value = false;
-    showToast(t('ovr.toast_scan_stopped') || '自动扫描已停止', 'info');
+    showToast(t('ovr.toast_scan_stopped'), 'info');
   } else {
     // Sync config first so backend has latest interval
     await syncConfigToBackend();
     await OvrApi.startAutoScan();
     autoScanRunning.value = true;
-    showToast((t('ovr.toast_scan_started') || '自动扫描已开启 (每 {interval}s)').replace('{interval}', String(config.value.general.autoScanInterval || 5)), 'success');
+    showToast(t('ovr.toast_scan_started').replace('{interval}', String(config.value.general.autoScanInterval || 5)), 'success');
   }
 };
 
@@ -354,9 +354,9 @@ const triggerDesktopScan = async () => {
   try {
     await syncConfigToBackend();
     await OvrApi.desktopScanOnce();
-    showToast(t('ovr.toast_scan_loading') || '桌面截图翻译中...', 'info');
+    showToast(t('ovr.toast_scan_loading'), 'info');
   } catch (err: any) {
-    showToast((t('ovr.toast_scan_failed') || '扫描失败: {error}').replace('{error}', String(err)), 'error');
+    showToast(t('ovr.toast_scan_failed').replace('{error}', String(err)), 'error');
   }
   // Loading will be cleared when ovr_desktop_translation event fires
   setTimeout(() => { desktopScanLoading.value = false; }, 35000); // Safety timeout
@@ -371,7 +371,7 @@ const initOvrBackend = async () => {
       ovrLogs.value.push((t('ovr.log_ovr_connected') || '[OVR] 已连接: {model}').replace('{model}', ovrHmdModel.value));
     }
   } catch (err: any) {
-    ovrLogs.value.push((t('ovr.log_ovr_init_fail') || '[OVR] 初始化失败: {error}').replace('{error}', String(err?.message || err)));
+    ovrLogs.value.push(t('ovr.log_ovr_init_fail').replace('{error}', String(err?.message || err)));
     console.warn('OVR init failed (VR may not be running):', err);
   }
 };
@@ -521,7 +521,7 @@ const restoreDefaults = () => {
     ocrDenoise: false, ocrMergeHeightTol: 0.2, ocrMergeWidthTol: 0.1,
     transMode: 'builtin', transService: 'tencent', transSourceLang: 'auto', transTargetLang: 'zh',
     transApiKey: '', transLlmModel: '',
-    transLlmPrompt: '你是一个翻译专家，综合所有的 OCR 乱入文本，给出现在最好的目标语言。',
+    transLlmPrompt: t('ovr.trans_llm_prompt_default'),
     overlayTextColor: '#FFFFFF', overlayBgColor: '#000000', overlayBgOpacity: 0.5,
     overlayStatusColor: '#00FF00', overlayLockMode: 'world',
     advCpuAccel: true, advGpuAccel: false, advDebugMode: false, advAutoStart: false,
@@ -638,12 +638,12 @@ const testApiConnection = async () => {
 
 const getKeyDisplay = (val: string) => {
   const map: Record<string, string> = {
-    trigger: '扳机键',
-    grip: '侧边键',
-    a_button: 'A / X 键',
-    b_button: 'B / Y 键',
-    left_stick: '左摇杆',
-    right_stick: '右摇杆'
+    trigger: t('ovr.trigger'),
+    grip: t('ovr.grip'),
+    a_button: t('ovr.a_button'),
+    b_button: t('ovr.b_button'),
+    left_stick: t('ovr.left_stick'),
+    right_stick: t('ovr.right_stick')
   };
   return map[val] || val;
 };
@@ -651,23 +651,26 @@ const getKeyDisplay = (val: string) => {
 </script>
 
 <template>
-  <div class="min-h-full flex flex-col">
-    <header class="mb-6 flex justify-between items-end">
+  <div class="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pr-2 custom-scrollbar">
+    <header class="mb-6 flex justify-between items-end flex-shrink-0">
       <div>
-        <h1 class="text-3xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-3">
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
           {{ t('ovr.title') }} <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider">{{ t('ovr.badge') }}</span>
         </h1>
-        <p class="text-amber-700/80 font-medium mt-1">
+        <p class="text-slate-500 font-medium mt-1">
           {{ t('ovr.subtitle') }}
         </p>
         <!-- VR Backend Connection Status -->
         <div class="mt-2 flex items-center gap-2">
           <div
             class="w-2.5 h-2.5 rounded-full"
-            :class="ovrConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"
+            :class="ovrConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-400'"
           />
-          <span class="text-xs font-bold" :class="ovrConnected ? 'text-green-700' : 'text-gray-500'">
-            {{ ovrConnected ? `OpenVR 已连接 · ${ovrHmdModel}` : 'OpenVR 未连接（VR 运行时未启动）' }}
+          <span
+            class="text-xs font-bold"
+            :class="ovrConnected ? 'text-green-700' : 'text-slate-500'"
+          >
+            {{ ovrConnected ? t('ovr.ovr_connected').replace('{model}', ovrHmdModel) : t('ovr.ovr_disconnected') }}
           </span>
         </div>
       </div>
@@ -676,7 +679,7 @@ const getKeyDisplay = (val: string) => {
           class="px-5 py-2 rounded-full font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors flex items-center gap-2"
           @click="restoreDefaults"
         >
-          <RotateCcw class="w-4 h-4" /> {{ t('ovr.restore_defaults') || '恢复默认值' }}
+          <RotateCcw class="w-4 h-4" /> {{ t('ovr.restore_defaults') }}
         </button>
         <button
           class="px-6 py-2 rounded-full font-bold shadow-md transition-all flex items-center gap-2"
@@ -697,9 +700,9 @@ const getKeyDisplay = (val: string) => {
       </div>
     </header>
 
-    <div class="flex-1 bg-white/60 backdrop-blur-md border-2 border-white rounded-3xl shadow-lg flex overflow-hidden">
+    <div class="h-[650px] flex-shrink-0 mb-8 bg-white/60 backdrop-blur-md border border-slate-200 rounded-3xl shadow-lg flex overflow-hidden">
       <!-- 左侧导航 -->
-      <div class="w-48 bg-white/40 border-r border-indigo-50 p-4 space-y-2">
+      <div class="w-48 bg-white/40 border-r border-indigo-50 p-4 space-y-2 overflow-y-auto custom-scrollbar">
         <button
           :class="activeSubTab === 'basic' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
@@ -745,9 +748,9 @@ const getKeyDisplay = (val: string) => {
 
         <!-- OVR Advanced Settings 分隔线 -->
         <div class="my-3 flex items-center gap-2">
-          <div class="flex-1 border-t border-indigo-200"></div>
+          <div class="flex-1 border-t border-indigo-200" />
           <span class="text-[10px] font-bold text-indigo-400 uppercase tracking-wider whitespace-nowrap">OVR Advanced</span>
-          <div class="flex-1 border-t border-indigo-200"></div>
+          <div class="flex-1 border-t border-indigo-200" />
         </div>
 
         <button
@@ -827,7 +830,7 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
 
@@ -846,7 +849,7 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
           
@@ -865,38 +868,56 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
 
           <h3 class="text-sm font-extrabold text-indigo-950 mt-6 mb-2 flex items-center gap-2">
-            <Gamepad2 class="w-4 h-4 text-indigo-500" /> 手柄按键映射
+            <Gamepad2 class="w-4 h-4 text-indigo-500" /> {{ t('ovr.controller_mapping') }}
           </h3>
 
           <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div>
-              <label class="block text-sm font-bold text-indigo-900 mb-1">触发截图翻译按键</label>
+              <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.trigger_key') }}</label>
               <select
                 v-model="config.general.triggerKey"
                 class="w-full bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2 text-indigo-900 font-medium focus:outline-none focus:border-indigo-400 transition-colors"
               >
-                <option value="trigger">扳机键 (Trigger)</option>
-                <option value="grip">侧边键 (Grip)</option>
-                <option value="a_button">A / X 键</option>
-                <option value="b_button">B / Y 键</option>
+                <option value="trigger">
+                  {{ t('ovr.trigger_full') }}
+                </option>
+                <option value="grip">
+                  {{ t('ovr.grip_full') }}
+                </option>
+                <option value="a_button">
+                  {{ t('ovr.a_button') }}
+                </option>
+                <option value="b_button">
+                  {{ t('ovr.b_button') }}
+                </option>
               </select>
             </div>
             <div>
-              <label class="block text-sm font-bold text-indigo-900 mb-1">清除翻译按键</label>
+              <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.clear_key') }}</label>
               <select
                 v-model="config.general.clearKey"
                 class="w-full bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2 text-indigo-900 font-medium focus:outline-none focus:border-indigo-400 transition-colors"
               >
-                <option value="left_stick">左摇杆拨动 (Left Stick)</option>
-                <option value="right_stick">右摇杆拨动 (Right Stick)</option>
-                <option value="a_button">A / X 键</option>
-                <option value="b_button">B / Y 键</option>
-                <option value="grip">侧边键 (Grip)</option>
+                <option value="left_stick">
+                  {{ t('ovr.left_stick_full') }}
+                </option>
+                <option value="right_stick">
+                  {{ t('ovr.right_stick_full') }}
+                </option>
+                <option value="a_button">
+                  {{ t('ovr.a_button') }}
+                </option>
+                <option value="b_button">
+                  {{ t('ovr.b_button') }}
+                </option>
+                <option value="grip">
+                  {{ t('ovr.grip_full') }}
+                </option>
               </select>
             </div>
           </div>
@@ -934,12 +955,15 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
 
           <!-- 手动扫描按钮 -->
-          <div v-if="config.general.desktopMode" class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3">
+          <div
+            v-if="config.general.desktopMode"
+            class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3"
+          >
             <h3 class="text-sm font-extrabold text-indigo-950 flex items-center gap-2">
               <ScanEye class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_scan_section') }}
             </h3>
@@ -952,8 +976,14 @@ const getKeyDisplay = (val: string) => {
                 :disabled="desktopScanLoading"
                 @click="triggerDesktopScan"
               >
-                <Loader2 v-if="desktopScanLoading" class="w-4 h-4 animate-spin" />
-                <ScanEye v-else class="w-4 h-4" />
+                <Loader2
+                  v-if="desktopScanLoading"
+                  class="w-4 h-4 animate-spin"
+                />
+                <ScanEye
+                  v-else
+                  class="w-4 h-4"
+                />
                 {{ desktopScanLoading ? t('ovr.desktop_scanning') : t('ovr.desktop_scan_now') }}
               </button>
               <button
@@ -963,14 +993,20 @@ const getKeyDisplay = (val: string) => {
                   : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-200'"
                 @click="toggleAutoScan"
               >
-                <RefreshCw class="w-4 h-4" :class="autoScanRunning ? 'animate-spin' : ''" />
+                <RefreshCw
+                  class="w-4 h-4"
+                  :class="autoScanRunning ? 'animate-spin' : ''"
+                />
                 {{ autoScanRunning ? t('ovr.desktop_auto_stop') : t('ovr.desktop_auto_start') }}
               </button>
             </div>
           </div>
 
           <!-- 自动扫描间隔 -->
-          <div v-if="config.general.desktopMode" class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3">
+          <div
+            v-if="config.general.desktopMode"
+            class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3"
+          >
             <h3 class="text-sm font-extrabold text-indigo-950 flex items-center gap-2">
               <Timer class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_interval') }}
             </h3>
@@ -991,17 +1027,26 @@ const getKeyDisplay = (val: string) => {
           </div>
 
           <!-- 输出开关 -->
-          <div v-if="config.general.desktopMode" class="space-y-3">
+          <div
+            v-if="config.general.desktopMode"
+            class="space-y-3"
+          >
             <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Volume2 class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_tts') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.desktop_tts_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.desktop_tts_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.general.ttsEnabled" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.general.ttsEnabled"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
 
@@ -1010,27 +1055,47 @@ const getKeyDisplay = (val: string) => {
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <MessageSquare class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_osc') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.desktop_osc_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.desktop_osc_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.general.oscChatboxEnabled" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.general.oscChatboxEnabled"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
           </div>
 
           <!-- 翻译结果实时显示 -->
-          <div v-if="config.general.desktopMode && desktopTranslationResult" class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3">
+          <div
+            v-if="config.general.desktopMode && desktopTranslationResult"
+            class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3"
+          >
             <h3 class="text-sm font-extrabold text-indigo-950 flex items-center gap-2">
               <Languages class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_result') }}
             </h3>
-            <div v-if="desktopTranslationResult.original" class="p-3 bg-indigo-50/50 rounded-xl">
-              <p class="text-xs font-bold text-indigo-700 mb-1">{{ t('ovr.desktop_original') }}</p>
-              <p class="text-sm text-indigo-900 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">{{ desktopTranslationResult.original }}</p>
+            <div
+              v-if="desktopTranslationResult.original"
+              class="p-3 bg-indigo-50/50 rounded-xl"
+            >
+              <p class="text-xs font-bold text-indigo-700 mb-1">
+                {{ t('ovr.desktop_original') }}
+              </p>
+              <p class="text-sm text-indigo-900 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">
+                {{ desktopTranslationResult.original }}
+              </p>
             </div>
             <div class="p-3 bg-violet-50/50 rounded-xl">
-              <p class="text-xs font-bold text-violet-700 mb-1">{{ t('ovr.desktop_translated') }}</p>
-              <p class="text-sm text-violet-900 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto custom-scrollbar font-medium">{{ desktopTranslationResult.translated }}</p>
+              <p class="text-xs font-bold text-violet-700 mb-1">
+                {{ t('ovr.desktop_translated') }}
+              </p>
+              <p class="text-sm text-violet-900 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto custom-scrollbar font-medium">
+                {{ desktopTranslationResult.translated }}
+              </p>
             </div>
           </div>
         </div>
@@ -1342,15 +1407,25 @@ const getKeyDisplay = (val: string) => {
             <h3 class="font-bold text-indigo-900 flex items-center gap-2">
               <Move3d class="w-4 h-4 text-indigo-500" /> {{ t('ovr.playspace_drag') }}
             </h3>
-            <p class="text-xs text-indigo-700/60 mb-2">{{ t('ovr.playspace_drag_desc') }}</p>
+            <p class="text-xs text-indigo-700/60 mb-2">
+              {{ t('ovr.playspace_drag_desc') }}
+            </p>
             
             <div class="grid grid-cols-2 gap-4">
               <label class="flex items-center gap-3 cursor-pointer p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50 hover:bg-indigo-50 transition-colors">
-                <input v-model="config.playspace.dragLeft" type="checkbox" class="w-5 h-5 text-indigo-500 rounded focus:ring-indigo-500">
+                <input
+                  v-model="config.playspace.dragLeft"
+                  type="checkbox"
+                  class="w-5 h-5 text-indigo-500 rounded focus:ring-indigo-500"
+                >
                 <span class="text-sm font-bold text-indigo-800">{{ t('ovr.playspace_drag_left') }}</span>
               </label>
               <label class="flex items-center gap-3 cursor-pointer p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50 hover:bg-indigo-50 transition-colors">
-                <input v-model="config.playspace.dragRight" type="checkbox" class="w-5 h-5 text-indigo-500 rounded focus:ring-indigo-500">
+                <input
+                  v-model="config.playspace.dragRight"
+                  type="checkbox"
+                  class="w-5 h-5 text-indigo-500 rounded focus:ring-indigo-500"
+                >
                 <span class="text-sm font-bold text-indigo-800">{{ t('ovr.playspace_drag_right') }}</span>
               </label>
             </div>
@@ -1363,15 +1438,24 @@ const getKeyDisplay = (val: string) => {
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <ArrowUpDown class="w-4 h-4 text-indigo-500" /> {{ t('ovr.playspace_height') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.playspace_height_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.playspace_height_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.playspace.heightToggle" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.playspace.heightToggle"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
 
-            <div v-if="config.playspace.heightToggle" class="space-y-2 pt-2 border-t border-indigo-50">
+            <div
+              v-if="config.playspace.heightToggle"
+              class="space-y-2 pt-2 border-t border-indigo-50"
+            >
               <label class="flex justify-between text-sm font-bold text-indigo-800">
                 <span>{{ t('ovr.playspace_height_offset') }}</span>
                 <span class="text-indigo-500">{{ config.playspace.heightOffset.toFixed(2) }}m</span>
@@ -1393,23 +1477,46 @@ const getKeyDisplay = (val: string) => {
               <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                 <Move class="w-4 h-4 text-indigo-500" /> {{ t('ovr.playspace_offsets') }}
               </h3>
-              <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.playspace_offsets_desc') }}</p>
+              <p class="text-xs text-indigo-700/60 mt-0.5">
+                {{ t('ovr.playspace_offsets_desc') }}
+              </p>
             </div>
             
             <div class="space-y-4 pt-2 border-t border-indigo-50">
               <div class="flex items-center gap-4">
-                <span class="font-bold text-indigo-800 w-8">{{ t('ovr.axis_x') || 'X 轴' }}</span>
-                <input v-model.number="config.playspace.offsetX" type="range" min="-5.0" max="5.0" step="0.1" class="flex-1 accent-indigo-500">
+                <span class="font-bold text-indigo-800 w-8">{{ t('ovr.axis_x') }}</span>
+                <input
+                  v-model.number="config.playspace.offsetX"
+                  type="range"
+                  min="-5.0"
+                  max="5.0"
+                  step="0.1"
+                  class="flex-1 accent-indigo-500"
+                >
                 <span class="text-sm font-mono text-indigo-500 w-12 text-right">{{ config.playspace.offsetX.toFixed(1) }}</span>
               </div>
               <div class="flex items-center gap-4">
-                <span class="font-bold text-indigo-800 w-8">{{ t('ovr.axis_y') || 'Y 轴' }}</span>
-                <input v-model.number="config.playspace.offsetY" type="range" min="-5.0" max="5.0" step="0.1" class="flex-1 accent-indigo-500">
+                <span class="font-bold text-indigo-800 w-8">{{ t('ovr.axis_y') }}</span>
+                <input
+                  v-model.number="config.playspace.offsetY"
+                  type="range"
+                  min="-5.0"
+                  max="5.0"
+                  step="0.1"
+                  class="flex-1 accent-indigo-500"
+                >
                 <span class="text-sm font-mono text-indigo-500 w-12 text-right">{{ config.playspace.offsetY.toFixed(1) }}</span>
               </div>
               <div class="flex items-center gap-4">
-                <span class="font-bold text-indigo-800 w-8">{{ t('ovr.axis_z') || 'Z 轴' }}</span>
-                <input v-model.number="config.playspace.offsetZ" type="range" min="-5.0" max="5.0" step="0.1" class="flex-1 accent-indigo-500">
+                <span class="font-bold text-indigo-800 w-8">{{ t('ovr.axis_z') }}</span>
+                <input
+                  v-model.number="config.playspace.offsetZ"
+                  type="range"
+                  min="-5.0"
+                  max="5.0"
+                  step="0.1"
+                  class="flex-1 accent-indigo-500"
+                >
                 <span class="text-sm font-mono text-indigo-500 w-12 text-right">{{ config.playspace.offsetZ.toFixed(1) }}</span>
               </div>
             </div>
@@ -1440,11 +1547,17 @@ const getKeyDisplay = (val: string) => {
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Shield class="w-4 h-4 text-indigo-500" /> {{ t('ovr.chaperone_force_bounds') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.chaperone_force_bounds_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.chaperone_force_bounds_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.chaperone.forceBounds" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.chaperone.forceBounds"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
@@ -1453,11 +1566,17 @@ const getKeyDisplay = (val: string) => {
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Activity class="w-4 h-4 text-indigo-500" /> {{ t('ovr.chaperone_haptics') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.chaperone_haptics_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.chaperone_haptics_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.chaperone.hapticFeedback" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.chaperone.hapticFeedback"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
@@ -1467,11 +1586,19 @@ const getKeyDisplay = (val: string) => {
                   <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                     <Eye class="w-4 h-4 text-indigo-500" /> {{ t('ovr.chaperone_visibility') }}
                   </h3>
-                  <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.chaperone_visibility_desc') }}</p>
+                  <p class="text-xs text-indigo-700/60 mt-0.5">
+                    {{ t('ovr.chaperone_visibility_desc') }}
+                  </p>
                 </div>
                 <span class="text-indigo-500 font-bold bg-indigo-50 px-2 py-1 rounded">{{ config.chaperone.visibility }}%</span>
               </div>
-              <input v-model.number="config.chaperone.visibility" type="range" min="0" max="100" class="w-full accent-indigo-500">
+              <input
+                v-model.number="config.chaperone.visibility"
+                type="range"
+                min="0"
+                max="100"
+                class="w-full accent-indigo-500"
+              >
             </div>
           </div>
         </div>
@@ -1491,11 +1618,17 @@ const getKeyDisplay = (val: string) => {
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Wind class="w-4 h-4 text-indigo-500" /> {{ t('ovr.video_motion_smooth') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.video_motion_smooth_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.video_motion_smooth_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.video.motionSmooth" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.video.motionSmooth"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
@@ -1505,11 +1638,20 @@ const getKeyDisplay = (val: string) => {
                   <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                     <Monitor class="w-4 h-4 text-indigo-500" /> {{ t('ovr.video_supersampling') }}
                   </h3>
-                  <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.video_supersampling_desc') }}</p>
+                  <p class="text-xs text-indigo-700/60 mt-0.5">
+                    {{ t('ovr.video_supersampling_desc') }}
+                  </p>
                 </div>
                 <span class="text-indigo-500 font-bold bg-indigo-50 px-2 py-1 rounded">{{ (config.video.superSampling * 100).toFixed(0) }}%</span>
               </div>
-              <input v-model.number="config.video.superSampling" type="range" min="0.1" max="2.5" step="0.05" class="w-full accent-indigo-500">
+              <input
+                v-model.number="config.video.superSampling"
+                type="range"
+                min="0.1"
+                max="2.5"
+                step="0.05"
+                class="w-full accent-indigo-500"
+              >
             </div>
           </div>
         </div>
@@ -1529,11 +1671,17 @@ const getKeyDisplay = (val: string) => {
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Keyboard class="w-4 h-4 text-indigo-500" /> {{ t('ovr.util_media_keys') }}
                 </h3>
-                <p class="text-xs text-indigo-700/60 mt-0.5">{{ t('ovr.util_media_keys_desc') }}</p>
+                <p class="text-xs text-indigo-700/60 mt-0.5">
+                  {{ t('ovr.util_media_keys_desc') }}
+                </p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="config.utilities.mediaKeys" type="checkbox" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <input
+                  v-model="config.utilities.mediaKeys"
+                  type="checkbox"
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
           </div>
@@ -1564,7 +1712,7 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
@@ -1583,13 +1731,13 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
             <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
               <div>
-                <h3 class="font-bold text-indigo-900 text-amber-600">
+                <h3 class="font-bold text-indigo-900 text-indigo-600">
                   {{ t('ovr.adv_debug') }}
                 </h3>
                 <p class="text-xs text-indigo-700/60 mt-0.5">
@@ -1602,7 +1750,7 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500" />
+                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
 
@@ -1621,20 +1769,23 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
           </div>
         </div>
         
-        <OvrAdvPanels :activeSubTab="activeSubTab" v-model:config="config" />
+        <OvrAdvPanels
+          v-model:config="config"
+          :active-sub-tab="activeSubTab"
+        />
       </div>
     </div>
 
     <!-- ========== VR Environment Preview ========== -->
     <div class="mt-6 animate-fade-in">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-extrabold text-[#451a03] flex items-center gap-2">
+        <h2 class="text-lg font-extrabold text-slate-900 flex items-center gap-2">
           <Eye
             :size="18"
             class="text-indigo-500"
@@ -1650,7 +1801,7 @@ const getKeyDisplay = (val: string) => {
           </button>
           <button
             class="px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors flex items-center gap-1"
-            :class="showVrPreview ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border-indigo-200' : 'text-gray-500 bg-gray-50 hover:bg-gray-100 border-gray-200'"
+            :class="showVrPreview ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border-indigo-200' : 'text-slate-500 bg-slate-50 hover:bg-slate-100 border-slate-200'"
             @click="showVrPreview = !showVrPreview"
           >
             <component
@@ -1664,7 +1815,7 @@ const getKeyDisplay = (val: string) => {
 
       <div
         v-if="showVrPreview"
-        class="vr-viewport-wrapper rounded-2xl overflow-hidden border-2 border-indigo-200/60 shadow-xl"
+        class="vr-viewport-wrapper flex-shrink-0 mb-8 rounded-2xl overflow-hidden border-2 border-indigo-200/60 shadow-xl"
       >
         <!-- VR 3D Scene -->
         <div
@@ -1937,8 +2088,8 @@ const getKeyDisplay = (val: string) => {
                 
                 <OvrAdvVrDashPanels 
                   v-if="['steamvr', 'chaperone', 'playspace', 'audio', 'video', 'utilities', 'statistics'].includes(vrDashboardTab)"
-                  :vrDashboardTab="vrDashboardTab" 
                   v-model:config="config" 
+                  :vr-dashboard-tab="vrDashboardTab" 
                 />
                 
                 <!-- Language -->
@@ -1962,8 +2113,8 @@ const getKeyDisplay = (val: string) => {
                     style="flex-direction: column; align-items: flex-start; gap: 8px;"
                   >
                     <span style="color: var(--color-primary); font-weight: bold; display: flex; align-items: center; gap: 4px;"><Gamepad2 class="w-4 h-4" /> {{ t('ovr.dash_guide') }}</span>
-                    <span style="font-size: 11px; color: var(--color-text-muted);">- {{ getKeyDisplay(config.general.triggerKey) }}：触发截图翻译</span>
-                    <span style="font-size: 11px; color: var(--color-text-muted);">- {{ getKeyDisplay(config.general.clearKey) }}：清除翻译</span>
+                    <span style="font-size: 11px; color: var(--color-text-muted);">{{ t('ovr.desc_trigger_trans').replace('{key}', getKeyDisplay(config.general.triggerKey)) }}</span>
+                    <span style="font-size: 11px; color: var(--color-text-muted);">{{ t('ovr.desc_clear_trans').replace('{key}', getKeyDisplay(config.general.clearKey)) }}</span>
                     <span style="font-size: 11px; color: var(--color-text-muted);">{{ t('ovr.dash_guide_wrist') }}</span>
                   </div>
                 </div>

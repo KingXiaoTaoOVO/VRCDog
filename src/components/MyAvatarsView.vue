@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
 import { UserCircle, Loader2, PlayCircle, Eye, RefreshCcw, Search } from 'lucide-vue-next';
 import VrcAvatarComp from './VrcAvatar.vue';
+import VrcResourceCard from './VrcResourceCard.vue';
 import { useI18n } from 'vue-i18n';
 import type { VrcAvatar } from '../types/vrc';
 
@@ -50,150 +51,102 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="flex flex-col sm:flex-row sm:items-end justify-between mb-6 gap-4">
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 shrink-0 z-10">
       <div>
-        <h1 class="text-3xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-3">
-          <span class="inline-flex items-center justify-center p-1.5 bg-amber-100 rounded-xl">
-            <UserCircle
-              class="text-amber-600"
-              :size="24"
-            />
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+            <UserCircle class="w-6 h-6 text-indigo-600" />
           </span>
           {{ t('my_avatars.title') }}
         </h1>
-        <p class="text-amber-700/80 font-medium mt-1">
-          {{ t('my_avatars.subtitle') }}
-        </p>
       </div>
       
       <div class="flex items-center gap-2">
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search class="h-4 w-4 text-amber-400" />
+            <Search class="h-4 w-4 text-slate-400" />
           </div>
           <input
             v-model="searchQuery"
             type="text"
-            class="block w-64 pl-10 pr-4 py-2 bg-white/80 backdrop-blur border border-amber-200 rounded-xl text-amber-900 placeholder-amber-400 focus:outline-none focus:border-amber-400 text-sm transition-colors"
+            class="block w-64 pl-10 pr-4 py-2 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
             :placeholder="t('my_avatars.search_placeholder')"
           >
         </div>
         
         <button
           :disabled="loading"
-          class="px-4 py-2 bg-white rounded-xl text-amber-700 font-bold border border-amber-200 shadow-sm hover:shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
+          class="p-2.5 rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all disabled:opacity-50"
           @click="fetchAvatars"
         >
           <Loader2
             v-if="loading"
             class="animate-spin"
-            :size="16"
+            :size="20"
           />
           <RefreshCcw
             v-else
-            :size="16"
+            :size="20"
           />
-          <span class="hidden sm:inline">{{ t('my_avatars.refresh') }}</span>
         </button>
       </div>
     </div>
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4"
+      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
 
-    <div class="flex-1 overflow-y-auto pr-1 custom-scrollbar">
+    <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading && avatars.length === 0"
-        class="flex items-center justify-center py-12 text-amber-500 font-bold"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
       >
         <Loader2
-          class="animate-spin mr-2"
-          :size="24"
-        /> {{ t('my_avatars.loading') }}
+          class="animate-spin mb-4"
+          :size="48"
+        />
+        <span class="font-extrabold text-lg tracking-wide">{{ t('my_avatars.loading') }}</span>
       </div>
 
       <div
         v-else-if="avatars.length === 0"
-        class="text-center text-amber-500 py-12 text-sm bg-white/50 backdrop-blur rounded-2xl border-2 border-dashed border-amber-200 font-bold"
+        class="h-full flex flex-col items-center justify-center text-slate-400"
       >
         <UserCircle
-          class="mx-auto mb-3 opacity-50"
-          :size="48"
+          class="mb-4 opacity-30"
+          :size="64"
         />
-        {{ t('my_avatars.no_avatars') }} 🐕
+        <p class="font-bold text-xl text-slate-500">
+          {{ t('my_avatars.no_avatars') }}
+        </p>
       </div>
 
       <div
         v-else
-        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+        class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-10"
       >
-        <div
+        <VrcResourceCard
           v-for="avatar in filteredAvatars"
           :key="avatar.id" 
-          class="bg-white/80 backdrop-blur rounded-2xl overflow-hidden border border-amber-100 hover:border-amber-300 transition-all shadow-sm hover:shadow-md group relative"
-        >
-          <div class="h-48 bg-amber-50 relative overflow-hidden">
-            <VrcAvatarComp
-              :user="avatar"
-              custom-class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
-            <div
-              class="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-bold text-white shadow-sm flex items-center gap-1 backdrop-blur-md"
-              :class="avatar.releaseStatus === 'public' ? 'bg-green-500/80' : 'bg-red-500/80'"
-            >
-              <Eye :size="10" /> {{ avatar.releaseStatus === 'public' ? t('my_avatars.public') : t('my_avatars.private') }}
-            </div>
-            <div class="absolute bottom-2 right-2 flex gap-1">
-              <div
-                v-if="avatar.supportedPlatforms && avatar.supportedPlatforms.includes('standalonewindows')"
-                class="bg-blue-600/80 backdrop-blur text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow"
-              >
-                PC
-              </div>
-              <div
-                v-if="avatar.supportedPlatforms && avatar.supportedPlatforms.includes('android')"
-                class="bg-green-600/80 backdrop-blur text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow"
-              >
-                Quest
-              </div>
-            </div>
-          </div>
-          
-          <div class="p-4">
-            <h3
-              class="font-bold text-amber-900 text-sm truncate mb-1"
-              :title="avatar.name"
-            >
-              {{ avatar.name }}
-            </h3>
-            <p class="text-[10px] text-amber-600 line-clamp-2 leading-relaxed h-7 mb-3">
-              {{ avatar.description || t('my_avatars.no_description') }}
-            </p>
-            
-            <button
-              :disabled="processingId === avatar.id"
-              class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 text-xs"
-              @click="selectAvatar(avatar.id)"
-            >
-              <Loader2
-                v-if="processingId === avatar.id"
-                class="animate-spin"
-                :size="14"
-              />
-              <PlayCircle
-                v-else
-                :size="14"
-              />
-              {{ t('my_avatars.wear_avatar') }}
-            </button>
-          </div>
-        </div>
+          type="avatar"
+          :data="avatar"
+        />
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+</style>

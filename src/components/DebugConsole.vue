@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+const { t } = useI18n();
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { DbApi } from '../api';
 import { Terminal, X, Trash2, Maximize2, Minimize2, CheckCircle2, AlertCircle, Download } from 'lucide-vue-next';
@@ -132,7 +134,7 @@ const formatArgs = (args: any) => {
     @click="isVisible = true"
   >
     <Terminal :size="20" />
-    <span class="absolute right-full mr-3 whitespace-nowrap bg-slate-800 text-xs text-slate-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">打开接口调试器</span>
+    <span class="absolute right-full mr-3 whitespace-nowrap bg-slate-800 text-xs text-slate-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
   </button>
 
   <!-- 调试控制台面板 -->
@@ -156,21 +158,21 @@ const formatArgs = (args: any) => {
       <div class="flex items-center gap-1.5">
         <button
           class="p-1 hover:bg-slate-700 text-slate-400 hover:text-green-400 rounded transition-colors"
-          title="一键导出日志"
+          :title="t('debug.export_logs')"
           @click="exportLogs"
         >
           <Download :size="14" />
         </button>
         <button
           class="p-1 hover:bg-slate-700 text-slate-400 hover:text-red-400 rounded transition-colors"
-          title="清空日志"
+          :title="t('debug.clear_logs')"
           @click="clearLogs"
         >
           <Trash2 :size="14" />
         </button>
         <button
           class="p-1 hover:bg-slate-700 text-slate-400 hover:text-white rounded transition-colors"
-          :title="isExpanded ? '还原' : '最大化'"
+          :title="isExpanded ? t('debug.restore') : t('debug.maximize')"
           @click="isExpanded = !isExpanded"
         >
           <component
@@ -181,7 +183,7 @@ const formatArgs = (args: any) => {
         <div class="w-px h-4 bg-slate-600 mx-1" />
         <button
           class="p-1 hover:bg-red-500 hover:text-white text-slate-400 rounded transition-colors"
-          title="关闭"
+          :title="t('debug.close')"
           @click="isVisible = false"
         >
           <X :size="16" />
@@ -198,7 +200,7 @@ const formatArgs = (args: any) => {
         v-if="logs.length === 0"
         class="flex h-full items-center justify-center text-slate-600 italic select-none"
       >
-        等待 API 请求触发...
+        {{ t('debug.waiting_api') }}
       </div>
       
       <div

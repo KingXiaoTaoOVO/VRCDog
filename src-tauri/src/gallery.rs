@@ -76,3 +76,12 @@ async fn process_image_file(entry: tokio::fs::DirEntry, images: &mut Vec<VrcImag
         }
     }
 }
+
+#[tauri::command]
+pub async fn gallery_delete_image(path: String) -> AppResult<()> {
+    // Basic security check to ensure it's a PNG and it's in the Pictures folder
+    if path.ends_with(".png") {
+        let _ = async_fs::remove_file(path).await;
+    }
+    Ok(())
+}

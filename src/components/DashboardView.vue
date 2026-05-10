@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { LayoutDashboard, Users, Activity, Clock, Zap, Map } from 'lucide-vue-next';
+import { LayoutDashboard, Users, Activity, Clock, Zap, Map, TrendingUp } from 'lucide-vue-next';
 import { VrcApi, DbApi } from '../api';
 import VrcAvatar from './VrcAvatar.vue';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser } from '../types/vrc';
+import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
+const profileStore = useUserProfileStore();
 
 const loading = ref(false);
 const onlineFriendsCount = ref(0);
@@ -27,8 +29,8 @@ const fetchData = async () => {
     const instances = new Set(online.map((f: VrcUser) => f.location).filter((loc: string | undefined) => loc && loc !== 'private'));
     activeInstancesCount.value = instances.size;
     
-    // 获取最近5个在线好友
-    recentFriends.value = online.slice(0, 5);
+    // 获取最近几个在线好友
+    recentFriends.value = online.slice(0, 8);
 
     // 2. 获取服务器状态
     const statusRes = await VrcApi.getServerStatus();
@@ -56,85 +58,116 @@ const fetchData = async () => {
 onMounted(() => {
   fetchData();
 });
+
+const openPlayerProfile = (friend: VrcUser) => {
+  profileStore.openProfile(friend.id, friend);
+};
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <header class="mb-6 flex justify-between items-end">
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
-        <h1 class="text-3xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-3">
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
           {{ t('dashboard.title') }}
-          <span class="inline-flex items-center justify-center p-1.5 bg-amber-100 rounded-xl">
-            <LayoutDashboard class="w-6 h-6 text-amber-600" />
+          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+            <LayoutDashboard class="w-6 h-6 text-indigo-600" />
           </span>
         </h1>
-        <p class="text-amber-700/80 font-medium mt-1">
+        <p class="text-slate-500 font-medium mt-1">
           {{ t('dashboard.subtitle') }}
         </p>
       </div>
       <button
         :disabled="loading"
-        class="px-4 py-2 bg-white rounded-full text-amber-700 font-bold border border-amber-200 shadow-sm hover:shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
+        class="px-5 py-2.5 bg-white/80 backdrop-blur rounded-full text-slate-700 font-bold border border-slate-200 shadow-sm hover:shadow-md hover:bg-white hover:text-indigo-600 transition-all flex items-center gap-2 disabled:opacity-50"
         @click="fetchData"
       >
         <Zap
           class="w-4 h-4"
-          :class="{'animate-pulse text-amber-500': loading}"
+          :class="{'animate-pulse text-indigo-500': loading}"
         /> {{ t('dashboard.refresh') }}
       </button>
     </header>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-      <div class="bg-white/80 backdrop-blur-xl border-2 border-white rounded-3xl p-6 shadow-xl shadow-amber-900/5 hover:-translate-y-1 transition-transform cursor-default">
-        <div class="flex items-center justify-between mb-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner bg-green-100">
-            <Users class="w-6 h-6 text-green-500" />
+    <!-- Top Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 shrink-0 z-10">
+      <!-- Online Friends Card -->
+      <div class="bg-white/70 backdrop-blur-xl border border-white/80 rounded-3xl p-6 shadow-lg shadow-slate-200/40 hover:-translate-y-1 transition-all group cursor-default relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Users class="w-24 h-24 text-indigo-500 transform translate-x-4 -translate-y-4" />
+        </div>
+        <div class="flex items-center justify-between mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-500 shadow-sm border border-indigo-100/50">
+            <Users class="w-6 h-6" />
           </div>
         </div>
-        <div>
-          <p class="text-sm font-bold text-amber-900/60 mb-1">
+        <div class="relative z-10">
+          <p class="text-sm font-bold text-slate-500 mb-1">
             {{ t('dashboard.online_friends') }}
           </p>
-          <h3 class="text-3xl font-black text-[#451a03] flex items-baseline gap-1">
-            {{ onlineFriendsCount }} <span class="text-sm font-bold text-amber-700/50">{{ t('dashboard.unit_people') }}</span>
+          <h3 class="text-3xl font-black text-slate-800 flex items-baseline gap-1">
+            {{ onlineFriendsCount }} <span class="text-sm font-bold text-slate-400">{{ t('dashboard.unit_people') }}</span>
           </h3>
         </div>
       </div>
-      <div class="bg-white/80 backdrop-blur-xl border-2 border-white rounded-3xl p-6 shadow-xl shadow-amber-900/5 hover:-translate-y-1 transition-transform cursor-default">
-        <div class="flex items-center justify-between mb-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner bg-blue-100">
-            <Map class="w-6 h-6 text-blue-500" />
+      
+      <!-- Active Instances Card -->
+      <div class="bg-white/70 backdrop-blur-xl border border-white/80 rounded-3xl p-6 shadow-lg shadow-slate-200/40 hover:-translate-y-1 transition-all group cursor-default relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Map class="w-24 h-24 text-blue-500 transform translate-x-4 -translate-y-4" />
+        </div>
+        <div class="flex items-center justify-between mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-blue-100 to-blue-50 text-blue-500 shadow-sm border border-blue-100/50">
+            <Map class="w-6 h-6" />
           </div>
         </div>
-        <div>
-          <p class="text-sm font-bold text-amber-900/60 mb-1">
+        <div class="relative z-10">
+          <p class="text-sm font-bold text-slate-500 mb-1">
             {{ t('dashboard.active_instances') }}
           </p>
-          <h3 class="text-3xl font-black text-[#451a03] flex items-baseline gap-1">
-            {{ activeInstancesCount }} <span class="text-sm font-bold text-amber-700/50">{{ t('dashboard.unit_count') }}</span>
+          <h3 class="text-3xl font-black text-slate-800 flex items-baseline gap-1">
+            {{ activeInstancesCount }} <span class="text-sm font-bold text-slate-400">{{ t('dashboard.unit_count') }}</span>
           </h3>
         </div>
       </div>
-      <div class="bg-white/80 backdrop-blur-xl border-2 border-white rounded-3xl p-6 shadow-xl shadow-amber-900/5 hover:-translate-y-1 transition-transform cursor-default">
-        <div class="flex items-center justify-between mb-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner bg-amber-100">
-            <Clock class="w-6 h-6 text-amber-500" />
+      
+      <!-- Records / DB Stats Card -->
+      <div class="bg-white/70 backdrop-blur-xl border border-white/80 rounded-3xl p-6 shadow-lg shadow-slate-200/40 hover:-translate-y-1 transition-all group cursor-default relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Clock class="w-24 h-24 text-indigo-500 transform translate-x-4 -translate-y-4" />
+        </div>
+        <div class="flex items-center justify-between mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-500 shadow-sm border border-slate-100">
+            <Clock class="w-6 h-6" />
           </div>
         </div>
-        <div>
-          <p class="text-sm font-bold text-amber-900/60 mb-1">
+        <div class="relative z-10">
+          <p class="text-sm font-bold text-slate-500 mb-1">
             {{ t('dashboard.estimated_records') }}
           </p>
-          <h3 class="text-3xl font-black text-[#451a03] flex items-baseline gap-1">
-            {{ t('dashboard.latest') }} <span class="text-sm font-bold text-amber-700/50">{{ t('dashboard.status') }}</span>
+          <h3 class="text-3xl font-black text-slate-800 flex items-baseline gap-1">
+            {{ t('dashboard.latest') }} <span class="text-sm font-bold text-slate-400">{{ t('dashboard.status') }}</span>
           </h3>
         </div>
       </div>
-      <div class="bg-white/80 backdrop-blur-xl border-2 border-white rounded-3xl p-6 shadow-xl shadow-amber-900/5 hover:-translate-y-1 transition-transform cursor-default">
-        <div class="flex items-center justify-between mb-4">
+      
+      <!-- Server Status Card -->
+      <div class="bg-white/70 backdrop-blur-xl border border-white/80 rounded-3xl p-6 shadow-lg shadow-slate-200/40 hover:-translate-y-1 transition-all group cursor-default relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Activity
+            class="w-24 h-24 transform translate-x-4 -translate-y-4"
+            :class="serverStatus === 'ok' ? 'text-emerald-500' : 'text-red-500'"
+          />
+        </div>
+        <div class="flex items-center justify-between mb-4 relative z-10">
           <div
-            class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner"
-            :class="serverStatus === 'ok' ? 'bg-emerald-100' : 'bg-red-100'"
+            class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm border"
+            :class="serverStatus === 'ok' ? 'bg-gradient-to-br from-emerald-100 to-emerald-50 border-emerald-100/50' : 'bg-gradient-to-br from-red-100 to-red-50 border-red-100/50'"
           >
             <Activity
               class="w-6 h-6"
@@ -142,70 +175,102 @@ onMounted(() => {
             />
           </div>
         </div>
-        <div>
-          <p class="text-sm font-bold text-amber-900/60 mb-1">
+        <div class="relative z-10">
+          <p class="text-sm font-bold text-slate-500 mb-1">
             {{ t('dashboard.server_status') }}
           </p>
-          <h3 class="text-3xl font-black text-[#451a03] flex items-baseline gap-1">
-            {{ serverStatus === 'ok' ? t('dashboard.normal') : t('dashboard.error') }} <span class="text-sm font-bold text-amber-700/50">API</span>
+          <h3 class="text-3xl font-black text-slate-800 flex items-baseline gap-1">
+            {{ serverStatus === 'ok' ? t('dashboard.normal') : t('dashboard.error') }} <span class="text-sm font-bold text-slate-400">API</span>
           </h3>
         </div>
       </div>
     </div>
 
-    <!-- 真实数据展示区 -->
-    <div class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
-      <div class="lg:col-span-2 bg-white/60 backdrop-blur-md border-2 border-white rounded-3xl p-6 shadow-lg shadow-amber-900/5 flex flex-col">
-        <h3 class="text-lg font-extrabold text-[#451a03] mb-4">
-          {{ t('dashboard.weekly_trend') }}
-        </h3>
-        <div class="flex-1 bg-amber-50/50 rounded-2xl border border-amber-100 flex items-end justify-around pt-8 pb-4 px-4 overflow-hidden relative">
+    <!-- Main Content Area -->
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0 z-10">
+      <!-- Activity Heatmap -->
+      <div class="lg:col-span-2 bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 flex flex-col relative overflow-hidden">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
+            <TrendingUp class="w-5 h-5 text-indigo-500" />
+            {{ t('dashboard.weekly_trend') }}
+          </h3>
+          <div class="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold border border-indigo-100">
+            7 Days Activity
+          </div>
+        </div>
+        
+        <div class="flex-1 bg-gradient-to-b from-slate-50/50 to-indigo-50/30 rounded-2xl border border-slate-100/80 flex items-end justify-around pt-8 pb-4 px-6 overflow-hidden relative shadow-inner">
           <div
             v-for="(val, idx) in heatmapData"
             :key="idx"
-            class="flex flex-col items-center gap-2 group z-10 w-1/8"
+            class="flex flex-col items-center gap-3 group z-10 w-1/8 h-full justify-end relative"
           >
             <div
-              class="w-full max-w-[40px] bg-amber-200 rounded-t-lg transition-all duration-500 relative group-hover:bg-amber-400" 
-              :style="{ height: `${Math.max(val * 5, 5)}%`, minHeight: '10px' }"
+              class="w-full max-w-[48px] bg-gradient-to-t from-indigo-500 to-indigo-400 rounded-xl transition-all duration-700 ease-out relative group-hover:from-indigo-400 group-hover:to-indigo-300 shadow-sm border border-indigo-400/20" 
+              :style="{ height: `${Math.max((val / Math.max(...heatmapData, 1)) * 80, 10)}%` }"
             >
-              <div class="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-amber-900 text-white text-[10px] font-bold py-1 px-2 rounded transition-opacity whitespace-nowrap shadow-lg">
-                {{ t('dashboard.recorded_times', { count: val }) }}
+              <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-slate-800 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-all transform group-hover:-translate-y-1 whitespace-nowrap shadow-xl pointer-events-none z-20">
+                {{ val }} <span class="text-slate-400 font-normal">Events</span>
+                <!-- little arrow -->
+                <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
               </div>
             </div>
-            <span class="text-xs font-bold text-amber-800">{{ t(`dashboard.days.${idx}`) }}</span>
+            <span class="text-xs font-bold text-slate-500 group-hover:text-indigo-600 transition-colors">{{ t(`dashboard.days.${idx}`) }}</span>
           </div>
         </div>
       </div>
-      <div class="bg-white/60 backdrop-blur-md border-2 border-white rounded-3xl p-6 shadow-lg shadow-amber-900/5 flex flex-col">
-        <h3 class="text-lg font-extrabold text-[#451a03] mb-4">
-          {{ t('dashboard.active_friends') }}
-        </h3>
-        <div class="flex-1 bg-amber-50/50 rounded-2xl border border-amber-100 p-2 overflow-y-auto custom-scrollbar space-y-2">
+      
+      <!-- Active Friends List -->
+      <div class="bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 flex flex-col">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            {{ t('dashboard.active_friends') }}
+          </h3>
+          <span class="text-xs font-bold text-slate-400">{{ recentFriends.length }} Online</span>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto custom-scrollbar space-y-1.5 pr-2 -mr-2">
           <div
             v-if="recentFriends.length === 0"
-            class="h-full flex items-center justify-center text-sm font-bold text-amber-600/50"
+            class="h-full flex flex-col items-center justify-center text-slate-400"
           >
-            {{ t('dashboard.no_online_friends') }}
+            <Users class="w-12 h-12 mb-3 opacity-20" />
+            <p class="text-sm font-bold">
+              {{ t('dashboard.no_online_friends') }}
+            </p>
           </div>
+          
           <div
             v-for="friend in recentFriends"
             :key="friend.id"
-            class="flex items-center gap-3 p-2 hover:bg-white rounded-xl transition-colors cursor-pointer group"
+            class="flex items-center gap-3 p-2.5 bg-white border border-transparent hover:border-slate-200 hover:shadow-sm rounded-2xl transition-all cursor-pointer group"
+            @click="openPlayerProfile(friend)"
           >
-            <VrcAvatar
-              :user="friend"
-              custom-class="w-10 h-10 rounded-full object-cover shadow-sm bg-orange-100 border border-amber-200"
-            />
+            <div class="relative">
+              <VrcAvatar
+                :user="friend"
+                custom-class="w-11 h-11 rounded-full object-cover shadow-sm bg-slate-100 border border-slate-200"
+              />
+              <div class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-green-500 border border-slate-200" />
+            </div>
+            
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-bold text-amber-950 truncate">
+              <p class="text-sm font-extrabold text-slate-800 truncate group-hover:text-indigo-600 transition-colors">
                 {{ friend.displayName }}
               </p>
-              <p class="text-[10px] font-medium text-amber-700 truncate">
-                {{ friend.statusDescription || t('dashboard.online') }}
+              <p class="text-[10px] font-medium text-slate-500 truncate flex items-center gap-1">
+                <Map
+                  v-if="friend.location && friend.location !== 'private'"
+                  class="w-3 h-3 opacity-70"
+                />
+                {{ friend.location === 'private' ? 'Private Instance' : (friend.statusDescription || 'Online') }}
               </p>
             </div>
-            <div class="w-2 h-2 rounded-full bg-green-500 group-hover:animate-ping shadow shadow-green-500" />
+            <div class="w-6 h-6 rounded-full bg-slate-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <div class="w-1.5 h-1.5 rounded-full bg-slate-300" />
+            </div>
           </div>
         </div>
       </div>
@@ -216,6 +281,6 @@ onMounted(() => {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.2); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(245, 158, 11, 0.4); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.5); }
 </style>

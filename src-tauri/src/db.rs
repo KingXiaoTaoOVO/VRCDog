@@ -107,6 +107,11 @@ impl DbState {
                 details TEXT,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS api_cache (
+                key TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
             CREATE INDEX IF NOT EXISTS idx_activity_user ON friend_activity(user_id);
             CREATE INDEX IF NOT EXISTS idx_activity_time ON friend_activity(recorded_at);
             CREATE INDEX IF NOT EXISTS idx_friend_log_time ON friend_log(created_at);
@@ -957,6 +962,42 @@ pub fn db_bili_delete_task(state: tauri::State<'_, DbState>, id: i64) -> Result<
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM bili_tasks WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ========== API Cache ==========
+#[tauri::command]
+pub fn db_save_api_cache(state: tauri::State<'_, DbState>, key: String, data: String) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR REPLACE INTO api_cache (key, data, updated_at) VALUES (?1, ?2, datetime('now','localtime'))",
+        params![key, data],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn db_get_api_cache(state: tauri::State<'_, DbState>, key: String) -> Result<Option<String>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT data FROM api_cache WHERE key = ?1")
+        .map_err(|e| e.to_string())?;
+    let result = stmt.query_row([key], |row| row.get(0)).ok();
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn db_clear_game_logs(state: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM game_log", []).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn db_clear_friend_logs(state: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM friend_log", []).map_err(|e| e.to_string())?;
     Ok(())
 }
 

@@ -11,7 +11,7 @@ import VrcAvatar from "./components/VrcAvatar.vue";
 import StatusCard, { type ComponentStatus } from "./components/StatusCard.vue";
 import InstallDialog from "./components/InstallDialog.vue";
 import { Settings, RefreshCcw, Bone, X, Heart, Users, Wrench, Flame, StickyNote, Sparkles, Download, LogOut, Loader2, Search, Globe, Bell, UserCircle, ScrollText, UsersRound, LayoutDashboard, Rss, Image, ShieldAlert, Activity } from "lucide-vue-next";
-// @ts-ignore
+// ignore VrcAvatar implicit any
 import dogImg from './assets/dog.jpg';
 import LoginView from './components/LoginView.vue';
 import FriendsListView from './components/FriendsListView.vue';
@@ -22,7 +22,7 @@ import SearchView from './components/SearchView.vue';
 import NotificationsView from './components/NotificationsView.vue';
 import MyAvatarsView from './components/MyAvatarsView.vue';
 import FavoritesView from './components/FavoritesView.vue';
-import GameLogView from './components/GameLogView.vue';
+
 import GroupsView from './components/GroupsView.vue';
 import DashboardView from './components/DashboardView.vue';
 import FeedView from './components/FeedView.vue';
@@ -30,7 +30,7 @@ import GalleryView from './components/GalleryView.vue';
 import ModerationView from './components/ModerationView.vue';
 import SettingsView from './components/SettingsView.vue';
 import PlayerListView from './components/PlayerListView.vue';
-import FriendLogView from './components/FriendLogView.vue';
+
 import FriendLocationsView from './components/FriendLocationsView.vue';
 import ChartsView from './components/ChartsView.vue';
 import StatusPresetsView from './components/StatusPresetsView.vue';
@@ -44,6 +44,8 @@ import RoleSelectView from './components/RoleSelectView.vue';
 import ServerDashboardView from './components/ServerDashboardView.vue';
 import BilidownView from './components/BilidownView.vue';
 import DirectOpenModal from './components/DirectOpenModal.vue';
+import UserProfileModal from './components/UserProfileModal.vue';
+import EntityDetailModals from './components/EntityDetailModals.vue';
 import { Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser } from './types/vrc';
@@ -55,7 +57,6 @@ const isOverlayMode = window.location.search.includes('mode=overlay');
 const sidebarTabs = [
   { key: 'dashboard', label: 'sidebar.dashboard', icon: markRaw(LayoutDashboard) },
   { key: 'feed', label: 'sidebar.feed', icon: markRaw(Rss) },
-  { key: 'friendlog', label: 'sidebar.friendlog', icon: markRaw(History) },
   { key: 'locations', label: 'sidebar.locations', icon: markRaw(MapPinned) },
   { key: 'charts', label: 'sidebar.charts', icon: markRaw(BarChart3) },
   { key: 'playerlist', label: 'sidebar.playerlist', icon: markRaw(Network) },
@@ -68,7 +69,6 @@ const sidebarTabs = [
   { key: 'favorites', label: 'sidebar.favorites', icon: markRaw(Heart) },
   { key: 'moderation', label: 'sidebar.moderation', icon: markRaw(ShieldAlert) },
   { key: 'heatmap', label: 'sidebar.heatmap', icon: markRaw(Flame) },
-  { key: 'gamelog', label: 'sidebar.gamelog', icon: markRaw(ScrollText) },
   { key: 'notes', label: 'sidebar.notes', icon: markRaw(StickyNote) },
   { key: 'presets', label: 'sidebar.presets', icon: markRaw(Sparkles) },
   { key: 'tools', label: 'sidebar.tools', icon: markRaw(Wrench) },
@@ -158,7 +158,12 @@ window.addEventListener('settings-updated', (e: any) => {
   }
 });
 
+import { useSystemContextStore } from './stores/systemContext';
+
 onMounted(async () => {
+  const sysCtx = useSystemContextStore();
+  sysCtx.startPolling();
+  
   try {
     appVersion.value = await getVersion();
   } catch(e) {
@@ -583,7 +588,7 @@ const getStatusColor = (status: string) => {
     case 'join me': return 'bg-blue-500';
     case 'ask me': return 'bg-orange-500';
     case 'busy': return 'bg-red-500';
-    default: return 'bg-gray-400';
+    default: return 'bg-slate-400';
   }
 };
 
@@ -659,6 +664,29 @@ onMounted(async () => {
     });
 
     initGamelogWatcher();
+
+    // 监听深层链接 (Deep Link) 启动参数
+    setTimeout(async () => {
+      try {
+        const args = await SysApi.getLaunchArgs();
+        const urlArg = args.find(a => a.startsWith('vrcx://') || a.startsWith('vrchat://'));
+        if (urlArg) {
+          // 处理 vrcx:// 链接，比如 vrcx://launch/wrld_1234
+          console.log("[VRCX] Received URI Protocol argument:", urlArg);
+          
+          if (urlArg.includes('launch/')) {
+            const worldId = urlArg.split('launch/')[1];
+            if (worldId) {
+              const confirmLaunch = confirm(`检测到外部启动请求！\n是否要立即加入实例：\n${worldId}`);
+              if (confirmLaunch) {
+                const parts = worldId.split(':');
+                await VrcApi.inviteMyself({ worldId: parts[0], instanceId: parts[1] || '0' });
+              }
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }, 1000);
   }
 
   await checkEnvironment();
@@ -701,21 +729,6 @@ onMounted(async () => {
       }
     });
 
-    // 拦截窗口关闭事件：如果是客户端角色，则确保发送离线请求后再退出
-    const appWindow = getCurrentWindow();
-    appWindow.onCloseRequested(async (event) => {
-      if (appRole.value === 'client' && clientServerUrl.value && currentUser.value) {
-        // 阻止默认的立即关闭行为
-        event.preventDefault();
-        try {
-          await disconnectFromServer();
-        } catch (e) {
-          console.warn("Failed to disconnect during exit:", e);
-        }
-        // 确保发送完成后，强制关闭自身
-        appWindow.destroy();
-      }
-    });
   }
 });
 </script>
@@ -723,9 +736,15 @@ onMounted(async () => {
 <template>
   <OverlayView v-if="isOverlayMode" />
   
-  <ServerDashboardView v-else-if="appRole === 'server'" @exit="appRole = null" />
+  <ServerDashboardView
+    v-else-if="appRole === 'server'"
+    @exit="appRole = null"
+  />
 
-  <RoleSelectView v-else-if="appRole === null" @role-selected="handleRoleSelected" />
+  <RoleSelectView
+    v-else-if="appRole === null"
+    @role-selected="handleRoleSelected"
+  />
 
   <div
     v-else-if="autoLoginLoading"
@@ -733,13 +752,13 @@ onMounted(async () => {
   >
     <img
       :src="dogImg"
-      class="w-24 h-24 rounded-full border-4 border-amber-200 shadow-xl mb-6 animate-pulse"
+      class="w-24 h-24 rounded-full border-4 border-slate-200 shadow-xl mb-6 animate-pulse"
     >
     <Loader2
-      class="animate-spin text-amber-500 mb-3"
+      class="animate-spin text-indigo-500 mb-3"
       :size="32"
     />
-    <p class="text-amber-700 font-bold">
+    <p class="text-slate-600 font-bold">
       {{ $t('app.loading') }}
     </p>
   </div>
@@ -751,12 +770,24 @@ onMounted(async () => {
   >
     <LoginView @login-success="handleLoginSuccess" />
     <!-- Ban/Freeze Overlay -->
-    <div v-if="banMessage" class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999]">
-      <div class="bg-gray-900 border border-red-500/50 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
-        <div class="text-4xl mb-3">🚫</div>
-        <h2 class="text-xl font-bold text-red-400 mb-3">访问受限</h2>
-        <p class="text-gray-300 text-sm whitespace-pre-line mb-4">{{ banMessage }}</p>
-        <button @click="banMessage = ''" class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm">
+    <div
+      v-if="banMessage"
+      class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999]"
+    >
+      <div class="bg-slate-900 border border-red-500/50 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
+        <div class="text-4xl mb-3">
+          🚫
+        </div>
+        <h2 class="text-xl font-bold text-red-400 mb-3">
+          访问受限
+        </h2>
+        <p class="text-slate-300 text-sm whitespace-pre-line mb-4">
+          {{ banMessage }}
+        </p>
+        <button
+          class="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+          @click="banMessage = ''"
+        >
           我知道了
         </button>
       </div>
@@ -771,7 +802,7 @@ onMounted(async () => {
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
       <div class="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-pink-200/40 rounded-full blur-[100px] animate-pulse" />
       <div
-        class="absolute bottom-[-10%] left-[20%] w-[50%] h-[50%] bg-amber-200/40 rounded-full blur-[100px] animate-pulse"
+        class="absolute bottom-[-10%] left-[20%] w-[50%] h-[50%] bg-indigo-200/40 rounded-full blur-[100px] animate-pulse"
         style="animation-delay: 2s"
       />
     </div>
@@ -779,12 +810,12 @@ onMounted(async () => {
     <div class="z-10 bg-white/80 backdrop-blur-xl p-10 rounded-[32px] shadow-2xl border-4 border-white max-w-xl w-full text-center">
       <img
         :src="dogImg"
-        class="w-24 h-24 rounded-full border-4 border-amber-200 shadow-lg mx-auto mb-6"
+        class="w-24 h-24 rounded-full border-4 border-slate-200 shadow-lg mx-auto mb-6"
       >
-      <h2 class="text-3xl font-extrabold text-[#451a03] mb-2">
+      <h2 class="text-3xl font-extrabold text-slate-900 mb-2">
         {{ $t('app.select_mode_title') || '选择运行模式' }}
       </h2>
-      <p class="text-amber-700/80 mb-8 font-medium">
+      <p class="text-slate-500 mb-8 font-medium">
         {{ $t('app.select_mode_desc') || 'VrcDog 提供桌面管理看板与 SteamVR 沉浸式内置叠加层两种体验。' }}
       </p>
       
@@ -793,22 +824,28 @@ onMounted(async () => {
           class="flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all group"
           :class="[
             serverModePerms['pc'] === false 
-              ? 'bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed grayscale' 
-              : 'bg-amber-50 hover:bg-amber-100 border-amber-200 hover:scale-105 active:scale-95'
+              ? 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed grayscale' 
+              : 'bg-slate-50 hover:bg-indigo-50 border-slate-200 hover:scale-105 active:scale-95'
           ]"
           :disabled="serverModePerms['pc'] === false"
           @click="selectAppMode('pc')"
         >
-          <Monitor class="w-12 h-12 text-amber-600 group-hover:text-amber-700" />
-          <span class="font-bold text-amber-900 text-lg">PC Desktop</span>
-          <span class="text-xs text-amber-700/60" v-if="serverModePerms['pc'] !== false">桌面好友管理与分析看板</span>
-          <span class="text-xs text-red-500" v-else>无权限访问此模式</span>
+          <Monitor class="w-12 h-12 text-indigo-600 group-hover:text-slate-600" />
+          <span class="font-bold text-slate-900 text-lg">PC Desktop</span>
+          <span
+            v-if="serverModePerms['pc'] !== false"
+            class="text-xs text-slate-400"
+          >桌面好友管理与分析看板</span>
+          <span
+            v-else
+            class="text-xs text-red-500"
+          >无权限访问此模式</span>
         </button>
         <button
           class="flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all group"
           :class="[
             serverModePerms['vr'] === false 
-              ? 'bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed grayscale' 
+              ? 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed grayscale' 
               : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 hover:scale-105 active:scale-95'
           ]"
           :disabled="serverModePerms['vr'] === false"
@@ -816,8 +853,14 @@ onMounted(async () => {
         >
           <Glasses class="w-12 h-12 text-indigo-600 group-hover:text-indigo-700" />
           <span class="font-bold text-indigo-900 text-lg">VR Overlay</span>
-          <span class="text-xs text-indigo-700/60" v-if="serverModePerms['vr'] !== false">OVR OCR翻译与内嵌面版</span>
-          <span class="text-xs text-red-500" v-else>无权限访问此模式</span>
+          <span
+            v-if="serverModePerms['vr'] !== false"
+            class="text-xs text-indigo-700/60"
+          >OVR OCR翻译与内嵌面版</span>
+          <span
+            v-else
+            class="text-xs text-red-500"
+          >无权限访问此模式</span>
         </button>
       </div>
       
@@ -839,8 +882,14 @@ onMounted(async () => {
     <!-- VR 深空背景粒子 -->
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
       <div class="absolute top-[-15%] right-[-10%] w-[50%] h-[50%] bg-indigo-600/15 rounded-full blur-[120px] animate-pulse" />
-      <div class="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-purple-600/15 rounded-full blur-[100px] animate-pulse" style="animation-delay: 3s" />
-      <div class="absolute top-[30%] left-[40%] w-[30%] h-[30%] bg-cyan-500/10 rounded-full blur-[80px] animate-pulse" style="animation-delay: 5s" />
+      <div
+        class="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-purple-600/15 rounded-full blur-[100px] animate-pulse"
+        style="animation-delay: 3s"
+      />
+      <div
+        class="absolute top-[30%] left-[40%] w-[30%] h-[30%] bg-cyan-500/10 rounded-full blur-[80px] animate-pulse"
+        style="animation-delay: 5s"
+      />
     </div>
 
     <!-- VR 侧边栏 -->
@@ -850,20 +899,29 @@ onMounted(async () => {
           <Glasses class="w-6 h-6 text-indigo-300" />
         </div>
         <div>
-          <h2 class="font-bold text-sm leading-tight text-white">VrcDog VR</h2>
-          <p class="text-[10px] font-medium text-indigo-300/70">OVR Overlay Translator</p>
+          <h2 class="font-bold text-sm leading-tight text-white">
+            VrcDog VR
+          </h2>
+          <p class="text-[10px] font-medium text-indigo-300/70">
+            OVR Overlay Translator
+          </p>
         </div>
       </div>
 
       <!-- VR 设备状态面板 -->
       <div class="mb-4 p-3 bg-white/5 rounded-2xl border border-white/10 space-y-2">
-        <h3 class="text-[10px] font-bold text-indigo-300/60 uppercase tracking-wider mb-1">VR 设备状态</h3>
+        <h3 class="text-[10px] font-bold text-indigo-300/60 uppercase tracking-wider mb-1">
+          VR 设备状态
+        </h3>
         <div class="flex items-center gap-2 text-[11px] text-white/80 font-medium">
           <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           <span>SteamVR 运行中</span>
         </div>
         <div class="flex items-center gap-2 text-[11px] text-white/60 font-medium">
-          <div class="w-2 h-2 rounded-full" :class="currentUser ? 'bg-green-400' : 'bg-gray-500'" />
+          <div
+            class="w-2 h-2 rounded-full"
+            :class="currentUser ? 'bg-green-400' : 'bg-slate-500'"
+          />
           <span>{{ currentUser?.displayName || '未登录' }}</span>
         </div>
       </div>
@@ -884,7 +942,10 @@ onMounted(async () => {
             : 'text-white/50 border-transparent hover:text-white/80 hover:bg-white/5'"
           @click="activeTab = tab.key as any"
         >
-          <component :is="tab.icon" :size="18" />
+          <component
+            :is="tab.icon"
+            :size="18"
+          />
           {{ tab.label }}
         </button>
       </div>
@@ -898,7 +959,9 @@ onMounted(async () => {
             style="background-color: rgba(99,102,241,0.3)"
           />
           <div class="flex-1 overflow-hidden">
-            <p class="text-xs font-bold truncate text-white">{{ currentUser?.displayName }}</p>
+            <p class="text-xs font-bold truncate text-white">
+              {{ currentUser?.displayName }}
+            </p>
             <p
               class="text-[10px] font-bold flex items-center gap-1"
               :class="{
@@ -906,10 +969,13 @@ onMounted(async () => {
                 'text-blue-400': currentUser?.status === 'join me',
                 'text-orange-400': currentUser?.status === 'ask me',
                 'text-red-400': currentUser?.status === 'busy',
-                'text-gray-400': !currentUser?.status,
+                'text-slate-400': !currentUser?.status,
               }"
             >
-              <span class="w-1.5 h-1.5 rounded-full inline-block animate-pulse" :class="getStatusColor(currentUser?.status || 'offline')" />
+              <span
+                class="w-1.5 h-1.5 rounded-full inline-block animate-pulse"
+                :class="getStatusColor(currentUser?.status || 'offline')"
+              />
               {{ $t('status.' + (currentUser?.status?.replace(' ', '_') || 'offline')) }}
             </p>
           </div>
@@ -921,7 +987,10 @@ onMounted(async () => {
           class="mt-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1"
           :class="serverConnected ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400 animate-pulse'"
         >
-          <div class="w-1.5 h-1.5 rounded-full" :class="serverConnected ? 'bg-emerald-400' : 'bg-red-400'" />
+          <div
+            class="w-1.5 h-1.5 rounded-full"
+            :class="serverConnected ? 'bg-emerald-400' : 'bg-red-400'"
+          />
           <span>{{ serverConnected ? '服务端已连接' : '服务端断开' }}</span>
         </div>
 
@@ -948,20 +1017,35 @@ onMounted(async () => {
 
     <!-- VR 主内容区 -->
     <main class="flex-1 relative z-10 overflow-y-auto">
-      <div v-if="activeTab === 'ovr'" class="p-6 h-full overflow-y-auto">
+      <div
+        v-if="activeTab === 'ovr'"
+        class="p-6 h-full overflow-y-auto"
+      >
         <OvrTranslatorView />
       </div>
-      <div v-else-if="activeTab === 'translator'" class="p-6 h-full overflow-hidden">
+      <div
+        v-else-if="activeTab === 'translator'"
+        class="p-6 h-full overflow-hidden"
+      >
         <TranslatorView />
       </div>
-      <div v-else-if="activeTab === 'social'" class="p-6 h-full overflow-hidden">
+      <div
+        v-else-if="activeTab === 'social'"
+        class="p-6 h-full overflow-hidden"
+      >
         <FriendsListView />
       </div>
-      <div v-else-if="activeTab === 'settings'" class="p-6 h-full overflow-hidden">
+      <div
+        v-else-if="activeTab === 'settings'"
+        class="p-6 h-full overflow-hidden"
+      >
         <SettingsView />
       </div>
       <!-- 默认回落到 OVR -->
-      <div v-else class="p-6 h-full overflow-y-auto">
+      <div
+        v-else
+        class="p-6 h-full overflow-y-auto"
+      >
         <OvrTranslatorView />
       </div>
     </main>
@@ -971,15 +1055,37 @@ onMounted(async () => {
     <DirectOpenModal />
 
     <!-- 服务端断连全屏遮罩 (VR模式) -->
-    <div v-if="isLoggedIn && clientServerUrl && !serverConnected" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]">
-      <div class="bg-gray-900 border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
+    <div
+      v-if="isLoggedIn && clientServerUrl && !serverConnected"
+      class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]"
+    >
+      <div class="bg-slate-900 border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-8 h-8 text-red-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01" /></svg>
+          <svg
+            class="w-8 h-8 text-red-400 animate-pulse"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          ><path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01"
+          /></svg>
         </div>
-        <h2 class="text-lg font-bold text-red-400 mb-2">服务端连接已断开</h2>
-        <p class="text-gray-400 text-sm mb-4">无法连接到 VrcDog 服务端，软件功能已暂停。<br/>系统将在 <span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...</p>
+        <h2 class="text-lg font-bold text-red-400 mb-2">
+          服务端连接已断开
+        </h2>
+        <p class="text-slate-400 text-sm mb-4">
+          无法连接到 VrcDog 服务端，软件功能已暂停。<br>系统将在 <span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
+        </p>
         <div class="flex gap-2 justify-center">
-          <button @click="() => handleLogout(false)" class="px-5 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm">退出登录</button>
+          <button
+            class="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+            @click="() => handleLogout(false)"
+          >
+            退出登录
+          </button>
         </div>
       </div>
     </div>
@@ -1097,7 +1203,7 @@ onMounted(async () => {
                 'text-blue-500': currentUser?.status === 'join me',
                 'text-orange-500': currentUser?.status === 'ask me',
                 'text-red-500': currentUser?.status === 'busy',
-                'text-gray-400': !currentUser?.status,
+                'text-slate-400': !currentUser?.status,
               }"
             >
               <span
@@ -1133,7 +1239,10 @@ onMounted(async () => {
           class="mt-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1"
           :class="serverConnected ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-red-50 border-red-200 text-red-600 animate-pulse'"
         >
-          <div class="w-1.5 h-1.5 rounded-full" :class="serverConnected ? 'bg-emerald-500' : 'bg-red-500'"></div>
+          <div
+            class="w-1.5 h-1.5 rounded-full"
+            :class="serverConnected ? 'bg-emerald-500' : 'bg-red-500'"
+          />
           <span>{{ serverConnected ? '服务端已连接' : '服务端断开' }}</span>
         </div>
 
@@ -1160,205 +1269,90 @@ onMounted(async () => {
           </button>
         </div>
 
-        <div class="text-center pt-2 mt-2 border-t" :style="{ borderColor: currentTheme.colors.borderSoft }">
-          <span class="text-[10px] font-mono font-bold tracking-wider opacity-40" :style="{ color: currentTheme.colors.textSoft }">v{{ appVersion }}</span>
+        <div
+          class="text-center pt-2 mt-2 border-t"
+          :style="{ borderColor: currentTheme.colors.borderSoft }"
+        >
+          <span
+            class="text-[10px] font-mono font-bold tracking-wider opacity-40"
+            :style="{ color: currentTheme.colors.textSoft }"
+          >v{{ appVersion }}</span>
         </div>
       </div>
     </aside>
 
     <!-- 主内容区 -->
     <main class="flex-1 relative z-10 overflow-y-auto">
-      <div
-        v-if="activeTab === 'dashboard'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <DashboardView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'feed'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <FeedView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'friendlog'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <FriendLogView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'locations'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <FriendLocationsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'charts'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <ChartsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'playerlist'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <PlayerListView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'gallery'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <GalleryView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'moderation'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <ModerationView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'settings'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <SettingsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'social'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <FriendsListView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'search'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <SearchView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'notifications'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <NotificationsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'avatars'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <MyAvatarsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'groups'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <GroupsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'favorites'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <FavoritesView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'gamelog'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <GameLogView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'heatmap'"
-        class="p-6"
-      >
-        <HeatmapView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'notes'"
-        class="p-6"
-      >
-        <NotesView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'presets'"
-        class="p-6"
-      >
-        <StatusPresetsView :user-id="currentUser?.id" />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'bilidown'"
-        class="p-6"
-      >
-        <BilidownView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'tools'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <ToolsView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'translator'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <TranslatorView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'ovr'"
-        class="p-6 h-full overflow-y-auto"
-      >
-        <OvrTranslatorView />
-      </div>
-
-      <div
-        v-else-if="activeTab === 'export'"
-        class="p-6"
-      >
-        <ExportView />
-      </div>
-
-      <!-- 环境管家 -->
-      <div
-        v-else-if="activeTab === 'env'"
-        class="p-6 h-full overflow-hidden"
-      >
-        <EnvView />
+      <div class="p-6 h-full overflow-hidden flex flex-col">
+        <KeepAlive>
+          <DashboardView v-if="activeTab === 'dashboard'" />
+          <FeedView v-else-if="activeTab === 'feed'" />
+          <FriendLocationsView v-else-if="activeTab === 'locations'" />
+          <ChartsView v-else-if="activeTab === 'charts'" />
+          <PlayerListView v-else-if="activeTab === 'playerlist'" />
+          <GalleryView v-else-if="activeTab === 'gallery'" />
+          <ModerationView v-else-if="activeTab === 'moderation'" />
+          <SettingsView v-else-if="activeTab === 'settings'" />
+          <FriendsListView v-else-if="activeTab === 'social'" />
+          <SearchView v-else-if="activeTab === 'search'" />
+          <NotificationsView v-else-if="activeTab === 'notifications'" />
+          <MyAvatarsView v-else-if="activeTab === 'avatars'" />
+          <GroupsView v-else-if="activeTab === 'groups'" />
+          <FavoritesView v-else-if="activeTab === 'favorites'" />
+          <HeatmapView v-else-if="activeTab === 'heatmap'" />
+          <NotesView v-else-if="activeTab === 'notes'" />
+          <StatusPresetsView
+            v-else-if="activeTab === 'presets'"
+            :user-id="currentUser?.id"
+          />
+          <BilidownView v-else-if="activeTab === 'bilidown'" />
+          <ToolsView v-else-if="activeTab === 'tools'" />
+          <TranslatorView v-else-if="activeTab === 'translator'" />
+          <OvrTranslatorView v-else-if="activeTab === 'ovr'" />
+          <ExportView v-else-if="activeTab === 'export'" />
+          <EnvView v-else-if="activeTab === 'env'" />
+        </KeepAlive>
       </div>
     </main>
     
     <!-- 全局接口调试面板 -->
     <DebugConsole />
     <DirectOpenModal />
+    <UserProfileModal />
+    <EntityDetailModals />
 
     <!-- 服务端断连全屏遮罩 -->
-    <div v-if="isLoggedIn && clientServerUrl && !serverConnected" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]">
-      <div class="bg-gray-900 border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
+    <div
+      v-if="isLoggedIn && clientServerUrl && !serverConnected"
+      class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]"
+    >
+      <div class="bg-slate-900 border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-8 h-8 text-red-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01" /></svg>
+          <svg
+            class="w-8 h-8 text-red-400 animate-pulse"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          ><path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01"
+          /></svg>
         </div>
-        <h2 class="text-lg font-bold text-red-400 mb-2">服务端连接已断开</h2>
-        <p class="text-gray-400 text-sm mb-4">无法连接到 VrcDog 服务端，软件功能已暂停。<br/>系统将在 <span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...</p>
+        <h2 class="text-lg font-bold text-red-400 mb-2">
+          服务端连接已断开
+        </h2>
+        <p class="text-slate-400 text-sm mb-4">
+          无法连接到 VrcDog 服务端，软件功能已暂停。<br>系统将在 <span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
+        </p>
         <div class="flex gap-2 justify-center">
-          <button @click="() => handleLogout(false)" class="px-5 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm">退出登录</button>
+          <button
+            class="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+            @click="() => handleLogout(false)"
+          >
+            退出登录
+          </button>
         </div>
       </div>
     </div>

@@ -22,19 +22,22 @@ defineEmits<{
           class="absolute inset-0 bg-black/30 backdrop-blur-sm"
           @click="$emit('close')"
         />
-        <div class="bg-white/95 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden border border-amber-100">
+        <div class="bg-white/95 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
           <div
             v-if="loading"
             class="p-12 text-center"
           >
             <Loader2
-              class="animate-spin mx-auto text-amber-500"
+              class="animate-spin mx-auto text-indigo-500"
               :size="32"
             />
           </div>
-          <template v-else-if="show">
+          <div
+            v-else-if="show"
+            class="overflow-y-auto custom-scrollbar flex-shrink w-full"
+          >
             <slot />
-          </template>
+          </div>
         </div>
       </div>
     </Transition>
@@ -44,4 +47,8 @@ defineEmits<{
 <style scoped>
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 </style>

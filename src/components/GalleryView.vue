@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { Image as ImageIcon, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen } from 'lucide-vue-next';
+import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2 } from 'lucide-vue-next';
 import { GalleryApi, SysApi } from '../api';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import BaseModal from './BaseModal.vue';
@@ -112,6 +112,18 @@ const copyPath = async (path: string) => {
   }
 };
 
+const deleteImage = async (img: GalleryImage) => {
+  if (!confirm('确定要删除这张照片吗？(Are you sure you want to delete this photo?)')) return;
+  try {
+    await GalleryApi.deleteImage({ path: img.path });
+    previewImage.value = null;
+    images.value = images.value.filter(i => i.path !== img.path);
+  } catch (err) {
+    console.error('Failed to delete image:', err);
+    alert('删除失败 (Failed to delete)');
+  }
+};
+
 const openInExplorer = async (path: string) => {
   try {
     await SysApi.showInExplorer({ path });
@@ -119,46 +131,76 @@ const openInExplorer = async (path: string) => {
     console.warn(e);
   }
 };
+
+import { VrcApi } from '../api';
+
+const uploadingToVrcPlus = ref(false);
+
+const uploadToVrcPlus = async () => {
+  if (!previewImage.value || !previewImage.value.assetUrl || uploadingToVrcPlus.value) return;
+  uploadingToVrcPlus.value = true;
+  try {
+    const res = await fetch(previewImage.value.assetUrl);
+    const blob = await res.blob();
+    const reader = new FileReader();
+    reader.readAsDataURL(blob);
+    reader.onloadend = async () => {
+      try {
+        const base64data = reader.result as string;
+        await VrcApi.uploadVrcPlusImage(base64data, 'gallery');
+        alert("上传成功！可在 VRChat 游戏中或 VRCX 画廊中查看。");
+      } catch (err: any) {
+        alert("上传失败: " + (err.message || err));
+      } finally {
+        uploadingToVrcPlus.value = false;
+      }
+    };
+  } catch (err: any) {
+    alert("读取文件失败: " + (err.message || err));
+    uploadingToVrcPlus.value = false;
+  }
+};
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <header class="mb-6 flex justify-between items-end">
+  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+    <!-- Subtle Background Glow -->
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+
+    <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
-        <h1 class="text-3xl font-extrabold text-[#451a03] tracking-tight flex items-center gap-3">
-          {{ t('gallery.title') }}
-          <span class="inline-flex items-center justify-center p-1.5 bg-purple-100 rounded-xl">
-            <ImageIcon class="w-6 h-6 text-purple-600" />
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
+            <Images class="w-6 h-6 text-indigo-600" />
           </span>
+          {{ t('gallery.title') }}
         </h1>
-        <p class="text-amber-700/80 font-medium mt-1">
-          {{ t('gallery.subtitle') }}
-        </p>
       </div>
       <button
-        class="px-4 py-2 bg-white rounded-full text-purple-700 font-bold border border-purple-200 shadow-sm hover:shadow-md transition-all flex items-center gap-2"
+        class="px-5 py-2.5 bg-white rounded-xl text-slate-600 font-bold border border-slate-200 shadow-sm hover:shadow-md hover:text-indigo-600 hover:border-indigo-200 transition-all flex items-center gap-2"
         @click="fetchImages(true)"
       >
         <RefreshCcw
-          class="w-4 h-4"
-          :class="{'animate-spin': loading}"
+          class="w-5 h-5"
+          :class="{'animate-spin text-indigo-600': loading}"
         /> {{ t('gallery.refresh') }}
       </button>
     </header>
 
     <div
       ref="containerRef"
-      class="flex-1 bg-white/60 backdrop-blur-md border-2 border-white rounded-3xl p-6 shadow-lg overflow-hidden flex flex-col"
+      class="flex-1 bg-white/70 backdrop-blur-xl border border-white rounded-3xl p-6 shadow-lg shadow-slate-200/40 overflow-hidden flex flex-col z-10 relative"
     >
       <div
         v-if="loading && images.length === 0"
-        class="h-full flex flex-col items-center justify-center text-purple-500 opacity-70"
+        class="h-full flex flex-col items-center justify-center text-indigo-500/80"
       >
-        <ImageIcon
+        <Images
           class="animate-bounce mb-4"
           :size="48"
         />
-        <p class="font-bold">
+        <p class="font-extrabold text-lg tracking-wide">
           {{ t('gallery.scanning') }}
         </p>
       </div>
@@ -172,16 +214,16 @@ const openInExplorer = async (path: string) => {
 
       <div
         v-else-if="images.length === 0"
-        class="h-full flex flex-col items-center justify-center text-purple-900/50"
+        class="h-full flex flex-col items-center justify-center text-slate-400"
       >
-        <FileWarning
-          class="mb-4"
-          :size="48"
+        <Images
+          class="mb-4 opacity-30"
+          :size="64"
         />
-        <p class="font-bold text-lg">
+        <p class="font-bold text-xl text-slate-500">
           {{ t('gallery.no_images') }}
         </p>
-        <p class="text-sm mt-1">
+        <p class="text-sm mt-2 font-medium">
           {{ t('gallery.no_images_desc') }}
         </p>
       </div>
@@ -203,28 +245,28 @@ const openInExplorer = async (path: string) => {
             <div
               v-for="img in row.data.items"
               :key="img.path"
-              class="relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all border-4 border-white bg-gray-100 cursor-pointer h-full"
+              class="relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all border border-slate-200 hover:border-indigo-300 bg-slate-100 cursor-pointer h-full"
               @click="previewImage = img"
             >
               <img
                 :src="img.assetUrl"
                 loading="lazy"
-                class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
+                class="w-full h-full object-cover transform group-hover:scale-[1.03] transition-transform duration-500"
               >
               
-              <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
-                <h4 class="text-white font-bold text-xs truncate drop-shadow-md mb-1">
+              <div class="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+                <h4 class="text-white font-bold text-xs truncate drop-shadow-md mb-1.5">
                   {{ img.name }}
                 </h4>
-                <div class="flex items-center gap-3 text-white/80 text-[10px]">
-                  <span class="flex items-center gap-1"><Clock :size="10" /> {{ img.dateStr }}</span>
-                  <span class="flex items-center gap-1 font-mono">{{ (img.size / 1024 / 1024).toFixed(1) }} MB</span>
+                <div class="flex items-center gap-3 text-slate-200 text-[10px]">
+                  <span class="flex items-center gap-1.5"><Clock :size="12" /> {{ img.dateStr }}</span>
+                  <span class="flex items-center gap-1.5 font-mono"><FileWarning :size="12" /> {{ (img.size / 1024 / 1024).toFixed(1) }} MB</span>
                 </div>
               </div>
 
               <div class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button class="p-2 bg-white/20 backdrop-blur-md hover:bg-white/40 text-white rounded-full transition-colors">
-                  <Eye :size="14" />
+                <button class="p-2 bg-black/40 backdrop-blur-md hover:bg-black/60 text-white rounded-xl transition-colors">
+                  <Eye :size="16" />
                 </button>
               </div>
             </div>
@@ -233,7 +275,7 @@ const openInExplorer = async (path: string) => {
 
         <div
           v-if="loadingMore"
-          class="py-6 flex justify-center text-purple-500 w-full"
+          class="py-6 flex justify-center text-indigo-500 w-full"
         >
           <RefreshCcw
             class="animate-spin"
@@ -242,7 +284,7 @@ const openInExplorer = async (path: string) => {
         </div>
         <div
           v-else-if="!hasMore"
-          class="py-12 text-center text-purple-400 font-bold text-sm w-full"
+          class="py-12 text-center text-slate-400 font-bold text-sm w-full"
         >
           {{ t('gallery.end_of_list', { count: images.length }) }}
         </div>
@@ -255,39 +297,60 @@ const openInExplorer = async (path: string) => {
       @close="previewImage = null"
     >
       <template v-if="previewImage">
-        <div class="bg-black relative rounded-t-3xl overflow-hidden flex items-center justify-center min-h-[50vh]">
+        <div class="bg-slate-900 relative rounded-t-2xl overflow-hidden flex items-center justify-center min-h-[50vh]">
           <img
             :src="previewImage.assetUrl"
             class="max-w-full max-h-[70vh] object-contain"
           >
           <button
-            class="absolute top-4 right-4 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur"
+            class="absolute top-4 right-4 p-2 rounded-xl bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
             @click="previewImage = null"
           >
             ✕
           </button>
         </div>
-        <div class="p-6 bg-white rounded-b-3xl">
-          <h2 class="text-xl font-extrabold text-[#451a03] mb-2 truncate">
+        <div class="p-6 bg-white rounded-b-2xl">
+          <h2 class="text-xl font-black text-slate-900 mb-2 truncate">
             {{ previewImage.name }}
           </h2>
-          <div class="flex items-center gap-4 text-sm text-gray-500 mb-6 font-bold">
+          <div class="flex items-center gap-4 text-sm text-slate-500 mb-6 font-bold">
             <span class="flex items-center gap-1"><Clock :size="14" /> {{ previewImage.dateStr }}</span>
             <span class="flex items-center gap-1"><FileWarning :size="14" /> {{ (previewImage.size / 1024 / 1024).toFixed(2) }} MB</span>
           </div>
           
-          <div class="flex items-center justify-end gap-3">
+          <div class="flex items-center justify-end gap-3 flex-wrap">
             <button
-              class="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors flex items-center gap-2"
+              class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
+              :disabled="uploadingToVrcPlus"
+              @click="uploadToVrcPlus"
+            >
+              <RefreshCcw
+                v-if="uploadingToVrcPlus"
+                class="animate-spin w-4 h-4"
+              />
+              <Images
+                v-else
+                class="w-4 h-4"
+              />
+              {{ uploadingToVrcPlus ? t('global.gallery.uploading') : t('global.gallery.upload_btn') }}
+            </button>
+            <button
+              class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2"
               @click="openInExplorer(previewImage.path)"
             >
               <FolderOpen :size="16" /> 在资源管理器中打开
             </button>
             <button
-              class="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors flex items-center gap-2"
+              class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2"
               @click="copyPath(previewImage.path)"
             >
               <Copy :size="16" /> {{ t('gallery.copy_path') }}
+            </button>
+            <button
+              class="px-5 py-2.5 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-xl transition-colors flex items-center gap-2 ml-auto"
+              @click="deleteImage(previewImage)"
+            >
+              <Trash2 :size="16" /> 删除 (Delete)
             </button>
           </div>
         </div>
@@ -299,6 +362,6 @@ const openInExplorer = async (path: string) => {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.2); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(168, 85, 247, 0.4); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 </style>

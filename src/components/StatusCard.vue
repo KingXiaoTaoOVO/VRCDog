@@ -28,7 +28,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
       :class="{
         'bg-blue-300': status === 'checking',
         'bg-red-300': status === 'not_installed',
-        'bg-amber-300': status === 'installing',
+        'bg-indigo-300': status === 'installing',
         'bg-green-300': status === 'installed',
         'bg-red-500': status === 'error'
       }"
@@ -43,16 +43,16 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
             class="w-8 h-8 object-contain drop-shadow-sm"
             alt="Icon"
           >
-          <h3 class="text-xl font-extrabold text-[#451a03]">
+          <h3 class="text-xl font-extrabold text-slate-900">
             {{ title }}
           </h3>
         </div>
         
         <!-- Status Icon -->
-        <div class="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-amber-100 shadow-sm">
+        <div class="flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 shadow-sm">
           <Loader2
             v-if="status === 'checking' || status === 'installing'"
-            class="w-5 h-5 text-amber-500 animate-spin"
+            class="w-5 h-5 text-indigo-500 animate-spin"
           />
           <CheckCircle2
             v-else-if="status === 'installed'"
@@ -65,7 +65,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
         </div>
       </div>
       
-      <p class="text-amber-800 text-sm mb-6 h-10 font-medium">
+      <p class="text-slate-800 text-sm mb-6 h-10 font-medium">
         {{ description }}
       </p>
       
@@ -81,7 +81,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
     <div class="flex items-center gap-2 z-10 relative mt-auto flex-shrink-0">
       <button 
         v-if="status === 'not_installed' || status === 'error'"
-        class="btn-cute flex-1 flex items-center justify-center gap-2 bg-[#f59e0b] hover:bg-[#d97706] text-white py-2 px-3 rounded-[20px] font-bold shadow-lg shadow-amber-500/30 border-2 border-white text-sm flex-shrink-0"
+        class="btn-cute flex-1 flex items-center justify-center gap-2 bg-[#f59e0b] hover:bg-[#d97706] text-white py-2 px-3 rounded-[20px] font-bold shadow-lg shadow-indigo-500/30 border border-slate-200 text-sm flex-shrink-0"
         @click="emit('install')"
       >
         <Download class="w-4 h-4" />
@@ -90,7 +90,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
       
       <button 
         v-if="status === 'installed'"
-        class="btn-cute flex-1 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white border-2 border-amber-600 py-2 px-2 rounded-[20px] font-bold shadow-sm text-sm flex-shrink-0"
+        class="btn-cute flex-1 flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white border-2 border-indigo-600 py-2 px-2 rounded-[20px] font-bold shadow-sm text-sm flex-shrink-0"
         @click="emit('launch')"
       >
         {{ t('status_card.launch') }}
@@ -98,7 +98,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
 
       <button 
         v-if="status === 'installed'"
-        class="btn-cute flex-1 flex items-center justify-center gap-1 bg-white hover:bg-red-50 text-[#451a03] hover:text-red-500 border-2 border-amber-200 hover:border-red-300 py-2 px-2 rounded-[20px] font-bold shadow-sm text-sm flex-shrink-0"
+        class="btn-cute flex-1 flex items-center justify-center gap-1 bg-white hover:bg-red-50 text-slate-900 hover:text-red-500 border-2 border-slate-200 hover:border-red-300 py-2 px-2 rounded-[20px] font-bold shadow-sm text-sm flex-shrink-0"
         @click="emit('uninstall')"
       >
         <Trash2 class="w-4 h-4" />
@@ -108,15 +108,15 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
       <!-- Progress Bar Area -->
       <div
         v-if="status === 'installing'"
-        class="flex-1 w-full flex flex-col gap-2 bg-white/80 p-4 rounded-[20px] border-2 border-amber-200 shadow-inner"
+        class="flex-1 w-full flex flex-col gap-2 bg-white/80 p-4 rounded-[20px] border-2 border-slate-200 shadow-inner"
       >
-        <div class="flex justify-between text-xs font-bold text-amber-800">
+        <div class="flex justify-between text-xs font-bold text-slate-800">
           <span class="truncate pr-2">{{ progressMessage || t('status_card.processing') }}</span>
           <span>{{ progress ? progress.toFixed(1) : 0 }}%</span>
         </div>
-        <div class="h-2 w-full bg-amber-100 rounded-full overflow-hidden shadow-inner">
+        <div class="h-2 w-full bg-indigo-50 rounded-full overflow-hidden shadow-inner">
           <div 
-            class="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full transition-all duration-300"
+            class="h-full bg-gradient-to-r from-indigo-400 to-indigo-500 rounded-full transition-all duration-300"
             :style="{ width: `${progress || 0}%` }"
           />
         </div>
@@ -125,7 +125,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
       <button 
         v-else-if="status === 'checking'"
         disabled
-        class="flex-1 flex items-center justify-center gap-2 bg-white/60 text-amber-600/60 py-3 px-4 rounded-[20px] font-bold cursor-not-allowed border-2 border-amber-100"
+        class="flex-1 flex items-center justify-center gap-2 bg-white/60 text-indigo-600/60 py-3 px-4 rounded-[20px] font-bold cursor-not-allowed border-2 border-slate-200"
       >
         <Loader2 class="w-5 h-5 animate-spin" />
         {{ t('status_card.sniffing') }}

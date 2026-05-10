@@ -168,7 +168,10 @@ onMounted(async () => {
 <template>
   <div class="flex items-center justify-center h-screen bg-orange-50/50 relative overflow-hidden">
     <div class="fixed top-4 right-4 z-50 flex gap-2">
-      <button @click="cycleLanguage" class="flex items-center gap-2 px-4 py-2 bg-white/50 hover:bg-white/80 backdrop-blur rounded-xl border border-orange-200 transition-all font-medium text-sm shadow-sm text-orange-900">
+      <button
+        class="flex items-center gap-2 px-4 py-2 bg-white/50 hover:bg-white/80 backdrop-blur rounded-xl border border-orange-200 transition-all font-medium text-sm shadow-sm text-orange-900"
+        @click="cycleLanguage"
+      >
         <Globe class="w-4 h-4" />
         {{ currentLangLabel }}
       </button>
@@ -311,7 +314,7 @@ onMounted(async () => {
     
     <!-- 左下角版本号 -->
     <div class="absolute bottom-4 left-4 z-50">
-      <span class="text-xs font-mono font-bold text-amber-900/40 bg-white/40 backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
+      <span class="text-xs font-mono font-bold text-slate-900/40 bg-white/40 backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
     </div>
   </div>
 </template>
