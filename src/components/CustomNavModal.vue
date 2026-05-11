@@ -69,7 +69,7 @@ const saveAndClose = () => {
     <div class="relative w-full max-w-[500px] h-[600px] flex flex-col bg-[#1e1f22] rounded-xl shadow-2xl border border-white/10 overflow-hidden text-slate-200">
       <!-- Header -->
       <div class="flex items-center justify-between p-4 border-b border-white/5">
-        <h2 class="text-[15px] font-bold text-white">自定义导航栏</h2>
+        <h2 class="text-[15px] font-bold text-white">{{ $t('auto_966ed89c') }}</h2>
         <button class="p-1 hover:bg-white/10 rounded-md transition-colors" @click="emit('close')">
           <X class="w-4 h-4 text-slate-400" />
         </button>

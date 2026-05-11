@@ -96,11 +96,11 @@ const submit = async () => {
     :loading="loading"
     @close="show = false"
   >
-    <div class="p-6 bg-slate-900 rounded-xl text-white w-96 max-w-full">
+    <div class="p-6 bg-surface rounded-xl text-white w-96 max-w-full">
       <h2 class="text-xl font-bold mb-2">
         {{ t('direct_open.title') }}
       </h2>
-      <p class="text-xs text-slate-400 mb-4">
+      <p class="text-xs text-border-strong mb-4">
         {{ t('direct_open.desc') }}
       </p>
       
@@ -108,7 +108,7 @@ const submit = async () => {
         id="direct-open-input"
         v-model="inputUrl"
         type="text"
-        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-white transition-colors mb-4"
+        class="w-full bg-surface border border-border-soft rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-border-strong transition-colors mb-4"
         @keyup.enter="submit"
       >
       
@@ -121,13 +121,13 @@ const submit = async () => {
 
       <div class="flex justify-end gap-3">
         <button
-          class="px-5 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
+          class="px-5 py-2 bg-surface hover:bg-surface-hover rounded-lg text-sm font-medium transition-colors"
           @click="show = false"
         >
           {{ t('direct_open.cancel') }}
         </button>
         <button
-          class="px-5 py-2 bg-white text-black hover:bg-slate-200 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+          class="px-5 py-2 bg-surface text-black hover:bg-background/20 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
           :disabled="!inputUrl.trim() || loading"
           @click="submit"
         >

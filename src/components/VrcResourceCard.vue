@@ -82,15 +82,15 @@ const handleMouseEnter = () => {
 
 <template>
   <div 
-    class="bg-white/80 backdrop-blur-md rounded-2xl overflow-hidden shadow-sm relative group hover:shadow-lg transition-all cursor-pointer border"
-    :class="[minimal ? 'border-transparent hover:border-indigo-200 flex items-center gap-3 p-2.5 bg-slate-50/50 hover:bg-white' : 'border-slate-200 hover:border-indigo-300 flex-col hover:-translate-y-1']"
+    class="bg-surface backdrop-blur-md rounded-2xl overflow-hidden shadow-sm relative group hover:shadow-lg transition-all cursor-pointer border"
+    :class="[minimal ? 'border-transparent hover:border-indigo-200 flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-indigo-300 flex-col hover:-translate-y-1']"
     @click="emit('click', data)"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
     <!-- Image Area -->
     <div 
-      class="bg-slate-100 relative overflow-hidden shrink-0"
+      class="bg-background/10 relative overflow-hidden shrink-0"
       :class="[minimal ? 'w-11 h-11 rounded-xl shadow-sm' : 'aspect-video w-full rounded-t-2xl']"
     >
       <!-- Image or Placeholder -->
@@ -102,7 +102,7 @@ const handleMouseEnter = () => {
       >
       <div
         v-else
-        class="w-full h-full flex items-center justify-center bg-slate-200/50 text-slate-400"
+        class="w-full h-full flex items-center justify-center bg-surface0/50 text-border-strong"
       >
         <Globe
           v-if="type === 'world'"
@@ -122,7 +122,7 @@ const handleMouseEnter = () => {
       <img
         v-if="!minimal && type === 'group' && data.iconUrl"
         :src="data.iconUrl"
-        class="absolute -bottom-4 left-4 w-14 h-14 rounded-xl border-[3px] border-white shadow-md object-cover z-10 bg-white"
+        class="absolute -bottom-4 left-4 w-14 h-14 rounded-xl border-[3px] border-border-strong shadow-md object-cover z-10 bg-surface"
       >
 
       <!-- Quick Action Overlay on Hover (Not in minimal mode) -->
@@ -142,23 +142,23 @@ const handleMouseEnter = () => {
           <!-- Dropdown Menu -->
           <div 
             v-if="showMenu"
-            class="absolute top-full right-0 mt-2 w-40 bg-white/95 backdrop-blur-xl rounded-xl shadow-xl border border-slate-200/60 overflow-hidden z-30 py-1.5 animate-fade-in origin-top-right"
+            class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-xl rounded-xl shadow-xl border border-border-soft0/60 overflow-hidden z-30 py-1.5 animate-fade-in origin-top-right"
           >
             <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
               @click.stop="copyId"
             >
               <Copy :size="14" /> 复制 ID
             </button>
             <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
               @click.stop="openInBrowser"
             >
               <ExternalLink :size="14" /> 浏览器打开
             </button>
             <button
               v-if="type !== 'group'"
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-500 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-500 hover:bg-surface-hover hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
               @click.stop="emit('favorite', data)"
             >
               <Star :size="14" /> 收藏/分组
@@ -203,14 +203,14 @@ const handleMouseEnter = () => {
     <!-- Info Area -->
     <div :class="[minimal ? 'flex-1 min-w-0' : 'p-4 pt-4']">
       <h4 
-        class="font-extrabold text-slate-900 truncate" 
+        class="font-extrabold text-text truncate" 
         :class="[minimal ? 'text-[13px] leading-tight' : 'text-[15px]', type === 'group' && !minimal ? 'ml-12' : '']"
         :title="title"
       >
         {{ title }}
       </h4>
       <p 
-        class="text-slate-500 truncate mt-1" 
+        class="text-text-muted truncate mt-1" 
         :class="[minimal ? 'text-[11px] font-medium' : 'text-xs font-bold', type === 'group' && !minimal ? 'ml-12 uppercase tracking-wider' : '']"
         :title="author"
       >
@@ -224,7 +224,7 @@ const handleMouseEnter = () => {
         <span 
           v-for="tag in data.tags.slice(0, 3).filter((t: string) => !t.startsWith('author_tag'))" 
           :key="tag"
-          class="px-2 py-0.5 bg-slate-100/80 text-slate-600 border border-slate-200/50 rounded-md text-[10px] font-bold whitespace-nowrap uppercase tracking-wide truncate max-w-[70px]"
+          class="px-2 py-0.5 bg-background/10 text-text-muted border border-border-soft0/50 rounded-md text-[10px] font-bold whitespace-nowrap uppercase tracking-wide truncate max-w-[70px]"
         >
           {{ tag.replace('author_tag_', '') }}
         </span>

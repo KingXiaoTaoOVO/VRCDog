@@ -100,7 +100,7 @@ const groupedFriends = computed(() => {
 
   locationMap.forEach((friendsInLoc, loc) => {
     if (friendsInLoc.length > 1) { // 2 or more friends in the same instance
-      let locName = friendsInLoc[0]?.location || '未知房间';
+      let locName = friendsInLoc[0]?.location || t('auto_65717df5');
       let flag = '🌐';
       if (locName.includes('JP')) flag = '🇯🇵';
       else if (locName.includes('US')) flag = '🇺🇸';
@@ -153,38 +153,38 @@ const getFlag = (locName: string) => {
 };
 
 const cleanLocName = (loc: string) => {
-  if (loc === 'private') return '位于私人房间';
-  return loc?.split('~')[0] || '未知位置';
+  if (loc === 'private') return t('auto_4ad3ada9');
+  return loc?.split('~')[0] || t('auto_0fcd7253');
 };
 </script>
 
 <template>
-  <div class="h-full w-full flex justify-center bg-[#111214] text-slate-200 overflow-hidden">
+  <div class="h-full w-full flex justify-center bg-[#111214] text-text-muted overflow-hidden">
     <!-- Main container mimicking VRCX right sidebar -->
     <div class="w-full max-w-[340px] h-full flex flex-col bg-[#1a1b1e] border-l border-r border-[#2c2d31]">
       
       <!-- Top Bar -->
       <div class="flex items-center gap-2 p-2 border-b border-[#2c2d31]">
         <div class="flex-1 relative flex items-center bg-[#242528] rounded px-3 py-1.5 focus-within:ring-1 focus-within:ring-slate-500 transition-all">
-          <Search class="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+          <Search class="w-4 h-4 text-border-strong mr-2 shrink-0" />
           <input
             v-model="searchQuery"
             type="text"
-            class="w-full bg-transparent text-[13px] text-slate-200 placeholder-slate-500 outline-none"
-            placeholder="搜索"
+            class="w-full bg-transparent text-[13px] text-text-muted placeholder-slate-500 outline-none"
+            :placeholder="$t('auto_e5f71fc3')"
           >
           <div class="flex items-center gap-1 shrink-0 ml-2">
-            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-slate-400 border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">Ctrl</kbd>
-            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-slate-400 border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">K</kbd>
+            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-border-strong border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">Ctrl</kbd>
+            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-border-strong border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">K</kbd>
           </div>
         </div>
-        <button class="p-1.5 text-slate-400 hover:text-slate-200 transition-colors" @click="fetchFriends" title="刷新">
+        <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" @click="fetchFriends" :title="$t('auto_694fc5ef')">
           <RefreshCcw class="w-4 h-4" :class="{'animate-spin text-white': loading}" />
         </button>
-        <button class="p-1.5 text-slate-400 hover:text-slate-200 transition-colors" title="通知">
+        <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" :title="$t('auto_5660bcd2')">
           <Bell class="w-4 h-4" />
         </button>
-        <button class="p-1.5 text-slate-400 hover:text-slate-200 transition-colors" title="设置">
+        <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" :title="$t('auto_e366ccf1')">
           <Settings class="w-4 h-4" />
         </button>
       </div>
@@ -193,26 +193,26 @@ const cleanLocName = (loc: string) => {
       <div class="flex border-b border-[#2c2d31]">
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
-          :class="activeTab === 'friends' ? 'text-white' : 'text-slate-500 hover:text-slate-300'"
+          :class="activeTab === 'friends' ? 'text-white' : 'text-text-muted hover:text-text-muted'"
           @click="activeTab = 'friends'"
         >
           好友 ({{ onlineCount }}/{{ totalCount }})
-          <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-white"></div>
+          <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-surface"></div>
         </button>
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
-          :class="activeTab === 'groups' ? 'text-white' : 'text-slate-500 hover:text-slate-300'"
+          :class="activeTab === 'groups' ? 'text-white' : 'text-text-muted hover:text-text-muted'"
           @click="activeTab = 'groups'"
         >
           群组房间 (0)
-          <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-white"></div>
+          <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-surface"></div>
         </button>
       </div>
 
       <!-- Content Area -->
       <div class="flex-1 overflow-y-auto custom-scrollbar">
         
-        <div v-if="loading && onlineCount === 0" class="flex justify-center items-center h-20 text-slate-500">
+        <div v-if="loading && onlineCount === 0" class="flex justify-center items-center h-20 text-text-muted">
           <RefreshCcw class="w-5 h-5 animate-spin" />
         </div>
 
@@ -221,10 +221,10 @@ const cleanLocName = (loc: string) => {
           <!-- 我 (Me) -->
           <div class="mb-2 mt-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
               @click="toggleSection('me')"
             >
-              <component :is="collapsedSections.has('me') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              <component :is="collapsedSections.has('me') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
               我
             </div>
             <div v-show="!collapsedSections.has('me')" class="mt-1 pl-2">
@@ -245,17 +245,17 @@ const cleanLocName = (loc: string) => {
           <!-- 同一房间 (Same Room) -->
           <div v-if="groupedFriends.sameRoom.length > 0" class="mb-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
               @click="toggleSection('sameRoom')"
             >
-              <component :is="collapsedSections.has('sameRoom') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              <component :is="collapsedSections.has('sameRoom') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
               同一房间 — {{ groupedFriends.sameRoom.length }}
             </div>
             
             <div v-show="!collapsedSections.has('sameRoom')" class="mt-1">
               <template v-for="group in groupedFriends.sameRoom" :key="group.location">
                 <!-- Location Header -->
-                <div class="flex items-center gap-2 py-1 px-6 text-[12px] font-medium text-slate-200">
+                <div class="flex items-center gap-2 py-1 px-6 text-[12px] font-medium text-text-muted">
                   <span class="text-[13px]">{{ group.flag }}</span>
                   <span class="truncate max-w-[200px]">{{ group.locationName }}</span>
                   <span class="ml-1 shrink-0">({{ group.friends.length }})</span>
@@ -275,7 +275,7 @@ const cleanLocName = (loc: string) => {
                     <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
                       {{ friend.displayName }}
                     </span>
-                    <span class="text-[11px] text-[#8e9297] mt-0.5">10分钟</span> <!-- Mock time to match design -->
+                    <span class="text-[11px] text-[#8e9297] mt-0.5">{{ $t('auto_3bdab2c6') }}</span> <!-- Mock time to match design -->
                   </div>
                 </div>
               </template>
@@ -285,10 +285,10 @@ const cleanLocName = (loc: string) => {
           <!-- 在线 (Online) -->
           <div v-if="groupedFriends.online.length > 0" class="mb-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
               @click="toggleSection('online')"
             >
-              <component :is="collapsedSections.has('online') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              <component :is="collapsedSections.has('online') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
               在线 — {{ groupedFriends.online.length }}
             </div>
             
@@ -320,10 +320,10 @@ const cleanLocName = (loc: string) => {
           <!-- 活跃中 (Active on website) -->
           <div v-if="activeFriends.length > 0 && !searchQuery" class="mb-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-300 select-none"
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
               @click="toggleSection('active')"
             >
-              <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
+              <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
               活跃中 (仅登录网页端) — {{ activeFriends.length }}
             </div>
             <div v-show="!collapsedSections.has('active')" class="mt-1 pl-2 pr-2">
@@ -341,7 +341,7 @@ const cleanLocName = (loc: string) => {
                   <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
                     {{ friend.displayName }}
                   </span>
-                  <span class="text-[11px] text-[#8e9297] mt-0.5 truncate">活跃中</span>
+                  <span class="text-[11px] text-[#8e9297] mt-0.5 truncate">{{ $t('auto_7cdc4c2a') }}</span>
                 </div>
               </div>
             </div>
@@ -350,10 +350,10 @@ const cleanLocName = (loc: string) => {
           <!-- 离线 (Offline) -->
           <div v-if="offlineFriends.length > 0 && !searchQuery" class="mb-4">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-white/5 transition-colors text-[13px] font-bold text-slate-400 select-none"
+              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-border-strong select-none"
               @click="toggleSection('offline')"
             >
-              <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-slate-500" />
+              <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-text-muted" />
               离线 — {{ offlineFriends.length }}
             </div>
             <div v-show="!collapsedSections.has('offline')" class="mt-1 pl-2 pr-2 opacity-60 hover:opacity-100 transition-opacity">
@@ -365,13 +365,13 @@ const cleanLocName = (loc: string) => {
               >
                 <div class="relative shrink-0">
                   <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31] grayscale" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e] bg-slate-500"></div>
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e] bg-surface-hover0"></div>
                 </div>
                 <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
                   <span class="text-[13px] font-bold truncate text-[#8e9297]">
                     {{ friend.displayName }}
                   </span>
-                  <span class="text-[11px] text-[#6b6f75] mt-0.5 truncate">离线</span>
+                  <span class="text-[11px] text-[#6b6f75] mt-0.5 truncate">{{ $t('auto_50d4a850') }}</span>
                 </div>
               </div>
             </div>
@@ -379,7 +379,7 @@ const cleanLocName = (loc: string) => {
 
         </template>
         
-        <div v-else class="h-full flex flex-col items-center justify-center text-slate-500 text-sm font-medium">
+        <div v-else class="h-full flex flex-col items-center justify-center text-text-muted text-sm font-medium">
           暂无群组房间
         </div>
 

@@ -117,7 +117,11 @@ pub async fn vrc_get_latest_gamelogs(
     
     for line in all_lines {
         if line.len() < 20 { continue; }
-        let time_str = &line[0..19];
+        let time_str = if line.is_char_boundary(19) {
+            &line[0..19]
+        } else {
+            ""
+        };
         
         if let Some(idx) = line.find("OnPlayerJoined ") {
             let name = line[idx + 15..].trim();

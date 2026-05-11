@@ -6,7 +6,7 @@
         :key="toast.id"
         class="px-6 py-3 rounded-2xl shadow-xl backdrop-blur-2xl border flex items-center gap-3 font-bold text-[14px] pointer-events-auto"
         :class="{
-          'bg-white/80 border-white/60 text-slate-800': toast.type === 'info',
+          'bg-surface border-white/60 text-text': toast.type === 'info',
           'bg-green-500/80 border-green-400 text-white': toast.type === 'success',
           'bg-red-500/80 border-red-400 text-white': toast.type === 'error',
           'bg-amber-500/80 border-amber-400 text-white': toast.type === 'warning',

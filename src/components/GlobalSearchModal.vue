@@ -50,15 +50,15 @@ const selectOption = (type: string) => {
     <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="isVisible = false"></div>
     
     <!-- Modal -->
-    <div class="relative w-full max-w-[600px] bg-[#1a1b1e] rounded-xl shadow-2xl border border-white/10 overflow-hidden transform transition-all text-slate-200">
+    <div class="relative w-full max-w-[600px] bg-surface rounded-xl shadow-2xl border border-white/10 overflow-hidden transform transition-all text-text-muted">
       <!-- Search Input -->
       <div class="flex items-center px-4 py-3 border-b border-white/5">
-        <Search class="w-5 h-5 text-slate-400 mr-3" />
+        <Search class="w-5 h-5 text-border-strong mr-3" />
         <input 
           ref="inputRef"
           v-model="searchQuery"
           type="text" 
-          placeholder="搜索" 
+          :placeholder="$t('auto_e5f71fc3')" 
           class="flex-1 bg-transparent border-none outline-none text-lg text-white placeholder-slate-500"
           @keydown.enter="selectOption('all')"
         >
@@ -66,50 +66,50 @@ const selectOption = (type: string) => {
 
       <!-- Options -->
       <div class="p-2">
-        <div class="px-3 py-2 text-xs font-bold text-slate-500 mb-1">搜点什么...</div>
+        <div class="px-3 py-2 text-xs font-bold text-text-muted mb-1">{{ $t('auto_e978cbe8') }}</div>
         
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
           @click="selectOption('user')"
         >
           <div class="flex items-center gap-3">
-            <Users class="w-4 h-4 text-slate-400 group-hover:text-white" />
-            <span class="text-sm font-medium">好友</span>
+            <Users class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <span class="text-sm font-medium">{{ $t('auto_59d29a36') }}</span>
           </div>
-          <span class="text-xs text-slate-500 group-hover:text-slate-400">以及你给他们的备注</span>
+          <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_6d337922') }}</span>
         </div>
 
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
           @click="selectOption('avatar')"
         >
           <div class="flex items-center gap-3">
-            <Ghost class="w-4 h-4 text-slate-400 group-hover:text-white" />
-            <span class="text-sm font-medium">模型</span>
+            <Ghost class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <span class="text-sm font-medium">{{ $t('auto_8000f187') }}</span>
           </div>
-          <span class="text-xs text-slate-500 group-hover:text-slate-400">看看有什么好玩的模型</span>
+          <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_f7c19728') }}</span>
         </div>
 
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
           @click="selectOption('world')"
         >
           <div class="flex items-center gap-3">
-            <Globe class="w-4 h-4 text-slate-400 group-hover:text-white" />
-            <span class="text-sm font-medium">世界</span>
+            <Globe class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <span class="text-sm font-medium">{{ $t('auto_c086b300') }}</span>
           </div>
-          <span class="text-xs text-slate-500 group-hover:text-slate-400">找个好玩的地方玩玩</span>
+          <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_c201c3af') }}</span>
         </div>
 
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
           @click="selectOption('group')"
         >
           <div class="flex items-center gap-3">
-            <UsersRound class="w-4 h-4 text-slate-400 group-hover:text-white" />
-            <span class="text-sm font-medium">群组</span>
+            <UsersRound class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <span class="text-sm font-medium">{{ $t('auto_4b0ab7ba') }}</span>
           </div>
-          <span class="text-xs text-slate-500 group-hover:text-slate-400">找不到组织了吗?</span>
+          <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_7bd27eb1') }}</span>
         </div>
       </div>
     </div>

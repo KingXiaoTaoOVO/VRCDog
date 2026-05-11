@@ -71,7 +71,7 @@ const getStatusColor = (status: string) => {
     case 'join me': return 'bg-blue-500';
     case 'ask me': return 'bg-orange-500';
     case 'busy': return 'bg-red-500';
-    default: return 'bg-slate-400';
+    default: return 'bg-surface';
   }
 };
 
@@ -124,32 +124,32 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-slate-50/50 p-2">
+  <div class="h-full flex flex-col bg-surface-hover p-2">
     <!-- 顶部导航 Tab -->
-    <div class="flex items-center gap-2 border-b border-slate-200 mb-6 px-4 pt-2">
+    <div class="flex items-center gap-2 border-b border-border-soft mb-6 px-4 pt-2">
       <button
-        :class="searchType === 'users' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-slate-500 hover:text-slate-700 font-bold hover:bg-slate-100 rounded-t-lg border-b-2 border-transparent'"
+        :class="searchType === 'users' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-background/10 rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'users'"
       >
         {{ t('search.type_users') || '玩家' }}
       </button>
       <button
-        :class="searchType === 'worlds' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-slate-500 hover:text-slate-700 font-bold hover:bg-slate-100 rounded-t-lg border-b-2 border-transparent'"
+        :class="searchType === 'worlds' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-background/10 rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'worlds'"
       >
         {{ t('search.type_worlds') || '世界' }}
       </button>
       <button
-        :class="searchType === 'avatars' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-slate-500 hover:text-slate-700 font-bold hover:bg-slate-100 rounded-t-lg border-b-2 border-transparent'"
+        :class="searchType === 'avatars' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-background/10 rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'avatars'"
       >
         {{ t('search.type_avatars') || '模型' }}
       </button>
       <button
-        :class="searchType === 'groups' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-slate-500 hover:text-slate-700 font-bold hover:bg-slate-100 rounded-t-lg border-b-2 border-transparent'"
+        :class="searchType === 'groups' ? 'border-b-2 border-indigo-600 text-indigo-700 font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-background/10 rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'groups'"
       >
@@ -161,19 +161,19 @@ onUnmounted(() => {
     <div class="flex gap-3 mb-6 px-2">
       <div class="flex-1 relative">
         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-          <Search class="h-5 w-5 text-slate-400" />
+          <Search class="h-5 w-5 text-border-strong" />
         </div>
         <input
           v-model="searchQuery"
           type="text"
-          class="block w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 text-sm font-bold transition-all"
+          class="block w-full pl-12 pr-4 py-3.5 bg-surface border border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 text-sm font-bold transition-all"
           :placeholder="t('search.placeholder')"
           @keyup.enter="doSearch"
         >
       </div>
       <button
         :disabled="loading || !searchQuery.trim()"
-        class="px-8 py-3 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-sm transition-colors disabled:opacity-50 text-sm flex items-center gap-2"
+        class="px-8 py-3 bg-surface hover:bg-black text-white font-bold rounded-xl shadow-sm transition-colors disabled:opacity-50 text-sm flex items-center gap-2"
         @click="doSearch"
       >
         <Loader2
@@ -201,7 +201,7 @@ onUnmounted(() => {
     <div class="flex-1 overflow-y-auto px-4 custom-scrollbar relative">
       <div
         v-if="loading"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -212,13 +212,13 @@ onUnmounted(() => {
 
       <div
         v-else-if="hasSearched && results.length === 0"
-        class="h-full flex flex-col items-center justify-center text-slate-400"
+        class="h-full flex flex-col items-center justify-center text-border-strong"
       >
         <Search
           class="mb-4 opacity-30"
           :size="64"
         />
-        <p class="font-bold text-xl text-slate-500">
+        <p class="font-bold text-xl text-text-muted">
           暂无数据
         </p>
         <p class="text-sm mt-2 font-medium">
@@ -228,13 +228,13 @@ onUnmounted(() => {
 
       <div
         v-else-if="!hasSearched"
-        class="h-full flex flex-col items-center justify-center text-slate-300"
+        class="h-full flex flex-col items-center justify-center text-text-muted"
       >
         <Search
           class="mb-4 opacity-20"
           :size="80"
         />
-        <p class="font-bold text-xl text-slate-400 tracking-wide">
+        <p class="font-bold text-xl text-border-strong tracking-wide">
           输入关键词开始探索世界
         </p>
       </div>

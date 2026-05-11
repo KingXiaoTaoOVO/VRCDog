@@ -22,7 +22,7 @@ defineEmits<{
           class="absolute inset-0 bg-black/30 backdrop-blur-sm"
           @click="$emit('close')"
         />
-        <div class="bg-white/95 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="bg-surface backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden border border-border-soft flex flex-col max-h-[90vh]">
           <div
             v-if="loading"
             class="p-12 text-center"

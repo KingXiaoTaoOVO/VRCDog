@@ -22,7 +22,7 @@ const applyPreset = async (preset: StatusPreset) => {
     appliedId.value = preset.id;
     setTimeout(() => { appliedId.value = null; }, 2000);
   } catch (err) {
-    console.warn('应用状态失败:', err);
+    console.warn(t('auto_4aec9eff'), err);
   } finally {
     applyingId.value = null;
   }
@@ -61,7 +61,7 @@ const fetchPresets = async () => {
       presets.value = data;
     }
   } catch (err) {
-    console.warn('加载预设失败:', err);
+    console.warn(t('auto_2997abb6'), err);
   } finally {
     loading.value = false;
   }
@@ -79,7 +79,7 @@ const addPreset = async () => {
     form.value = { status: 'active', status_description: '', name: '' };
     await fetchPresets();
   } catch (err) {
-    console.warn('保存预设失败:', err);
+    console.warn(t('auto_7f2d13ea'), err);
   }
 };
 
@@ -88,25 +88,25 @@ const deletePreset = async (id: number) => {
     await DbApi.deletePreset({ id });
     await fetchPresets();
   } catch (err) {
-    console.warn('删除预设失败:', err);
+    console.warn(t('auto_534a8c6e'), err);
   }
 };
 
 const getStatusColor = (status: string) => {
-  return statusOptions.value.find(o => o.value === status)?.color || 'bg-slate-400';
+  return statusOptions.value.find(o => o.value === status)?.color || 'bg-surface';
 };
 
 const getLocalizedName = (name: string) => {
-  if (['默认在线', 'Default Online', 'デフォルトオンライン'].includes(name)) return t('status_presets.default_online_label');
-  if (['专心致志', 'Focused', '作業中'].includes(name)) return t('status_presets.default_busy_label');
-  if (['随便进', 'Join Me', 'Joinしてね'].includes(name)) return t('status_presets.default_join_label');
+  if ([t('auto_fdfa550a'), 'Default Online', 'デフォルトオンライン'].includes(name)) return t('status_presets.default_online_label');
+  if ([t('auto_ffba202d'), 'Focused', t('auto_1034b2cf')].includes(name)) return t('status_presets.default_busy_label');
+  if ([t('auto_0e3cceec'), 'Join Me', 'Joinしてね'].includes(name)) return t('status_presets.default_join_label');
   return name;
 };
 
 const getLocalizedDesc = (desc: string) => {
-  if (['在线，可邀请我', 'Online, you can invite me', 'オンライン、招待可能です'].includes(desc)) return t('status_presets.default_online_desc');
-  if (['正在专心做某事，请勿打扰', 'Focusing on something, do not disturb', '集中しています、邪魔しないでください'].includes(desc)) return t('status_presets.default_busy_desc');
-  if (['来找我玩！', 'Come play with me!', '一緒に遊ぼう！'].includes(desc)) return t('status_presets.default_join_desc');
+  if ([t('auto_59d64766'), 'Online, you can invite me', t('auto_6a6fce8d')].includes(desc)) return t('status_presets.default_online_desc');
+  if ([t('auto_71c85476'), 'Focusing on something, do not disturb', t('auto_bdb32a8e')].includes(desc)) return t('status_presets.default_busy_desc');
+  if ([t('auto_ffc3e845'), 'Come play with me!', t('auto_08400ded')].includes(desc)) return t('status_presets.default_join_desc');
   return desc;
 };
 
@@ -114,13 +114,13 @@ onMounted(() => fetchPresets());
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
-      <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+      <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
         <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
           <Sparkles class="w-6 h-6 text-indigo-600" />
         </span>
@@ -137,23 +137,23 @@ onMounted(() => fetchPresets());
     <!-- 新增表单 -->
     <div
       v-if="showForm"
-      class="bg-white/90 backdrop-blur-xl rounded-2xl p-6 border border-slate-200 mb-6 shadow-md z-10 relative"
+      class="bg-surface backdrop-blur-xl rounded-2xl p-6 border border-border-soft mb-6 shadow-md z-10 relative"
     >
       <div class="grid grid-cols-2 gap-5 mb-5">
         <div>
-          <label class="block text-xs font-extrabold text-slate-700 mb-2 tracking-wide">{{ t('status_presets.preset_name') }}</label>
+          <label class="block text-xs font-extrabold text-text-muted mb-2 tracking-wide">{{ t('status_presets.preset_name') }}</label>
           <input
             v-model="form.name"
             type="text"
             :placeholder="t('status_presets.preset_name_placeholder')"
-            class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-slate-50 transition-all font-medium text-slate-900"
+            class="w-full px-4 py-2.5 rounded-xl border border-border-soft focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
           >
         </div>
         <div>
-          <label class="block text-xs font-extrabold text-slate-700 mb-2 tracking-wide">{{ t('status_presets.status_type') }}</label>
+          <label class="block text-xs font-extrabold text-text-muted mb-2 tracking-wide">{{ t('status_presets.status_type') }}</label>
           <select
             v-model="form.status"
-            class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-slate-50 transition-all font-medium text-slate-900"
+            class="w-full px-4 py-2.5 rounded-xl border border-border-soft focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
           >
             <option
               v-for="opt in statusOptions"
@@ -166,17 +166,17 @@ onMounted(() => fetchPresets());
         </div>
       </div>
       <div class="mb-5">
-        <label class="block text-xs font-extrabold text-slate-700 mb-2 tracking-wide">{{ t('status_presets.status_desc') }}</label>
+        <label class="block text-xs font-extrabold text-text-muted mb-2 tracking-wide">{{ t('status_presets.status_desc') }}</label>
         <input
           v-model="form.status_description"
           type="text"
           :placeholder="t('status_presets.status_desc_placeholder')"
-          class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-slate-50 transition-all font-medium text-slate-900"
+          class="w-full px-4 py-2.5 rounded-xl border border-border-soft focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
         >
       </div>
-      <div class="flex gap-3 justify-end pt-2 border-t border-slate-100">
+      <div class="flex gap-3 justify-end pt-2 border-t border-border-soft">
         <button
-          class="text-sm text-slate-500 hover:text-slate-700 font-bold px-4 py-2 rounded-xl hover:bg-slate-100 transition-colors"
+          class="text-sm text-text-muted hover:text-text-muted font-bold px-4 py-2 rounded-xl hover:bg-background/10 transition-colors"
           @click="showForm = false"
         >
           {{ t('status_presets.cancel') }}
@@ -194,7 +194,7 @@ onMounted(() => fetchPresets());
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -205,13 +205,13 @@ onMounted(() => fetchPresets());
 
       <div
         v-else-if="presets.length === 0 && !showForm"
-        class="h-full flex flex-col items-center justify-center text-slate-400"
+        class="h-full flex flex-col items-center justify-center text-border-strong"
       >
         <Sparkles
           class="mb-4 opacity-30"
           :size="64"
         />
-        <p class="font-bold text-xl text-slate-500">
+        <p class="font-bold text-xl text-text-muted">
           {{ t('status_presets.no_presets') }}
         </p>
         <p class="text-sm mt-2 font-medium">
@@ -226,7 +226,7 @@ onMounted(() => fetchPresets());
         <div
           v-for="(preset, idx) in presets"
           :key="preset.id ?? idx"
-          class="bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col gap-4 group relative"
+          class="bg-surface backdrop-blur-xl rounded-2xl p-5 border border-border-soft shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col gap-4 group relative"
         >
           <div class="flex items-start gap-3">
             <div
@@ -234,16 +234,16 @@ onMounted(() => fetchPresets());
               :class="getStatusColor(preset.status)"
             />
             <div class="flex-1 min-w-0">
-              <h3 class="font-bold text-slate-900 text-base truncate pr-6">
+              <h3 class="font-bold text-text text-base truncate pr-6">
                 {{ getLocalizedName(preset.name) }}
               </h3>
-              <p class="text-sm text-slate-600 mt-1 line-clamp-2 leading-relaxed">
+              <p class="text-sm text-text-muted mt-1 line-clamp-2 leading-relaxed">
                 {{ getLocalizedDesc(preset.status_description) }}
               </p>
             </div>
           </div>
           
-          <div class="flex items-center justify-end gap-2 mt-auto border-t border-slate-100 pt-3">
+          <div class="flex items-center justify-end gap-2 mt-auto border-t border-border-soft pt-3">
             <button
               v-if="props.userId"
               :disabled="applyingId === preset.id"
@@ -268,7 +268,7 @@ onMounted(() => fetchPresets());
               <span v-else>{{ t('status_presets.apply') === 'status_presets.apply' ? '应用预设' : t('status_presets.apply') }}</span>
             </button>
             <button
-              class="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+              class="p-2 rounded-xl hover:bg-red-50 text-border-strong hover:text-red-500 transition-colors"
               :title="t('global.auto_8767ff08')"
               @click="deletePreset(preset.id!)"
             >

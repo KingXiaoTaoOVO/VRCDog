@@ -142,7 +142,7 @@ onUnmounted(() => {
 const getEventMeta = (type: string) => {
   switch(type) {
     case 'Player Joined': return { icon: ArrowRightCircle, color: 'text-green-500', bg: 'bg-green-100', verb: t('feed.verb_joined') };
-    case 'Player Left': return { icon: ArrowLeftCircle, color: 'text-slate-400', bg: 'bg-slate-100', verb: t('feed.verb_left') };
+    case 'Player Left': return { icon: ArrowLeftCircle, color: 'text-border-strong', bg: 'bg-background/10', verb: t('feed.verb_left') };
     case 'Instance Joined': return { icon: Home, color: 'text-blue-500', bg: 'bg-blue-100', verb: t('feed.verb_instance') };
     default: return { icon: Rocket, color: 'text-indigo-500', bg: 'bg-indigo-50', verb: t('feed.verb_unknown') };
   }
@@ -150,19 +150,19 @@ const getEventMeta = (type: string) => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
     <header class="mb-6 flex justify-between items-end">
       <div>
-        <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <h1 class="text-2xl font-extrabold text-text tracking-tight flex items-center gap-3">
           {{ t('feed.title') }}
           <span class="inline-flex items-center justify-center p-1.5 bg-blue-100 rounded-xl shadow-sm">
             <Globe2 class="w-5 h-5 text-blue-600" />
           </span>
         </h1>
-        <p class="text-slate-600 font-medium mt-1 text-sm">
+        <p class="text-text-muted font-medium mt-1 text-sm">
           {{ t('feed.subtitle') }}
         </p>
       </div>
@@ -170,26 +170,26 @@ const getEventMeta = (type: string) => {
         <div class="flex items-center gap-2">
           <div class="relative group">
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search class="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+              <Search class="h-4 w-4 text-border-strong group-focus-within:text-indigo-500 transition-colors" />
             </div>
             <input 
               v-model="searchQuery" 
               type="text" 
               :placeholder="t('feed.search_logs')" 
-              class="w-48 pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all shadow-sm placeholder:font-medium"
+              class="w-48 pl-9 pr-3 py-2 bg-surface border border-border-soft rounded-xl text-sm font-bold text-text-muted focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all shadow-sm placeholder:font-medium"
             >
           </div>
-          <div class="bg-white/50 backdrop-blur-md p-1.5 rounded-xl flex shadow-sm border border-slate-200">
+          <div class="bg-surface backdrop-blur-md p-1.5 rounded-xl flex shadow-sm border border-border-soft">
             <button 
               class="px-4 py-2 rounded-lg text-sm font-bold transition-all"
-              :class="activeTab === 'game' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'"
+              :class="activeTab === 'game' ? 'bg-surface shadow-sm text-indigo-600' : 'text-text-muted hover:text-text-muted'"
               @click="activeTab = 'game'; fetchLogs()"
             >
               {{ t('feed.game_logs') }}
             </button>
             <button 
               class="px-4 py-2 rounded-lg text-sm font-bold transition-all"
-              :class="activeTab === 'friend' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'"
+              :class="activeTab === 'friend' ? 'bg-surface shadow-sm text-indigo-600' : 'text-text-muted hover:text-text-muted'"
               @click="activeTab = 'friend'; fetchLogs()"
             >
               {{ t('feed.friend_logs') }}
@@ -211,12 +211,12 @@ const getEventMeta = (type: string) => {
       </div>
     </header>
 
-    <div class="flex-1 bg-slate-50 border border-slate-200 rounded-3xl p-6 shadow-sm overflow-y-auto custom-scrollbar">
+    <div class="flex-1 bg-surface-hover border border-border-soft rounded-3xl p-6 shadow-sm overflow-y-auto custom-scrollbar">
       <!-- Game Log Tab -->
       <template v-if="activeTab === 'game'">
         <div
           v-if="events.length === 0 && !loading"
-          class="h-full flex flex-col items-center justify-center text-slate-400"
+          class="h-full flex flex-col items-center justify-center text-border-strong"
         >
           <Globe2
             class="mb-4 animate-spin-slow opacity-50"
@@ -233,7 +233,7 @@ const getEventMeta = (type: string) => {
         <!-- Timeline Layout -->
         <div
           v-else
-          class="relative border-l-2 border-slate-200 ml-4 space-y-6 pb-8"
+          class="relative border-l-2 border-border-soft ml-4 space-y-6 pb-8"
         >
           <div
             v-for="(evt, idx) in filteredEvents"
@@ -243,7 +243,7 @@ const getEventMeta = (type: string) => {
             <!-- Timeline Node -->
             <div class="absolute -left-[17px] top-1">
               <div
-                class="w-8 h-8 rounded-full shadow-sm flex items-center justify-center border-[3px] border-white z-10 relative"
+                class="w-8 h-8 rounded-full shadow-sm flex items-center justify-center border-[3px] border-border-strong z-10 relative"
                 :class="getEventMeta(evt.event_type).bg"
               >
                 <component
@@ -255,9 +255,9 @@ const getEventMeta = (type: string) => {
             </div>
 
             <!-- Content Card -->
-            <div class="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all border border-slate-200 relative group max-w-2xl">
+            <div class="bg-surface rounded-2xl p-4 shadow-sm hover:shadow-md transition-all border border-border-soft relative group max-w-2xl">
               <!-- Triangle indicator -->
-              <div class="absolute top-4 -left-1.5 w-3 h-3 bg-white border-l border-b border-slate-200 transform rotate-45 transition-colors" />
+              <div class="absolute top-4 -left-1.5 w-3 h-3 bg-surface border-l border-b border-border-soft transform rotate-45 transition-colors" />
             
               <div class="flex items-center gap-2 mb-3 px-2">
                 <span
@@ -266,23 +266,23 @@ const getEventMeta = (type: string) => {
                 >
                   {{ evt.event_type === 'Player Joined' ? t('feed.type_player_joined') : evt.event_type === 'Player Left' ? t('feed.type_player_left') : evt.event_type === 'Instance Joined' ? t('feed.type_instance_joined') : evt.event_type }}
                 </span>
-                <span class="text-[10px] text-slate-400 font-bold ml-auto">{{ evt.time }}</span>
+                <span class="text-[10px] text-border-strong font-bold ml-auto">{{ evt.time }}</span>
               </div>
             
               <div
                 v-if="evt.event_type === 'Instance Joined'"
-                class="text-slate-800 font-medium flex flex-wrap items-center gap-2"
+                class="text-text font-medium flex flex-wrap items-center gap-2"
               >
                 <span class="text-blue-700 font-bold bg-blue-50 px-3 py-2 rounded-xl border border-blue-100 shadow-sm break-all flex-1">
                   <MapPin class="w-4 h-4 inline-block mr-1 text-blue-500" />
                   {{ evt.content }}
                 </span>
-                <span class="text-slate-500 text-xs shrink-0">{{ getEventMeta(evt.event_type).verb }}</span>
+                <span class="text-text-muted text-xs shrink-0">{{ getEventMeta(evt.event_type).verb }}</span>
               </div>
             
               <div
                 v-else
-                class="text-slate-800 font-medium flex items-center gap-4"
+                class="text-text font-medium flex items-center gap-4"
               >
                 <div
                   class="flex-1 w-64 cursor-pointer"
@@ -297,20 +297,20 @@ const getEventMeta = (type: string) => {
                   />
                   <div
                     v-else
-                    class="flex items-center gap-3 p-2 rounded-xl border border-slate-100 bg-slate-50"
+                    class="flex items-center gap-3 p-2 rounded-xl border border-border-soft bg-surface-hover"
                   >
-                    <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold uppercase relative">
+                    <div class="w-10 h-10 rounded-full bg-background/20 flex items-center justify-center text-text-muted font-bold uppercase relative">
                       <span v-if="!evt.loadingData">{{ evt.content.replace(/\s+\(usr_.*\)$/, '').charAt(0) }}</span>
                       <div
                         v-else
-                        class="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full"
+                        class="animate-spin w-4 h-4 border-2 border-border-soft border-t-transparent rounded-full"
                       />
                     </div>
                     <span class="font-extrabold text-sm truncate max-w-[150px]">{{ evt.content.replace(/\s+\(usr_.*\)$/, '') }}</span>
                   </div>
                 </div>
               
-                <span class="text-slate-500 text-xs shrink-0 font-bold bg-slate-100 px-2 py-1 rounded-md">{{ getEventMeta(evt.event_type).verb }}</span>
+                <span class="text-text-muted text-xs shrink-0 font-bold bg-background/10 px-2 py-1 rounded-md">{{ getEventMeta(evt.event_type).verb }}</span>
               </div>
             </div>
           </div>
@@ -321,7 +321,7 @@ const getEventMeta = (type: string) => {
       <template v-else-if="activeTab === 'friend'">
         <div
           v-if="friendEvents.length === 0 && !loading"
-          class="h-full flex flex-col items-center justify-center text-slate-400"
+          class="h-full flex flex-col items-center justify-center text-border-strong"
         >
           <UserPlus
             class="mb-4 opacity-50"
@@ -334,7 +334,7 @@ const getEventMeta = (type: string) => {
 
         <div
           v-else
-          class="relative border-l-2 border-slate-200 ml-4 space-y-6 pb-8"
+          class="relative border-l-2 border-border-soft ml-4 space-y-6 pb-8"
         >
           <div
             v-for="(evt, idx) in filteredFriendEvents"
@@ -343,8 +343,8 @@ const getEventMeta = (type: string) => {
           >
             <div class="absolute -left-[17px] top-1">
               <div
-                class="w-8 h-8 rounded-full shadow-sm flex items-center justify-center border-[3px] border-white z-10 relative"
-                :class="evt.event_type === 'online' ? 'bg-green-100 text-green-500' : evt.event_type === 'offline' ? 'bg-slate-100 text-slate-500' : 'bg-blue-100 text-blue-500'"
+                class="w-8 h-8 rounded-full shadow-sm flex items-center justify-center border-[3px] border-border-strong z-10 relative"
+                :class="evt.event_type === 'online' ? 'bg-green-100 text-green-500' : evt.event_type === 'offline' ? 'bg-background/10 text-text-muted' : 'bg-blue-100 text-blue-500'"
               >
                 <Globe2
                   v-if="evt.event_type === 'location_change'"
@@ -366,32 +366,32 @@ const getEventMeta = (type: string) => {
             </div>
 
             <div
-              class="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all border border-slate-200 relative group max-w-2xl cursor-pointer"
+              class="bg-surface rounded-2xl p-4 shadow-sm hover:shadow-md transition-all border border-border-soft relative group max-w-2xl cursor-pointer"
               @click="openPlayerProfile(evt)"
             >
-              <div class="absolute top-4 -left-1.5 w-3 h-3 bg-white border-l border-b border-slate-200 transform rotate-45 transition-colors" />
+              <div class="absolute top-4 -left-1.5 w-3 h-3 bg-surface border-l border-b border-border-soft transform rotate-45 transition-colors" />
               
               <div class="flex justify-between items-start mb-3">
                 <div
                   class="font-bold text-xs uppercase tracking-wider"
-                  :class="evt.event_type === 'online' ? 'text-green-500' : evt.event_type === 'offline' ? 'text-slate-500' : 'text-blue-500'"
+                  :class="evt.event_type === 'online' ? 'text-green-500' : evt.event_type === 'offline' ? 'text-text-muted' : 'text-blue-500'"
                 >
                   {{ evt.event_type }}
                 </div>
-                <div class="text-[10px] text-slate-500 font-mono font-bold bg-slate-100 px-2 py-0.5 rounded-md">
+                <div class="text-[10px] text-text-muted font-mono font-bold bg-background/10 px-2 py-0.5 rounded-md">
                   {{ new Date(evt.created_at).toLocaleString() }}
                 </div>
               </div>
               
-              <div class="text-slate-800 font-medium flex items-center gap-4">
+              <div class="text-text font-medium flex items-center gap-4">
                 <div class="flex items-center gap-3">
-                  <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold uppercase relative">
+                  <div class="w-10 h-10 rounded-full bg-background/20 flex items-center justify-center text-text-muted font-bold uppercase relative">
                     <span>{{ (evt.display_name || 'U').charAt(0) }}</span>
                   </div>
                   <span class="font-extrabold text-sm max-w-[150px] truncate">{{ evt.display_name }}</span>
                 </div>
                 
-                <span class="text-slate-500 text-xs shrink-0 font-bold bg-slate-100 px-2 py-1 rounded-md">
+                <span class="text-text-muted text-xs shrink-0 font-bold bg-background/10 px-2 py-1 rounded-md">
                   {{ evt.event_type === 'online' ? t('feed.status_online') : evt.event_type === 'offline' ? t('feed.status_offline') : evt.event_type === 'location_change' ? t('feed.status_location') : evt.event_type }}
                 </span>
 
@@ -404,7 +404,7 @@ const getEventMeta = (type: string) => {
                 </span>
                 <span
                   v-else-if="evt.detail === 'private'"
-                  class="text-slate-700 font-bold bg-slate-100 px-3 py-1 rounded-lg border border-slate-200 shadow-sm text-xs truncate max-w-[200px]"
+                  class="text-text-muted font-bold bg-background/10 px-3 py-1 rounded-lg border border-border-soft shadow-sm text-xs truncate max-w-[200px]"
                 >
                   🔒 Private
                 </span>

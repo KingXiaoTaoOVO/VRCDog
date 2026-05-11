@@ -56,8 +56,21 @@ import { Menu, ChevronUp, ChevronRight, X as XIcon, MessageSquare } from 'lucide
 import { Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser } from './types/vrc';
-import { markRaw } from 'vue';
+import { markRaw, watchEffect } from 'vue';
 import { currentTheme, setTheme, themes, type ThemeId } from './theme';
+
+// Inject dynamic theme variables into the document
+watchEffect(() => {
+  const root = document.documentElement;
+  const theme = currentTheme.value;
+  root.style.setProperty('--color-primary', theme.colors.primaryBtnBg);
+  root.style.setProperty('--color-primary-hover', theme.colors.primaryBtnHover);
+  root.style.setProperty('--color-background', theme.colors.bgMain);
+  root.style.setProperty('--color-text', theme.colors.textStrong);
+  root.style.setProperty('--color-text-muted', theme.colors.textSoft);
+  root.style.setProperty('--color-border-strong', theme.colors.borderStrong);
+  root.style.setProperty('--color-border-soft', theme.colors.borderSoft);
+});
 
 const isOverlayMode = window.location.search.includes('mode=overlay');
 
@@ -263,7 +276,7 @@ const registerWithServer = async (user: any) => {
     consecutiveFailures = 0;
     reconnectCountdown.value = 0;
     if (data.status === 'banned') {
-      banMessage.value = `账号已被封禁！原因: ${data.reason}${data.duration_hours ? ', 时长: ' + data.duration_hours + '小时' : ', 永久'}`;
+      banMessage.value = `账号已被封禁！原因: ${data.reason}${data.duration_hours ? t('auto_edf6fe7c') + data.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`;
       handleLogout(true);
       return false;
     } else if (data.status === 'frozen') {
@@ -272,7 +285,7 @@ const registerWithServer = async (user: any) => {
       return false;
     }
   } catch (err) {
-    console.warn('服务端注册失败，将由心跳检测连接状态', err);
+    console.warn(t('auto_149c8616'), err);
   }
   return true;
 };
@@ -316,15 +329,15 @@ const startHeartbeat = () => {
       
       if (data.status === 'banned' || data.status === 'frozen') {
         banMessage.value = data.status === 'banned'
-          ? `账号已被封禁！原因: ${data.reason}${data.duration_hours ? ', 时长: ' + data.duration_hours + '小时' : ', 永久'}`
+          ? `账号已被封禁！原因: ${data.reason}${data.duration_hours ? t('auto_edf6fe7c') + data.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`
           : `账号已被冻结！原因: ${data.reason}`;
         handleLogout(true);
       } else if (data.status === 'kicked') {
-        banMessage.value = '您已被管理员踢出服务器！';
+        banMessage.value = t('auto_e1b5d9e2');
         handleLogout(true);
       }
     } catch (err) {
-      console.warn("心跳检测失败:", err);
+      console.warn(t('auto_a46150ae'), err);
       consecutiveFailures++;
       if (consecutiveFailures >= 3) { // 连续3次失败才断开
         if (serverConnected.value) {
@@ -359,19 +372,19 @@ const handleLoginSuccess = async (user: any) => {
     import('@tauri-apps/api/event').then(({ listen }) => {
       listen('client_kicked', (e: any) => {
         if (e.payload?.user_id === (currentUser.value?.id || currentUser.value?.displayName)) {
-          banMessage.value = '您已被管理员踢出服务器！';
+          banMessage.value = t('auto_e1b5d9e2');
           handleLogout(true);
         }
       });
       listen('client_frozen', (e: any) => {
         if (e.payload?.user_id === (currentUser.value?.id || currentUser.value?.displayName)) {
-          banMessage.value = `账号已被冻结！原因: ${e.payload.reason || '未知'}`;
+          banMessage.value = `账号已被冻结！原因: ${e.payload.reason || t('auto_1622dc9b')}`;
           handleLogout(true);
         }
       });
       listen('client_banned', (e: any) => {
         if (e.payload?.user_id === (currentUser.value?.id || currentUser.value?.displayName)) {
-          banMessage.value = `账号已被封禁！原因: ${e.payload.reason || '未知'}`;
+          banMessage.value = `账号已被封禁！原因: ${e.payload.reason || t('auto_1622dc9b')}`;
           handleLogout(true);
         }
       });
@@ -391,11 +404,11 @@ const selectAppMode = async (mode: 'pc' | 'vr') => {
     try {
       const isSteamVRRunning = await SysApi.checkSteamVR();
       if (!isSteamVRRunning) {
-        modeSelectionError.value = 'VR 运行时未检测到！请先启动 SteamVR、Oculus Link、Pico Connect 或其他 VR 串流软件。';
+        modeSelectionError.value = t('auto_1c5874ec');
         return;
       }
     } catch (e: any) {
-      modeSelectionError.value = e.message || 'VR 运行时状态检查失败。';
+      modeSelectionError.value = e.message || t('auto_a712a9fb');
       return;
     }
     activeTab.value = 'ovr'; // VR 模式默认进入 OVR 翻译设置
@@ -472,9 +485,9 @@ const tryAutoLogin = async () => {
       syncInitialNotifications();
     } else if (res.error) {
       // [VRCX 对齐] 登录失败时，检测 Cookie 是否过期
-      // 如果是 "Missing Credentials" 或 "无效"，清除过期 Cookie 强制重新登录
+      // 如果是 "Missing Credentialst('auto_ca179016')无效"，清除过期 Cookie 强制重新登录
       const errMsg = res.error || '';
-      if (errMsg.includes('Missing Credentials') || errMsg.includes('无效') || errMsg.includes('过期') || errMsg.includes('expired')) {
+      if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
         console.warn('[AutoLogin] Auth cookie expired, clearing and requiring fresh login');
         await DbApi.clearAuth();
         // 不使用离线缓存，强制用户重新登录
@@ -503,7 +516,7 @@ const tryAutoLogin = async () => {
       }
     }
   } catch (err) {
-    console.warn("自动登录遇到网络异常:", err);
+    console.warn(t('auto_4f06a87c'), err);
     // 网络异常时，尝试使用本地缓存登录，绝不轻易清除 Cookie
     try {
       const cachedUserStr = await DbApi.getSetting({ key: 'cached_vrc_user' });
@@ -601,7 +614,7 @@ const dialogConfig = ref({ title: '', target: '', isVccSelection: false });
 const checkEnvironment = async () => {
   hubStatus.value = 'checking'; unityStatus.value = 'checking'; toolStatus.value = 'checking';
   try {
-    if (!isTauri()) throw new Error("浏览器模式");
+    if (!isTauri()) throw new Error(t('auto_a4e099d3'));
     const result = await SysApi.checkSystemStatus();
     hubStatus.value = result.hub_installed ? 'installed' : 'not_installed';
     unityStatus.value = result.unity_installed ? 'installed' : 'not_installed';
@@ -614,9 +627,9 @@ const checkEnvironment = async () => {
 };
 
 const handleInstallClick = (target: string) => {
-  if (target === 'hub') dialogConfig.value = { title: t('app.install_hub') || '给汪汪装个 Unity Hub', target: 'hub', isVccSelection: false };
-  else if (target === 'unity') dialogConfig.value = { title: t('app.install_unity') || '给汪汪装个 Unity 2022', target: 'unity', isVccSelection: false };
-  else if (target === 'tool') dialogConfig.value = { title: t('app.install_tool') || '选个趁手的骨头工具', target: 'tool', isVccSelection: true };
+  if (target === 'hub') dialogConfig.value = { title: t('app.install_hub') || t('auto_decf5dc6'), target: 'hub', isVccSelection: false };
+  else if (target === 'unity') dialogConfig.value = { title: t('app.install_unity') || t('auto_676eab24'), target: 'unity', isVccSelection: false };
+  else if (target === 'tool') dialogConfig.value = { title: t('app.install_tool') || t('auto_7f86d277'), target: 'tool', isVccSelection: true };
   showInstallDialog.value = true;
 };
 
@@ -625,7 +638,7 @@ const handleUninstallSpecific = async (target: string) => {
   if (target === 'unity') unityStatus.value = 'checking';
   if (target === 'tool' || target === 'vcc' || target === 'alcom') toolStatus.value = 'checking';
   try {
-    if (!isTauri()) throw new Error("普通浏览器不能执行卸载");
+    if (!isTauri()) throw new Error(t('auto_48d0aedc'));
     await SysApi.uninstallSoftware({ target });
     await checkEnvironment();
   } catch (err: any) { toast.error(err.message || err); await checkEnvironment(); }
@@ -657,11 +670,11 @@ const handleDialogConfirm = async (config: any) => {
 
 const getStatusColor = (status: string) => {
   switch (status) {
-    case 'active': return 'bg-green-500';
-    case 'join me': return 'bg-blue-500';
+    case 'active': return 'bg-primary';
+    case 'join me': return 'bg-primary';
     case 'ask me': return 'bg-orange-500';
     case 'busy': return 'bg-red-500';
-    default: return 'bg-slate-400';
+    default: return 'bg-surface';
   }
 };
 
@@ -690,7 +703,7 @@ const syncInitialFriends = async () => {
     // 触发全局事件，让各组件知道初始缓存已完毕
     window.dispatchEvent(new CustomEvent('vrc-friends-synced'));
   } catch (err) {
-    console.warn('好友同步失败:', err);
+    console.warn(t('auto_1d37aaa9'), err);
   }
 };
 
@@ -705,7 +718,7 @@ const syncInitialNotifications = async () => {
     }
     window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));
   } catch (err) {
-    console.warn('通知同步失败:', err);
+    console.warn(t('auto_fd188e97'), err);
   }
 };
 
@@ -781,7 +794,7 @@ onMounted(async () => {
     await listen('client_kicked', (event: any) => {
       const kickedUserId = event.payload;
       if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === kickedUserId || currentUser.value.displayName === kickedUserId)) {
-         banMessage.value = '您已被管理员踢出服务器！';
+         banMessage.value = t('auto_e1b5d9e2');
          handleLogout(true);
       }
     });
@@ -789,7 +802,7 @@ onMounted(async () => {
     await listen('client_banned', (event: any) => {
       const p = event.payload;
       if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === p.user_id || currentUser.value.displayName === p.user_id)) {
-         banMessage.value = `账号已被封禁！原因: ${p.reason}${p.duration_hours ? ', 时长: ' + p.duration_hours + '小时' : ', 永久'}`;
+         banMessage.value = `账号已被封禁！原因: ${p.reason}${p.duration_hours ? t('auto_edf6fe7c') + p.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`;
          handleLogout(true);
       }
     });
@@ -822,17 +835,17 @@ onMounted(async () => {
 
   <div
     v-else-if="autoLoginLoading"
-    class="w-full h-screen flex flex-col items-center justify-center bg-[#fffbeb]"
+    class="w-full h-screen flex flex-col items-center justify-center bg-background"
   >
     <img
       :src="dogImg"
-      class="w-24 h-24 rounded-full border-4 border-slate-200 shadow-xl mb-6 animate-pulse"
+      class="w-24 h-24 rounded-full border-4 border-border-soft shadow-xl mb-6 animate-pulse"
     >
     <Loader2
-      class="animate-spin text-indigo-500 mb-3"
+      class="animate-spin text-primary mb-3"
       :size="32"
     />
-    <p class="text-slate-600 font-bold">
+    <p class="text-text-muted font-bold">
       {{ $t('app.loading') }}
     </p>
   </div>
@@ -848,18 +861,18 @@ onMounted(async () => {
       v-if="banMessage"
       class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999]"
     >
-      <div class="bg-slate-900 border border-red-500/50 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
+      <div class="bg-surface border border-red-500/50 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
         <div class="text-4xl mb-3">
           🚫
         </div>
         <h2 class="text-xl font-bold text-red-400 mb-3">
           访问受限
         </h2>
-        <p class="text-slate-300 text-sm whitespace-pre-line mb-4">
+        <p class="text-text-muted text-sm whitespace-pre-line mb-4">
           {{ banMessage }}
         </p>
         <button
-          class="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+          class="px-6 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
           @click="banMessage = ''"
         >
           我知道了
@@ -871,7 +884,7 @@ onMounted(async () => {
   <!-- 模式选择 -->
   <div
     v-else-if="isLoggedIn && !appMode"
-    class="w-full h-screen flex flex-col items-center justify-center bg-[#fffbeb] relative overflow-hidden"
+    class="w-full h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden"
   >
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
       <div class="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-pink-200/40 rounded-full blur-[100px] animate-pulse" />
@@ -881,60 +894,60 @@ onMounted(async () => {
       />
     </div>
     
-    <div class="z-10 bg-white/80 backdrop-blur-xl p-10 rounded-[32px] shadow-2xl border-4 border-white max-w-xl w-full text-center">
+    <div class="z-10 glass-panel p-10 max-w-xl w-full text-center">
       <img
         :src="dogImg"
-        class="w-24 h-24 rounded-full border-4 border-slate-200 shadow-lg mx-auto mb-6"
+        class="w-24 h-24 rounded-full border-4 border-white/60 shadow-lg mx-auto mb-6"
       >
-      <h2 class="text-3xl font-extrabold text-slate-900 mb-2">
+      <h2 class="text-3xl font-extrabold text-text mb-2">
         {{ $t('app.select_mode_title') || '选择运行模式' }}
       </h2>
-      <p class="text-slate-500 mb-8 font-medium">
+      <p class="text-text-muted mb-8 font-medium">
         {{ $t('app.select_mode_desc') || 'VrcDog 提供桌面管理看板与 SteamVR 沉浸式内置叠加层两种体验。' }}
       </p>
       
       <div class="grid grid-cols-2 gap-4">
         <button
-          class="flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all group"
+          class="flex flex-col items-center gap-3 p-6 rounded-3xl transition-all group glass-panel-hover"
           :class="[
             serverModePerms['pc'] === false 
-              ? 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed grayscale' 
-              : 'bg-slate-50 hover:bg-indigo-50 border-slate-200 hover:scale-105 active:scale-95'
+              ? 'opacity-50 cursor-not-allowed grayscale' 
+              : 'hover:scale-105 active:scale-95'
           ]"
           :disabled="serverModePerms['pc'] === false"
           @click="selectAppMode('pc')"
         >
-          <Monitor class="w-12 h-12 text-indigo-600 group-hover:text-slate-600" />
-          <span class="font-bold text-slate-900 text-lg">PC Desktop</span>
+          <Monitor class="w-12 h-12 text-primary group-hover:text-primary-hover transition-colors" />
+          <span class="font-bold text-text text-lg">PC Desktop</span>
           <span
             v-if="serverModePerms['pc'] !== false"
-            class="text-xs text-slate-400"
-          >桌面好友管理与分析看板</span>
+            class="text-xs text-text-muted"
+          >{{ $t('auto_3c519b1c') }}</span>
           <span
             v-else
             class="text-xs text-red-500"
-          >无权限访问此模式</span>
+          >{{ $t('auto_f31a212e') }}</span>
         </button>
         <button
-          class="flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all group"
+          class="flex flex-col items-center gap-3 p-6 rounded-3xl transition-all group glass-panel-hover"
           :class="[
             serverModePerms['vr'] === false 
-              ? 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed grayscale' 
-              : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 hover:scale-105 active:scale-95'
+              ? 'opacity-50 cursor-not-allowed grayscale' 
+              : 'hover:scale-105 active:scale-95'
           ]"
           :disabled="serverModePerms['vr'] === false"
           @click="selectAppMode('vr')"
         >
-          <Glasses class="w-12 h-12 text-indigo-600 group-hover:text-indigo-700" />
-          <span class="font-bold text-indigo-900 text-lg">VR Overlay</span>
+          <Glasses class="w-12 h-12 text-primary group-hover:text-primary-hover transition-colors" />
+          <span class="font-bold text-text text-lg">VR Overlay</span>
           <span
             v-if="serverModePerms['vr'] !== false"
-            class="text-xs text-indigo-700/60"
-          >OVR OCR翻译与内嵌面版</span>
+            class="text-xs text-text-muted"
+          >{{ $t('auto_6138dd05') }}</span>
           <span
             v-else
             class="text-xs text-red-500"
-          >无权限访问此模式</span>
+          >{{ $t('auto_f31a212e') }}</span>
         </button>
       </div>
       
@@ -955,9 +968,9 @@ onMounted(async () => {
   >
     <!-- VR 深空背景粒子 -->
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-      <div class="absolute top-[-15%] right-[-10%] w-[50%] h-[50%] bg-indigo-600/15 rounded-full blur-[120px] animate-pulse" />
+      <div class="absolute top-[-15%] right-[-10%] w-[50%] h-[50%] bg-primary-hover rounded-full blur-[120px] animate-pulse" />
       <div
-        class="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-purple-600/15 rounded-full blur-[100px] animate-pulse"
+        class="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-primary-hover rounded-full blur-[100px] animate-pulse"
         style="animation-delay: 3s"
       />
       <div
@@ -967,34 +980,34 @@ onMounted(async () => {
     </div>
 
     <!-- VR 侧边栏 -->
-    <aside class="w-56 bg-white/5 backdrop-blur-xl shadow-2xl border-r border-white/10 flex flex-col z-10 p-4 relative flex-shrink-0">
+    <aside class="w-56 bg-surface backdrop-blur-xl shadow-2xl border-r border-white/10 flex flex-col z-10 p-4 relative flex-shrink-0">
       <div class="flex items-center gap-2.5 mb-4">
-        <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-indigo-400/50 bg-indigo-900/50 flex-shrink-0 flex items-center justify-center">
-          <Glasses class="w-6 h-6 text-indigo-300" />
+        <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20 bg-indigo-900/50 flex-shrink-0 flex items-center justify-center">
+          <Glasses class="w-6 h-6 text-text-muted" />
         </div>
         <div>
           <h2 class="font-bold text-sm leading-tight text-white">
             VrcDog VR
           </h2>
-          <p class="text-[10px] font-medium text-indigo-300/70">
+          <p class="text-[10px] font-medium text-text-muted/70">
             OVR Overlay Translator
           </p>
         </div>
       </div>
 
       <!-- VR 设备状态面板 -->
-      <div class="mb-4 p-3 bg-white/5 rounded-2xl border border-white/10 space-y-2">
-        <h3 class="text-[10px] font-bold text-indigo-300/60 uppercase tracking-wider mb-1">
+      <div class="mb-4 p-3 bg-surface rounded-2xl border border-white/10 space-y-2">
+        <h3 class="text-[10px] font-bold text-text-muted/60 uppercase tracking-wider mb-1">
           VR 设备状态
         </h3>
         <div class="flex items-center gap-2 text-[11px] text-white/80 font-medium">
           <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span>SteamVR 运行中</span>
+          <span>{{ $t('auto_656cc53f') }}</span>
         </div>
         <div class="flex items-center gap-2 text-[11px] text-white/60 font-medium">
           <div
             class="w-2 h-2 rounded-full"
-            :class="currentUser ? 'bg-green-400' : 'bg-slate-500'"
+            :class="currentUser ? 'bg-green-400' : 'bg-surface-hover0'"
           />
           <span>{{ currentUser?.displayName || '未登录' }}</span>
         </div>
@@ -1012,8 +1025,8 @@ onMounted(async () => {
           :key="tab.key"
           class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border font-bold transition-all text-left text-sm"
           :class="activeTab === tab.key
-            ? 'bg-indigo-500/20 text-white border-indigo-400/30'
-            : 'text-white/50 border-transparent hover:text-white/80 hover:bg-white/5'"
+            ? 'bg-primary/20 text-white border-primary/30'
+            : 'text-white/50 border-transparent hover:text-white/80 hover:bg-surface'"
           @click="activeTab = tab.key as any"
         >
           <component
@@ -1039,11 +1052,10 @@ onMounted(async () => {
             <p
               class="text-[10px] font-bold flex items-center gap-1"
               :class="{
-                'text-green-400': currentUser?.status === 'active',
-                'text-blue-400': currentUser?.status === 'join me',
+                'text-primary': currentUser?.status === 'active' || currentUser?.status === 'join me',
                 'text-orange-400': currentUser?.status === 'ask me',
                 'text-red-400': currentUser?.status === 'busy',
-                'text-slate-400': !currentUser?.status,
+                'text-border-strong': !currentUser?.status,
               }"
             >
               <span
@@ -1070,7 +1082,7 @@ onMounted(async () => {
 
         <div class="flex gap-2 mt-1">
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-indigo-300 hover:bg-white/10 font-bold text-xs transition-colors border border-transparent hover:border-indigo-400/20"
+            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-text-muted hover:bg-surface font-bold text-xs transition-colors border border-transparent hover:border-primary/30"
             @click="appMode = null"
           >
             <Monitor :size="14" /> 重选模式
@@ -1084,7 +1096,7 @@ onMounted(async () => {
         </div>
 
         <div class="text-center pt-2 mt-2 border-t border-white/5">
-          <span class="text-[10px] font-mono text-indigo-300/50 font-bold tracking-wider">v{{ appVersion }}</span>
+          <span class="text-[10px] font-mono text-text-muted/50 font-bold tracking-wider">v{{ appVersion }}</span>
         </div>
       </div>
     </aside>
@@ -1133,7 +1145,7 @@ onMounted(async () => {
       v-if="isLoggedIn && clientServerUrl && !serverConnected"
       class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]"
     >
-      <div class="bg-slate-900 border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
+      <div class="bg-surface border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
           <svg
             class="w-8 h-8 text-red-400 animate-pulse"
@@ -1150,12 +1162,12 @@ onMounted(async () => {
         <h2 class="text-lg font-bold text-red-400 mb-2">
           服务端连接已断开
         </h2>
-        <p class="text-slate-400 text-sm mb-4">
-          无法连接到 VrcDog 服务端，软件功能已暂停。<br>系统将在 <span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
+        <p class="text-border-strong text-sm mb-4">
+          无法连接到 VrcDog 服务端，软件功能已暂停。<br>{{ $t('auto_7072b137') }}<span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
         </p>
         <div class="flex gap-2 justify-center">
           <button
-            class="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+            class="px-5 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
             @click="() => handleLogout(false)"
           >
             退出登录
@@ -1190,12 +1202,12 @@ onMounted(async () => {
 
     <!-- 侧边栏 -->
     <aside
-      class="w-56 bg-white/80 backdrop-blur-md shadow-xl border-r-2 flex flex-col z-10 p-4 relative flex-shrink-0"
+      class="w-56 bg-surface backdrop-blur-md shadow-xl border-r-2 flex flex-col z-10 p-4 relative flex-shrink-0"
       :style="{ borderColor: currentTheme.colors.borderSoft }"
     >
       <div class="flex items-center gap-2.5 mb-2">
         <div
-          class="w-10 h-10 rounded-full overflow-hidden border-2 bg-white flex-shrink-0"
+          class="w-10 h-10 rounded-full overflow-hidden border-2 bg-surface flex-shrink-0"
           :style="{ borderColor: currentTheme.colors.borderStrong }"
         >
           <img
@@ -1221,7 +1233,7 @@ onMounted(async () => {
       
       <!-- 主题切换 -->
       <div
-        class="flex justify-between items-center bg-white/50 rounded-xl p-1 mb-4"
+        class="flex justify-between items-center bg-surface rounded-xl p-1 mb-4"
         :style="{ border: `1px solid ${currentTheme.colors.borderSoft}` }"
       >
         <button
@@ -1276,11 +1288,10 @@ onMounted(async () => {
             <p
               class="text-[10px] font-bold flex items-center gap-1"
               :class="{
-                'text-green-500': currentUser?.status === 'active',
-                'text-blue-500': currentUser?.status === 'join me',
+                'text-primary': currentUser?.status === 'active' || currentUser?.status === 'join me',
                 'text-orange-500': currentUser?.status === 'ask me',
                 'text-red-500': currentUser?.status === 'busy',
-                'text-slate-400': !currentUser?.status,
+                'text-border-strong': !currentUser?.status,
               }"
             >
               <span
@@ -1295,7 +1306,7 @@ onMounted(async () => {
         <!-- 实时数据流状态 (WebSocket) -->
         <div
           class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between"
-          :class="wsState.connected ? 'bg-green-50 border-green-200 text-green-600' : 'bg-orange-50 border-orange-200 text-orange-600'"
+          :class="wsState.connected ? 'bg-primary/5 border-primary/20 text-primary' : 'bg-orange-50 border-orange-200 text-orange-600'"
         >
           <div class="flex items-center gap-1">
             <Activity
@@ -1306,7 +1317,7 @@ onMounted(async () => {
           </div>
           <span
             v-if="wsState.connected && wsState.messageCount > 0"
-            class="text-green-500"
+            class="text-primary"
           >{{ $t('status.frames', { count: wsState.messageCount }) }}</span>
         </div>
 
@@ -1349,24 +1360,24 @@ onMounted(async () => {
         <!-- VRCX-like Settings Menu -->
         <div 
           v-if="showVrcxMenu" 
-          class="absolute bottom-full left-0 mb-3 w-[220px] bg-[#1e1f22] border border-white/10 shadow-2xl rounded-xl overflow-hidden text-slate-200 z-50 animate-fade-in"
+          class="absolute bottom-full left-0 mb-3 w-[220px] bg-surface border border-white/10 shadow-2xl rounded-xl overflow-hidden text-text-muted z-50 animate-fade-in"
         >
-          <div class="p-3 flex items-center justify-between border-b border-white/5 bg-[#2b2d31]">
+          <div class="p-3 flex items-center justify-between border-b border-white/5 bg-surface-hover">
             <div class="flex items-center gap-2">
               <MessageSquare class="w-4 h-4 text-white" />
               <span class="font-bold text-[13px] text-white">VRCX ♥</span>
             </div>
-            <span class="text-[11px] text-slate-400">2026.05.10</span>
+            <span class="text-[11px] text-border-strong">2026.05.10</span>
           </div>
           <div class="py-1">
-            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-white/10 transition-colors" @click="activeTab='settings'; showVrcxMenu=false">设置</button>
-            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-white/10 transition-colors">
-              主题 <ChevronRight class="w-4 h-4 text-slate-400" />
+            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-surface transition-colors" @click="activeTab='settings'; showVrcxMenu=false">{{ $t('auto_e366ccf1') }}</button>
+            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-surface transition-colors">
+              主题 <ChevronRight class="w-4 h-4 text-border-strong" />
             </button>
-            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-white/10 transition-colors">
-              行高密度 <ChevronRight class="w-4 h-4 text-slate-400" />
+            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-surface transition-colors">
+              行高密度 <ChevronRight class="w-4 h-4 text-border-strong" />
             </button>
-            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-white/10 transition-colors" @click="showCustomNavModal = true; showVrcxMenu=false">
+            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-surface transition-colors" @click="showCustomNavModal = true; showVrcxMenu=false">
               自定义导航栏
             </button>
           </div>
@@ -1437,7 +1448,7 @@ onMounted(async () => {
       v-if="isLoggedIn && clientServerUrl && !serverConnected"
       class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]"
     >
-      <div class="bg-slate-900 border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
+      <div class="bg-surface border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
           <svg
             class="w-8 h-8 text-red-400 animate-pulse"
@@ -1454,12 +1465,12 @@ onMounted(async () => {
         <h2 class="text-lg font-bold text-red-400 mb-2">
           服务端连接已断开
         </h2>
-        <p class="text-slate-400 text-sm mb-4">
-          无法连接到 VrcDog 服务端，软件功能已暂停。<br>系统将在 <span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
+        <p class="text-border-strong text-sm mb-4">
+          无法连接到 VrcDog 服务端，软件功能已暂停。<br>{{ $t('auto_7072b137') }}<span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
         </p>
         <div class="flex gap-2 justify-center">
           <button
-            class="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
+            class="px-5 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
             @click="() => handleLogout(false)"
           >
             退出登录

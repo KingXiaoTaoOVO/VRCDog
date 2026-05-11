@@ -284,29 +284,29 @@ const downloadVideo = async () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
-        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
           <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
             <Download class="w-6 h-6 text-indigo-600" />
           </span>
           {{ t('bilidown.tab_title') }}
         </h1>
-        <div class="mt-4 flex items-center gap-2 bg-slate-100/50 p-1.5 rounded-xl w-max border border-slate-200/50 shadow-sm">
+        <div class="mt-4 flex items-center gap-2 bg-background/10 p-1.5 rounded-xl w-max border border-border-soft0/50 shadow-sm">
           <button
-            :class="activeTab === 'bilibili' ? 'bg-white shadow-sm text-indigo-600 border border-slate-200' : 'text-slate-500 hover:text-slate-700'"
+            :class="activeTab === 'bilibili' ? 'bg-surface shadow-sm text-indigo-600 border border-border-soft' : 'text-text-muted hover:text-text-muted'"
             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
             @click="activeTab = 'bilibili'"
           >
             哔哩哔哩
           </button>
           <button
-            :class="activeTab === 'xhs' ? 'bg-white shadow-sm text-rose-600 border border-slate-200' : 'text-slate-500 hover:text-slate-700'"
+            :class="activeTab === 'xhs' ? 'bg-surface shadow-sm text-rose-600 border border-border-soft' : 'text-text-muted hover:text-text-muted'"
             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
             @click="activeTab = 'xhs'"
           >
@@ -341,9 +341,9 @@ const downloadVideo = async () => {
     </header>
 
     <div class="flex-1 overflow-y-auto pr-2 pb-8">
-      <div class="bg-white/80 backdrop-blur-md rounded-3xl p-6 border border-slate-200 shadow-sm mb-8 transition-all relative overflow-hidden group">
+      <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border border-border-soft shadow-sm mb-8 transition-all relative overflow-hidden group">
         <div class="absolute -right-4 -top-4 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl opacity-50 group-hover:bg-indigo-500/20 transition-colors pointer-events-none" />
-        <h2 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+        <h2 class="text-lg font-bold text-text mb-4 flex items-center gap-2">
           <Search
             :class="activeTab === 'xhs' ? 'text-red-500' : 'text-indigo-500'"
             class="w-5 h-5"
@@ -358,13 +358,13 @@ const downloadVideo = async () => {
           <input 
             v-model="bvidUrl"
             type="text"
-            class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 font-bold focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all text-lg shadow-sm" 
+            class="flex-1 bg-surface-hover border border-border-soft rounded-xl px-6 py-4 text-text font-bold focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all text-lg shadow-sm" 
             :placeholder="t('bilidown.placeholder_bili')"
             @keyup.enter="searchVideo"
           >
           <button 
             :disabled="isLoading || !bvidUrl"
-            class="bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
+            class="bg-indigo-500 hover:bg-indigo-600 disabled:bg-surface disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
             @click="searchVideo"
           >
             <Loader2
@@ -384,13 +384,13 @@ const downloadVideo = async () => {
           <input 
             v-model="xhsUrl"
             type="text"
-            class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10 transition-all text-lg shadow-sm" 
+            class="flex-1 bg-surface-hover border border-border-soft rounded-xl px-6 py-4 text-text font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10 transition-all text-lg shadow-sm" 
             :placeholder="t('bilidown.placeholder_xhs')"
             @keyup.enter="searchXhs"
           >
           <button 
             :disabled="isLoading || !xhsUrl"
-            class="bg-red-500 hover:bg-red-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
+            class="bg-red-500 hover:bg-red-600 disabled:bg-surface disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
             @click="searchXhs"
           >
             <Loader2
@@ -419,9 +419,9 @@ const downloadVideo = async () => {
       >
         <div
           v-if="activeTab === 'bilibili' && videoInfo"
-          class="bg-white rounded-3xl p-8 shadow-xl shadow-slate-900/5 border border-slate-200 flex gap-8"
+          class="bg-surface rounded-3xl p-8 shadow-xl shadow-slate-900/5 border border-border-soft flex gap-8"
         >
-          <div class="w-1/3 aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 relative group flex-shrink-0">
+          <div class="w-1/3 aspect-video rounded-2xl overflow-hidden bg-background/10 border border-border-soft relative group flex-shrink-0">
             <img
               :src="videoInfo.pic"
               class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
@@ -433,43 +433,43 @@ const downloadVideo = async () => {
           </div>
               
           <div class="flex-1 flex flex-col">
-            <h3 class="text-2xl font-bold text-slate-900 leading-snug mb-2 line-clamp-2">
+            <h3 class="text-2xl font-bold text-text leading-snug mb-2 line-clamp-2">
               {{ videoInfo.title }}
             </h3>
                   
             <div class="flex items-center gap-3 mb-6">
               <img
                 :src="videoInfo.owner.face"
-                class="w-8 h-8 rounded-full border border-slate-200"
+                class="w-8 h-8 rounded-full border border-border-soft"
                 referrerpolicy="no-referrer"
               >
-              <span class="font-bold text-slate-700">{{ videoInfo.owner.name }}</span>
-              <span class="text-sm text-slate-400 font-medium ml-auto">BVID: {{ videoInfo.bvid }}</span>
+              <span class="font-bold text-text-muted">{{ videoInfo.owner.name }}</span>
+              <span class="text-sm text-border-strong font-medium ml-auto">BVID: {{ videoInfo.bvid }}</span>
             </div>
                   
             <div class="grid grid-cols-4 gap-4 mb-auto">
-              <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center justify-center border border-slate-100">
-                <span class="text-slate-400 text-xs font-bold mb-1">{{ t('bilidown.stat_views') }}</span>
-                <span class="text-slate-800 font-mono font-bold">{{ videoInfo.stat.view > 10000 ? (videoInfo.stat.view/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.view }}</span>
+              <div class="bg-surface-hover rounded-xl p-3 flex flex-col items-center justify-center border border-border-soft">
+                <span class="text-border-strong text-xs font-bold mb-1">{{ t('bilidown.stat_views') }}</span>
+                <span class="text-text font-mono font-bold">{{ videoInfo.stat.view > 10000 ? (videoInfo.stat.view/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.view }}</span>
               </div>
-              <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center justify-center border border-slate-100">
-                <span class="text-slate-400 text-xs font-bold mb-1">{{ t('bilidown.stat_likes') }}</span>
-                <span class="text-slate-800 font-mono font-bold">{{ videoInfo.stat.like > 10000 ? (videoInfo.stat.like/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.like }}</span>
+              <div class="bg-surface-hover rounded-xl p-3 flex flex-col items-center justify-center border border-border-soft">
+                <span class="text-border-strong text-xs font-bold mb-1">{{ t('bilidown.stat_likes') }}</span>
+                <span class="text-text font-mono font-bold">{{ videoInfo.stat.like > 10000 ? (videoInfo.stat.like/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.like }}</span>
               </div>
-              <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center justify-center border border-slate-100">
-                <span class="text-slate-400 text-xs font-bold mb-1">{{ t('bilidown.stat_coins') }}</span>
-                <span class="text-slate-800 font-mono font-bold">{{ videoInfo.stat.coin > 10000 ? (videoInfo.stat.coin/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.coin }}</span>
+              <div class="bg-surface-hover rounded-xl p-3 flex flex-col items-center justify-center border border-border-soft">
+                <span class="text-border-strong text-xs font-bold mb-1">{{ t('bilidown.stat_coins') }}</span>
+                <span class="text-text font-mono font-bold">{{ videoInfo.stat.coin > 10000 ? (videoInfo.stat.coin/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.coin }}</span>
               </div>
-              <div class="bg-slate-50 rounded-xl p-3 flex flex-col items-center justify-center border border-slate-100">
-                <span class="text-slate-400 text-xs font-bold mb-1">{{ t('bilidown.stat_favs') }}</span>
-                <span class="text-slate-800 font-mono font-bold">{{ videoInfo.stat.favorite > 10000 ? (videoInfo.stat.favorite/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.favorite }}</span>
+              <div class="bg-surface-hover rounded-xl p-3 flex flex-col items-center justify-center border border-border-soft">
+                <span class="text-border-strong text-xs font-bold mb-1">{{ t('bilidown.stat_favs') }}</span>
+                <span class="text-text font-mono font-bold">{{ videoInfo.stat.favorite > 10000 ? (videoInfo.stat.favorite/10000).toFixed(1) + t('bilidown.ten_thousand') : videoInfo.stat.favorite }}</span>
               </div>
             </div>
                   
             <div class="mt-6 flex items-center gap-4">
               <button 
                 :disabled="isDownloading"
-                class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl py-4 font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-xl active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:shadow-none"
+                class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl py-4 font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-xl active:scale-95 disabled:bg-surface disabled:cursor-not-allowed disabled:shadow-none"
                 @click="downloadVideo"
               >
                 <Download class="w-5 h-5" />
@@ -479,7 +479,7 @@ const downloadVideo = async () => {
                   
             <div class="mt-4 flex flex-wrap items-center gap-3">
               <button
-                class="flex-1 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+                class="flex-1 py-2.5 bg-surface-hover hover:bg-background/10 text-text-muted border border-border-soft rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
                 @click="copyToClipboard(videoInfo.pic, t('bilidown.cover'))"
               >
                 <Image class="w-4 h-4" /> {{ t('bilidown.copy_cover') }}
@@ -496,11 +496,11 @@ const downloadVideo = async () => {
               v-if="isDownloading"
               class="mt-4"
             >
-              <div class="flex justify-between text-xs font-bold text-slate-500 mb-2">
+              <div class="flex justify-between text-xs font-bold text-text-muted mb-2">
                 <span>{{ downloadDetail }}</span>
                 <span>{{ Math.floor(downloadProgress) }}%</span>
               </div>
-              <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+              <div class="w-full bg-background/10 rounded-full h-2 overflow-hidden">
                 <div
                   class="bg-indigo-500 h-2 rounded-full transition-all duration-300 ease-out"
                   :style="{ width: downloadProgress + '%' }"
@@ -518,9 +518,9 @@ const downloadVideo = async () => {
       >
         <div
           v-if="activeTab === 'xhs' && xhsInfo"
-          class="bg-white rounded-3xl p-8 shadow-xl shadow-red-900/5 border border-red-100 flex gap-8"
+          class="bg-surface rounded-3xl p-8 shadow-xl shadow-red-900/5 border border-red-100 flex gap-8"
         >
-          <div class="w-1/3 aspect-auto rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 relative group flex-shrink-0">
+          <div class="w-1/3 aspect-auto rounded-2xl overflow-hidden bg-background/10 border border-border-soft relative group flex-shrink-0">
             <img
               :src="xhsInfo.cover"
               class="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105"
@@ -532,13 +532,13 @@ const downloadVideo = async () => {
           </div>
               
           <div class="flex-1 flex flex-col">
-            <h3 class="text-2xl font-bold text-slate-900 leading-snug mb-2 line-clamp-3">
+            <h3 class="text-2xl font-bold text-text leading-snug mb-2 line-clamp-3">
               {{ xhsInfo.title }}
             </h3>
                   
             <div class="flex items-center gap-3 mb-6">
-              <span class="font-bold text-slate-700">{{ t('bilidown.author') }}{{ xhsInfo.owner }}</span>
-              <span class="text-sm text-slate-400 font-medium ml-auto">ID: {{ xhsInfo.id }}</span>
+              <span class="font-bold text-text-muted">{{ t('bilidown.author') }}{{ xhsInfo.owner }}</span>
+              <span class="text-sm text-border-strong font-medium ml-auto">ID: {{ xhsInfo.id }}</span>
             </div>
                   
             <div class="grid grid-cols-2 gap-4 mb-auto">
@@ -547,21 +547,21 @@ const downloadVideo = async () => {
                 :key="index"
               >
                 <button
-                  class="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-red-400 hover:bg-red-50 transition-all group"
+                  class="flex items-center justify-between p-3 rounded-xl border border-border-soft hover:border-red-400 hover:bg-red-50 transition-all group"
                   @click="openXhsMedia(media.url)"
                 >
                   <div class="flex items-center gap-3">
                     <Image
                       v-if="media.format === 'image'"
-                      class="w-5 h-5 text-slate-400 group-hover:text-red-500"
+                      class="w-5 h-5 text-border-strong group-hover:text-red-500"
                     />
                     <Film
                       v-else
-                      class="w-5 h-5 text-slate-400 group-hover:text-red-500"
+                      class="w-5 h-5 text-border-strong group-hover:text-red-500"
                     />
-                    <span class="font-bold text-slate-700 text-sm">{{ t('bilidown.media') }}{{ Number(index) + 1 }} ({{ media.format === 'image' ? t('bilidown.type_image') : t('bilidown.type_video') }})</span>
+                    <span class="font-bold text-text-muted text-sm">{{ t('bilidown.media') }}{{ Number(index) + 1 }} ({{ media.format === 'image' ? t('bilidown.type_image') : t('bilidown.type_video') }})</span>
                   </div>
-                  <Download class="w-4 h-4 text-slate-400 group-hover:text-red-500" />
+                  <Download class="w-4 h-4 text-border-strong group-hover:text-red-500" />
                 </button>
               </template>
             </div>
@@ -581,9 +581,9 @@ const downloadVideo = async () => {
       <!-- Tasks List -->
       <div
         v-if="activeTab === 'bilibili' && tasks.length > 0"
-        class="mt-8 bg-white rounded-3xl p-8 shadow-xl shadow-slate-900/5 border border-slate-200"
+        class="mt-8 bg-surface rounded-3xl p-8 shadow-xl shadow-slate-900/5 border border-border-soft"
       >
-        <h2 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+        <h2 class="text-lg font-bold text-text mb-4 flex items-center gap-2">
           <Film class="w-5 h-5 text-indigo-500" />
           {{ t('bilidown.tasks_title') }}
         </h2>
@@ -592,19 +592,19 @@ const downloadVideo = async () => {
           <div
             v-for="task in tasks"
             :key="task.id"
-            class="flex items-center gap-4 p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-white transition-colors group"
+            class="flex items-center gap-4 p-4 rounded-2xl border border-border-soft bg-surface-hover hover:bg-surface transition-colors group"
           >
             <img
               :src="task.cover"
-              class="w-24 h-16 object-cover rounded-xl border border-slate-200 flex-shrink-0"
+              class="w-24 h-16 object-cover rounded-xl border border-border-soft flex-shrink-0"
               referrerpolicy="no-referrer"
             >
                 
             <div class="flex-1 min-w-0">
-              <h4 class="font-bold text-slate-900 truncate mb-1">
+              <h4 class="font-bold text-text truncate mb-1">
                 {{ task.title }}
               </h4>
-              <div class="flex items-center gap-3 text-xs text-slate-500 font-medium">
+              <div class="flex items-center gap-3 text-xs text-text-muted font-medium">
                 <span class="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ task.bvid }}</span>
                 <span>UP: {{ task.owner }}</span>
                         
@@ -618,13 +618,13 @@ const downloadVideo = async () => {
                 >{{ t('bilidown.task_failed') }}</span>
                 <span
                   v-else
-                  class="text-indigo-600 bg-slate-50 px-2 py-0.5 rounded"
+                  class="text-indigo-600 bg-surface-hover px-2 py-0.5 rounded"
                 >{{ task.detail || t('bilidown.task_processing') }}</span>
               </div>
                     
               <div
                 v-if="task.status === 'running' || task.status === 'waiting'"
-                class="mt-2 w-full bg-slate-200 rounded-full h-1.5 overflow-hidden"
+                class="mt-2 w-full bg-background/20 rounded-full h-1.5 overflow-hidden"
               >
                 <div
                   class="bg-indigo-500 h-1.5 rounded-full transition-all duration-300 ease-out"
@@ -657,11 +657,11 @@ const downloadVideo = async () => {
       <!-- Empty State -->
       <div
         v-else-if="activeTab === 'bilibili' && !videoInfo"
-        class="mt-12 flex flex-col items-center justify-center text-slate-400 opacity-60"
+        class="mt-12 flex flex-col items-center justify-center text-border-strong opacity-60"
       >
         <div class="w-32 h-32 mb-4 relative">
-          <div class="absolute inset-0 bg-slate-100 rounded-full animate-pulse" />
-          <Film class="w-16 h-16 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-slate-300" />
+          <div class="absolute inset-0 bg-background/10 rounded-full animate-pulse" />
+          <Film class="w-16 h-16 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-text-muted" />
         </div>
         <p class="font-bold text-lg">
           {{ t('bilidown.no_records') }}
@@ -674,52 +674,52 @@ const downloadVideo = async () => {
       <!-- XHS Empty State / Instructions -->
       <div
         v-else-if="activeTab === 'xhs' && !xhsInfo"
-        class="mt-12 flex flex-col items-center justify-center text-slate-500 max-w-2xl mx-auto"
+        class="mt-12 flex flex-col items-center justify-center text-text-muted max-w-2xl mx-auto"
       >
         <div class="w-24 h-24 mb-6 relative opacity-50">
           <div class="absolute inset-0 bg-red-50 rounded-full animate-pulse" />
           <Search class="w-10 h-10 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-red-400" />
         </div>
           
-        <h3 class="font-bold text-xl text-slate-700 mb-6">
+        <h3 class="font-bold text-xl text-text-muted mb-6">
           {{ t('bilidown.xhs_guide_title') }}
         </h3>
-        <div class="bg-slate-50 border border-slate-100 rounded-2xl p-6 w-full shadow-sm space-y-6 text-sm">
+        <div class="bg-surface-hover border border-border-soft rounded-2xl p-6 w-full shadow-sm space-y-6 text-sm">
           <div class="flex items-start gap-4">
-            <div class="w-8 h-8 rounded-full bg-white text-red-500 font-bold flex items-center justify-center border border-red-100 shadow-sm flex-shrink-0">
+            <div class="w-8 h-8 rounded-full bg-surface text-red-500 font-bold flex items-center justify-center border border-red-100 shadow-sm flex-shrink-0">
               1
             </div>
             <div>
-              <h4 class="font-bold text-slate-800 text-base mb-1">
+              <h4 class="font-bold text-text text-base mb-1">
                 {{ t('bilidown.step_copy') }}
               </h4>
-              <p class="text-slate-500 leading-relaxed">
+              <p class="text-text-muted leading-relaxed">
                 打开小红书 App，找到想要下载的视频、图片或实况Live笔记，点击分享按钮，{{ t('bilidown.step_copy') }}。
               </p>
             </div>
           </div>
           <div class="flex items-start gap-4">
-            <div class="w-8 h-8 rounded-full bg-white text-red-500 font-bold flex items-center justify-center border border-red-100 shadow-sm flex-shrink-0">
+            <div class="w-8 h-8 rounded-full bg-surface text-red-500 font-bold flex items-center justify-center border border-red-100 shadow-sm flex-shrink-0">
               2
             </div>
             <div>
-              <h4 class="font-bold text-slate-800 text-base mb-1">
+              <h4 class="font-bold text-text text-base mb-1">
                 {{ t('bilidown.step_paste') }}
               </h4>
-              <p class="text-slate-500 leading-relaxed">
+              <p class="text-text-muted leading-relaxed">
                 {{ t('bilidown.step_paste_desc') }}
               </p>
             </div>
           </div>
           <div class="flex items-start gap-4">
-            <div class="w-8 h-8 rounded-full bg-white text-red-500 font-bold flex items-center justify-center border border-red-100 shadow-sm flex-shrink-0">
+            <div class="w-8 h-8 rounded-full bg-surface text-red-500 font-bold flex items-center justify-center border border-red-100 shadow-sm flex-shrink-0">
               3
             </div>
             <div>
-              <h4 class="font-bold text-slate-800 text-base mb-1">
+              <h4 class="font-bold text-text text-base mb-1">
                 {{ t('bilidown.step_parse') }}
               </h4>
-              <p class="text-slate-500 leading-relaxed">
+              <p class="text-text-muted leading-relaxed">
                 {{ t('bilidown.step_parse_desc') }}
               </p>
             </div>
@@ -733,15 +733,15 @@ const downloadVideo = async () => {
       v-if="showQrModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
     >
-      <div class="bg-white rounded-[32px] p-10 max-w-md w-full mx-4 shadow-2xl flex flex-col items-center text-center">
-        <h2 class="text-2xl font-bold text-slate-900 mb-2">
+      <div class="bg-surface rounded-[32px] p-10 max-w-md w-full mx-4 shadow-2xl flex flex-col items-center text-center">
+        <h2 class="text-2xl font-bold text-text mb-2">
           {{ t('bilidown.login_title') }}
         </h2>
-        <p class="text-slate-500 mb-8 text-sm">
+        <p class="text-text-muted mb-8 text-sm">
           {{ t('bilidown.login_desc') }}
         </p>
             
-        <div class="w-48 h-48 bg-slate-50 border-2 border-slate-100 rounded-2xl p-2 mb-6 relative flex items-center justify-center">
+        <div class="w-48 h-48 bg-surface-hover border-2 border-border-soft rounded-2xl p-2 mb-6 relative flex items-center justify-center">
           <Loader2
             v-if="!qrCodeUrl"
             class="w-8 h-8 animate-spin text-indigo-500"
@@ -762,7 +762,7 @@ const downloadVideo = async () => {
         </div>
             
         <button
-          class="text-slate-400 hover:text-slate-600 font-bold text-sm"
+          class="text-border-strong hover:text-text-muted font-bold text-sm"
           @click="closeLogin"
         >
           {{ t('bilidown.cancel_login') }}

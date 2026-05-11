@@ -1,59 +1,73 @@
 <template>
-  <div class="h-screen w-screen flex flex-col bg-[#050914] text-cyan-50 font-mono p-4 relative overflow-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/20 via-[#050914] to-[#050914]">
+  <div class="h-screen w-screen flex flex-col bg-background text-text font-mono p-4 relative overflow-hidden transition-colors duration-500">
     <!-- Animated background grid -->
     <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTAgNjBMMjAgNjBMMjAgMEwwIDBaIiBmaWxsPSIjMThBMEZCIi8+PHBhdGggZD0iTTYwIDBMMCAwTDAgMjBMNjAgMjBaIiBmaWxsPSIjMThBMEZCIi8+PC9nPjwvc3ZnPg==')] opacity-10 pointer-events-none" />
 
     <!-- Top Bar -->
-    <div class="flex items-center justify-between mb-4 pb-4 border-b border-cyan-900/50 shrink-0 relative z-10">
+    <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-soft shrink-0 relative z-50">
       <div class="flex items-center gap-4">
         <div class="relative">
           <div
-            class="absolute inset-0 bg-cyan-500 blur-md opacity-20"
+            class="absolute inset-0 bg-primary blur-md opacity-20"
             :class="{'animate-pulse': isRunning}"
           />
           <div
-            class="w-12 h-12 rounded-xl flex items-center justify-center border"
-            :class="isRunning ? 'bg-cyan-950 border-cyan-500/50' : 'bg-slate-900 border-slate-700'"
+            class="w-12 h-12 rounded-2xl flex items-center justify-center transition-all border shadow-sm"
+            :class="isRunning ? 'bg-primary border-primary shadow-primary/30' : 'bg-surface border-border-soft hover:bg-surface-hover'"
           >
             <Server
               class="w-6 h-6 transition-colors"
-              :class="isRunning ? 'text-cyan-400' : 'text-slate-500'"
+              :class="isRunning ? 'text-white' : 'text-text-muted'"
             />
           </div>
         </div>
         <div>
-          <h1 class="text-2xl font-black tracking-widest uppercase bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
+          <h1 class="text-2xl font-black tracking-widest uppercase bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-hover">
             {{ t('role.dashboard_title') }}
           </h1>
           <p
             class="text-xs tracking-widest uppercase flex items-center gap-2 mt-0.5"
-            :class="isRunning ? 'text-cyan-400' : 'text-slate-500'"
+            :class="isRunning ? 'text-primary' : 'text-text-muted'"
           >
             <span
               class="w-1.5 h-1.5 rounded-full"
-              :class="isRunning ? 'bg-cyan-400 animate-ping' : 'bg-slate-500'"
+              :class="isRunning ? 'bg-primary animate-ping' : 'bg-text-muted'"
             />
             {{ isRunning ? t('role.dashboard_running', { port: serverPort }) : t('role.server_stopped') }}
           </p>
         </div>
       </div>
-      <div class="flex gap-3">
+      <div class="flex gap-3 items-center">
+        <!-- Theme Switcher -->
+        <div class="relative group">
+          <button class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border border-border-soft rounded-2xl text-text hover:text-primary text-xs transition-all font-bold shadow-sm">
+            <Palette class="w-4 h-4" />
+            <span class="capitalize">{{ themes[currentThemeId]?.name || currentThemeId }}</span>
+          </button>
+          <div class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-2xl border border-border-soft rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 flex flex-col p-2 gap-1">
+            <button
+              v-for="t in Object.values(themes)"
+              :key="t.id"
+              class="w-full text-left px-3 py-2 text-xs transition-all rounded-xl flex items-center justify-between"
+              :class="currentThemeId === t.id ? 'bg-primary text-white font-bold shadow-md shadow-primary/30' : 'text-text-muted hover:bg-surface-hover hover:text-primary'"
+              @click="setTheme(t.id as ThemeId)"
+            >
+              {{ t.name }}
+              <Check v-if="currentThemeId === t.id" class="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
         <button
-          class="flex items-center gap-2 px-4 py-2 bg-slate-900/50 hover:bg-slate-800 rounded-lg border border-slate-700/50 text-xs text-slate-300 backdrop-blur-md transition-all"
+          class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border border-border-soft rounded-2xl text-text hover:text-primary text-xs font-bold transition-all shadow-sm"
           @click="cycleLanguage"
         >
-          <Globe class="w-4 h-4 text-cyan-500" /> {{ currentLangLabel }}
+          <Globe class="w-4 h-4" /> {{ currentLangLabel }}
         </button>
-        <button
-          class="flex items-center gap-2 px-4 py-2 bg-blue-900/30 text-blue-300 hover:bg-blue-800/40 rounded-lg border border-blue-500/30 text-xs font-bold backdrop-blur-md transition-all"
-          @click="openNewClient"
-        >
+        <button class="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl shadow-md shadow-primary/30 text-xs font-bold transition-all" @click="openNewClient">
           <Monitor class="w-4 h-4" /> {{ t('role.dashboard_open_client') }}
         </button>
-        <button
-          class="flex items-center gap-2 px-4 py-2 bg-red-950/30 hover:bg-red-900/40 text-red-300 rounded-lg border border-red-900/50 text-xs font-bold backdrop-blur-md transition-all"
-          @click="stopAndExit"
-        >
+        <button class="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-md shadow-red-500/30 text-xs font-bold transition-all" @click="stopAndExit">
           <LogOut class="w-4 h-4" /> {{ t('role.back') }}
         </button>
       </div>
@@ -64,8 +78,8 @@
       <!-- Left Panel: Server Config + Radar Map -->
       <div class="w-80 flex flex-col gap-4 shrink-0 overflow-hidden">
         <!-- Connection Info / Start -->
-        <div class="bg-slate-900/40 backdrop-blur-xl rounded-2xl p-5 border border-cyan-900/30 shadow-[0_0_15px_rgba(8,145,178,0.05)]">
-          <h2 class="text-[10px] text-cyan-500 mb-4 uppercase tracking-[0.2em] font-bold flex items-center gap-2">
+        <div class="glass-panel p-5">
+          <h2 class="text-[10px] text-primary mb-4 uppercase tracking-[0.2em] font-bold flex items-center gap-2">
             <Activity class="w-3 h-3" />
             {{ t('role.dashboard_conn_info') }}
           </h2>
@@ -77,7 +91,7 @@
               <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">BIND IP</label>
               <input
                 v-model="serverHost"
-                class="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-cyan-500 text-cyan-100 font-mono transition-colors"
+                class="w-full bg-surface border border-border-soft text-text focus:border-primary border border-border-soft rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/30 text-text font-mono transition-colors"
               >
             </div>
             <div>
@@ -85,11 +99,11 @@
               <input
                 v-model.number="serverPort"
                 type="number"
-                class="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-cyan-500 text-cyan-100 font-mono transition-colors"
+                class="w-full bg-surface border border-border-soft text-text focus:border-primary border border-border-soft rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/30 text-text font-mono transition-colors"
               >
             </div>
             <button
-              class="w-full mt-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-lg text-xs flex justify-center items-center gap-2 shadow-[0_0_15px_rgba(8,145,178,0.3)] transition-all"
+              class="w-full mt-4 py-3 bg-primary hover:bg-primary-hover text-white font-bold rounded-xl text-xs flex justify-center items-center gap-2 shadow-md shadow-primary/30 transition-all"
               @click="startLocalServer"
             >
               <Play
@@ -102,10 +116,10 @@
             v-else
             class="space-y-4"
           >
-            <div class="text-2xl font-black text-white tracking-widest bg-slate-950/50 p-3 rounded-lg border border-cyan-900/50 text-center shadow-inner">
-              <span class="text-cyan-500">{{ serverHost }}</span>:<span class="text-blue-400">{{ serverPort }}</span>
+            <div class="text-2xl font-black text-white tracking-widest bg-surface border border-border-soft text-text focus:border-primary p-3 rounded-lg border border-border-soft text-center shadow-inner">
+              <span class="text-primary">{{ serverHost }}</span>:<span class="text-primary">{{ serverPort }}</span>
             </div>
-            <p class="text-xs text-cyan-600/70 text-center animate-pulse uppercase tracking-[0.2em]">
+            <p class="text-xs text-primary text-center animate-pulse uppercase tracking-[0.2em]">
               {{ t('role.dashboard_listening') }}
             </p>
             <button
@@ -121,18 +135,18 @@
         </div>
 
         <!-- Radar Map (Online Clients) -->
-        <div class="bg-slate-900/40 backdrop-blur-xl rounded-2xl p-5 border border-cyan-900/30 flex-1 overflow-hidden flex flex-col relative group">
-          <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-900/10 to-transparent pointer-events-none" />
+        <div class="glass-panel rounded-2xl p-5 border border-primary/30 flex-1 overflow-hidden flex flex-col relative group">
+          <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/10 to-transparent pointer-events-none" />
           
           <div class="flex justify-between items-center mb-4 relative z-10">
-            <h2 class="text-[10px] text-cyan-500 uppercase tracking-[0.2em] font-bold flex items-center gap-2">
+            <h2 class="text-[10px] text-primary uppercase tracking-[0.2em] font-bold flex items-center gap-2">
               <Radar
                 class="w-3 h-3"
                 :class="{'animate-spin-slow': isRunning}"
               />
               PLAYER RADAR
             </h2>
-            <span class="text-xs font-black text-cyan-300 bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/50">{{ onlineClients.length }} ONLINE</span>
+            <span class="text-xs font-black text-primary bg-primary/20/50 px-2 py-0.5 rounded border border-primary/30">{{ onlineClients.length }} ONLINE</span>
           </div>
 
           <div
@@ -142,14 +156,14 @@
             <div
               v-for="c in onlineClients"
               :key="c.user_id"
-              class="flex items-center gap-3 p-3 bg-slate-950/60 rounded-xl border border-cyan-900/40 hover:border-cyan-400/50 hover:bg-cyan-950/30 cursor-pointer transition-all hover:shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+              class="flex items-center gap-3 p-3 bg-surface rounded-xl border border-border-soft hover:border-primary/50 hover:bg-primary/20/30 cursor-pointer transition-all glass-panel-hover"
               @click="selectUser(c.user_id)"
             >
               <div class="relative">
-                <div class="absolute inset-0 bg-cyan-400 blur-sm opacity-50 animate-pulse" />
+                <div class="absolute inset-0 bg-primary blur-sm opacity-50 animate-pulse" />
                 <img
                   :src="c.avatar_url"
-                  class="w-10 h-10 rounded-full border-2 border-cyan-400/50 object-cover relative z-10"
+                  class="w-10 h-10 rounded-full border-2 border-primary/30 object-cover relative z-10"
                   @error="(e) => (e.target as HTMLImageElement).src='https://assets.vrchat.com/www/images/default_avatar.png'"
                 >
               </div>
@@ -157,18 +171,18 @@
                 <div class="text-sm font-bold text-white truncate drop-shadow-md">
                   {{ c.display_name }}
                 </div>
-                <div class="text-[10px] text-cyan-600 truncate font-mono mt-0.5">
+                <div class="text-[10px] text-text-muted truncate font-mono mt-0.5">
                   {{ c.ip_address }}
                 </div>
               </div>
-              <div class="text-cyan-500/50 hover:text-cyan-300">
+              <div class="text-primary/50 hover:text-primary">
                 <ChevronRight class="w-4 h-4" />
               </div>
             </div>
           </div>
           <div
             v-else
-            class="flex-1 flex flex-col items-center justify-center text-cyan-800/50 text-xs text-center relative z-10 gap-3"
+            class="flex-1 flex flex-col items-center justify-center text-primary/50 text-xs text-center relative z-10 gap-3"
           >
             <Radar class="w-12 h-12 opacity-20" />
             NO SIGNALS DETECTED
@@ -180,7 +194,7 @@
             class="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl"
           >
             <div
-              class="w-[200%] h-[200%] absolute top-[-50%] left-[-50%] border-t border-cyan-500/20 rounded-full animate-radar-sweep"
+              class="w-[200%] h-[200%] absolute top-[-50%] left-[-50%] border-t border-primary/30 rounded-full animate-radar-sweep"
               style="background: conic-gradient(from 0deg, transparent 0deg, transparent 90deg, rgba(6, 182, 212, 0.1) 180deg);"
             />
           </div>
@@ -190,7 +204,7 @@
       <!-- Right Panel: Tabs -->
       <div class="flex-1 flex flex-col overflow-hidden">
         <!-- Tab Buttons -->
-        <div class="flex gap-2 mb-4 shrink-0 bg-slate-900/40 backdrop-blur-xl p-1.5 rounded-xl border border-cyan-900/30 inline-flex w-fit shadow-[0_0_15px_rgba(0,0,0,0.5)]">
+        <div class="flex gap-2 mb-4 shrink-0 glass-panel p-1.5 rounded-xl border border-primary/30 inline-flex w-fit shadow-md">
           <button
             v-for="tab in tabs"
             :key="tab.key"
@@ -200,7 +214,7 @@
           >
             <div
               v-if="activeTab === tab.key"
-              class="absolute inset-0 bg-gradient-to-r from-cyan-600/80 to-blue-600/80 -z-10"
+              class="absolute inset-0 bg-primary -z-10"
             />
             {{ tab.label }}
           </button>
@@ -209,12 +223,12 @@
         <!-- Tab: Terminal Logs -->
         <div
           v-show="activeTab === 'logs'"
-          class="flex-1 bg-[#02040A]/80 backdrop-blur-xl rounded-2xl border border-cyan-900/30 p-4 flex flex-col overflow-hidden relative shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]"
+          class="flex-1 bg-[#0a0a0a] rounded-2xl border border-slate-800 p-4 flex flex-col overflow-hidden relative shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]"
         >
           <div class="flex justify-between items-center mb-3">
-            <span class="text-[10px] text-cyan-600 uppercase tracking-widest font-bold flex items-center gap-2"><Terminal class="w-3 h-3" /> SYSTEM LOGS</span>
+            <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-2"><Terminal class="w-3 h-3" /> SYSTEM LOGS</span>
             <button
-              class="text-[10px] text-slate-500 hover:text-cyan-400 uppercase tracking-wider border border-slate-700 hover:border-cyan-800 px-2 py-1 rounded transition-colors"
+              class="text-[10px] text-slate-500 hover:text-primary uppercase tracking-wider border border-border-soft hover:border-slate-500 px-2 py-1 rounded transition-colors"
               @click="logs = []"
             >
               {{ t('role.dashboard_clear_logs') }}
@@ -230,7 +244,7 @@
               class="mb-1 leading-relaxed break-all flex gap-3 hover:bg-white/5 px-2 py-0.5 rounded transition-colors"
             >
               <span class="text-slate-600 shrink-0 select-none">[{{ log.time }}]</span>
-              <span :class="{'text-cyan-300': log.level==='INFO','text-red-400': log.level==='ERROR','text-indigo-400': log.level==='WARN','text-emerald-400': log.level==='SUCCESS'}">{{ log.content }}</span>
+              <span :class="{'text-primary': log.level==='INFO','text-red-400': log.level==='ERROR','text-indigo-400': log.level==='WARN','text-emerald-400': log.level==='SUCCESS'}">{{ log.content }}</span>
             </div>
             <div
               v-if="logs.length===0"
@@ -244,7 +258,7 @@
         <!-- Tab: User Management -->
         <div
           v-show="activeTab === 'users'"
-          class="flex-1 bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-cyan-900/30 p-1 flex flex-col overflow-hidden"
+          class="flex-1 glass-panel rounded-2xl border border-primary/30 p-1 flex flex-col overflow-hidden"
         >
           <div class="flex-1 overflow-y-auto custom-scrollbar">
             <table
@@ -252,7 +266,7 @@
               class="w-full text-xs"
             >
               <thead class="sticky top-0 bg-slate-900/90 backdrop-blur-md z-10 shadow-sm">
-                <tr class="text-cyan-600/70 text-left text-[10px] uppercase tracking-widest">
+                <tr class="text-primary text-left text-[10px] uppercase tracking-widest">
                   <th class="py-3 px-4 rounded-tl-xl">
                     {{ t('role.user_name') }}
                   </th>
@@ -270,21 +284,21 @@
                   </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-cyan-900/20">
+              <tbody class="divide-y divide-border-soft">
                 <tr
                   v-for="u in allUsers"
                   :key="u.user_id"
-                  class="hover:bg-cyan-950/20 transition-colors group"
+                  class="hover:bg-primary/20/20 transition-colors group"
                 >
                   <td class="py-3 px-4">
                     <div class="flex items-center gap-3">
                       <img
                         :src="u.avatar_url"
-                        class="w-8 h-8 rounded-lg object-cover border border-cyan-900/50"
+                        class="w-8 h-8 rounded-lg object-cover border border-border-soft"
                         @error="(e) => (e.target as HTMLImageElement).src='https://assets.vrchat.com/www/images/default_avatar.png'"
                       >
                       <div>
-                        <div class="font-bold text-slate-200 group-hover:text-cyan-300 transition-colors">
+                        <div class="font-bold text-slate-200 group-hover:text-primary transition-colors">
                           {{ u.display_name }}
                         </div>
                         <div class="text-[9px] text-slate-500 font-mono">
@@ -302,15 +316,15 @@
                       </div>
                     </div>
                     <div v-else-if="freezeMap[u.user_id]">
-                      <span class="px-2 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-[10px] uppercase tracking-wider font-bold">{{ t('role.freeze') }}</span>
+                      <span class="px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded text-[10px] uppercase tracking-wider font-bold">{{ t('role.freeze') }}</span>
                     </div>
                     <span
                       v-else-if="u.is_online"
-                      class="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded text-[10px] uppercase tracking-wider font-bold shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+                      class="px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded text-[10px] uppercase tracking-wider font-bold shadow-md shadow-primary/20"
                     >{{ t('role.online') }}</span>
                     <span
                       v-else
-                      class="px-2 py-0.5 bg-slate-800 text-slate-500 border border-slate-700 rounded text-[10px] uppercase tracking-wider font-bold"
+                      class="px-2 py-0.5 bg-slate-800 text-slate-500 border border-border-soft rounded text-[10px] uppercase tracking-wider font-bold"
                     >{{ t('role.offline') }}</span>
                   </td>
                   <td class="py-3 px-2 text-slate-400 font-mono text-[10px]">
@@ -319,7 +333,7 @@
                   <td class="py-3 px-2">
                     <select
                       v-model="u.role_id"
-                      class="bg-slate-900/80 border border-slate-700 rounded-lg text-[10px] px-2 py-1 outline-none focus:border-cyan-500 text-cyan-100 uppercase tracking-wider cursor-pointer"
+                      class="bg-slate-900/80 border border-border-soft rounded-lg text-[10px] px-2 py-1 outline-none focus:border-primary/30 text-text uppercase tracking-wider cursor-pointer"
                       @change="setUserRole(u.user_id, u.role_id)"
                     >
                       <option :value="null">
@@ -359,20 +373,20 @@
                       </button>
                       <button
                         v-if="!freezeMap[u.user_id]"
-                        class="px-2 py-1 bg-blue-500/10 text-blue-500 border border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
+                        class="px-2 py-1 bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 hover:border-primary/30 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
                         @click="openFreezeDialog(u)"
                       >
                         {{ t('role.freeze') }}
                       </button>
                       <button
                         v-else
-                        class="px-2 py-1 bg-cyan-500/10 text-cyan-500 border border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-500/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
+                        class="px-2 py-1 bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 hover:border-primary/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
                         @click="unfreezeUser(u.user_id)"
                       >
                         {{ t('role.unfreeze') }}
                       </button>
                       <button
-                        class="px-2 py-1 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
+                        class="px-2 py-1 bg-slate-800 text-slate-400 border border-border-soft hover:bg-slate-700 hover:text-white rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
                         @click="removeUser(u.user_id)"
                       >
                         <Trash2 class="w-3 h-3" />
@@ -395,16 +409,16 @@
         <!-- Tab: Roles -->
         <div
           v-show="activeTab === 'features'"
-          class="flex-1 bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-cyan-900/30 p-1 flex overflow-hidden"
+          class="flex-1 glass-panel rounded-2xl border border-primary/30 p-1 flex overflow-hidden"
         >
           <!-- Roles List -->
-          <div class="w-1/3 flex flex-col border-r border-cyan-900/30 p-3 bg-slate-950/30">
+          <div class="w-1/3 flex flex-col border-r border-primary/30 p-3 bg-surface/30">
             <div class="flex justify-between items-center mb-4 shrink-0">
-              <h3 class="text-[10px] font-bold text-cyan-500 uppercase tracking-widest flex items-center gap-2">
+              <h3 class="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-2">
                 <Shield class="w-3 h-3" /> {{ t('role.dashboard_roles_list') || 'ROLES LIST' }}
               </h3>
               <button
-                class="px-2 py-1 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/40 border border-cyan-500/30 rounded text-[10px] font-bold transition-colors"
+                class="px-2 py-1 bg-primary/20 text-primary hover:bg-primary/40 border border-primary/30 rounded text-[10px] font-bold transition-colors"
                 @click="createNewRole"
               >
                 +
@@ -415,12 +429,12 @@
                 v-for="r in allRoles"
                 :key="r.role_id"
                 class="p-3 rounded-xl border cursor-pointer flex justify-between items-center transition-all group"
-                :class="selectedRole?.role_id === r.role_id ? 'bg-cyan-900/30 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-cyan-900/50'"
+                :class="selectedRole?.role_id === r.role_id ? 'bg-primary/20 border-primary/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-border-soft'"
                 @click="selectRole(r)"
               >
                 <div
                   class="text-xs font-bold"
-                  :class="selectedRole?.role_id === r.role_id ? 'text-cyan-300' : 'text-slate-300'"
+                  :class="selectedRole?.role_id === r.role_id ? 'text-primary' : 'text-slate-300'"
                 >
                   {{ r.role_name }} 
                   <span
@@ -457,11 +471,11 @@
             v-if="selectedRole"
             class="flex-1 flex flex-col overflow-y-auto p-4 custom-scrollbar"
           >
-            <div class="mb-5 shrink-0 bg-slate-900/50 p-4 rounded-xl border border-cyan-900/30">
-              <label class="text-[10px] text-cyan-600 font-bold block mb-2 uppercase tracking-widest">{{ t('role.role_name') }}</label>
+            <div class="mb-5 shrink-0 bg-slate-900/50 p-4 rounded-xl border border-primary/30">
+              <label class="text-[10px] text-primary font-bold block mb-2 uppercase tracking-widest">{{ t('role.role_name') }}</label>
               <input
                 v-model="selectedRole.role_name"
-                class="w-full bg-[#02040A] border border-cyan-900/50 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500 text-cyan-100 font-bold transition-colors shadow-inner"
+                class="w-full bg-[#02040A] border border-border-soft rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/30 text-text font-bold transition-colors shadow-inner"
               >
             </div>
             
@@ -474,12 +488,12 @@
                   <label
                     v-for="(enabled, key) in selectedRole.features.menus"
                     :key="key"
-                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-cyan-900/50 cursor-pointer text-xs group transition-colors"
-                    :class="{'bg-cyan-950/30 border-cyan-900/60': enabled}"
+                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-border-soft cursor-pointer text-xs group transition-colors"
+                    :class="{'bg-primary/20/30 border-primary/30': enabled}"
                   >
                     <div
                       class="w-4 h-4 rounded border flex items-center justify-center transition-colors"
-                      :class="enabled ? 'bg-cyan-500 border-cyan-400' : 'bg-slate-950 border-slate-700'"
+                      :class="enabled ? 'bg-primary border-primary/30' : 'bg-surface border-border-soft'"
                     >
                       <Check
                         v-if="enabled"
@@ -492,7 +506,7 @@
                       type="checkbox"
                       class="hidden"
                     >
-                    <span class="text-slate-300 font-medium group-hover:text-cyan-100 transition-colors">{{ t('sidebar.' + key) || key }}</span>
+                    <span class="text-slate-300 font-medium group-hover:text-text transition-colors">{{ t('sidebar.' + key) || key }}</span>
                   </label>
                 </div>
               </div>
@@ -505,12 +519,12 @@
                   <label
                     v-for="(enabled, key) in selectedRole.features.modes"
                     :key="key"
-                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-cyan-900/50 cursor-pointer text-xs group transition-colors"
-                    :class="{'bg-cyan-950/30 border-cyan-900/60': enabled}"
+                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-border-soft cursor-pointer text-xs group transition-colors"
+                    :class="{'bg-primary/20/30 border-primary/30': enabled}"
                   >
                     <div
                       class="w-4 h-4 rounded border flex items-center justify-center transition-colors"
-                      :class="enabled ? 'bg-cyan-500 border-cyan-400' : 'bg-slate-950 border-slate-700'"
+                      :class="enabled ? 'bg-primary border-primary/30' : 'bg-surface border-border-soft'"
                     >
                       <Check
                         v-if="enabled"
@@ -523,7 +537,7 @@
                       type="checkbox"
                       class="hidden"
                     >
-                    <span class="text-slate-300 font-medium group-hover:text-cyan-100 transition-colors uppercase tracking-wider">{{ t('role.mode_' + key) || (key === 'pc' ? 'PC Desktop' : key === 'vr' ? 'VR Overlay' : key) }}</span>
+                    <span class="text-slate-300 font-medium group-hover:text-text transition-colors uppercase tracking-wider">{{ t('role.mode_' + key) || (key === 'pc' ? 'PC Desktop' : key === 'vr' ? 'VR Overlay' : key) }}</span>
                   </label>
                 </div>
               </div>
@@ -536,12 +550,12 @@
                   <label
                     v-for="(enabled, key) in selectedRole.features.themes"
                     :key="key"
-                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-cyan-900/50 cursor-pointer text-xs group transition-colors"
-                    :class="{'bg-cyan-950/30 border-cyan-900/60': enabled}"
+                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-border-soft cursor-pointer text-xs group transition-colors"
+                    :class="{'bg-primary/20/30 border-primary/30': enabled}"
                   >
                     <div
                       class="w-4 h-4 rounded border flex items-center justify-center transition-colors"
-                      :class="enabled ? 'bg-cyan-500 border-cyan-400' : 'bg-slate-950 border-slate-700'"
+                      :class="enabled ? 'bg-primary border-primary/30' : 'bg-surface border-border-soft'"
                     >
                       <Check
                         v-if="enabled"
@@ -554,15 +568,15 @@
                       type="checkbox"
                       class="hidden"
                     >
-                    <span class="text-slate-300 font-medium group-hover:text-cyan-100 transition-colors uppercase tracking-wider">{{ t('role.theme_' + key) || (key.charAt(0).toUpperCase() + key.slice(1)) }}</span>
+                    <span class="text-slate-300 font-medium group-hover:text-text transition-colors uppercase tracking-wider">{{ t('role.theme_' + key) || (key.charAt(0).toUpperCase() + key.slice(1)) }}</span>
                   </label>
                 </div>
               </div>
             </div>
             
-            <div class="mt-6 pt-4 border-t border-cyan-900/30 shrink-0">
+            <div class="mt-6 pt-4 border-t border-primary/30 shrink-0">
               <button
-                class="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black rounded-xl text-xs uppercase tracking-widest shadow-[0_0_15px_rgba(8,145,178,0.3)] transition-all flex items-center justify-center gap-2"
+                class="w-full py-2.5 bg-gradient-to-r from-primary/80 to-primary/80 hover:from-primary/80 hover:to-primary/80 text-white font-black rounded-xl text-xs uppercase tracking-widest shadow-md shadow-primary/30 transition-all flex items-center justify-center gap-2"
                 @click="saveRole"
               >
                 <Save class="w-4 h-4" /> {{ t('role.save_role') }}
@@ -590,7 +604,7 @@
         <h3 class="text-sm font-black mb-4 text-red-500 uppercase tracking-widest flex items-center gap-2">
           <ShieldAlert class="w-4 h-4" /> {{ t('role.ban_user') }}
         </h3>
-        <p class="text-white font-bold mb-4 bg-slate-950 p-2 rounded-lg border border-slate-800">
+        <p class="text-white font-bold mb-4 bg-surface p-2 rounded-lg border border-slate-800">
           {{ dialogUser?.display_name }}
         </p>
         <div class="space-y-4">
@@ -635,11 +649,11 @@
       class="fixed inset-0 bg-[#050914]/80 backdrop-blur-md flex items-center justify-center z-[999]"
       @click.self="showFreezeDialog=false"
     >
-      <div class="bg-slate-900/90 rounded-2xl p-6 w-96 border border-blue-900/50 shadow-[0_0_30px_rgba(37,99,235,0.2)]">
-        <h3 class="text-sm font-black mb-4 text-blue-400 uppercase tracking-widest flex items-center gap-2">
+      <div class="bg-slate-900/90 rounded-2xl p-6 w-96 border border-primary/30 shadow-xl shadow-primary/30">
+        <h3 class="text-sm font-black mb-4 text-primary uppercase tracking-widest flex items-center gap-2">
           <Snowflake class="w-4 h-4" /> {{ t('role.freeze_user') }}
         </h3>
-        <p class="text-white font-bold mb-4 bg-slate-950 p-2 rounded-lg border border-slate-800">
+        <p class="text-white font-bold mb-4 bg-surface p-2 rounded-lg border border-slate-800">
           {{ dialogUser?.display_name }}
         </p>
         <div class="space-y-4">
@@ -647,7 +661,7 @@
             <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">{{ t('role.freeze_reason') }}</label>
             <input
               v-model="freezeReason"
-              class="w-full bg-[#02040A] border border-blue-900/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 text-white"
+              class="w-full bg-[#02040A] border border-primary/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/30 text-white"
               :placeholder="t('role.freeze_reason_ph')"
             >
           </div>
@@ -659,7 +673,7 @@
               {{ t('role.cancel') }}
             </button>
             <button
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-lg text-xs uppercase tracking-widest shadow-[0_0_15px_rgba(37,99,235,0.4)] transition-all"
+              class="px-4 py-2 bg-primary/20 hover:bg-primary/20 text-white font-black rounded-lg text-xs uppercase tracking-widest shadow-lg shadow-primary/40 transition-all"
               @click="confirmFreeze"
             >
               {{ t('role.confirm_freeze') }}
@@ -672,9 +686,9 @@
     <!-- Toast -->
     <div
       v-if="toastMessage"
-      class="fixed top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-cyan-900/90 backdrop-blur-md border border-cyan-400/50 text-cyan-50 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.5)] z-[1000] text-sm font-black tracking-widest transition-all uppercase flex items-center gap-2"
+      class="fixed top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-primary/20 backdrop-blur-md border border-primary/30 text-cyan-50 rounded-xl shadow-md shadow-primary/50 z-[1000] text-sm font-black tracking-widest transition-all uppercase flex items-center gap-2"
     >
-      <div class="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+      <div class="w-2 h-2 bg-primary rounded-full animate-pulse" />
       {{ toastMessage }}
     </div>
   </div>
@@ -685,7 +699,8 @@ import { useToast } from "../composables/useToast";
 
 const toast = useToast();
 import { ref, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
-import { Server, Globe, Monitor, LogOut, Play, Square, Activity, Radar, ChevronRight, Terminal, Users, Shield, Star, Trash2, ShieldAlert, Snowflake, Check, Save } from 'lucide-vue-next';
+import { Server, Globe, Monitor, LogOut, Play, Square, Activity, Radar, ChevronRight, Terminal, Users, Shield, Star, Trash2, ShieldAlert, Snowflake, Check, Save, Palette } from 'lucide-vue-next';
+import { currentThemeId, setTheme, themes, type ThemeId } from '../theme';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from 'vue-i18n';
 import { SysApi, DbApi, VrcApi } from '../api';

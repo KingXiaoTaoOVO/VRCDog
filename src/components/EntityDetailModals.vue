@@ -121,7 +121,7 @@ const handleWorldUpload = async (e: Event) => {
     @close="entityStore.closeWorld()"
   >
     <template v-if="entityStore.selectedWorld">
-      <div class="aspect-video bg-slate-900 relative overflow-hidden rounded-t-2xl">
+      <div class="aspect-video bg-surface relative overflow-hidden rounded-t-2xl">
         <VrcAvatar
           :user="entityStore.selectedWorld"
           :url="entityStore.selectedWorld.imageUrl || entityStore.selectedWorld.thumbnailImageUrl"
@@ -135,41 +135,41 @@ const handleWorldUpload = async (e: Event) => {
         </button>
       </div>
       <div class="p-6">
-        <h2 class="text-2xl font-black text-slate-900 mb-1 leading-tight">
+        <h2 class="text-2xl font-black text-text mb-1 leading-tight">
           {{ entityStore.selectedWorld.name }}
         </h2>
-        <p class="text-sm text-slate-600 font-bold mb-4">
+        <p class="text-sm text-text-muted font-bold mb-4">
           {{ t('search.author') }}: {{ entityStore.selectedWorld.authorName }}
         </p>
         <div class="grid grid-cols-3 gap-3 text-center mb-5">
-          <div class="bg-slate-50 border border-slate-100 rounded-xl p-3">
-            <p class="text-lg font-black text-slate-800">
+          <div class="bg-surface-hover border border-border-soft rounded-xl p-3">
+            <p class="text-lg font-black text-text">
               {{ entityStore.selectedWorld.capacity || '?' }}
             </p>
-            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+            <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mt-1">
               {{ t('search.capacity') }}
             </p>
           </div>
-          <div class="bg-slate-50 border border-slate-100 rounded-xl p-3">
-            <p class="text-lg font-black text-slate-800">
+          <div class="bg-surface-hover border border-border-soft rounded-xl p-3">
+            <p class="text-lg font-black text-text">
               {{ entityStore.selectedWorld.favorites || 0 }}
             </p>
-            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+            <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mt-1">
               {{ t('search.favorites_count') }}
             </p>
           </div>
-          <div class="bg-slate-50 border border-slate-100 rounded-xl p-3">
-            <p class="text-lg font-black text-slate-800">
+          <div class="bg-surface-hover border border-border-soft rounded-xl p-3">
+            <p class="text-lg font-black text-text">
               {{ entityStore.selectedWorld.visits || 0 }}
             </p>
-            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+            <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mt-1">
               {{ t('search.visits') }}
             </p>
           </div>
         </div>
         
         <div class="mb-4">
-          <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar pr-2">
+          <p class="text-sm text-text-muted leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar pr-2">
             {{ entityStore.selectedWorld.description || t('entity_modal.no_description') }}
           </p>
         </div>
@@ -181,11 +181,11 @@ const handleWorldUpload = async (e: Event) => {
           <span
             v-for="tag in entityStore.selectedWorld.tags.filter((t: string) => !t.startsWith('system_') && !t.startsWith('admin_'))"
             :key="tag"
-            class="text-[10px] font-bold bg-slate-100 border border-slate-200 text-slate-600 px-2.5 py-1 rounded-md uppercase"
+            class="text-[10px] font-bold bg-background/10 border border-border-soft text-text-muted px-2.5 py-1 rounded-md uppercase"
           >{{ tag }}</span>
         </div>
 
-        <div class="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+        <div class="pt-4 border-t border-border-soft flex items-center justify-end gap-3">
           <input
             ref="worldImageInput"
             type="file"
@@ -195,7 +195,7 @@ const handleWorldUpload = async (e: Event) => {
           >
           <button
             v-if="entityStore.selectedWorld.authorId === profileStore.baseInfo?.id"
-            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100"
+            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-surface-hover border border-border-soft text-text-muted hover:bg-background/10"
             :disabled="isUploadingWorldImage"
             @click="worldImageInput?.click()"
           >
@@ -214,24 +214,24 @@ const handleWorldUpload = async (e: Event) => {
 
         <div
           v-if="entityStore.selectedWorld.instances?.length"
-          class="mt-6 pt-5 border-t border-slate-100"
+          class="mt-6 pt-5 border-t border-border-soft"
         >
-          <h3 class="text-base font-extrabold text-slate-900 mb-3 flex items-center gap-2">
+          <h3 class="text-base font-extrabold text-text mb-3 flex items-center gap-2">
             <Globe class="text-indigo-500 w-5 h-5" /> {{ t('entity_modal.active_instances') }}
           </h3>
           <div class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
             <div
               v-for="inst in entityStore.selectedWorld.instances"
               :key="inst[0]"
-              class="p-3 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200 transition-colors flex items-center justify-between"
+              class="p-3 bg-surface-hover hover:bg-indigo-50/50 rounded-xl border border-border-soft transition-colors flex items-center justify-between"
             >
               <div class="flex items-center gap-2">
-                <span class="font-bold text-slate-800">#{{ inst[0] }}</span>
+                <span class="font-bold text-text">#{{ inst[0] }}</span>
                 <span class="text-xs font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">{{ inst[1] }} / {{ entityStore.selectedWorld.capacity }}</span>
               </div>
               <div class="flex gap-2">
                 <button
-                  class="px-3 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 text-indigo-600 rounded-lg text-xs font-bold shadow-sm transition-all"
+                  class="px-3 py-1.5 bg-surface border border-border-soft hover:border-indigo-300 text-indigo-600 rounded-lg text-xs font-bold shadow-sm transition-all"
                   @click="SysApi.launchVrc({ launchArgs: `vrchat://launch?id=${entityStore.selectedWorld.id}:${inst[0]}` })"
                 >
                   {{ t('entity_modal.join') }}
@@ -257,7 +257,7 @@ const handleWorldUpload = async (e: Event) => {
     @close="entityStore.closeAvatar()"
   >
     <template v-if="entityStore.selectedAvatar">
-      <div class="aspect-[3/4] max-h-80 w-full bg-slate-900 relative overflow-hidden rounded-t-2xl">
+      <div class="aspect-[3/4] max-h-80 w-full bg-surface relative overflow-hidden rounded-t-2xl">
         <VrcAvatar
           :user="entityStore.selectedAvatar"
           :url="entityStore.selectedAvatar.imageUrl || entityStore.selectedAvatar.thumbnailImageUrl"
@@ -271,13 +271,13 @@ const handleWorldUpload = async (e: Event) => {
         </button>
       </div>
       <div class="p-6">
-        <h2 class="text-xl font-black text-slate-900 mb-1 leading-tight">
+        <h2 class="text-xl font-black text-text mb-1 leading-tight">
           {{ entityStore.selectedAvatar.name }}
         </h2>
-        <p class="text-sm text-slate-600 font-bold mb-4">
+        <p class="text-sm text-text-muted font-bold mb-4">
           {{ t('search.author') }}: {{ entityStore.selectedAvatar.authorName }}
         </p>
-        <p class="text-sm text-slate-600 mb-4 leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">
+        <p class="text-sm text-text-muted mb-4 leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">
           {{ entityStore.selectedAvatar.description || t('entity_modal.no_description') }}
         </p>
         
@@ -288,11 +288,11 @@ const handleWorldUpload = async (e: Event) => {
           <span
             v-for="tag in entityStore.selectedAvatar.tags"
             :key="tag"
-            class="text-[10px] font-bold bg-slate-100 border border-slate-200 text-slate-600 px-2.5 py-1 rounded-md uppercase"
+            class="text-[10px] font-bold bg-background/10 border border-border-soft text-text-muted px-2.5 py-1 rounded-md uppercase"
           >{{ tag }}</span>
         </div>
 
-        <div class="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+        <div class="pt-4 border-t border-border-soft flex items-center justify-end gap-3">
           <input
             ref="imageInput"
             type="file"
@@ -302,7 +302,7 @@ const handleWorldUpload = async (e: Event) => {
           >
           <button
             v-if="entityStore.selectedAvatar.authorId === profileStore.baseInfo?.id"
-            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100"
+            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-surface-hover border border-border-soft text-text-muted hover:bg-background/10"
             :disabled="isUploadingImage"
             @click="imageInput?.click()"
           >
@@ -329,7 +329,7 @@ const handleWorldUpload = async (e: Event) => {
     @close="entityStore.closeGroup()"
   >
     <template v-if="entityStore.selectedGroup">
-      <div class="h-32 bg-slate-900 relative overflow-hidden rounded-t-2xl">
+      <div class="h-32 bg-surface relative overflow-hidden rounded-t-2xl">
         <VrcAvatar
           :user="entityStore.selectedGroup"
           :url="entityStore.selectedGroup.bannerUrl"
@@ -344,7 +344,7 @@ const handleWorldUpload = async (e: Event) => {
       </div>
       <div class="p-6 relative">
         <div class="flex gap-4 mb-4">
-          <div class="w-20 h-20 -mt-12 rounded-xl border-4 border-white shadow-md bg-white flex-shrink-0 relative z-10 overflow-hidden">
+          <div class="w-20 h-20 -mt-12 rounded-xl border-4 border-border-strong shadow-md bg-surface flex-shrink-0 relative z-10 overflow-hidden">
             <VrcAvatar
               :user="entityStore.selectedGroup"
               :url="entityStore.selectedGroup.iconUrl"
@@ -352,28 +352,28 @@ const handleWorldUpload = async (e: Event) => {
             />
           </div>
           <div class="flex-1 pb-1 min-w-0">
-            <h2 class="text-xl font-black text-slate-900 truncate">
+            <h2 class="text-xl font-black text-text truncate">
               {{ entityStore.selectedGroup.name }}
             </h2>
             <div class="flex items-center gap-2 mt-1">
-              <span class="text-xs font-bold text-slate-500 uppercase">{{ entityStore.selectedGroup.shortCode }}</span>
-              <span class="w-1 h-1 rounded-full bg-slate-300" />
+              <span class="text-xs font-bold text-text-muted uppercase">{{ entityStore.selectedGroup.shortCode }}</span>
+              <span class="w-1 h-1 rounded-full bg-surface" />
               <span class="text-xs font-bold text-indigo-600 flex items-center gap-1"><UsersRound :size="12" /> {{ entityStore.selectedGroup.memberCount || 0 }} {{ t('entity_modal.members') }}</span>
             </div>
           </div>
         </div>
         
-        <div class="flex border-b border-slate-100 mb-4 px-2">
+        <div class="flex border-b border-border-soft mb-4 px-2">
           <button
             class="px-4 py-2 text-sm font-bold border-b-2 transition-colors"
-            :class="groupActiveTab === 'info' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'"
+            :class="groupActiveTab === 'info' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-text-muted hover:text-text-muted'"
             @click="groupActiveTab = 'info'"
           >
             {{ t('entity_modal.info') }}
           </button>
           <button
             class="px-4 py-2 text-sm font-bold border-b-2 transition-colors"
-            :class="groupActiveTab === 'members' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'"
+            :class="groupActiveTab === 'members' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-text-muted hover:text-text-muted'"
             @click="groupActiveTab = 'members'"
           >
             {{ t('entity_modal.members') }} ({{ entityStore.groupMembers.length }})
@@ -381,7 +381,7 @@ const handleWorldUpload = async (e: Event) => {
           <button
             v-if="entityStore.groupPermissions.includes('group-join-requests-manage')"
             class="px-4 py-2 text-sm font-bold border-b-2 transition-colors flex items-center gap-2"
-            :class="groupActiveTab === 'requests' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'"
+            :class="groupActiveTab === 'requests' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-text-muted hover:text-text-muted'"
             @click="groupActiveTab = 'requests'"
           >
             {{ t('entity_modal.requests') }}
@@ -394,28 +394,28 @@ const handleWorldUpload = async (e: Event) => {
 
         <div v-if="groupActiveTab === 'info'">
           <div class="mb-5">
-            <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar">
+            <p class="text-sm text-text-muted leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar">
               {{ entityStore.selectedGroup.description || t('entity_modal.no_group_desc') }}
             </p>
           </div>
 
           <div class="grid grid-cols-2 gap-3 mb-5">
-            <div class="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col justify-center">
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+            <div class="bg-surface-hover border border-border-soft rounded-xl p-3 flex flex-col justify-center">
+              <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
                 {{ t('entity_modal.privacy_status') }}
               </p>
-              <p class="text-sm font-black text-slate-800 flex items-center gap-1">
+              <p class="text-sm font-black text-text flex items-center gap-1">
                 <Shield
                   :size="14"
                   class="text-blue-500"
                 /> {{ entityStore.selectedGroup.privacy === 'public' ? t('entity_modal.public_group') : t('entity_modal.private_group') }}
               </p>
             </div>
-            <div class="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col justify-center">
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+            <div class="bg-surface-hover border border-border-soft rounded-xl p-3 flex flex-col justify-center">
+              <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
                 {{ t('entity_modal.join_state') }}
               </p>
-              <p class="text-sm font-black text-slate-800 flex items-center gap-1">
+              <p class="text-sm font-black text-text flex items-center gap-1">
                 <Check
                   :size="14"
                   class="text-green-500"
@@ -431,13 +431,13 @@ const handleWorldUpload = async (e: Event) => {
         >
           <div
             v-if="entityStore.loadingGroupData"
-            class="text-center py-4 text-slate-400 font-bold text-sm"
+            class="text-center py-4 text-border-strong font-bold text-sm"
           >
             {{ t('entity_modal.loading_members') }}
           </div>
           <div
             v-else-if="entityStore.groupMembers.length === 0"
-            class="text-center py-4 text-slate-400 font-bold text-sm"
+            class="text-center py-4 text-border-strong font-bold text-sm"
           >
             {{ t('entity_modal.no_member_data') }}
           </div>
@@ -445,7 +445,7 @@ const handleWorldUpload = async (e: Event) => {
           <div
             v-for="member in entityStore.groupMembers"
             :key="member.id"
-            class="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl hover:border-indigo-200 transition-colors"
+            class="flex items-center justify-between p-3 bg-surface-hover border border-border-soft rounded-xl hover:border-indigo-200 transition-colors"
           >
             <div class="flex items-center gap-3">
               <VrcAvatar
@@ -454,14 +454,14 @@ const handleWorldUpload = async (e: Event) => {
                 custom-class="w-10 h-10 rounded-full"
               />
               <div>
-                <div class="font-bold text-slate-800 text-sm">
+                <div class="font-bold text-text text-sm">
                   {{ member.user?.displayName }}
                 </div>
                 <div class="flex gap-1 mt-0.5">
                   <span
                     v-for="roleId in member.roleIds"
                     :key="roleId"
-                    class="text-[10px] bg-slate-200 text-slate-600 px-1.5 rounded"
+                    class="text-[10px] bg-background/20 text-text-muted px-1.5 rounded"
                   >{{ entityStore.groupRoles.find((r:any) => r.id === roleId)?.name || 'Role' }}</span>
                 </div>
               </div>
@@ -475,13 +475,13 @@ const handleWorldUpload = async (e: Event) => {
         >
           <div
             v-if="entityStore.loadingGroupData"
-            class="text-center py-4 text-slate-400 font-bold text-sm"
+            class="text-center py-4 text-border-strong font-bold text-sm"
           >
             {{ t('entity_modal.loading_requests') }}
           </div>
           <div
             v-else-if="entityStore.groupJoinRequests.length === 0"
-            class="text-center py-4 text-slate-400 font-bold text-sm"
+            class="text-center py-4 text-border-strong font-bold text-sm"
           >
             {{ t('entity_modal.no_pending_requests') }}
           </div>
@@ -489,7 +489,7 @@ const handleWorldUpload = async (e: Event) => {
           <div
             v-for="req in entityStore.groupJoinRequests"
             :key="req.id"
-            class="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl hover:border-indigo-200 transition-colors"
+            class="flex items-center justify-between p-3 bg-surface-hover border border-border-soft rounded-xl hover:border-indigo-200 transition-colors"
           >
             <div class="flex items-center gap-3">
               <VrcAvatar
@@ -498,10 +498,10 @@ const handleWorldUpload = async (e: Event) => {
                 custom-class="w-10 h-10 rounded-full"
               />
               <div>
-                <div class="font-bold text-slate-800 text-sm">
+                <div class="font-bold text-text text-sm">
                   {{ req.user?.displayName }}
                 </div>
-                <div class="text-[10px] text-slate-500">
+                <div class="text-[10px] text-text-muted">
                   {{ new Date(req.createdAt).toLocaleString() }}
                 </div>
               </div>
@@ -523,8 +523,8 @@ const handleWorldUpload = async (e: Event) => {
           </div>
         </div>
         
-        <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
-          <div class="text-xs text-slate-400 font-mono">
+        <div class="pt-4 border-t border-border-soft flex items-center justify-between">
+          <div class="text-xs text-border-strong font-mono">
             {{ entityStore.selectedGroup.id }}
           </div>
           <button

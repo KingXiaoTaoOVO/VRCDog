@@ -23,7 +23,7 @@ const fetchNotes = async () => {
   try {
     notes.value = await DbApi.getNotes();
   } catch (err) {
-    console.warn('加载备忘录失败:', err);
+    console.warn(t('auto_857820f3'), err);
   } finally {
     loading.value = false;
   }
@@ -44,7 +44,7 @@ const saveEdit = async (note: FriendNote) => {
     note.note = editText.value;
     editingId.value = null;
   } catch (err) {
-    console.warn('保存失败:', err);
+    console.warn(t('auto_4d57314a'), err);
   }
 };
 
@@ -57,19 +57,19 @@ onMounted(() => fetchNotes());
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
-      <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+      <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
         <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
           <StickyNote class="w-6 h-6 text-indigo-600" />
         </span>
         {{ t('notes.title') }}
       </h2>
-      <span class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2">
+      <span class="bg-surface border border-border-soft text-text-muted px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2">
         {{ t('notes.count', { count: notes.length }) }}
       </span>
     </div>
@@ -77,7 +77,7 @@ onMounted(() => fetchNotes());
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -88,13 +88,13 @@ onMounted(() => fetchNotes());
 
       <div
         v-else-if="notes.length === 0"
-        class="h-full flex flex-col items-center justify-center text-slate-400"
+        class="h-full flex flex-col items-center justify-center text-border-strong"
       >
         <StickyNote
           class="mb-4 opacity-30"
           :size="64"
         />
-        <p class="font-bold text-xl text-slate-500">
+        <p class="font-bold text-xl text-text-muted">
           {{ t('notes.empty') }}
         </p>
         <p class="text-sm mt-2 font-medium">
@@ -109,13 +109,13 @@ onMounted(() => fetchNotes());
         <div
           v-for="note in notes"
           :key="note.user_id"
-          class="bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col group relative"
+          class="bg-surface backdrop-blur-xl rounded-2xl p-5 border border-border-soft shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col group relative"
         >
-          <div class="flex items-start justify-between mb-3 border-b border-slate-100 pb-3">
-            <h3 class="font-bold text-slate-900 text-base truncate pr-2">
+          <div class="flex items-start justify-between mb-3 border-b border-border-soft pb-3">
+            <h3 class="font-bold text-text text-base truncate pr-2">
               {{ note.display_name }}
             </h3>
-            <span class="text-[10px] text-slate-400 font-mono tracking-tighter whitespace-nowrap pt-1 flex-shrink-0">{{ note.updated_at }}</span>
+            <span class="text-[10px] text-border-strong font-mono tracking-tighter whitespace-nowrap pt-1 flex-shrink-0">{{ note.updated_at }}</span>
           </div>
 
           <div
@@ -129,7 +129,7 @@ onMounted(() => fetchNotes());
             />
             <div class="flex gap-2 mt-3 justify-end">
               <button
-                class="text-xs text-slate-500 hover:text-slate-700 font-bold px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1"
+                class="text-xs text-text-muted hover:text-text-muted font-bold px-3 py-2 rounded-lg hover:bg-background/10 transition-colors flex items-center gap-1"
                 @click="cancelEdit"
               >
                 <X :size="14" /> {{ t('notes.cancel') }}
@@ -144,13 +144,13 @@ onMounted(() => fetchNotes());
           </div>
           <div
             v-else
-            class="flex-1 text-sm text-slate-700 leading-relaxed cursor-pointer hover:bg-slate-50 rounded-xl p-3 -mx-3 transition-colors relative"
+            class="flex-1 text-sm text-text-muted leading-relaxed cursor-pointer hover:bg-surface-hover rounded-xl p-3 -mx-3 transition-colors relative"
             @click="startEdit(note)"
           >
             <div class="whitespace-pre-wrap line-clamp-5">
               {{ note.note || t('notes.click_to_add') }}
             </div>
-            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded-lg shadow-sm border border-slate-100 text-indigo-500">
+            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface p-1.5 rounded-lg shadow-sm border border-border-soft text-indigo-500">
               <Edit3 :size="14" />
             </div>
           </div>

@@ -120,7 +120,7 @@ onUnmounted(() => {
         {{ t('ovr.steamvr_misc') }}
       </h3>
       
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.steamvr_timing_overlay') }}
@@ -135,11 +135,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.steamvr_multi_driver') }}
@@ -154,11 +154,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.steamvr_require_hmd') }}
@@ -173,11 +173,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.steamvr_disable_notifs') }}
@@ -189,11 +189,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.steamvr_no_fade_grid') }}
@@ -205,7 +205,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
@@ -214,7 +214,7 @@ onUnmounted(() => {
         {{ t('ovr.steamvr_camera') }}
       </h3>
       
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.steamvr_camera_enable') }}
@@ -229,7 +229,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
     </div>
@@ -244,7 +244,7 @@ onUnmounted(() => {
       {{ t('ovr.chap_title') }}
     </h2>
     <div class="space-y-3">
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <div>
           <label class="block text-sm font-bold text-indigo-900 mb-2">{{ t('ovr.chap_visibility') }}: {{ config.chapVisibility }}%</label>
           <input
@@ -280,7 +280,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.chap_force_bounds') }}
@@ -295,11 +295,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.chap_disable') }}
@@ -314,7 +314,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
@@ -322,7 +322,7 @@ onUnmounted(() => {
       <h3 class="font-bold text-indigo-900 mt-4">
         {{ t('ovr.chap_advanced') }}
       </h3>
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <label class="flex items-center space-x-2">
           <input
             v-model="config.chapBeginnerMode"
@@ -356,7 +356,7 @@ onUnmounted(() => {
             <input
               v-model="config.chapColor"
               type="color"
-              class="w-full h-8 rounded border-slate-200 cursor-pointer"
+              class="w-full h-8 rounded border-border-soft cursor-pointer"
             >
           </div>
         </div>
@@ -381,7 +381,7 @@ onUnmounted(() => {
         {{ t('ovr.space_offset_desc') }}
       </p>
       
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <div>
           <label class="block text-sm font-bold text-indigo-900 mb-2">{{ t('ovr.space_offset_x') }}: {{ config.spaceOffsetX }} m</label>
           <input
@@ -417,7 +417,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.space_adjust_chap') }}
@@ -432,7 +432,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
@@ -441,7 +441,7 @@ onUnmounted(() => {
         {{ t('ovr.motion_section') }}
       </h3>
       
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.motion_drag_left') }}
@@ -453,11 +453,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.motion_drag_right') }}
@@ -469,7 +469,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
@@ -496,7 +496,7 @@ onUnmounted(() => {
       </div>
 
       <!-- {{ t('ovr.space_height_toggle_title') }} - Native API -->
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.space_height_toggle_title') }}
@@ -513,7 +513,7 @@ onUnmounted(() => {
         </button>
       </div>
       
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <div>
           <label class="block text-sm font-bold text-indigo-900 mb-2">{{ t('ovr.space_rotation') }}: {{ config.spaceRotation || 0 }}°</label>
           <input
@@ -527,19 +527,19 @@ onUnmounted(() => {
         </div>
         <div class="flex justify-between">
           <button
-            class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded"
+            class="px-3 py-1 bg-background/10 hover:bg-background/20 text-text-muted text-xs font-bold rounded"
             @click="config.spaceRotation = -90"
           >
             -90°
           </button>
           <button
-            class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded"
+            class="px-3 py-1 bg-background/10 hover:bg-background/20 text-text-muted text-xs font-bold rounded"
             @click="config.spaceRotation = 0"
           >
             {{ t('ovr.stats_reset') }}
           </button>
           <button
-            class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded"
+            class="px-3 py-1 bg-background/10 hover:bg-background/20 text-text-muted text-xs font-bold rounded"
             @click="config.spaceRotation = 90"
           >
             +90°
@@ -551,7 +551,7 @@ onUnmounted(() => {
       <h3 class="font-bold text-indigo-900 mt-4">
         {{ t('ovr.motion_advanced') }}
       </h3>
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <label class="flex items-center justify-between">
           <span class="text-sm font-bold text-indigo-900">{{ t('ovr.motion_gravity') }}</span>
           <input
@@ -612,7 +612,7 @@ onUnmounted(() => {
       {{ t('ovr.audio_title') }}
     </h2>
     <div class="space-y-3">
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.audio_prox_sensor') }}
@@ -627,11 +627,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
       
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.audio_ptt') }}
@@ -646,7 +646,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
     </div>
@@ -661,7 +661,7 @@ onUnmounted(() => {
       {{ t('ovr.video_title') }}
     </h2>
     <div class="space-y-3">
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.video_brightness_on') }}
@@ -676,13 +676,13 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
       <div
         v-if="config.videoBrightnessOn"
-        class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4"
+        class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4"
       >
         <div>
           <label class="block text-sm font-bold text-indigo-900 mb-2">{{ t('ovr.video_brightness_value') }}: {{ config.videoBrightnessValue }}%</label>
@@ -697,7 +697,7 @@ onUnmounted(() => {
         </div>
       </div>
       
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.video_motion_smooth') }}
@@ -712,11 +712,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <label class="flex items-center justify-between">
           <span class="text-sm font-bold text-indigo-900">Advanced SS Filtering</span>
           <input
@@ -759,7 +759,7 @@ onUnmounted(() => {
       {{ t('ovr.util_title') }}
     </h2>
     <div class="space-y-3">
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.util_alarm_enabled') }}
@@ -774,13 +774,13 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
       
       <div
         v-if="config.utilAlarmEnabled"
-        class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4"
+        class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4"
       >
         <div>
           <label class="block text-sm font-bold text-indigo-900 mb-2">{{ t('ovr.util_alarm_time') }}</label>
@@ -792,7 +792,7 @@ onUnmounted(() => {
         </div>
       </div>
       
-      <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+      <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
         <div>
           <h3 class="font-bold text-indigo-900">
             {{ t('ovr.util_tracker_battery') }}
@@ -807,11 +807,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
         </label>
       </div>
 
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <label class="flex items-center justify-between">
           <span class="text-sm font-bold text-indigo-900">{{ t('ovr.util_media_keys') }}</span>
           <input
@@ -845,7 +845,7 @@ onUnmounted(() => {
       {{ t('ovr.stats_title') }}
     </h2>
     <div class="space-y-3">
-      <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+      <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
         <div class="flex justify-between items-center">
           <div>
             <h3 class="font-bold text-indigo-900">

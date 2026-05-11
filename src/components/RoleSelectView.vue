@@ -17,7 +17,7 @@
 
     <div class="fixed top-4 right-4 z-50 flex gap-2">
       <button
-        class="flex items-center gap-2 px-4 py-2 bg-white/50 hover:bg-white/80 backdrop-blur rounded-xl border border-black/10 transition-all font-medium text-sm shadow-sm"
+        class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border border-black/10 transition-all font-medium text-sm shadow-sm"
         :style="{ color: themeConfig.colors.textStrong }"
         @click="cycleLanguage"
       >
@@ -27,7 +27,7 @@
     </div>
 
     <div
-      class="z-10 bg-white/70 backdrop-blur-2xl p-10 rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border transition-all duration-500 w-[500px]"
+      class="z-10 bg-surface backdrop-blur-2xl p-10 rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border transition-all duration-500 w-[500px]"
       :style="{ borderColor: themeConfig.colors.borderSoft }"
     >
       <!-- 头部 Logo -->
@@ -114,7 +114,7 @@
             v-model="serverUrl"
             type="text"
             :placeholder="t('role.server_address_ph')"
-            class="w-full px-5 py-4 rounded-2xl bg-white/80 border-2 outline-none transition-all placeholder:text-black/30"
+            class="w-full px-5 py-4 rounded-2xl bg-surface border-2 outline-none transition-all placeholder:text-black/30"
             :style="{ borderColor: themeConfig.colors.borderSoft, color: themeConfig.colors.textStrong }"
             @focus="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderStrong"
             @blur="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderSoft"
@@ -122,7 +122,7 @@
         </div>
         <div class="flex gap-3 mt-6">
           <button
-            class="px-5 py-4 rounded-2xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all flex-1"
+            class="px-5 py-4 rounded-2xl font-bold bg-background/10 hover:bg-background/20 text-text-muted transition-all flex-1"
             @click="selectedRole = null"
           >
             {{ t('role.back') }}
@@ -162,7 +162,7 @@
             v-model="serverPassword"
             type="password"
             :placeholder="t('role.server_password_ph')"
-            class="w-full px-5 py-4 rounded-2xl bg-white/80 border-2 outline-none transition-all placeholder:text-black/30"
+            class="w-full px-5 py-4 rounded-2xl bg-surface border-2 outline-none transition-all placeholder:text-black/30"
             :style="{ borderColor: themeConfig.colors.borderSoft, color: themeConfig.colors.textStrong }"
             @focus="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderStrong"
             @blur="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderSoft"
@@ -170,7 +170,7 @@
         </div>
         <div class="flex gap-3 mt-6">
           <button
-            class="px-5 py-4 rounded-2xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all flex-1"
+            class="px-5 py-4 rounded-2xl font-bold bg-background/10 hover:bg-background/20 text-text-muted transition-all flex-1"
             @click="selectedRole = null"
           >
             {{ t('role.back') }}
@@ -210,9 +210,9 @@ import { useI18n } from 'vue-i18n';
 const { t, locale } = useI18n();
 
 const langMap: Record<string, string> = {
-  'zh-CN': '简体中文',
+  'zh-CN': t('auto_d688a3a4'),
   'en-US': 'English',
-  'ja-JP': '日本語'
+  'ja-JP': t('auto_00110af8')
 };
 
 const currentLangLabel = computed(() => langMap[locale.value] || 'Language');
@@ -269,7 +269,7 @@ const connectToServer = async () => {
     // 连接成功
     emit('role-selected', { role: 'client', url: finalUrl });
   } catch (err: any) {
-    const msg = "无法连接到该服务端地址，请检查网络或地址是否正确！\n详细错误: " + (err.message || err);
+    const msg = t('auto_90de4c5d') + (err.message || err);
     connectError.value = msg;
   } finally {
     isConnecting.value = false;

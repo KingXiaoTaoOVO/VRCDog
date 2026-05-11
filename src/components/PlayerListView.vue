@@ -121,21 +121,21 @@ const openPlayerProfile = (player: Player) => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-slate-50 p-6 rounded-3xl relative">
+  <div class="h-full flex flex-col bg-surface-hover p-6 rounded-3xl relative">
     <header class="mb-6 flex justify-between items-end shrink-0">
       <div>
-        <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <h1 class="text-2xl font-extrabold text-text tracking-tight flex items-center gap-3">
           {{ t('player_list.title') }}
           <span class="inline-flex items-center justify-center p-1.5 bg-blue-100 rounded-xl shadow-sm">
             <Users class="w-5 h-5 text-blue-600" />
           </span>
         </h1>
-        <p class="text-slate-600 font-medium mt-2 flex items-center gap-1.5 text-sm">
+        <p class="text-text-muted font-medium mt-2 flex items-center gap-1.5 text-sm">
           <MapPin
             :size="14"
-            class="text-slate-400"
+            class="text-border-strong"
           /> {{ t('player_list.current_location') }} 
-          <span class="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">{{ currentRoom }}</span>
+          <span class="font-bold text-text bg-surface px-2 py-0.5 rounded-md border border-border-soft shadow-sm">{{ currentRoom }}</span>
         </p>
       </div>
       <div class="flex items-center gap-3">
@@ -148,12 +148,12 @@ const openPlayerProfile = (player: Player) => {
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Search -->
       <div class="relative mb-4 shrink-0">
-        <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+        <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 text-border-strong w-4 h-4" />
         <input
           v-model="searchQuery"
           type="text"
           :placeholder="t('player_list.search_placeholder')"
-          class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 rounded-xl outline-none transition-all text-slate-800 text-sm shadow-sm"
+          class="w-full pl-10 pr-4 py-2.5 bg-surface border border-border-soft focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 rounded-xl outline-none transition-all text-text text-sm shadow-sm"
         >
       </div>
 
@@ -174,7 +174,7 @@ const openPlayerProfile = (player: Player) => {
 
         <div
           v-else-if="players.length === 0"
-          class="h-full flex flex-col items-center justify-center text-slate-400"
+          class="h-full flex flex-col items-center justify-center text-border-strong"
         >
           <Users
             class="mb-4 opacity-50"
@@ -183,7 +183,7 @@ const openPlayerProfile = (player: Player) => {
           <p class="font-bold text-base">
             {{ t('player_list.no_data') }}
           </p>
-          <p class="text-xs mt-1 text-slate-500">
+          <p class="text-xs mt-1 text-text-muted">
             {{ t('player_list.no_players') }}
           </p>
         </div>
@@ -207,22 +207,22 @@ const openPlayerProfile = (player: Player) => {
             
             <div
               v-else
-              class="h-32 bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm flex items-center justify-center relative"
+              class="h-32 bg-surface rounded-2xl overflow-hidden border border-border-soft shadow-sm flex items-center justify-center relative"
             >
               <div
                 v-if="player.loadingData"
-                class="absolute inset-0 bg-slate-50 flex items-center justify-center"
+                class="absolute inset-0 bg-surface-hover flex items-center justify-center"
               >
-                <div class="animate-pulse w-8 h-8 rounded-full bg-slate-200" />
+                <div class="animate-pulse w-8 h-8 rounded-full bg-background/20" />
               </div>
               <div
                 v-else
                 class="text-center p-4"
               >
-                <div class="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-black text-xl uppercase mx-auto mb-2 border border-slate-200 shadow-sm">
+                <div class="w-12 h-12 rounded-full bg-background/10 flex items-center justify-center text-text-muted font-black text-xl uppercase mx-auto mb-2 border border-border-soft shadow-sm">
                   {{ player.name.charAt(0) }}
                 </div>
-                <h3 class="font-bold text-slate-700 text-sm truncate max-w-[150px] mx-auto">
+                <h3 class="font-bold text-text-muted text-sm truncate max-w-[150px] mx-auto">
                   {{ player.name }}
                 </h3>
               </div>

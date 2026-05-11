@@ -4,74 +4,74 @@ import { ref, computed } from 'vue';
 export const themes = {
   dog: {
     id: 'dog',
-    name: '小狗风格',
+    name: '橙黄色小狗风格',
     logo: new URL('./assets/dog.jpg', import.meta.url).href,
     appTitle: 'VrcDog',
     colors: {
-      bgMain: '#f8fafc', // slate-50
-      blob1: 'rgba(199, 210, 254, 0.4)', // indigo-200/40
-      blob2: 'rgba(191, 219, 254, 0.4)', // blue-200/40
-      borderSoft: 'rgba(241, 245, 249, 1)', // slate-100
-      borderStrong: 'rgba(226, 232, 240, 1)', // slate-200
-      textStrong: '#0f172a', // slate-900
-      textSoft: '#475569', // slate-600
-      activeBg: 'rgba(224, 231, 255, 0.5)', // indigo-100/50
-      primaryBtnBg: '#6366f1', // indigo-500
-      primaryBtnHover: '#4f46e5', // indigo-600
+      bgMain: '#fffbeb', // amber-50
+      blob1: 'rgba(253, 230, 138, 0.6)', // amber-200
+      blob2: 'rgba(254, 215, 170, 0.6)', // orange-200
+      borderSoft: 'rgba(255, 255, 255, 0.4)', // glass soft
+      borderStrong: 'rgba(255, 255, 255, 0.8)', // glass strong
+      textStrong: '#78350f', // amber-900
+      textSoft: '#92400e', // amber-800
+      activeBg: 'rgba(254, 243, 199, 0.5)',
+      primaryBtnBg: '#f59e0b', // amber-500
+      primaryBtnHover: '#d97706', // amber-600
     }
   },
   cat: {
     id: 'cat',
-    name: '小猫风格',
+    name: '黄绿色小猫风格',
     logo: new URL('./assets/main.png', import.meta.url).href,
     appTitle: 'VrcCat',
     colors: {
       bgMain: '#f7fee7', // lime-50
-      blob1: 'rgba(217, 249, 157, 0.4)', // lime-200/40
-      blob2: 'rgba(167, 243, 208, 0.4)', // emerald-200/40
-      borderSoft: 'rgba(236, 252, 203, 1)', // lime-100
-      borderStrong: 'rgba(217, 249, 157, 1)', // lime-200
+      blob1: 'rgba(217, 249, 157, 0.6)', // lime-200
+      blob2: 'rgba(167, 243, 208, 0.6)', // emerald-200
+      borderSoft: 'rgba(255, 255, 255, 0.4)',
+      borderStrong: 'rgba(255, 255, 255, 0.8)',
       textStrong: '#365314', // lime-900
       textSoft: '#4d7c0f', // lime-700
-      activeBg: 'rgba(236, 252, 203, 0.5)', // lime-100/50
-      primaryBtnBg: '#10b981', // emerald-500
-      primaryBtnHover: '#059669', // emerald-600
+      activeBg: 'rgba(236, 252, 203, 0.5)',
+      primaryBtnBg: '#84cc16', // lime-500
+      primaryBtnHover: '#65a30d', // lime-600
     }
   },
   helmet: {
     id: 'helmet',
-    name: '头盔风格',
+    name: '粉红色头盔风格',
     logo: new URL('./assets/helmet.jpeg', import.meta.url).href,
     appTitle: 'VrcArai',
     colors: {
-      bgMain: '#fef2f2', // red-50
-      blob1: 'rgba(254, 202, 202, 0.4)', // red-200/40
-      blob2: 'rgba(226, 232, 240, 0.4)', // slate-200/40
-      borderSoft: 'rgba(254, 226, 226, 1)', // red-100
-      borderStrong: 'rgba(254, 202, 202, 1)', // red-200
-      textStrong: '#7f1d1d', // red-900
-      textSoft: '#b91c1c', // red-700
-      activeBg: 'rgba(254, 226, 226, 0.5)', // red-100/50
-      primaryBtnBg: '#ef4444', // red-500
-      primaryBtnHover: '#dc2626', // red-600
+      bgMain: '#fdf2f8', // pink-50
+      blob1: 'rgba(251, 207, 232, 0.6)', // pink-200
+      blob2: 'rgba(254, 205, 211, 0.6)', // rose-200
+      borderSoft: 'rgba(255, 255, 255, 0.4)',
+      borderStrong: 'rgba(255, 255, 255, 0.8)',
+      textStrong: '#831843', // pink-900
+      textSoft: '#9d174d', // pink-800
+      activeBg: 'rgba(252, 231, 243, 0.5)',
+      primaryBtnBg: '#ec4899', // pink-500
+      primaryBtnHover: '#db2777', // pink-600
     }
   },
   mono: {
     id: 'mono',
-    name: '极简黑白',
+    name: '简约黑白风格',
     logo: new URL('./assets/mono.jpeg', import.meta.url).href,
     appTitle: 'VrcMono',
     colors: {
-      bgMain: '#f3f4f6', // gray-100
-      blob1: 'rgba(209, 213, 219, 0.4)', // gray-300/40
-      blob2: 'rgba(229, 231, 235, 0.4)', // gray-200/40
-      borderSoft: 'rgba(229, 231, 235, 1)', // gray-200
-      borderStrong: 'rgba(156, 163, 175, 1)', // gray-400
+      bgMain: '#f9fafb', // gray-50
+      blob1: 'rgba(229, 231, 235, 0.6)', // gray-200
+      blob2: 'rgba(209, 213, 219, 0.6)', // gray-300
+      borderSoft: 'rgba(255, 255, 255, 0.4)',
+      borderStrong: 'rgba(255, 255, 255, 0.8)',
       textStrong: '#111827', // gray-900
       textSoft: '#4b5563', // gray-600
-      activeBg: 'rgba(209, 213, 219, 0.5)', // gray-300/50
-      primaryBtnBg: '#374151', // gray-700
-      primaryBtnHover: '#111827', // gray-900
+      activeBg: 'rgba(243, 244, 246, 0.5)',
+      primaryBtnBg: '#374151',
+      primaryBtnHover: '#1f2937',
     }
   }
 };

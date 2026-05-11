@@ -24,9 +24,9 @@ const handleExport = async () => {
     
     if (filePath) {
       await SysApi.backupDatabase({ destPath: filePath });
-      exportResult.value = t('export.success') || '备份成功 (Backup successful)';
+      exportResult.value = t('export.success') || t('auto_d51cba82');
     } else {
-      exportResult.value = '已取消 (Cancelled)';
+      exportResult.value = t('auto_20fdb3a3');
     }
   } catch (err: any) {
     exportResult.value = t('export.fail') + `: ${err}`;
@@ -36,7 +36,7 @@ const handleExport = async () => {
 };
 
 const handleImport = async () => {
-  if (!confirm('警告：还原数据将覆盖您当前的所有本地记录（包括好友日志、设置、笔记等）。\n是否继续？\n\nWarning: Restoring data will overwrite all your current local records. Continue?')) {
+  if (!confirm(t('auto_e6be0a1c'))) {
     return;
   }
   
@@ -50,15 +50,15 @@ const handleImport = async () => {
     
     if (filePath && typeof filePath === 'string') {
       await SysApi.restoreDatabase({ srcPath: filePath });
-      importResult.value = '还原成功，正在重启... (Restore successful, restarting...)';
+      importResult.value = t('auto_1a05ef0f');
       setTimeout(() => {
         invoke('process::restart');
       }, 2000);
     } else {
-      importResult.value = '已取消 (Cancelled)';
+      importResult.value = t('auto_20fdb3a3');
     }
   } catch (err: any) {
-    importResult.value = '还原失败 (Restore failed): ' + String(err);
+    importResult.value = t('auto_0919c89c') + String(err);
   } finally {
     importing.value = false;
   }
@@ -66,12 +66,12 @@ const handleImport = async () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
-    <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3 mb-8">
+    <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3 mb-8">
       <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
         <DatabaseBackup class="w-6 h-6 text-indigo-600" />
       </span>
@@ -80,23 +80,23 @@ const handleImport = async () => {
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
       <!-- Backup Section -->
-      <div class="bg-white/80 backdrop-blur rounded-2xl p-6 border-2 border-slate-200 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
+      <div class="bg-surface backdrop-blur rounded-2xl p-6 border-2 border-border-soft shadow-sm flex flex-col items-center justify-center text-center space-y-4">
         <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-2">
           <Download
             class="text-indigo-500"
             :size="32"
           />
         </div>
-        <h3 class="text-xl font-bold text-slate-900">
+        <h3 class="text-xl font-bold text-text">
           创建完整备份
         </h3>
-        <p class="text-sm text-slate-500 px-4">
+        <p class="text-sm text-text-muted px-4">
           将您所有的本地数据（好友活动日志、游戏日志、笔记、设置、自定义收藏等）完整导出为一个独立的数据库文件。
         </p>
 
         <button
           :disabled="exporting"
-          class="bg-slate-900 hover:bg-black text-white font-bold px-8 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 mt-4 disabled:opacity-50"
+          class="bg-surface hover:bg-black text-white font-bold px-8 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 mt-4 disabled:opacity-50"
           @click="handleExport"
         >
           <Loader2
@@ -114,7 +114,7 @@ const handleImport = async () => {
         <p
           v-if="exportResult"
           class="mt-2 text-sm font-bold flex items-center justify-center gap-1"
-          :class="exportResult.includes('成功') ? 'text-green-600' : 'text-slate-600'"
+          :class="exportResult.includes('成功') ? 'text-green-600' : 'text-text-muted'"
         >
           <CheckCircle
             v-if="exportResult.includes('成功')"
@@ -125,17 +125,17 @@ const handleImport = async () => {
       </div>
 
       <!-- Restore Section -->
-      <div class="bg-white/80 backdrop-blur rounded-2xl p-6 border-2 border-red-100 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
+      <div class="bg-surface backdrop-blur rounded-2xl p-6 border-2 border-red-100 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
         <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2">
           <Upload
             class="text-red-500"
             :size="32"
           />
         </div>
-        <h3 class="text-xl font-bold text-slate-900">
+        <h3 class="text-xl font-bold text-text">
           还原备份数据
         </h3>
-        <p class="text-sm text-slate-500 px-4">
+        <p class="text-sm text-text-muted px-4">
           从以前保存的备份文件中恢复所有数据。<br><span class="text-red-500 font-bold">{{ t('global.auto_7fb6b2b9') }}</span>
         </p>
 
@@ -159,7 +159,7 @@ const handleImport = async () => {
         <p
           v-if="importResult"
           class="mt-2 text-sm font-bold flex items-center justify-center gap-1"
-          :class="importResult.includes('成功') ? 'text-green-600' : 'text-slate-600'"
+          :class="importResult.includes('成功') ? 'text-green-600' : 'text-text-muted'"
         >
           <CheckCircle
             v-if="importResult.includes('成功')"

@@ -10,9 +10,9 @@ const { t, locale } = useI18n();
 const appVersion = ref('');
 
 const langMap: Record<string, string> = {
-  'zh-CN': '简体中文',
+  'zh-CN': t('auto_d688a3a4'),
   'en-US': 'English',
-  'ja-JP': '日本語'
+  'ja-JP': t('auto_00110af8')
 };
 
 const currentLangLabel = computed(() => langMap[locale.value] || 'Language');
@@ -169,7 +169,7 @@ onMounted(async () => {
   <div class="flex items-center justify-center h-screen bg-orange-50/50 relative overflow-hidden">
     <div class="fixed top-4 right-4 z-50 flex gap-2">
       <button
-        class="flex items-center gap-2 px-4 py-2 bg-white/50 hover:bg-white/80 backdrop-blur rounded-xl border border-orange-200 transition-all font-medium text-sm shadow-sm text-orange-900"
+        class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border border-orange-200 transition-all font-medium text-sm shadow-sm text-text"
         @click="cycleLanguage"
       >
         <Globe class="w-4 h-4" />
@@ -190,7 +190,7 @@ onMounted(async () => {
       />
     </div>
 
-    <div class="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md border border-orange-100 relative z-10">
+    <div class="bg-surface p-8 rounded-3xl shadow-xl w-full max-w-md border border-orange-100 relative z-10">
       <div class="text-center mb-8">
         <h1 class="text-3xl font-bold text-orange-600 mb-2 font-mono flex items-center justify-center gap-2">
           <Bone class="animate-bounce" /> {{ t('login.title') }}
@@ -205,7 +205,7 @@ onMounted(async () => {
         class="space-y-5"
       >
         <div>
-          <label class="block text-sm font-bold text-orange-900 mb-1 flex items-center gap-1">
+          <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1">
             <User :size="16" /> {{ t('login.username') }}
           </label>
           <input
@@ -216,7 +216,7 @@ onMounted(async () => {
           >
         </div>
         <div>
-          <label class="block text-sm font-bold text-orange-900 mb-1 flex items-center gap-1">
+          <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1">
             <Key :size="16" /> {{ t('login.password') }}
           </label>
           <input
@@ -235,7 +235,7 @@ onMounted(async () => {
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-orange-900 mb-1">{{ t('login.use_cookie') }}</label>
+          <label class="block text-xs font-bold text-text mb-1">{{ t('login.use_cookie') }}</label>
           <input
             v-model="authCookie"
             type="text"
@@ -268,7 +268,7 @@ onMounted(async () => {
             class="mx-auto text-orange-500 mb-2"
             :size="32"
           />
-          <p class="text-orange-900 font-bold">
+          <p class="text-text font-bold">
             {{ t('login.2fa_title') }}
           </p>
           <p class="text-sm text-orange-600/80">
@@ -314,7 +314,7 @@ onMounted(async () => {
     
     <!-- 左下角版本号 -->
     <div class="absolute bottom-4 left-4 z-50">
-      <span class="text-xs font-mono font-bold text-slate-900/40 bg-white/40 backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
+      <span class="text-xs font-mono font-bold text-text-muted0/40 bg-surface backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
     </div>
   </div>
 </template>

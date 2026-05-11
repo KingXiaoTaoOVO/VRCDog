@@ -51,14 +51,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-slate-50/50 rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 shrink-0 z-10">
       <div>
-        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
           <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
             <UserCircle class="w-6 h-6 text-indigo-600" />
           </span>
@@ -69,19 +69,19 @@ onMounted(() => {
       <div class="flex items-center gap-2">
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search class="h-4 w-4 text-slate-400" />
+            <Search class="h-4 w-4 text-border-strong" />
           </div>
           <input
             v-model="searchQuery"
             type="text"
-            class="block w-64 pl-10 pr-4 py-2 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
+            class="block w-64 pl-10 pr-4 py-2 bg-surface border border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
             :placeholder="t('my_avatars.search_placeholder')"
           >
         </div>
         
         <button
           :disabled="loading"
-          class="p-2.5 rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all disabled:opacity-50"
+          class="p-2.5 rounded-xl bg-surface border border-border-soft shadow-sm text-text-muted hover:text-indigo-600 hover:border-indigo-200 transition-all disabled:opacity-50"
           @click="fetchAvatars"
         >
           <Loader2
@@ -107,7 +107,7 @@ onMounted(() => {
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading && avatars.length === 0"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-slate-50/50 backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -118,13 +118,13 @@ onMounted(() => {
 
       <div
         v-else-if="avatars.length === 0"
-        class="h-full flex flex-col items-center justify-center text-slate-400"
+        class="h-full flex flex-col items-center justify-center text-border-strong"
       >
         <UserCircle
           class="mb-4 opacity-30"
           :size="64"
         />
-        <p class="font-bold text-xl text-slate-500">
+        <p class="font-bold text-xl text-text-muted">
           {{ t('my_avatars.no_avatars') }}
         </p>
       </div>

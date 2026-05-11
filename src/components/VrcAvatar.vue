@@ -8,9 +8,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { ref, onMounted, watch } from 'vue';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import vrchatImg from '../assets/vrchat.png';
+
+const { t } = useI18n();
 
 const props = withDefaults(defineProps<{
   user?: any;
@@ -93,7 +96,7 @@ const loadImage = async () => {
       cache.set(targetUrl, finalUrl);
     }
   } catch (err) {
-    console.warn('图片加载失败:', err);
+    console.warn(t('auto_78c7f60e'), err);
     imgSrc.value = vrchatImg;
   }
 };

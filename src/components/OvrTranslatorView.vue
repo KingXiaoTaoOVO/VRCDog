@@ -368,7 +368,7 @@ const initOvrBackend = async () => {
     if (status?.initialized) {
       ovrConnected.value = true;
       ovrHmdModel.value = status.hmd_model || 'Unknown';
-      ovrLogs.value.push((t('ovr.log_ovr_connected') || '[OVR] 已连接: {model}').replace('{model}', ovrHmdModel.value));
+      ovrLogs.value.push((t('ovr.log_ovr_connected') || t('auto_2ef2d51a')).replace('{model}', ovrHmdModel.value));
     }
   } catch (err: any) {
     ovrLogs.value.push(t('ovr.log_ovr_init_fail').replace('{error}', String(err?.message || err)));
@@ -654,21 +654,21 @@ const getKeyDisplay = (val: string) => {
   <div class="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pr-2 custom-scrollbar">
     <header class="mb-6 flex justify-between items-end flex-shrink-0">
       <div>
-        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+        <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
           {{ t('ovr.title') }} <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider">{{ t('ovr.badge') }}</span>
         </h1>
-        <p class="text-slate-500 font-medium mt-1">
+        <p class="text-text-muted font-medium mt-1">
           {{ t('ovr.subtitle') }}
         </p>
         <!-- VR Backend Connection Status -->
         <div class="mt-2 flex items-center gap-2">
           <div
             class="w-2.5 h-2.5 rounded-full"
-            :class="ovrConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-400'"
+            :class="ovrConnected ? 'bg-green-500 animate-pulse' : 'bg-surface'"
           />
           <span
             class="text-xs font-bold"
-            :class="ovrConnected ? 'text-green-700' : 'text-slate-500'"
+            :class="ovrConnected ? 'text-green-700' : 'text-text-muted'"
           >
             {{ ovrConnected ? t('ovr.ovr_connected').replace('{model}', ovrHmdModel) : t('ovr.ovr_disconnected') }}
           </span>
@@ -700,46 +700,46 @@ const getKeyDisplay = (val: string) => {
       </div>
     </header>
 
-    <div class="h-[650px] flex-shrink-0 mb-8 bg-white/60 backdrop-blur-md border border-slate-200 rounded-3xl shadow-lg flex overflow-hidden">
+    <div class="h-[650px] flex-shrink-0 mb-8 bg-surface backdrop-blur-md border border-border-soft rounded-3xl shadow-lg flex overflow-hidden">
       <!-- 左侧导航 -->
-      <div class="w-48 bg-white/40 border-r border-indigo-50 p-4 space-y-2 overflow-y-auto custom-scrollbar">
+      <div class="w-48 bg-surface border-r border-indigo-50 p-4 space-y-2 overflow-y-auto custom-scrollbar">
         <button
-          :class="activeSubTab === 'basic' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'basic' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'basic'"
         >
           <Settings :size="16" /> {{ t('ovr.tab_basic') }}
         </button>
         <button
-          :class="activeSubTab === 'desktop' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'desktop' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'desktop'"
         >
           <MonitorSpeaker :size="16" /> {{ t('ovr.tab_desktop') }}
         </button>
         <button
-          :class="activeSubTab === 'ocr' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'ocr' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'ocr'"
         >
           <ScanEye :size="16" /> {{ t('ovr.tab_ocr') }}
         </button>
         <button
-          :class="activeSubTab === 'trans' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'trans' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'trans'"
         >
           <Languages :size="16" /> {{ t('ovr.tab_trans') }}
         </button>
         <button
-          :class="activeSubTab === 'overlay' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'overlay' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'overlay'"
         >
           <Layers :size="16" /> {{ t('ovr.tab_overlay') }}
         </button>
         <button
-          :class="activeSubTab === 'adv' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'adv' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'adv'"
         >
@@ -754,49 +754,49 @@ const getKeyDisplay = (val: string) => {
         </div>
 
         <button
-          :class="activeSubTab === 'steamvr' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'steamvr' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'steamvr'"
         >
           <Power :size="16" /> {{ t('ovr.tab_steamvr') }}
         </button>
         <button
-          :class="activeSubTab === 'chaperone' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'chaperone' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'chaperone'"
         >
           <Shield :size="16" /> {{ t('ovr.tab_chaperone') }}
         </button>
         <button
-          :class="activeSubTab === 'playspace' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'playspace' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'playspace'"
         >
           <Move3d :size="16" /> {{ t('ovr.tab_playspace') }}
         </button>
         <button
-          :class="activeSubTab === 'audio' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'audio' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'audio'"
         >
           <Headphones :size="16" /> {{ t('ovr.tab_audio') }}
         </button>
         <button
-          :class="activeSubTab === 'video' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'video' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'video'"
         >
           <Sun :size="16" /> {{ t('ovr.tab_video') }}
         </button>
         <button
-          :class="activeSubTab === 'utilities' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'utilities' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'utilities'"
         >
           <Keyboard :size="16" /> {{ t('ovr.tab_utilities') }}
         </button>
         <button
-          :class="activeSubTab === 'statistics' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-white'"
+          :class="activeSubTab === 'statistics' ? 'bg-indigo-100 text-indigo-900 font-bold' : 'text-indigo-700 hover:bg-surface'"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center gap-3 text-sm"
           @click="activeSubTab = 'statistics'"
         >
@@ -815,7 +815,7 @@ const getKeyDisplay = (val: string) => {
             {{ t('ovr.basic_title') }}
           </h2>
           
-          <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+          <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
             <div>
               <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                 <PlaySquare class="w-4 h-4 text-indigo-500" /> {{ t('ovr.basic_enable') }}
@@ -830,11 +830,11 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
 
-          <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+          <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
             <div>
               <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                 <Languages class="w-4 h-4 text-indigo-500" /> {{ t('ovr.basic_dual') }}
@@ -849,11 +849,11 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
           
-          <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+          <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
             <div>
               <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                 <Watch class="w-4 h-4 text-indigo-500" /> {{ t('ovr.basic_wrist') }}
@@ -868,7 +868,7 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
 
@@ -876,7 +876,7 @@ const getKeyDisplay = (val: string) => {
             <Gamepad2 class="w-4 h-4 text-indigo-500" /> {{ t('ovr.controller_mapping') }}
           </h3>
 
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div>
               <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.trigger_key') }}</label>
               <select
@@ -940,7 +940,7 @@ const getKeyDisplay = (val: string) => {
           </div>
 
           <!-- 主开关 -->
-          <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+          <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
             <div>
               <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                 <MonitorSpeaker class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_enable') }}
@@ -955,14 +955,14 @@ const getKeyDisplay = (val: string) => {
                 type="checkbox"
                 class="sr-only peer"
               >
-              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+              <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
             </label>
           </div>
 
           <!-- 手动扫描按钮 -->
           <div
             v-if="config.general.desktopMode"
-            class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3"
+            class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-3"
           >
             <h3 class="text-sm font-extrabold text-indigo-950 flex items-center gap-2">
               <ScanEye class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_scan_section') }}
@@ -1005,7 +1005,7 @@ const getKeyDisplay = (val: string) => {
           <!-- 自动扫描间隔 -->
           <div
             v-if="config.general.desktopMode"
-            class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3"
+            class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-3"
           >
             <h3 class="text-sm font-extrabold text-indigo-950 flex items-center gap-2">
               <Timer class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_interval') }}
@@ -1031,7 +1031,7 @@ const getKeyDisplay = (val: string) => {
             v-if="config.general.desktopMode"
             class="space-y-3"
           >
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Volume2 class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_tts') }}
@@ -1046,11 +1046,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
 
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <MessageSquare class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_osc') }}
@@ -1065,7 +1065,7 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
           </div>
@@ -1073,7 +1073,7 @@ const getKeyDisplay = (val: string) => {
           <!-- 翻译结果实时显示 -->
           <div
             v-if="config.general.desktopMode && desktopTranslationResult"
-            class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-3"
+            class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-3"
           >
             <h3 class="text-sm font-extrabold text-indigo-950 flex items-center gap-2">
               <Languages class="w-4 h-4 text-indigo-500" /> {{ t('ovr.desktop_result') }}
@@ -1109,7 +1109,7 @@ const getKeyDisplay = (val: string) => {
             {{ t('ovr.ocr_title') }}
           </h2>
           
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div>
               <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.ocr_lang') }}</label>
               <select
@@ -1150,7 +1150,7 @@ const getKeyDisplay = (val: string) => {
             </div>
           </div>
           
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <h3 class="font-bold text-indigo-900">
               {{ t('ovr.ocr_enhance_title') }}
             </h3>
@@ -1184,7 +1184,7 @@ const getKeyDisplay = (val: string) => {
             {{ t('ovr.trans_title') }}
           </h2>
           
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.trans_source') }}</label>
@@ -1223,7 +1223,7 @@ const getKeyDisplay = (val: string) => {
             </div>
           </div>
           
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div>
               <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.trans_mode') }}</label>
               <select
@@ -1321,7 +1321,7 @@ const getKeyDisplay = (val: string) => {
             {{ t('ovr.overlay_title') }}
           </h2>
           
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <h3 class="font-bold text-indigo-900">
               {{ t('ovr.overlay_text_bg') }}
             </h3>
@@ -1363,7 +1363,7 @@ const getKeyDisplay = (val: string) => {
             </div>
           </div>
           
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div>
               <label class="block text-sm font-bold text-indigo-900 mb-1">{{ t('ovr.overlay_lock_mode') }}</label>
               <select
@@ -1403,7 +1403,7 @@ const getKeyDisplay = (val: string) => {
           </h2>
           
           <!-- 空间拖拽 -->
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <h3 class="font-bold text-indigo-900 flex items-center gap-2">
               <Move3d class="w-4 h-4 text-indigo-500" /> {{ t('ovr.playspace_drag') }}
             </h3>
@@ -1432,7 +1432,7 @@ const getKeyDisplay = (val: string) => {
           </div>
 
           <!-- 高度调整 (拉高低) -->
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div class="flex items-center justify-between mb-2">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
@@ -1448,7 +1448,7 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
 
@@ -1472,7 +1472,7 @@ const getKeyDisplay = (val: string) => {
           </div>
 
           <!-- 空间偏移 (XYZ) -->
-          <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+          <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
             <div>
               <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                 <Move class="w-4 h-4 text-indigo-500" /> {{ t('ovr.playspace_offsets') }}
@@ -1542,7 +1542,7 @@ const getKeyDisplay = (val: string) => {
           </h2>
           
           <div class="space-y-3">
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Shield class="w-4 h-4 text-indigo-500" /> {{ t('ovr.chaperone_force_bounds') }}
@@ -1557,11 +1557,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Activity class="w-4 h-4 text-indigo-500" /> {{ t('ovr.chaperone_haptics') }}
@@ -1576,11 +1576,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
-            <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+            <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
               <div class="flex justify-between items-center">
                 <div>
                   <h3 class="font-bold text-indigo-900 flex items-center gap-2">
@@ -1613,7 +1613,7 @@ const getKeyDisplay = (val: string) => {
           </h2>
           
           <div class="space-y-3">
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Wind class="w-4 h-4 text-indigo-500" /> {{ t('ovr.video_motion_smooth') }}
@@ -1628,11 +1628,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
-            <div class="p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm space-y-4">
+            <div class="p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm space-y-4">
               <div class="flex justify-between items-center">
                 <div>
                   <h3 class="font-bold text-indigo-900 flex items-center gap-2">
@@ -1666,7 +1666,7 @@ const getKeyDisplay = (val: string) => {
           </h2>
           
           <div class="space-y-3">
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 flex items-center gap-2">
                   <Keyboard class="w-4 h-4 text-indigo-500" /> {{ t('ovr.util_media_keys') }}
@@ -1681,7 +1681,7 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
           </div>
@@ -1697,7 +1697,7 @@ const getKeyDisplay = (val: string) => {
           </h2>
           
           <div class="space-y-3">
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900">
                   {{ t('ovr.adv_cpu') }}
@@ -1712,11 +1712,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900">
                   {{ t('ovr.adv_gpu') }}
@@ -1731,11 +1731,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
             
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900 text-indigo-600">
                   {{ t('ovr.adv_debug') }}
@@ -1750,11 +1750,11 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
 
-            <div class="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-50 shadow-sm">
+            <div class="flex items-center justify-between p-4 bg-surface rounded-2xl border border-indigo-50 shadow-sm">
               <div>
                 <h3 class="font-bold text-indigo-900">
                   {{ t('ovr.adv_autostart') }}
@@ -1769,7 +1769,7 @@ const getKeyDisplay = (val: string) => {
                   type="checkbox"
                   class="sr-only peer"
                 >
-                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
               </label>
             </div>
           </div>
@@ -1785,7 +1785,7 @@ const getKeyDisplay = (val: string) => {
     <!-- ========== VR Environment Preview ========== -->
     <div class="mt-6 animate-fade-in">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+        <h2 class="text-lg font-extrabold text-text flex items-center gap-2">
           <Eye
             :size="18"
             class="text-indigo-500"
@@ -1801,7 +1801,7 @@ const getKeyDisplay = (val: string) => {
           </button>
           <button
             class="px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors flex items-center gap-1"
-            :class="showVrPreview ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border-indigo-200' : 'text-slate-500 bg-slate-50 hover:bg-slate-100 border-slate-200'"
+            :class="showVrPreview ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border-indigo-200' : 'text-text-muted bg-surface-hover hover:bg-background/10 border-border-soft'"
             @click="showVrPreview = !showVrPreview"
           >
             <component

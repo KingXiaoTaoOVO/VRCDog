@@ -25,3 +25,10 @@ dist-ssr
 
 # Tauri Secrets
 .tauri/
+
+# Agent and temporary files
+skills使用说明
+.scratch/
+logs/
+.gemini/
+docs/agents/
