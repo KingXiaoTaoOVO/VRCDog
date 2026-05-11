@@ -43,12 +43,12 @@ const getCell = (day: number, hour: number) => {
 };
 
 const getCellColor = (count: number) => {
-  if (count === 0) return 'bg-background/10 border-transparent';
+  if (count === 0) return 'bg-surface border-transparent';
   const ratio = count / maxCount.value;
-  if (ratio < 0.25) return 'bg-indigo-200 border-indigo-300';
-  if (ratio < 0.5) return 'bg-indigo-400 border-indigo-500 shadow-sm';
-  if (ratio < 0.75) return 'bg-indigo-600 text-white shadow-md border-indigo-700';
-  return 'bg-purple-600 text-white shadow-lg animate-pulse border-purple-700';
+  if (ratio < 0.25) return 'bg-primary/10 border-primary';
+  if (ratio < 0.5) return 'bg-primary/10 border-primary shadow-sm';
+  if (ratio < 0.75) return 'bg-primary/10 text-white shadow-md border-primary';
+  return 'bg-primary/10 text-white shadow-lg animate-pulse border-primary';
 };
 
 const peakHour = computed(() => {
@@ -90,43 +90,43 @@ const openDetails = async (day: number, hour: number) => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
       <div>
         <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-            <CalendarHeart class="w-6 h-6 text-indigo-600" />
+          <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+            <CalendarHeart class="w-6 h-6 text-primary" />
           </span>
           {{ t('heatmap.title') }}
         </h2>
       </div>
       <div class="flex flex-col items-end gap-2 text-xs">
-        <span class="text-indigo-600 font-bold bg-surface px-3 py-1.5 rounded-xl border border-border-soft shadow-sm flex items-center gap-1.5">
+        <span class="text-primary font-bold bg-surface px-3 py-1.5 rounded-xl border-border-soft shadow-sm flex items-center gap-1.5">
           <Flame
             :size="14"
             class="text-orange-500"
           /> {{ t('heatmap.peak_hour') }}: {{ peakHour }}
         </span>
-        <span class="text-text-muted font-bold bg-surface px-3 py-1.5 rounded-xl border border-border-soft shadow-sm flex items-center gap-1.5">
+        <span class="text-text-muted font-bold bg-surface px-3 py-1.5 rounded-xl border-border-soft shadow-sm flex items-center gap-1.5">
           <Zap
             :size="14"
-            class="text-indigo-500"
+            class="text-primary"
           /> {{ t('heatmap.total_records') }}: {{ totalActivity }}
         </span>
       </div>
     </div>
 
-    <div class="bg-surface backdrop-blur-xl rounded-3xl p-6 border border-border-strong shadow-lg shadow-slate-200/40 overflow-y-auto custom-scrollbar flex-1 flex flex-col z-10 relative">
+    <div class="bg-surface backdrop-blur-xl rounded-3xl p-6 border-border-strong shadow-lg shadow-slate-200/40 overflow-y-auto custom-scrollbar flex-1 flex flex-col z-10 relative">
       <!-- 图例 -->
-      <div class="flex items-center justify-end gap-2.5 mb-6 text-xs text-text-muted font-bold bg-surface-hover backdrop-blur py-2 px-5 rounded-full self-end border border-border-soft shadow-sm">
+      <div class="flex items-center justify-end gap-2.5 mb-6 text-xs text-text-muted font-bold bg-surface-hover backdrop-blur py-2 px-5 rounded-full self-end border-border-soft shadow-sm">
         <span>{{ t('heatmap.legend_quiet') }}</span>
-        <div class="w-4 h-4 rounded-md bg-background/10" />
-        <div class="w-4 h-4 rounded-md bg-indigo-200" />
-        <div class="w-4 h-4 rounded-md bg-indigo-400" />
-        <div class="w-4 h-4 rounded-md bg-indigo-600" />
-        <div class="w-4 h-4 rounded-md bg-purple-600" />
+        <div class="w-4 h-4 rounded-md bg-surface" />
+        <div class="w-4 h-4 rounded-md bg-primary/10" />
+        <div class="w-4 h-4 rounded-md bg-primary/10" />
+        <div class="w-4 h-4 rounded-md bg-primary/10" />
+        <div class="w-4 h-4 rounded-md bg-primary/10" />
         <span>{{ t('heatmap.legend_busy') }}</span>
       </div>
 
@@ -134,7 +134,7 @@ const openDetails = async (day: number, hour: number) => {
       <div class="flex-1 overflow-x-auto pb-4">
         <div
           v-if="loading"
-          class="h-full flex flex-col items-center justify-center text-indigo-500 font-bold opacity-70"
+          class="h-full flex flex-col items-center justify-center text-primary font-bold opacity-70"
         >
           <CalendarHeart
             class="animate-bounce mb-4"
@@ -175,7 +175,7 @@ const openDetails = async (day: number, hour: number) => {
                 class="p-1"
               >
                 <div
-                  class="w-full aspect-square rounded-[10px] border transition-all hover:scale-125 hover:z-10 hover:shadow-xl min-w-[24px] flex items-center justify-center relative group"
+                  class="w-full aspect-square rounded-[10px] transition-all hover:scale-125 hover:z-10 hover:shadow-xl min-w-[24px] flex items-center justify-center relative group"
                   :class="[getCellColor(getCell(dayIdx, hour - 1).count), getCell(dayIdx, hour - 1).count > 0 ? 'cursor-pointer' : 'cursor-default']"
                   @click="openDetails(dayIdx, hour - 1)"
                 >
@@ -184,7 +184,7 @@ const openDetails = async (day: number, hour: number) => {
                     class="text-[10px] text-white font-bold opacity-90 pointer-events-none drop-shadow-sm"
                   />
                   
-                  <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-surface text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 drop-shadow-lg">
+                  <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-surface text-text-inverse text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 drop-shadow-lg">
                     {{ dayLabel }} {{ hour - 1 }}:00 — {{ t('heatmap.count_unit', { count: getCell(dayIdx, hour - 1).count }) }}
                   </div>
                 </div>
@@ -203,14 +203,14 @@ const openDetails = async (day: number, hour: number) => {
     >
       <template v-if="showDetails">
         <div class="p-6">
-          <h3 class="text-xl font-black text-text flex items-center gap-3 mb-5 pb-5 border-b border-border-soft">
-            <Users class="text-indigo-600" />
+          <h3 class="text-xl font-black text-text flex items-center gap-3 mb-5 pb-5 border-border-soft">
+            <Users class="text-primary" />
             {{ detailTitle }}
           </h3>
           
           <div
             v-if="detailLoading"
-            class="py-12 flex justify-center text-indigo-600"
+            class="py-12 flex justify-center text-primary"
           >
             <Loader2
               class="animate-spin"
@@ -232,15 +232,15 @@ const openDetails = async (day: number, hour: number) => {
             <div
               v-for="(item, idx) in detailData"
               :key="idx"
-              class="flex items-center justify-between p-4 bg-surface-hover rounded-2xl hover:bg-surface transition-colors border border-border-soft shadow-sm"
+              class="flex items-center justify-between p-4 bg-surface-hover rounded-2xl hover:bg-surface transition-colors border-border-soft shadow-sm"
             >
               <div class="flex items-center gap-4">
-                <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-xs">
+                <div class="w-8 h-8 rounded-full bg-primary/10 text-primary font-black flex items-center justify-center text-xs">
                   #{{ idx + 1 }}
                 </div>
                 <span class="font-bold text-text text-base">{{ item.displayName }}</span>
               </div>
-              <span class="bg-indigo-50 text-indigo-700 border border-indigo-100 px-3 py-1 rounded-xl text-xs font-bold">{{ t('heatmap.count_unit', { count: item.count }) }}</span>
+              <span class="bg-primary/10 text-primary border-primary px-3 py-1 rounded-xl text-xs font-bold">{{ t('heatmap.count_unit', { count: item.count }) }}</span>
             </div>
           </div>
         </div>

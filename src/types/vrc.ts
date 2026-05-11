@@ -12,7 +12,7 @@ export interface VrcUser {
   currentAvatarThumbnailImageUrl?: string;
   location?: string;
   isFriend?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface VrcWorld {
@@ -26,7 +26,7 @@ export interface VrcWorld {
   tags?: string[];
   imageUrl?: string;
   thumbnailImageUrl?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface VrcAvatar {
@@ -39,7 +39,7 @@ export interface VrcAvatar {
   thumbnailImageUrl: string;
   releaseStatus: string;
   supportedPlatforms: string[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface VrcNotification {
@@ -48,7 +48,7 @@ export interface VrcNotification {
   message: string;
   details: string | Record<string, any>;
   created_at: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface GalleryImage {
@@ -57,7 +57,7 @@ export interface GalleryImage {
   created_at: number;
   assetUrl?: string;
   dateStr?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface FriendLog {
@@ -67,7 +67,7 @@ export interface FriendLog {
   event_type: string;
   detail?: string;
   created_at: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface VrcGroup {
@@ -78,5 +78,5 @@ export interface VrcGroup {
   memberCount?: number;
   iconUrl?: string;
   bannerUrl?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }

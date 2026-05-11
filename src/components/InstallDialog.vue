@@ -65,7 +65,7 @@ const selectFolder = async () => {
       >
         <!-- Backdrop -->
         <div
-          class="absolute inset-0 bg-surface0/40 backdrop-blur-sm"
+          class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
           @click="emit('close')"
         />
         
@@ -76,7 +76,7 @@ const selectFolder = async () => {
               {{ title }}
             </h2>
             <button
-              class="btn-cute p-2 rounded-full hover:bg-indigo-50 text-text-muted transition-colors"
+              class="btn-cute p-2 rounded-full hover:bg-primary/10 text-text-muted transition-colors"
               @click="emit('close')"
             >
               <X class="w-6 h-6" />
@@ -93,7 +93,7 @@ const selectFolder = async () => {
               <div class="grid grid-cols-2 gap-3">
                 <button 
                   class="btn-cute p-4 rounded-[20px] border-2 transition-all text-left bg-surface"
-                  :class="selectedTool === 'vcc' ? 'border-indigo-400 bg-surface-hover shadow-md shadow-indigo-200' : 'border-border-soft hover:border-indigo-300'"
+                  :class="selectedTool === 'vcc' ? 'border-primary bg-surface-hover shadow-md shadow-indigo-200' : 'border-border-soft hover:border-primary'"
                   @click="selectedTool = 'vcc'"
                 >
                   <h4 class="font-black text-lg flex items-center justify-between mb-1">
@@ -106,7 +106,7 @@ const selectFolder = async () => {
                     </div>
                     <span
                       v-if="props.vccInstalled"
-                      class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full border border-green-200"
+                      class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full border-green-200"
                     >{{ t('install_dialog.installed') }}</span>
                   </h4>
                   <p
@@ -118,7 +118,7 @@ const selectFolder = async () => {
                 </button>
                 <button 
                   class="btn-cute p-4 rounded-[20px] border-2 transition-all text-left bg-surface"
-                  :class="selectedTool === 'alcom' ? 'border-indigo-400 bg-surface-hover shadow-md shadow-indigo-200' : 'border-border-soft hover:border-indigo-300'"
+                  :class="selectedTool === 'alcom' ? 'border-primary bg-surface-hover shadow-md shadow-indigo-200' : 'border-border-soft hover:border-primary'"
                   @click="selectedTool = 'alcom'"
                 >
                   <h4 class="font-black text-lg flex items-center justify-between mb-1">
@@ -131,7 +131,7 @@ const selectFolder = async () => {
                     </div>
                     <span
                       v-if="props.alcomInstalled"
-                      class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full border border-green-200"
+                      class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full border-green-200"
                     >{{ t('install_dialog.installed') }}</span>
                   </h4>
                   <p
@@ -151,10 +151,10 @@ const selectFolder = async () => {
                 <input 
                   v-model="installPath"
                   type="text" 
-                  class="flex-1 bg-surface-hover border-2 border-border-soft rounded-[20px] px-4 py-3 text-text font-medium focus:outline-none focus:border-indigo-400 focus:bg-surface transition-colors"
+                  class="flex-1 bg-surface-hover border-2 border-border-soft rounded-[20px] px-4 py-3 text-text font-medium focus:outline-none  focus:bg-surface transition-colors"
                 >
                 <button 
-                  class="btn-cute px-5 py-3 bg-surface hover:bg-indigo-50 rounded-[20px] border-2 border-border-soft text-indigo-600 font-bold shadow-sm transition-colors flex items-center justify-center"
+                  class="btn-cute px-5 py-3 bg-surface hover:bg-primary/10 rounded-[20px] border-2 border-border-soft text-primary font-bold shadow-sm transition-colors flex items-center justify-center"
                   @click="selectFolder"
                 >
                   <FolderOpen class="w-5 h-5" />
@@ -165,13 +165,13 @@ const selectFolder = async () => {
             <!-- Options -->
             <div class="bg-surface-hover p-4 rounded-[20px] border-2 border-border-soft">
               <label class="flex items-center gap-3 cursor-pointer group">
-                <div class="relative flex items-center justify-center w-6 h-6 rounded-lg border-2 border-indigo-300 bg-surface group-hover:border-border-soft0 transition-colors">
+                <div class="relative flex items-center justify-center w-6 h-6 rounded-lg border-2 border-primary bg-surface group-hover:border-border-soft transition-colors">
                   <input
                     v-model="autoDeleteInstaller"
                     type="checkbox"
                     class="peer sr-only"
                   >
-                  <div class="peer-checked:bg-indigo-500 absolute inset-0 rounded-[6px] opacity-0 peer-checked:opacity-100 transition-opacity flex items-center justify-center m-[2px]">
+                  <div class="peer-checked:bg-primary/10 absolute inset-0 rounded-[6px] opacity-0 peer-checked:opacity-100 transition-opacity flex items-center justify-center m-[2px]">
                     <CheckCircle2 class="w-4 h-4 text-white" />
                   </div>
                 </div>
@@ -183,7 +183,7 @@ const selectFolder = async () => {
           <!-- Actions -->
           <div class="flex gap-4 mt-8">
             <button
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-surface-hover hover:bg-indigo-50 text-text-muted transition-colors"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-surface-hover hover:bg-primary/10 text-text-muted transition-colors"
               @click="emit('close')"
             >
               {{ t('install_dialog.cancel') }}
@@ -198,7 +198,7 @@ const selectFolder = async () => {
             </button>
             <button
               v-else
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary/10 hover:bg-primary/10 text-white shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
               @click="handleConfirm"
             >
               {{ t('install_dialog.install') }}

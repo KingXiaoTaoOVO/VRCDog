@@ -7,7 +7,7 @@ export const useSystemContextStore = defineStore('systemContext', () => {
   const isSteamVrRunning = ref(false);
   const isAfk = ref(false); // Can be toggled if we detect user inactivity or VRC status
   
-  let pollingInterval: any = null;
+  let pollingInterval: ReturnType<typeof setInterval> | null = null;
 
   const startPolling = () => {
     if (pollingInterval) return;
@@ -18,7 +18,7 @@ export const useSystemContextStore = defineStore('systemContext', () => {
         isVrcRunning.value = nowRunning;
         
         if (!wasRunning && nowRunning) {
-           const settings: any = await DbApi.getAllSettings();
+           const settings: Record<string, unknown> = await DbApi.getAllSettings() as Record<string, unknown>;
            if (settings && settings.autoLaunchApps) {
                try {
                    const apps = typeof settings.autoLaunchApps === 'string' 
@@ -31,7 +31,7 @@ export const useSystemContextStore = defineStore('systemContext', () => {
                } catch(e) {}
            }
         } else if (wasRunning && !nowRunning) {
-           const settings: any = await DbApi.getAllSettings();
+           const settings: Record<string, unknown> = await DbApi.getAllSettings() as Record<string, unknown>;
            if (settings && (settings.killAppsOnExit === true || settings.killAppsOnExit === 'true')) {
                try { await SysApi.killAutoLaunchApps(); } catch(e) {}
                console.log("[AutoLaunch] Killed apps.");

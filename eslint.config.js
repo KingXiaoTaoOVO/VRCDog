@@ -3,6 +3,9 @@ import tseslint from 'typescript-eslint';
 import vueParser from 'vue-eslint-parser';
 
 export default [
+  {
+    ignores: ["dist/**", "src-tauri/**", "src-python/**", "vpm-listing/**", "node_modules/**", "public/**", "**/*.css"]
+  },
   ...pluginVue.configs['flat/recommended'],
   ...tseslint.configs.recommended,
   {

@@ -52,7 +52,7 @@ const resolveModeratedUser = async (m: any) => {
   
   m.loadingData = true;
   try {
-     const res = await VrcApi.request(`/api/1/users/${m.targetUserId}`, 'GET');
+     const res = await VrcApi.request(`/api/1/users/${m.targetUserId}`, { method: 'GET' });
      m.userData = res;
      resolvedUsers.set(m.targetUserId, res);
   } catch (e) {
@@ -72,7 +72,7 @@ const filteredModerations = computed(() => {
 
 const unblock = async (id: string) => {
   try {
-    await VrcApi.request('/auth/user/unplayermoderate', 'PUT', { moderated: id });
+    await VrcApi.request('/auth/user/unplayermoderate', { method: 'PUT', params: { moderated: id } });
     moderations.value = moderations.value.filter((m: any) => m.id !== id);
   } catch (err: any) {
     errorMsg.value = err.message || err;
@@ -89,14 +89,14 @@ const openPlayerProfile = (m: any) => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
         <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-            <Shield class="w-6 h-6 text-indigo-600" />
+          <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+            <Shield class="w-6 h-6 text-primary" />
           </span>
           {{ t('moderation.title') }}
         </h1>
@@ -105,7 +105,7 @@ const openPlayerProfile = (m: any) => {
         </p>
       </div>
       
-      <div class="flex gap-2 bg-surface backdrop-blur-md p-1.5 rounded-2xl shadow-sm border border-border-soft0/60">
+      <div class="flex gap-2 bg-surface backdrop-blur-md p-1.5 rounded-2xl shadow-sm border-border-soft/60">
         <button
           :class="activeTab === 'blocked' ? 'bg-red-500 text-white shadow-md shadow-red-500/30' : 'text-text-muted hover:bg-surface hover:text-red-500'"
           class="px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
@@ -121,7 +121,7 @@ const openPlayerProfile = (m: any) => {
           <VolumeX :size="16" /> {{ t('moderation.tab_muted') }}
         </button>
         <button
-          :class="activeTab === 'hidden' ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30' : 'text-text-muted hover:bg-surface hover:text-purple-500'"
+          :class="activeTab === 'hidden' ? 'bg-primary/10 text-white shadow-md shadow-purple-500/30' : 'text-text-muted hover:bg-surface hover:text-primary'"
           class="px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
           @click="activeTab = 'hidden'"
         >
@@ -138,7 +138,7 @@ const openPlayerProfile = (m: any) => {
           v-model="searchQuery"
           type="text"
           :placeholder="t('moderation.search_placeholder')"
-          class="w-full pl-12 pr-4 py-3 bg-surface backdrop-blur-xl border border-border-strong shadow-sm hover:shadow-md focus:shadow-md focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all text-text text-sm font-bold placeholder:text-border-strong placeholder:font-medium"
+          class="w-full pl-12 pr-4 py-3 bg-surface backdrop-blur-xl border-border-strong shadow-sm hover:shadow-md focus:shadow-md  focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all text-text text-sm font-bold placeholder:text-border-strong placeholder:font-medium"
         >
       </div>
 
@@ -163,7 +163,7 @@ const openPlayerProfile = (m: any) => {
           <div
             v-for="item in filteredModerations"
             :key="item.id"
-            class="relative group bg-surface backdrop-blur-md rounded-3xl border border-border-soft hover:border-indigo-300 shadow-sm hover:shadow-lg transition-all overflow-hidden flex flex-col hover:-translate-y-1"
+            class="relative group bg-surface backdrop-blur-md rounded-3xl border-border-soft hover:border-primary shadow-sm hover:shadow-lg transition-all overflow-hidden flex flex-col "
           >
             <div
               class="flex-1 p-3 cursor-pointer"
@@ -178,9 +178,9 @@ const openPlayerProfile = (m: any) => {
               />
               <div
                 v-else
-                class="flex items-center gap-4 p-3 rounded-2xl bg-surface-hover border border-border-soft"
+                class="flex items-center gap-4 p-3 rounded-2xl bg-surface-hover border-border-soft"
               >
-                <div class="w-12 h-12 rounded-xl bg-surface0/60 flex items-center justify-center text-text-muted font-black uppercase text-lg shadow-inner relative shrink-0">
+                <div class="w-12 h-12 rounded-xl bg-surface/60 flex items-center justify-center text-text-muted font-black uppercase text-lg shadow-inner relative shrink-0">
                   <span v-if="!item.loadingData">{{ item.name.charAt(0) }}</span>
                   <div
                     v-else
@@ -189,7 +189,7 @@ const openPlayerProfile = (m: any) => {
                 </div>
                 <div class="min-w-0">
                   <h3
-                    class="font-extrabold text-base text-text truncate group-hover:text-indigo-600 transition-colors"
+                    class="font-extrabold text-base text-text truncate group-hover:text-primary transition-colors"
                     :title="item.name"
                   >
                     {{ item.name }}
@@ -202,14 +202,14 @@ const openPlayerProfile = (m: any) => {
             </div>
              
             <!-- Action Bar -->
-            <div class="px-5 py-4 bg-surface-hover backdrop-blur border-t border-border-soft flex items-center justify-between">
+            <div class="px-5 py-4 bg-surface-hover backdrop-blur border-border-soft flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div 
                   class="w-7 h-7 rounded-lg flex items-center justify-center shadow-sm"
                   :class="{
-                    'bg-red-100 text-red-600 border border-red-200/50': item.type === 'blocked',
-                    'bg-orange-100 text-orange-600 border border-orange-200/50': item.type === 'muted',
-                    'bg-purple-100 text-purple-600 border border-purple-200/50': item.type === 'hidden',
+                    'bg-red-100 text-red-600 border-red-200/50': item.type === 'blocked',
+                    'bg-orange-100 text-orange-600 border-orange-200/50': item.type === 'muted',
+                    'bg-primary/10 text-primary border-primary': item.type === 'hidden',
                   }"
                 >
                   <UserX
@@ -229,7 +229,7 @@ const openPlayerProfile = (m: any) => {
               </div>
                 
               <button
-                class="px-4 py-2 bg-surface border border-border-soft hover:bg-red-500 hover:border-red-500 hover:text-white hover:shadow-md text-text-muted rounded-xl font-bold transition-all flex items-center gap-2 text-xs shadow-sm active:scale-95"
+                class="px-4 py-2 bg-surface border-border-soft hover:bg-red-500 hover:border-red-500 hover:text-white hover:shadow-md text-text-muted rounded-xl font-bold transition-all flex items-center gap-2 text-xs shadow-sm active:scale-95"
                 title="Remove Moderation"
                 @click="unblock(item.id)"
               >

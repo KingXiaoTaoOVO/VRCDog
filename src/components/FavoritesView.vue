@@ -94,27 +94,27 @@ onMounted(() => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <!-- 顶部控制栏 -->
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
       <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-          <Heart class="w-6 h-6 text-indigo-600" />
+        <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+          <Heart class="w-6 h-6 text-primary" />
         </span>
         {{ t('favorites.title') }}
       </h1>
-      <div class="flex rounded-xl border border-border-soft overflow-hidden bg-surface text-sm font-bold shadow-sm p-1">
+      <div class="flex rounded-xl border-border-soft overflow-hidden bg-surface text-sm font-bold shadow-sm p-1">
         <button
-          :class="activeTab === 'worlds' ? 'bg-indigo-600 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-background/10 rounded-lg'"
+          :class="activeTab === 'worlds' ? 'bg-primary/10 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
           class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'worlds'"
         >
           <Globe :size="16" /> {{ t('favorites.worlds') }}
         </button>
         <button
-          :class="activeTab === 'avatars' ? 'bg-indigo-600 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-background/10 rounded-lg'"
+          :class="activeTab === 'avatars' ? 'bg-primary/10 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
           class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'avatars'"
         >
@@ -125,7 +125,7 @@ onMounted(() => {
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
+      class="bg-red-50 text-red-600 p-3 rounded-xl border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
@@ -133,10 +133,10 @@ onMounted(() => {
     <!-- 主体：侧边栏 + 内容区 -->
     <div class="flex-1 flex gap-6 overflow-hidden z-10">
       <!-- 左侧收藏夹列表 -->
-      <div class="w-56 flex-shrink-0 bg-surface backdrop-blur-xl rounded-2xl border border-border-strong shadow-lg shadow-slate-200/40 p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
+      <div class="w-56 flex-shrink-0 bg-surface backdrop-blur-xl rounded-2xl border-border-strong shadow-lg shadow-slate-200/40 p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
         <button
           class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between"
-          :class="activeGroup === 'all' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-background/10'"
+          :class="activeGroup === 'all' ? 'bg-primary/10 text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
           @click="activeGroup = 'all'"
         >
           <span>{{ t('favorites.all_groups') === 'favorites.all_groups' ? '全部收藏' : t('favorites.all_groups') }}</span>
@@ -144,7 +144,7 @@ onMounted(() => {
         
         <div
           v-if="loadingGroups"
-          class="py-4 text-center text-indigo-400"
+          class="py-4 text-center text-primary"
         >
           <Loader2
             class="animate-spin mx-auto"
@@ -157,7 +157,7 @@ onMounted(() => {
             v-for="group in getGroupsByType(activeTab === 'worlds' ? 'world' : 'avatar')"
             :key="group.id"
             class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between group/btn"
-            :class="activeGroup === group.name ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-background/10'"
+            :class="activeGroup === group.name ? 'bg-primary/10 text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
             @click="activeGroup = group.name"
           >
             <span
@@ -166,7 +166,7 @@ onMounted(() => {
             >{{ group.displayName }}</span>
             <span
               class="text-[10px] font-mono px-1.5 py-0.5 rounded-md ml-2 flex-shrink-0 transition-colors"
-              :class="activeGroup === group.name ? 'bg-indigo-500 text-indigo-50' : 'bg-background/20 text-text-muted group-hover/btn:bg-surface'"
+              :class="activeGroup === group.name ? 'bg-primary/10 text-primary' : 'bg-background/20 text-text-muted group-hover/btn:bg-surface'"
             >
               {{ group.visibility === 'private' ? t('global.fav.private') : t('global.fav.public') }}
             </span>
@@ -180,7 +180,7 @@ onMounted(() => {
         <div v-if="activeTab === 'worlds'">
           <div
             v-if="loadingWorlds"
-            class="flex items-center justify-center py-12 text-indigo-500 font-bold"
+            class="flex items-center justify-center py-12 text-primary font-bold"
           >
             <Loader2
               class="animate-spin mr-2"
@@ -219,7 +219,7 @@ onMounted(() => {
         <div v-if="activeTab === 'avatars'">
           <div
             v-if="loadingAvatars"
-            class="flex items-center justify-center py-12 text-indigo-500 font-bold"
+            class="flex items-center justify-center py-12 text-primary font-bold"
           >
             <Loader2
               class="animate-spin mr-2"

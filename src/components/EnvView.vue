@@ -244,12 +244,12 @@ onMounted(() => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <header class="flex items-center justify-between mb-8 shrink-0 z-10">
       <div class="flex items-center gap-4">
-        <div class="w-14 h-14 rounded-2xl overflow-hidden border border-border-soft shadow-lg shadow-indigo-200/50 flex-shrink-0 bg-surface">
+        <div class="w-14 h-14 rounded-2xl overflow-hidden border-border-soft shadow-lg shadow-indigo-200/50 flex-shrink-0 bg-surface">
           <img
             :src="dogImg"
             class="w-full h-full object-cover"
@@ -258,7 +258,7 @@ onMounted(() => {
         </div>
         <div>
           <h1 class="text-3xl font-extrabold text-text tracking-tight mb-1 flex items-center gap-2">
-            {{ t('env.title') }} <Bone class="w-6 h-6 text-indigo-500 inline-block animate-bounce" />
+            {{ t('env.title') }} <Bone class="w-6 h-6 text-primary inline-block animate-bounce" />
           </h1>
           <p class="text-text-muted font-bold text-sm">
             {{ t('env.subtitle') }}
@@ -267,7 +267,7 @@ onMounted(() => {
       </div>
       <div class="flex gap-2">
         <button
-          class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-muted hover:text-indigo-600 shadow-sm border border-border-soft transition-all active:scale-95 text-sm font-bold"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-muted hover:text-primary shadow-sm border-border-soft transition-all active:scale-95 text-sm font-bold"
           @click="checkEnvironment"
         >
           <RefreshCcw
@@ -277,7 +277,7 @@ onMounted(() => {
           {{ t('env.check') }}
         </button>
         <button
-          class="p-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-muted hover:text-indigo-600 shadow-sm border border-border-soft transition-all active:scale-95"
+          class="p-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-muted hover:text-primary shadow-sm border-border-soft transition-all active:scale-95"
           @click="showSettings = true"
         >
           <Settings class="w-5 h-5" />
@@ -325,12 +325,12 @@ onMounted(() => {
       />
 
       <!-- VCC Dependency Management Section -->
-      <div class="col-span-1 md:col-span-3 mt-2 bg-surface backdrop-blur-xl p-6 rounded-3xl border border-border-strong shadow-lg shadow-slate-200/40">
+      <div class="col-span-1 md:col-span-3 mt-2 bg-surface backdrop-blur-xl p-6 rounded-3xl border-border-strong shadow-lg shadow-slate-200/40">
         <h2 class="text-xl font-extrabold text-text mb-6 flex items-center gap-3">
-          <span class="p-1.5 bg-indigo-50 rounded-lg text-indigo-600">
+          <span class="p-1.5 bg-primary/10 rounded-lg text-primary">
             <Bone :size="20" />
           </span>
-          {{ t('env.vcc_lib_title') }} <span class="text-[10px] uppercase font-black tracking-wider bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{{ t('env.vcc_lib_beta') }}</span>
+          {{ t('env.vcc_lib_title') }} <span class="text-[10px] uppercase font-black tracking-wider bg-primary/10 text-primary px-2 py-0.5 rounded-full">{{ t('env.vcc_lib_beta') }}</span>
         </h2>
         
         <!-- Repo Header -->
@@ -338,11 +338,11 @@ onMounted(() => {
           <div class="relative w-full flex-1">
             <input 
               v-model="vpmRepoUrl" 
-              class="w-full bg-surface border border-border-soft rounded-xl pl-4 pr-10 py-2.5 text-sm font-bold text-text focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
+              class="w-full bg-surface border-border-soft rounded-xl pl-4 pr-10 py-2.5 text-sm font-bold text-text focus:outline-none  focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
               placeholder="https://vpm.domain.com/index.json"
             >
             <button 
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-border-strong hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-border-strong hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
               :title="t('env.copy_url')"
               @click="copyVpmUrl"
             >
@@ -352,7 +352,7 @@ onMounted(() => {
           
           <div class="flex w-full xl:w-auto gap-3">
             <button 
-              class="flex-1 xl:flex-none px-4 py-2.5 bg-surface border border-border-soft hover:border-indigo-300 text-text-muted hover:text-indigo-700 rounded-xl font-bold shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              class="flex-1 xl:flex-none px-4 py-2.5 bg-surface border-border-soft hover:border-primary text-text-muted hover:text-primary rounded-xl font-bold shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
               @click="scanLocalDeps"
             >
               <Search
@@ -361,7 +361,7 @@ onMounted(() => {
               /> {{ t('env.scan_local') }}
             </button>
             <button 
-              class="flex-1 xl:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-sm shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              class="flex-1 xl:flex-none px-4 py-2.5 bg-primary/10 hover:bg-primary/10 text-white rounded-xl font-bold shadow-sm shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
               @click="loadVpmRepo"
             >
               <RefreshCcw
@@ -377,15 +377,15 @@ onMounted(() => {
           <Search class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-border-strong" />
           <input 
             v-model="vpmSearch"
-            class="w-full bg-surface border border-border-soft rounded-xl pl-11 pr-4 py-2.5 text-sm font-bold text-text focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm placeholder:text-border-strong placeholder:font-medium"
+            class="w-full bg-surface border-border-soft rounded-xl pl-11 pr-4 py-2.5 text-sm font-bold text-text focus:outline-none  focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm placeholder:text-border-strong placeholder:font-medium"
             :placeholder="t('env.search_pkg')"
           >
         </div>
 
         <!-- Packages Table -->
-        <div class="bg-surface rounded-2xl border border-border-soft overflow-hidden shadow-sm">
+        <div class="bg-surface rounded-2xl border-border-soft overflow-hidden shadow-sm">
           <table class="w-full text-left text-sm text-text">
-            <thead class="bg-surface-hover border-b border-border-soft font-extrabold text-text-muted">
+            <thead class="bg-surface-hover border-border-soft font-extrabold text-text-muted">
               <tr>
                 <th class="px-5 py-3.5">
                   {{ t('env.pkg_name') }}
@@ -405,7 +405,7 @@ onMounted(() => {
               <tr
                 v-for="pkg in filteredVpmPackages"
                 :key="pkg.name"
-                class="hover:bg-indigo-50/40 transition-colors"
+                class="hover:bg-primary/10 transition-colors"
               >
                 <td class="px-5 py-3.5">
                   <div class="font-extrabold text-text">
@@ -424,20 +424,20 @@ onMounted(() => {
                 <td class="px-5 py-3.5 text-right space-x-2">
                   <template v-if="!pkg.isLocal">
                     <button 
-                      class="text-[11px] font-extrabold text-text-muted bg-surface border border-border-soft hover:border-indigo-300 hover:text-indigo-600 px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+                      class="text-[11px] font-extrabold text-text-muted bg-surface border-border-soft hover:border-primary hover:text-primary px-3 py-1.5 rounded-lg shadow-sm transition-colors"
                       @click="addToVcc(vpmRepoUrl)"
                     >
                       VCC Add
                     </button>
                     <button 
-                      class="text-[11px] font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg shadow-sm shadow-indigo-500/20 transition-colors"
+                      class="text-[11px] font-extrabold text-white bg-primary/10 hover:bg-primary/10 px-3 py-1.5 rounded-lg shadow-sm shadow-indigo-500/20 transition-colors"
                       @click="addToAlcom(vpmRepoUrl)"
                     >
                       ALCOM Add
                     </button>
                   </template>
                   <template v-else>
-                    <span class="text-[11px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200/50 inline-block">
+                    <span class="text-[11px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-lg border-emerald-200/50 inline-block">
                       {{ t('env.installed') }}
                     </span>
                   </template>
@@ -476,16 +476,16 @@ onMounted(() => {
           class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-surface0/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showUninstallConfirm = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> 确认卸载?
               </h3>
               <button
-                class="p-1.5 rounded-xl hover:bg-background/10 text-border-strong hover:text-text-muted transition-colors"
+                class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showUninstallConfirm = false"
               >
                 <X class="w-5 h-5" />
@@ -496,7 +496,7 @@ onMounted(() => {
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-xl bg-background/10 hover:bg-background/20 text-text-muted font-bold transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-surface hover:bg-background/20 text-text-muted font-bold transition-colors"
                 @click="showUninstallConfirm = false"
               >
                 取消
@@ -521,16 +521,16 @@ onMounted(() => {
           class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-surface0/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showLaunchToolConfirm = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
-              <h3 class="text-xl font-extrabold text-indigo-600 flex items-center gap-2">
+              <h3 class="text-xl font-extrabold text-primary flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> 选择启动工具
               </h3>
               <button
-                class="p-1.5 rounded-xl hover:bg-background/10 text-border-strong hover:text-text-muted transition-colors"
+                class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showLaunchToolConfirm = false"
               >
                 <X class="w-5 h-5" />
@@ -541,7 +541,7 @@ onMounted(() => {
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-500/30 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-primary/10 hover:bg-primary/10 text-white font-bold shadow-lg shadow-indigo-500/30 transition-colors"
                 @click="executeLaunch('vcc')"
               >
                 启动 VCC
@@ -566,16 +566,16 @@ onMounted(() => {
           class="fixed inset-0 z-[60] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-surface0/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showUninstallToolSelection = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> 选择卸载工具
               </h3>
               <button
-                class="p-1.5 rounded-xl hover:bg-background/10 text-border-strong hover:text-text-muted transition-colors"
+                class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showUninstallToolSelection = false"
               >
                 <X class="w-5 h-5" />
@@ -611,23 +611,23 @@ onMounted(() => {
           class="fixed inset-0 z-[70] flex items-center justify-center p-4"
         >
           <div
-            class="absolute inset-0 bg-surface0/40 backdrop-blur-sm"
+            class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showSettings = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-8 border border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-8 border-border-strong">
             <div class="flex justify-between items-center mb-6">
               <h2 class="text-2xl font-extrabold text-text flex items-center gap-2">
-                {{ t('env.settings') }} <Settings class="w-5 h-5 text-indigo-500" />
+                {{ t('env.settings') }} <Settings class="w-5 h-5 text-primary" />
               </h2>
               <button
-                class="p-2 rounded-xl hover:bg-background/10 text-border-strong hover:text-text-muted transition-colors"
+                class="p-2 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showSettings = false"
               >
                 <X class="w-6 h-6" />
               </button>
             </div>
             <div class="space-y-4 text-center">
-              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 shadow-md mb-4 bg-surface">
+              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-primary shadow-md mb-4 bg-surface">
                 <img
                   :src="dogImg"
                   class="w-full h-full object-cover"
@@ -639,7 +639,7 @@ onMounted(() => {
               <p class="text-text-muted font-bold text-sm">
                 v1.1.0 {{ t('env.dog_social') }}
               </p>
-              <div class="pt-6 border-t border-border-soft">
+              <div class="pt-6 border-border-soft">
                 <p class="text-sm font-bold text-border-strong flex items-center justify-center gap-1.5">
                   Made with <Heart class="w-4 h-4 text-pink-500 fill-pink-500 animate-pulse" /> for VRChat
                 </p>

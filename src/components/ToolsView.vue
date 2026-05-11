@@ -131,27 +131,27 @@ onUnmounted(() => {
 <template>
   <div class="h-full flex flex-col p-2 space-y-6 overflow-y-auto custom-scrollbar">
     <div class="flex items-center justify-between mb-2">
-      <h2 class="text-2xl font-extrabold text-[#451a03] flex items-center gap-2 tracking-tight">
+      <h2 class="text-2xl font-extrabold text-text flex items-center gap-2 tracking-tight">
         <Wrench
-          class="text-amber-500"
+          class="text-primary"
           :size="24"
         /> {{ t('tools.title') }}
       </h2>
     </div>
 
-    <!-- 妯″潡鍖栧鏍煎竷灞€ -->
+    <!-- 模块化宫格布局 -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      <!-- 娓告垙鍚姩涓庢帶鍒?-->
-      <div class="bg-surface rounded-2xl p-5 border border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-blue-50 rounded-full blur-2xl group-hover:bg-blue-100 transition-colors" />
+      <!-- 游戏启动与控制 -->
+      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
         <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
           <Play
-            class="text-blue-500"
+            class="text-primary"
             :size="20"
           /> {{ t('tools.game_engine') }}
         </h3>
         <div class="space-y-4 relative z-10 flex flex-col flex-1 justify-between">
-          <div class="flex items-center justify-between bg-surface-hover p-3 rounded-xl border border-border-soft">
+          <div class="flex items-center justify-between bg-surface-hover p-3 rounded-xl border-border-soft">
             <span class="text-sm font-bold text-text-muted">{{ t('tools.vrc_status') }}</span>
             <span
               v-if="isVrcRunning"
@@ -167,7 +167,7 @@ onUnmounted(() => {
             </span>
           </div>
           <button
-            class="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
+            class="w-full py-3 bg-primary hover:bg-primary/80 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
             @click="launchVrc"
           >
             <Play :size="18" /> {{ isVrcRunning ? t('tools.vrc_restart') : t('tools.vrc_start') }}
@@ -175,74 +175,74 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 蹇€熺洿閫?(鏂囦欢澶瑰揩鎹锋柟寮? -->
-      <div class="bg-surface rounded-2xl p-5 border border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-amber-50 rounded-full blur-2xl group-hover:bg-amber-100 transition-colors" />
+      <!-- 快速直达 (文件夹快捷方式) -->
+      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
         <div class="flex items-center justify-between mb-4 relative z-10">
           <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
             <FolderOpen
-              class="text-amber-500"
+              class="text-primary"
               :size="20"
             /> {{ t('tools.quick_links') }}
           </h3>
           <span
             v-if="dirStatus.message"
             class="text-[10px] font-bold px-2 py-0.5 rounded-md"
-            :class="dirStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'"
+            :class="dirStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
           >
             {{ dirStatus.message }}
           </span>
         </div>
         <div class="grid grid-cols-2 gap-3 relative z-10 flex-1">
           <button
-            class="flex flex-col items-center justify-center p-3 rounded-xl border border-border-soft bg-surface-hover hover:bg-amber-50 hover:border-amber-200 transition-colors gap-2 group/btn"
+            class="flex flex-col items-center justify-center p-3 rounded-xl border-border-soft bg-surface-hover hover:bg-primary/20 hover:border-primary/40 transition-colors gap-2 group/btn"
             @click="openDirectory('logs')"
           >
             <FileText
-              class="text-border-strong group-hover/btn:text-amber-500 transition-colors"
+              class="text-border-strong group-hover/btn:text-primary transition-colors"
               :size="24"
             />
-            <span class="text-xs font-bold text-text-muted group-hover/btn:text-amber-700">{{ t('tools.game_logs') }}</span>
+            <span class="text-xs font-bold text-text-muted group-hover/btn:text-primary-active">{{ t('tools.game_logs') }}</span>
           </button>
           <button
-            class="flex flex-col items-center justify-center p-3 rounded-xl border border-border-soft bg-surface-hover hover:bg-amber-50 hover:border-amber-200 transition-colors gap-2 group/btn"
+            class="flex flex-col items-center justify-center p-3 rounded-xl border-border-soft bg-surface-hover hover:bg-primary/20 hover:border-primary/40 transition-colors gap-2 group/btn"
             @click="openDirectory('screenshots')"
           >
             <Image
-              class="text-border-strong group-hover/btn:text-amber-500 transition-colors"
+              class="text-border-strong group-hover/btn:text-primary transition-colors"
               :size="24"
             />
-            <span class="text-xs font-bold text-text-muted group-hover/btn:text-amber-700">{{ t('tools.screenshots') }}</span>
+            <span class="text-xs font-bold text-text-muted group-hover/btn:text-primary-active">{{ t('tools.screenshots') }}</span>
           </button>
           <button
-            class="flex flex-col items-center justify-center p-3 rounded-xl border border-border-soft bg-surface-hover hover:bg-amber-50 hover:border-amber-200 transition-colors gap-2 group/btn shadow-sm"
+            class="flex flex-col items-center justify-center p-3 rounded-xl border-border-soft bg-surface-hover hover:bg-primary/20 hover:border-primary/40 transition-colors gap-2 group/btn shadow-sm"
             @click="openDirectory('cache')"
           >
             <Database
-              class="text-border-strong group-hover/btn:text-amber-500 transition-colors"
+              class="text-border-strong group-hover/btn:text-primary transition-colors"
               :size="24"
             />
-            <span class="text-xs font-bold text-text-muted group-hover/btn:text-amber-700">{{ t('tools.cache_dir') }}</span>
+            <span class="text-xs font-bold text-text-muted group-hover/btn:text-primary-active">{{ t('tools.cache_dir') }}</span>
           </button>
           <button
-            class="flex flex-col items-center justify-center p-3 rounded-xl border border-border-soft bg-surface-hover hover:bg-amber-50 hover:border-amber-200 transition-colors gap-2 group/btn"
+            class="flex flex-col items-center justify-center p-3 rounded-xl border-border-soft bg-surface-hover hover:bg-primary/20 hover:border-primary/40 transition-colors gap-2 group/btn"
             @click="openDirectory('crash_reports')"
           >
             <Bug
-              class="text-border-strong group-hover/btn:text-amber-500 transition-colors"
+              class="text-border-strong group-hover/btn:text-primary transition-colors"
               :size="24"
             />
-            <span class="text-xs font-bold text-text-muted group-hover/btn:text-amber-700">{{ t('tools.crash_reports') }}</span>
+            <span class="text-xs font-bold text-text-muted group-hover/btn:text-primary-active">{{ t('tools.crash_reports') }}</span>
           </button>
         </div>
       </div>
 
-      <!-- 缂撳瓨娓呯悊 -->
-      <div class="bg-surface rounded-2xl p-5 border border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-red-50 rounded-full blur-2xl group-hover:bg-red-100 transition-colors" />
+      <!-- 缓存清理 -->
+      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
         <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
           <Trash2
-            class="text-red-500"
+            class="text-primary"
             :size="20"
           /> {{ t('tools.cache_title') }}
         </h3>
@@ -254,13 +254,13 @@ onUnmounted(() => {
             <div
               v-if="cacheStatus.message"
               class="text-xs font-bold px-3 py-2 rounded-lg mb-2 text-center"
-              :class="cacheStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'"
+              :class="cacheStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
             >
               {{ cacheStatus.message }}
             </div>
             <button
               :disabled="cacheStatus.loading"
-              class="w-full py-3 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
+              class="w-full py-3 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
               @click="clearCache"
             >
               <Loader2
@@ -278,11 +278,11 @@ onUnmounted(() => {
       </div>
 
       <!-- Discord RPC -->
-      <div class="bg-surface rounded-2xl p-5 border border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-indigo-50 rounded-full blur-2xl group-hover:bg-indigo-100 transition-colors" />
+      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
         <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
           <MessageSquare
-            class="text-indigo-500"
+            class="text-primary"
             :size="20"
           /> {{ t('tools.rpc_title') }}
         </h3>
@@ -292,7 +292,7 @@ onUnmounted(() => {
             <input
               v-model="rpcForm.details"
               type="text"
-              class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm outline-none focus:border-indigo-400 focus:bg-surface transition-all"
+              class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
             >
           </div>
           <div>
@@ -300,12 +300,12 @@ onUnmounted(() => {
             <input
               v-model="rpcForm.state"
               type="text"
-              class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm outline-none focus:border-indigo-400 focus:bg-surface transition-all"
+              class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
             >
           </div>
           <button
             :disabled="rpcStatus.loading"
-            class="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors mt-2"
+            class="w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors mt-2"
             @click="setRpc"
           >
             <Loader2
@@ -321,19 +321,19 @@ onUnmounted(() => {
           <div
             v-if="rpcStatus.message"
             class="text-xs font-bold px-3 py-2 rounded-lg text-center"
-            :class="rpcStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'"
+            :class="rpcStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
           >
             {{ rpcStatus.message }}
           </div>
         </div>
       </div>
 
-      <!-- OSC 鎺у埗 -->
-      <div class="bg-surface rounded-2xl p-5 border border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-emerald-50 rounded-full blur-2xl group-hover:bg-emerald-100 transition-colors" />
+      <!-- OSC 控制 -->
+      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
         <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
           <Radio
-            class="text-emerald-500"
+            class="text-primary"
             :size="20"
           /> {{ t('tools.osc_title') }}
         </h3>
@@ -344,7 +344,7 @@ onUnmounted(() => {
               v-model="oscForm.address"
               type="text"
               placeholder="/avatar/parameters/..."
-              class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm outline-none focus:border-emerald-400 focus:bg-surface transition-all"
+              class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
             >
           </div>
           <div>
@@ -353,13 +353,13 @@ onUnmounted(() => {
               v-model="oscForm.value"
               type="number"
               step="0.1"
-              class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm outline-none focus:border-emerald-400 focus:bg-surface transition-all"
+              class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
             >
           </div>
           <div class="flex flex-col gap-2 mt-3">
             <button
               :disabled="oscStatus.loading"
-              class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
+              class="w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
               @click="sendOsc"
             >
               <Loader2
@@ -374,7 +374,7 @@ onUnmounted(() => {
             </button>
             <button
               class="w-full py-2.5 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
-              :class="isOscAutoSync ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200' : 'bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 border border-fuchsia-200'"
+              :class="isOscAutoSync ? 'bg-primary/20 text-primary hover:bg-primary/30 border-primary/40' : 'bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 border-fuchsia-200'"
               @click="toggleOscSync"
             >
               <Activity :size="16" /> {{ isOscAutoSync ? t('tools.osc_sync_stop') : t('tools.osc_sync_start') }}
@@ -383,19 +383,19 @@ onUnmounted(() => {
           <div
             v-if="oscStatus.message"
             class="text-xs font-bold px-3 py-2 rounded-lg text-center"
-            :class="oscStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'"
+            :class="oscStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
           >
             {{ oscStatus.message }}
           </div>
         </div>
       </div>
 
-      <!-- VRChat 娴┖鎵撳瓧鏈?(鍗犱綅瀹? -->
-      <div class="bg-surface rounded-2xl p-5 border border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow md:col-span-2 lg:col-span-1">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-pink-50 rounded-full blur-2xl group-hover:bg-pink-100 transition-colors" />
+      <!-- VRChat 聊天框 -->
+      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow md:col-span-2 lg:col-span-1">
+        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
         <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
           <Keyboard
-            class="text-pink-500"
+            class="text-primary"
             :size="20"
           /> {{ t('tools.chatbox_title') }}
         </h3>
@@ -406,14 +406,14 @@ onUnmounted(() => {
           <textarea
             v-model="chatboxText"
             :placeholder="t('tools.chatbox_placeholder')"
-            class="w-full flex-1 min-h-[60px] p-3 bg-surface-hover border border-border-soft rounded-xl text-sm font-medium outline-none focus:border-pink-400 focus:bg-surface transition-all resize-none custom-scrollbar"
+            class="w-full flex-1 min-h-[60px] p-3 bg-surface-hover border-border-soft rounded-xl text-sm font-medium outline-none  focus:bg-surface transition-all resize-none custom-scrollbar"
             @keyup.enter.prevent="sendChatbox"
           />
           <div class="flex items-center justify-between mt-auto">
             <span
               v-if="chatboxStatus.message"
               class="text-[10px] font-bold px-2 py-1 rounded-md"
-              :class="chatboxStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'"
+              :class="chatboxStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
             >
               {{ chatboxStatus.message }}
             </span>
@@ -424,7 +424,7 @@ onUnmounted(() => {
             
             <button
               :disabled="chatboxStatus.loading || !chatboxText.trim()"
-              class="px-5 py-2 bg-surface hover:bg-black disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors ml-auto"
+              class="px-5 py-2 bg-surface hover:bg-surface-hover backdrop-blur-md disabled:opacity-50 text-text font-bold rounded-xl flex items-center justify-center gap-2 transition-colors ml-auto"
               @click="sendChatbox"
             >
               <Loader2

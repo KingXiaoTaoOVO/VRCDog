@@ -136,19 +136,19 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
       <div>
         <h1 class="text-2xl font-extrabold text-text tracking-tight flex items-center gap-2">
           <Globe2
-            class="text-indigo-500"
+            class="text-primary"
             :size="24"
           /> {{ t('locations.title') }}
         </h1>
-        <p class="text-text-muted0/70 text-sm mt-1">
+        <p class="text-text-muted/70 text-sm mt-1">
           {{ t('locations.subtitle') }}
         </p>
       </div>
       <div class="flex items-center gap-2">
         <span class="text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-700">{{ t('locations.online_count', { count: totalOnline }) }}</span>
-        <span class="text-xs font-bold px-3 py-1 rounded-full bg-background/10 text-text-muted">{{ t('locations.offline_count', { count: offlineFriends.length }) }}</span>
+        <span class="text-xs font-bold px-3 py-1 rounded-full bg-surface text-text-muted">{{ t('locations.offline_count', { count: offlineFriends.length }) }}</span>
         <button
-          class="p-2 rounded-full bg-surface hover:bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100 transition-colors"
+          class="p-2 rounded-full bg-surface hover:bg-primary/10 text-primary shadow-sm border-primary transition-colors"
           @click="fetchLocations"
         >
           <RefreshCcw
@@ -162,7 +162,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
     <div class="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4">
       <div
         v-if="loading && locations.length === 0"
-        class="flex items-center justify-center py-16 text-indigo-500 font-bold animate-pulse"
+        class="flex items-center justify-center py-16 text-primary font-bold animate-pulse"
       >
         <Globe2
           class="animate-spin mr-3"
@@ -174,29 +174,29 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
       <div
         v-for="loc in locations"
         :key="loc.fullLocation"
-        class="bg-surface backdrop-blur rounded-2xl border border-indigo-50 hover:border-indigo-200 transition-all overflow-hidden"
+        class="bg-surface backdrop-blur rounded-2xl border-primary hover:border-primary transition-all overflow-hidden"
       >
-        <div class="px-4 py-3 bg-gradient-to-r from-indigo-50 to-blue-50 flex items-center justify-between border-b border-indigo-100">
+        <div class="px-4 py-3 bg-gradient-to-r from-indigo-50 to-blue-50 flex items-center justify-between border-primary">
           <div class="flex items-center gap-2 min-w-0">
             <MapPin
-              class="text-indigo-500 flex-shrink-0"
+              class="text-primary flex-shrink-0"
               :size="16"
             />
-            <span class="font-bold text-indigo-900 text-sm truncate">{{ loc.worldName || loc.worldId }}</span>
+            <span class="font-bold text-primary text-sm truncate">{{ loc.worldName || loc.worldId }}</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 flex-shrink-0 flex items-center gap-1 mr-2">
+            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0 flex items-center gap-1 mr-2">
               <Users :size="10" /> {{ loc.friends.length }}
             </span>
             <button
-              class="px-3 py-1 bg-surface hover:bg-indigo-50 border border-border-soft hover:border-indigo-300 text-indigo-600 rounded-lg text-xs font-bold shadow-sm transition-all"
+              class="px-3 py-1 bg-surface hover:bg-primary/10 border-border-soft hover:border-primary text-primary rounded-lg text-xs font-bold shadow-sm transition-all"
               title="Launch VRChat"
               @click="launchInstance(loc.fullLocation)"
             >
               Join
             </button>
             <button
-              class="px-3 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
+              class="px-3 py-1 bg-primary/10 hover:bg-primary/10 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
               title="Drop Portal (Invite Myself)"
               @click="inviteMyself(loc.worldId, loc.instanceId)"
             >
@@ -208,21 +208,21 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
           <div
             v-for="friend in loc.friends"
             :key="friend.id"
-            class="flex items-center gap-2 p-2 rounded-xl bg-indigo-50/50 hover:bg-indigo-100/50 transition-colors"
+            class="flex items-center gap-2 p-2 rounded-xl bg-primary/10 hover:bg-primary/10 transition-colors"
           >
             <div class="relative flex-shrink-0">
-              <div class="w-8 h-8 rounded-full overflow-hidden border border-border-soft shadow-sm">
+              <div class="w-8 h-8 rounded-full overflow-hidden border-border-soft shadow-sm">
                 <VrcAvatar
                   :user="friend"
                   custom-class="w-full h-full object-cover"
                 />
               </div>
               <div
-                class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-border-soft"
+                class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-border-soft"
                 :class="getStatusDot(friend.status)"
               />
             </div>
-            <span class="text-xs font-bold text-indigo-900 truncate">{{ friend.displayName }}</span>
+            <span class="text-xs font-bold text-primary truncate">{{ friend.displayName }}</span>
           </div>
         </div>
       </div>
@@ -230,9 +230,9 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
       <!-- 私密房间 -->
       <div
         v-if="privateFriends.length > 0"
-        class="bg-surface backdrop-blur rounded-2xl border border-border-soft overflow-hidden"
+        class="bg-surface backdrop-blur rounded-2xl border-border-soft overflow-hidden"
       >
-        <div class="px-4 py-3 bg-gradient-to-r from-slate-50 to-slate-50 flex items-center justify-between border-b border-border-soft">
+        <div class="px-4 py-3 bg-gradient-to-r from-slate-50 to-slate-50 flex items-center justify-between border-border-soft">
           <div class="flex items-center gap-2">
             <Lock
               class="text-border-strong"
@@ -240,7 +240,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
             />
             <span class="font-bold text-text-muted text-sm">{{ t('locations.private') }}</span>
           </div>
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-background/10 text-text-muted flex items-center gap-1">
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-surface text-text-muted flex items-center gap-1">
             <Users :size="10" /> {{ privateFriends.length }}
           </span>
         </div>
@@ -248,17 +248,17 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
           <div
             v-for="friend in privateFriends"
             :key="friend.id"
-            class="flex flex-col items-center gap-1 p-2 rounded-xl bg-surface-hover hover:bg-background/10 transition-colors"
+            class="flex flex-col items-center gap-1 p-2 rounded-xl bg-surface-hover hover:bg-surface transition-colors"
           >
             <div class="relative">
-              <div class="w-8 h-8 rounded-full overflow-hidden border border-border-soft shadow-sm">
+              <div class="w-8 h-8 rounded-full overflow-hidden border-border-soft shadow-sm">
                 <VrcAvatar
                   :user="friend"
                   custom-class="w-full h-full object-cover"
                 />
               </div>
               <div
-                class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-border-soft"
+                class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-border-soft"
                 :class="getStatusDot(friend.status)"
               />
             </div>
@@ -270,7 +270,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
       <!-- 无数据 -->
       <div
         v-if="!loading && locations.length === 0 && privateFriends.length === 0"
-        class="flex flex-col items-center justify-center py-16 text-indigo-500/60"
+        class="flex flex-col items-center justify-center py-16 text-primary"
       >
         <Globe2
           :size="48"

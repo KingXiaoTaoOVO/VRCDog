@@ -59,17 +59,17 @@ onMounted(() => fetchNotes());
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
       <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-          <StickyNote class="w-6 h-6 text-indigo-600" />
+        <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+          <StickyNote class="w-6 h-6 text-primary" />
         </span>
         {{ t('notes.title') }}
       </h2>
-      <span class="bg-surface border border-border-soft text-text-muted px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2">
+      <span class="bg-surface border-border-soft text-text-muted px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2">
         {{ t('notes.count', { count: notes.length }) }}
       </span>
     </div>
@@ -77,7 +77,7 @@ onMounted(() => fetchNotes());
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-primary bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -109,9 +109,9 @@ onMounted(() => fetchNotes());
         <div
           v-for="note in notes"
           :key="note.user_id"
-          class="bg-surface backdrop-blur-xl rounded-2xl p-5 border border-border-soft shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col group relative"
+          class="bg-surface backdrop-blur-xl rounded-2xl p-5 border-border-soft shadow-sm hover:shadow-md hover:border-primary transition-all flex flex-col group relative"
         >
-          <div class="flex items-start justify-between mb-3 border-b border-border-soft pb-3">
+          <div class="flex items-start justify-between mb-3 border-border-soft pb-3">
             <h3 class="font-bold text-text text-base truncate pr-2">
               {{ note.display_name }}
             </h3>
@@ -124,18 +124,18 @@ onMounted(() => fetchNotes());
           >
             <textarea
               v-model="editText"
-              class="w-full flex-1 min-h-[100px] px-3 py-2 rounded-xl border border-indigo-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none bg-indigo-50/30 text-sm resize-none transition-all custom-scrollbar"
+              class="w-full flex-1 min-h-[100px] px-3 py-2 rounded-xl border-primary  focus:ring-4 focus:ring-indigo-500/10 outline-none bg-primary/10 text-sm resize-none transition-all custom-scrollbar"
               :placeholder="t('global.auto_b351a1e4')"
             />
             <div class="flex gap-2 mt-3 justify-end">
               <button
-                class="text-xs text-text-muted hover:text-text-muted font-bold px-3 py-2 rounded-lg hover:bg-background/10 transition-colors flex items-center gap-1"
+                class="text-xs text-text-muted hover:text-text-muted font-bold px-3 py-2 rounded-lg hover:bg-surface transition-colors flex items-center gap-1"
                 @click="cancelEdit"
               >
                 <X :size="14" /> {{ t('notes.cancel') }}
               </button>
               <button
-                class="text-xs bg-indigo-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-500/30 transition-colors flex items-center gap-1.5"
+                class="text-xs bg-primary/10 text-white font-bold px-4 py-2 rounded-lg hover:bg-primary/10 shadow-sm shadow-indigo-500/30 transition-colors flex items-center gap-1.5"
                 @click="saveEdit(note)"
               >
                 <Save :size="14" /> {{ t('notes.save') }}
@@ -150,7 +150,7 @@ onMounted(() => fetchNotes());
             <div class="whitespace-pre-wrap line-clamp-5">
               {{ note.note || t('notes.click_to_add') }}
             </div>
-            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface p-1.5 rounded-lg shadow-sm border border-border-soft text-indigo-500">
+            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface p-1.5 rounded-lg shadow-sm border-border-soft text-primary">
               <Edit3 :size="14" />
             </div>
           </div>

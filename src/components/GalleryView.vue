@@ -168,36 +168,36 @@ const uploadToVrcPlus = async () => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
         <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-            <Images class="w-6 h-6 text-indigo-600" />
+          <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+            <Images class="w-6 h-6 text-primary" />
           </span>
           {{ t('gallery.title') }}
         </h1>
       </div>
       <button
-        class="px-5 py-2.5 bg-surface rounded-xl text-text-muted font-bold border border-border-soft shadow-sm hover:shadow-md hover:text-indigo-600 hover:border-indigo-200 transition-all flex items-center gap-2"
+        class="px-5 py-2.5 bg-surface rounded-xl text-text-muted font-bold border-border-soft shadow-sm hover:shadow-md hover:text-primary hover:border-primary transition-all flex items-center gap-2"
         @click="fetchImages(true)"
       >
         <RefreshCcw
           class="w-5 h-5"
-          :class="{'animate-spin text-indigo-600': loading}"
+          :class="{'animate-spin text-primary': loading}"
         /> {{ t('gallery.refresh') }}
       </button>
     </header>
 
     <div
       ref="containerRef"
-      class="flex-1 bg-surface backdrop-blur-xl border border-border-strong rounded-3xl p-6 shadow-lg shadow-slate-200/40 overflow-hidden flex flex-col z-10 relative"
+      class="flex-1 bg-surface backdrop-blur-xl border-border-strong rounded-3xl p-6 shadow-lg shadow-slate-200/40 overflow-hidden flex flex-col z-10 relative"
     >
       <div
         v-if="loading && images.length === 0"
-        class="h-full flex flex-col items-center justify-center text-indigo-500/80"
+        class="h-full flex flex-col items-center justify-center text-primary"
       >
         <Images
           class="animate-bounce mb-4"
@@ -210,7 +210,7 @@ const uploadToVrcPlus = async () => {
 
       <div
         v-else-if="errorMsg"
-        class="bg-red-50 text-red-600 p-4 rounded-2xl border border-red-200 text-center font-bold text-sm"
+        class="bg-red-50 text-red-600 p-4 rounded-2xl border-red-200 text-center font-bold text-sm"
       >
         {{ errorMsg }}
       </div>
@@ -248,7 +248,7 @@ const uploadToVrcPlus = async () => {
             <div
               v-for="img in row.data.items"
               :key="img.path"
-              class="relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all border border-border-soft hover:border-indigo-300 bg-background/10 cursor-pointer h-full"
+              class="relative group rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all border-border-soft hover:border-primary bg-surface cursor-pointer h-full"
               @click="previewImage = img"
             >
               <img
@@ -263,12 +263,12 @@ const uploadToVrcPlus = async () => {
                 </h4>
                 <div class="flex items-center gap-3 text-text-muted text-[10px]">
                   <span class="flex items-center gap-1.5"><Clock :size="12" /> {{ img.dateStr }}</span>
-                  <span class="flex items-center gap-1.5 font-mono"><FileWarning :size="12" /> {{ (img.size / 1024 / 1024).toFixed(1) }} MB</span>
+                  <span class="flex items-center gap-1.5 font-mono"><FileWarning :size="12" /> {{ (Number(img.size) / 1024 / 1024).toFixed(1) }} MB</span>
                 </div>
               </div>
 
               <div class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button class="p-2 bg-black/40 backdrop-blur-md hover:bg-black/60 text-white rounded-xl transition-colors">
+                <button class="p-2 bg-surface backdrop-blur-md backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white rounded-xl transition-colors">
                   <Eye :size="16" />
                 </button>
               </div>
@@ -278,7 +278,7 @@ const uploadToVrcPlus = async () => {
 
         <div
           v-if="loadingMore"
-          class="py-6 flex justify-center text-indigo-500 w-full"
+          class="py-6 flex justify-center text-primary w-full"
         >
           <RefreshCcw
             class="animate-spin"
@@ -306,7 +306,7 @@ const uploadToVrcPlus = async () => {
             class="max-w-full max-h-[70vh] object-contain"
           >
           <button
-            class="absolute top-4 right-4 p-2 rounded-xl bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
+            class="absolute top-4 right-4 p-2 rounded-xl bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
             @click="previewImage = null"
           >
             ✕
@@ -318,12 +318,12 @@ const uploadToVrcPlus = async () => {
           </h2>
           <div class="flex items-center gap-4 text-sm text-text-muted mb-6 font-bold">
             <span class="flex items-center gap-1"><Clock :size="14" /> {{ previewImage.dateStr }}</span>
-            <span class="flex items-center gap-1"><FileWarning :size="14" /> {{ (previewImage.size / 1024 / 1024).toFixed(2) }} MB</span>
+            <span class="flex items-center gap-1"><FileWarning :size="14" /> {{ (Number(previewImage.size) / 1024 / 1024).toFixed(2) }} MB</span>
           </div>
           
           <div class="flex items-center justify-end gap-3 flex-wrap">
             <button
-              class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
+              class="px-5 py-2.5 bg-primary/10 hover:bg-primary/10 text-white font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
               :disabled="uploadingToVrcPlus"
               @click="uploadToVrcPlus"
             >
@@ -338,13 +338,13 @@ const uploadToVrcPlus = async () => {
               {{ uploadingToVrcPlus ? t('global.gallery.uploading') : t('global.gallery.upload_btn') }}
             </button>
             <button
-              class="px-5 py-2.5 bg-background/10 hover:bg-background/20 text-text-muted font-bold rounded-xl transition-colors flex items-center gap-2"
+              class="px-5 py-2.5 bg-surface hover:bg-background/20 text-text-muted font-bold rounded-xl transition-colors flex items-center gap-2"
               @click="openInExplorer(previewImage.path)"
             >
-              <FolderOpen :size="16" /> 在资源管理器中打开
+              <FolderOpen :size="16" /> {{ t('gallery.open_in_explorer') || '在资源管理器中打开' }}
             </button>
             <button
-              class="px-5 py-2.5 bg-background/10 hover:bg-background/20 text-text-muted font-bold rounded-xl transition-colors flex items-center gap-2"
+              class="px-5 py-2.5 bg-surface hover:bg-background/20 text-text-muted font-bold rounded-xl transition-colors flex items-center gap-2"
               @click="copyPath(previewImage.path)"
             >
               <Copy :size="16" /> {{ t('gallery.copy_path') }}
@@ -353,7 +353,7 @@ const uploadToVrcPlus = async () => {
               class="px-5 py-2.5 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-xl transition-colors flex items-center gap-2 ml-auto"
               @click="deleteImage(previewImage)"
             >
-              <Trash2 :size="16" /> 删除 (Delete)
+              <Trash2 :size="16" /> {{ t('gallery.delete') || '删除 (Delete)' }}
             </button>
           </div>
         </div>

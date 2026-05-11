@@ -76,7 +76,7 @@ const resolvePlayerData = async (player: Player) => {
   if (resolvedNames.has(player.name) || player.loadingData) return;
   player.loadingData = true;
   try {
-    const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(player.name)}&n=1`, 'GET');
+    const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(player.name)}&n=1`, { method: 'GET' });
     const p = players.value.find(x => x.name === player.name) || player;
     if (res && res.length > 0 && res[0].displayName === player.name) {
       p.userData = res[0];
@@ -135,11 +135,11 @@ const openPlayerProfile = (player: Player) => {
             :size="14"
             class="text-border-strong"
           /> {{ t('player_list.current_location') }} 
-          <span class="font-bold text-text bg-surface px-2 py-0.5 rounded-md border border-border-soft shadow-sm">{{ currentRoom }}</span>
+          <span class="font-bold text-text bg-surface px-2 py-0.5 rounded-md border-border-soft shadow-sm">{{ currentRoom }}</span>
         </p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-xs font-bold text-blue-800 bg-blue-100/80 px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
+        <span class="text-xs font-bold text-blue-800 bg-blue-100/80 px-3 py-1.5 rounded-full border-blue-200 shadow-sm">
           {{ t('player_list.total_players', { count: players.length }) }}
         </span>
       </div>
@@ -153,7 +153,7 @@ const openPlayerProfile = (player: Player) => {
           v-model="searchQuery"
           type="text"
           :placeholder="t('player_list.search_placeholder')"
-          class="w-full pl-10 pr-4 py-2.5 bg-surface border border-border-soft focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 rounded-xl outline-none transition-all text-text text-sm shadow-sm"
+          class="w-full pl-10 pr-4 py-2.5 bg-surface border-border-soft focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 rounded-xl outline-none transition-all text-text text-sm shadow-sm"
         >
       </div>
 
@@ -207,7 +207,7 @@ const openPlayerProfile = (player: Player) => {
             
             <div
               v-else
-              class="h-32 bg-surface rounded-2xl overflow-hidden border border-border-soft shadow-sm flex items-center justify-center relative"
+              class="h-32 bg-surface rounded-2xl overflow-hidden border-border-soft shadow-sm flex items-center justify-center relative"
             >
               <div
                 v-if="player.loadingData"
@@ -219,7 +219,7 @@ const openPlayerProfile = (player: Player) => {
                 v-else
                 class="text-center p-4"
               >
-                <div class="w-12 h-12 rounded-full bg-background/10 flex items-center justify-center text-text-muted font-black text-xl uppercase mx-auto mb-2 border border-border-soft shadow-sm">
+                <div class="w-12 h-12 rounded-full bg-surface flex items-center justify-center text-text-muted font-black text-xl uppercase mx-auto mb-2 border-border-soft shadow-sm">
                   {{ player.name.charAt(0) }}
                 </div>
                 <h3 class="font-bold text-text-muted text-sm truncate max-w-[150px] mx-auto">
@@ -231,13 +231,13 @@ const openPlayerProfile = (player: Player) => {
             <!-- Note Badge -->
             <div
               v-if="player.note"
-              class="absolute top-2 left-2 bg-yellow-100/90 backdrop-blur-md text-yellow-800 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold border border-yellow-300/50 shadow-sm z-10 max-w-[120px]"
+              class="absolute top-2 left-2 bg-yellow-100/90 backdrop-blur-md text-yellow-800 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold border-yellow-300/50 shadow-sm z-10 max-w-[120px]"
             >
               <StickyNote :size="10" /> <span class="truncate">{{ player.note }}</span>
             </div>
 
             <!-- Join Time Badge -->
-            <div class="absolute top-2 right-2 bg-black/60 backdrop-blur-md text-white text-[9px] px-1.5 py-0.5 rounded uppercase font-mono font-bold border border-white/10 opacity-80 pointer-events-none z-10 shadow-sm">
+            <div class="absolute top-2 right-2 bg-background/80 backdrop-blur-md/60 backdrop-blur-md text-white text-[9px] px-1.5 py-0.5 rounded uppercase font-mono font-bold border-transparent opacity-80 pointer-events-none z-10 shadow-sm">
               {{ player.joinTime }}
             </div>
           </div>

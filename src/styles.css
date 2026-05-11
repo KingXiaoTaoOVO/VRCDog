@@ -1,74 +1,154 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #f59e0b;      /* 暖阳黄 Amber-500 */
-  --color-primary-hover: #d97706;/* Amber-600 */
-  --color-background: #fffbeb;   /* 奶白黄 Amber-50 */
-  --color-surface: rgba(255, 255, 255, 0.85); /* 软糯白透 */
-  --color-surface-hover: rgba(255, 255, 255, 0.95);
-  --color-text: #451a03;         /* 深咖色，替代纯黑，显得温柔 */
-  --color-text-muted: #78350f;   /* 中咖色 */
-  --color-success: #10b981;
-  --color-danger: #ef4444;
-  --color-warning: #f59e0b;
+  --color-primary: var(--theme-primary, #f59e0b);
+  --color-primary-hover: var(--theme-primary-hover, #d97706);
+  --color-background: var(--theme-bg-main, #ffffff);
+  --color-surface: var(--theme-surface, rgba(255, 255, 255, 0.45));
+  --color-surface-hover: var(--theme-surface-hover, rgba(255, 255, 255, 0.65));
+  --color-text-strong: var(--theme-text-strong, #1e293b);
+  --color-text-soft: var(--theme-text-soft, #475569);
+  --color-border-soft: var(--theme-border-soft, rgba(255, 255, 255, 0.6));
+  --color-border-strong: var(--theme-border-strong, rgba(255, 255, 255, 0.8));
 }
 
 @layer base {
   body {
-    @apply text-text antialiased;
-    background-color: transparent !important;
+    @apply antialiased;
+    background-color: var(--theme-bg-main) !important;
+    color: var(--theme-text-soft) !important;
     margin: 0;
     padding: 0;
     user-select: none;
     -webkit-user-select: none;
     overflow: hidden;
-    font-family: "Comic Sans MS", "Nunito", "Quicksand", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: "PingFang SC", "Microsoft YaHei", "Nunito", "Quicksand", sans-serif;
   }
-  
+
   #app {
     width: 100vw;
     height: 100vh;
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
+
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+
   ::-webkit-scrollbar-thumb {
-    background: rgba(245, 158, 11, 0.3); /* 半透明暖黄 */
+    background: var(--theme-border-strong);
+    opacity: 0.3;
     border-radius: 99px;
   }
+
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(245, 158, 11, 0.6);
+    background: var(--theme-primary);
   }
 }
 
-/* 可爱狗狗风的圆润玻璃面板 */
+/* 高级毛玻璃亚克力面板 */
 .glass-panel {
-  background: var(--color-surface);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 10px 40px -10px rgba(245, 158, 11, 0.2), 
-              0 0 10px rgba(255, 255, 255, 0.8) inset;
-  border-radius: 32px; /* 极致大圆角 */
+  background: var(--theme-surface);
+  backdrop-filter: var(--theme-glass-effect, blur(24px) saturate(180%));
+  -webkit-backdrop-filter: var(--theme-glass-effect, blur(24px) saturate(180%));
+  border: 1px solid var(--theme-border-soft) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.03), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-panel-hover:hover {
-  background: var(--color-surface-hover);
-  border-color: rgba(255, 255, 255, 1);
-  box-shadow: 0 20px 40px -10px rgba(245, 158, 11, 0.3), 
-              0 0 15px rgba(255, 255, 255, 0.9) inset;
-  transform: translateY(-4px) scale(1.01);
+  background: var(--theme-surface-hover);
+  border: 1px solid var(--theme-border-strong) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
 }
 
-/* Q弹按钮通用样式 */
-.btn-cute {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+/* 终端黑色风格 - 强制纯黑亚克力 */
+.terminal-black {
+  background: var(--theme-terminal-bg, rgba(0, 0, 0, 0.9)) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  color: #e2e8f0 !important;
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px;
+  padding: 16px;
 }
-.btn-cute:active {
-  transform: scale(0.9) !important;
+
+.terminal-text {
+  color: #10b981; /* 经典黑客绿 */
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 柔和按钮 */
+.btn-gentle {
+  @apply px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2;
+  background: var(--theme-surface);
+  color: var(--theme-text-strong);
+  border: 1px solid var(--theme-border-soft);
+}
+
+.btn-gentle:hover {
+  background: var(--theme-active-bg);
+  border-color: var(--theme-border-strong);
+  transform: translateY(-1px);
+}
+
+.btn-gentle:active {
+  transform: scale(0.96);
+}
+
+.btn-primary {
+  background: var(--theme-primary-btn-bg);
+  color: white;
+  @apply shadow-lg shadow-primary/20;
+}
+
+.btn-primary:hover {
+  background: var(--theme-primary-btn-hover);
+}
+
+/* 背景动态色块 */
+.blob {
+  position: fixed;
+  width: 60vw;
+  height: 60vw;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: -1;
+  opacity: 0.4;
+  pointer-events: none;
+  animation: blob-rotate 30s infinite linear;
+}
+
+@keyframes blob-rotate {
+  from { transform: rotate(0deg) translate(5%, 5%); }
+  to { transform: rotate(360deg) translate(5%, 5%); }
+}
+
+.blob-1 {
+  background: var(--theme-blob1);
+  top: -20%;
+  left: -10%;
+}
+
+.blob-2 {
+  background: var(--theme-blob2);
+  bottom: -20%;
+  right: -10%;
+  animation-direction: reverse;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--theme-border-strong);
+  border-radius: 10px;
 }

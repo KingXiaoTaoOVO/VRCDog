@@ -108,7 +108,7 @@ const submit = async () => {
         id="direct-open-input"
         v-model="inputUrl"
         type="text"
-        class="w-full bg-surface border border-border-soft rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-border-strong transition-colors mb-4"
+        class="w-full bg-surface border-border-soft rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-border-strong transition-colors mb-4"
         @keyup.enter="submit"
       >
       
@@ -127,7 +127,7 @@ const submit = async () => {
           {{ t('direct_open.cancel') }}
         </button>
         <button
-          class="px-5 py-2 bg-surface text-black hover:bg-background/20 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+          class="px-5 py-2 bg-surface text-text hover:bg-background/20 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
           :disabled="!inputUrl.trim() || loading"
           @click="submit"
         >

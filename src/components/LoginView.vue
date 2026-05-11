@@ -169,7 +169,7 @@ onMounted(async () => {
   <div class="flex items-center justify-center h-screen bg-orange-50/50 relative overflow-hidden">
     <div class="fixed top-4 right-4 z-50 flex gap-2">
       <button
-        class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border border-orange-200 transition-all font-medium text-sm shadow-sm text-text"
+        class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border-orange-200 transition-all font-medium text-sm shadow-sm text-text"
         @click="cycleLanguage"
       >
         <Globe class="w-4 h-4" />
@@ -190,7 +190,7 @@ onMounted(async () => {
       />
     </div>
 
-    <div class="bg-surface p-8 rounded-3xl shadow-xl w-full max-w-md border border-orange-100 relative z-10">
+    <div class="bg-surface p-8 rounded-3xl shadow-xl w-full max-w-md border-orange-100 relative z-10">
       <div class="text-center mb-8">
         <h1 class="text-3xl font-bold text-orange-600 mb-2 font-mono flex items-center justify-center gap-2">
           <Bone class="animate-bounce" /> {{ t('login.title') }}
@@ -229,9 +229,9 @@ onMounted(async () => {
         </div>
 
         <div class="relative flex items-center py-2">
-          <div class="flex-grow border-t border-orange-200" />
+          <div class="flex-grow border-orange-200" />
           <span class="flex-shrink-0 mx-4 text-orange-400 text-xs font-bold">{{ t('login.or') }}</span>
-          <div class="flex-grow border-t border-orange-200" />
+          <div class="flex-grow border-orange-200" />
         </div>
 
         <div>
@@ -314,7 +314,7 @@ onMounted(async () => {
     
     <!-- 左下角版本号 -->
     <div class="absolute bottom-4 left-4 z-50">
-      <span class="text-xs font-mono font-bold text-text-muted0/40 bg-surface backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
+      <span class="text-xs font-mono font-bold text-text-muted/40 bg-surface backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
     </div>
   </div>
 </template>

@@ -16,7 +16,7 @@ export async function initWebsocket() {
   if (webSocket !== null) return;
   
   try {
-    const res: any = await VrcApi.request('/auth', 'GET');
+    const res: any = await VrcApi.request('/auth', { method: 'GET' });
     if (res && res.token) {
       connectWebSocket(res.token);
     }

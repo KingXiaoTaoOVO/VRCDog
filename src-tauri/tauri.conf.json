@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "VRC狗狗管家",
+        "title": "VRCDog",
         "width": 1200,
         "height": 800,
         "resizable": true,
@@ -24,7 +24,9 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
@@ -38,8 +40,13 @@
   },
   "bundle": {
     "active": true,
-    "externalBin": ["bin/ffmpeg"],
-    "targets": ["nsis", "msi"],
+    "externalBin": [
+      "bin/ffmpeg"
+    ],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

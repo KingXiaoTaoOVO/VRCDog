@@ -53,14 +53,14 @@ onMounted(() => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 shrink-0 z-10">
       <div>
         <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-          <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-            <UserCircle class="w-6 h-6 text-indigo-600" />
+          <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+            <UserCircle class="w-6 h-6 text-primary" />
           </span>
           {{ t('my_avatars.title') }}
         </h1>
@@ -74,14 +74,14 @@ onMounted(() => {
           <input
             v-model="searchQuery"
             type="text"
-            class="block w-64 pl-10 pr-4 py-2 bg-surface border border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
+            class="block w-64 pl-10 pr-4 py-2 bg-surface border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none   focus:ring-indigo-500/10 text-sm font-bold transition-all"
             :placeholder="t('my_avatars.search_placeholder')"
           >
         </div>
         
         <button
           :disabled="loading"
-          class="p-2.5 rounded-xl bg-surface border border-border-soft shadow-sm text-text-muted hover:text-indigo-600 hover:border-indigo-200 transition-all disabled:opacity-50"
+          class="p-2.5 rounded-xl bg-surface border-border-soft shadow-sm text-text-muted hover:text-primary hover:border-primary transition-all disabled:opacity-50"
           @click="fetchAvatars"
         >
           <Loader2
@@ -99,7 +99,7 @@ onMounted(() => {
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
+      class="bg-red-50 text-red-600 p-3 rounded-xl border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
@@ -107,7 +107,7 @@ onMounted(() => {
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading && avatars.length === 0"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-primary bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"

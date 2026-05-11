@@ -47,12 +47,12 @@ const selectOption = (type: string) => {
 <template>
   <div v-if="isVisible" class="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh] px-4">
     <!-- Backdrop -->
-    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="isVisible = false"></div>
+    <div class="absolute inset-0 bg-background/80 backdrop-blur-md/60 backdrop-blur-sm" @click="isVisible = false"></div>
     
     <!-- Modal -->
-    <div class="relative w-full max-w-[600px] bg-surface rounded-xl shadow-2xl border border-white/10 overflow-hidden transform transition-all text-text-muted">
+    <div class="relative w-full max-w-[600px] bg-surface rounded-xl shadow-2xl border-transparent overflow-hidden transform transition-all text-text-muted">
       <!-- Search Input -->
-      <div class="flex items-center px-4 py-3 border-b border-white/5">
+      <div class="flex items-center px-4 py-3 border-transparent">
         <Search class="w-5 h-5 text-border-strong mr-3" />
         <input 
           ref="inputRef"

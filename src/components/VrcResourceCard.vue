@@ -83,14 +83,14 @@ const handleMouseEnter = () => {
 <template>
   <div 
     class="bg-surface backdrop-blur-md rounded-2xl overflow-hidden shadow-sm relative group hover:shadow-lg transition-all cursor-pointer border"
-    :class="[minimal ? 'border-transparent hover:border-indigo-200 flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-indigo-300 flex-col hover:-translate-y-1']"
+    :class="[minimal ? 'border-transparent hover:border-primary flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-primary flex-col ']"
     @click="emit('click', data)"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
     <!-- Image Area -->
     <div 
-      class="bg-background/10 relative overflow-hidden shrink-0"
+      class="bg-surface relative overflow-hidden shrink-0"
       :class="[minimal ? 'w-11 h-11 rounded-xl shadow-sm' : 'aspect-video w-full rounded-t-2xl']"
     >
       <!-- Image or Placeholder -->
@@ -102,7 +102,7 @@ const handleMouseEnter = () => {
       >
       <div
         v-else
-        class="w-full h-full flex items-center justify-center bg-surface0/50 text-border-strong"
+        class="w-full h-full flex items-center justify-center bg-surface/50 text-border-strong"
       >
         <Globe
           v-if="type === 'world'"
@@ -133,7 +133,7 @@ const handleMouseEnter = () => {
         <div class="flex justify-end relative">
           <!-- Context Menu Button -->
           <button 
-            class="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-xl text-white transition-all hover:scale-105 active:scale-95"
+            class="p-2 bg-black/40 backdrop-blur-md hover:bg-black/60 rounded-xl text-white transition-all hover:scale-105 active:scale-95"
             @click.stop="toggleMenu"
           >
             <MoreVertical :size="16" />
@@ -142,26 +142,26 @@ const handleMouseEnter = () => {
           <!-- Dropdown Menu -->
           <div 
             v-if="showMenu"
-            class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-xl rounded-xl shadow-xl border border-border-soft0/60 overflow-hidden z-30 py-1.5 animate-fade-in origin-top-right"
+            class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-xl rounded-xl shadow-xl border-border-soft/60 overflow-hidden z-30 py-1.5 animate-fade-in origin-top-right"
           >
             <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="copyId"
             >
-              <Copy :size="14" /> 复制 ID
+              <Copy :size="14" /> {{ $t('card.copy_id') || '复制 ID' }}
             </button>
             <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="openInBrowser"
             >
-              <ExternalLink :size="14" /> 浏览器打开
+              <ExternalLink :size="14" /> {{ $t('card.open_browser') || '浏览器打开' }}
             </button>
             <button
               v-if="type !== 'group'"
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-indigo-500 hover:bg-surface-hover hover:text-indigo-600 flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-primary hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="emit('favorite', data)"
             >
-              <Star :size="14" /> 收藏/分组
+              <Star :size="14" /> {{ $t('card.favorite') || '收藏/分组' }}
             </button>
           </div>
         </div>
@@ -172,10 +172,10 @@ const handleMouseEnter = () => {
           class="flex justify-start"
         >
           <button
-            class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-indigo-500/30 backdrop-blur-md flex items-center gap-2 transition-all transform translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 active:scale-95"
+            class="px-4 py-2 bg-primary/10 hover:bg-primary/10 text-text-inverse text-xs font-extrabold rounded-xl shadow-lg shadow-indigo-500/30 backdrop-blur-md flex items-center gap-2 transition-all transform translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 active:scale-95"
             @click.stop=""
           >
-            <Play :size="14" /> 创建实例
+            <Play :size="14" /> {{ $t('card.create_instance') || '创建实例' }}
           </button>
         </div>
       </div>
@@ -187,13 +187,13 @@ const handleMouseEnter = () => {
       >
         <span
           v-if="type === 'world' && (data.capacity || data.occupants)"
-          class="px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border border-white/10"
+          class="px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
         >
           <Users :size="12" /> {{ data.occupants || 0 }} / {{ data.capacity || '?' }}
         </span>
         <span
           v-if="type === 'group' && data.memberCount"
-          class="px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border border-white/10"
+          class="px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
         >
           <Users :size="12" /> {{ data.memberCount }}
         </span>
@@ -224,7 +224,7 @@ const handleMouseEnter = () => {
         <span 
           v-for="tag in data.tags.slice(0, 3).filter((t: string) => !t.startsWith('author_tag'))" 
           :key="tag"
-          class="px-2 py-0.5 bg-background/10 text-text-muted border border-border-soft0/50 rounded-md text-[10px] font-bold whitespace-nowrap uppercase tracking-wide truncate max-w-[70px]"
+          class="px-2 py-0.5 bg-surface text-text-muted border-border-soft/50 rounded-md text-[10px] font-bold whitespace-nowrap uppercase tracking-wide truncate max-w-[70px]"
         >
           {{ tag.replace('author_tag_', '') }}
         </span>

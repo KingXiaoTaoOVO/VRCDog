@@ -1,38 +1,136 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { VrcApi, DbApi } from '../api';
 
+export interface VrcUserBadge {
+  badgeId: string;
+  badgeName: string;
+  badgeDescription: string;
+  badgeImageUrl: string;
+  showBadge: boolean;
+}
+
+export interface VrcUser {
+  id: string;
+  displayName: string;
+  username?: string;
+  userIcon?: string;
+  profilePicOverride?: string;
+  bio?: string;
+  bioLinks?: string[];
+  currentAvatarImageUrl?: string;
+  currentAvatarThumbnailImageUrl?: string;
+  status: string;
+  statusDescription?: string;
+  last_login?: string;
+  last_platform?: string;
+  date_joined?: string;
+  isFriend: boolean;
+  friendKey?: string;
+  location?: string;
+  instanceId?: string;
+  worldId?: string;
+  tags?: string[];
+  languages?: string[];
+  pronouns?: string;
+  badges?: VrcUserBadge[];
+  fallbackAvatar?: string;
+  state?: string;
+  active_instance_id?: string;
+  [key: string]: any;
+}
+
+export interface VrcGroup {
+  id: string;
+  name: string;
+  iconUrl?: string;
+  bannerUrl?: string;
+  memberCount?: number;
+  shortCode?: string;
+  description?: string;
+  privacy?: string;
+  joinState?: string;
+  [key: string]: any;
+}
+
+export interface VrcWorld {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  thumbnailImageUrl?: string;
+  occupants?: number;
+  favorites?: number;
+  visits?: number;
+  updated_at?: string;
+  releaseStatus?: string;
+  supportedPlatforms?: string[];
+  tags?: string[];
+  instances?: any[];
+  description?: string;
+  capacity?: number;
+  authorName?: string;
+  authorId?: string;
+  [key: string]: any;
+}
+
+export interface VrcAvatar {
+  id: string;
+  name: string;
+  thumbnailImageUrl?: string;
+  imageUrl?: string;
+  updated_at?: string;
+  releaseStatus?: string;
+  supportedPlatforms?: string[];
+  description?: string;
+  tags?: string[];
+  authorId?: string;
+  authorName?: string;
+  [key: string]: any;
+}
+
+export interface ActivityLog {
+  id?: string;
+  type?: string;
+  created_at?: string;
+  [key: string]: string | number | boolean | undefined | null;
+}
 export const useUserProfileStore = defineStore('userProfile', () => {
   const isOpen = ref(false);
   const targetUserId = ref<string | null>(null);
   
   // Base Data
-  const baseInfo = ref<any>(null);
+  const baseInfo = ref<VrcUser | null>(null);
   const myId = ref<string | null>(null);
   const isLoadingBase = ref(false);
 
   // Tabs Data
-  const mutualFriends = ref<any[]>([]);
+  const mutualFriends = ref<VrcUser[]>([]);
   const isLoadingMutual = ref(false);
   
-  const groups = ref<any[]>([]);
+  const groups = ref<VrcGroup[]>([]);
   const isLoadingGroups = ref(false);
 
-  const createdWorlds = ref<any[]>([]);
+  const mutualGroups = ref<VrcGroup[]>([]);
+  const isLoadingMutualGroups = ref(false);
+
+  const createdWorlds = ref<VrcWorld[]>([]);
   const isLoadingWorlds = ref(false);
   
-  const createdAvatars = ref<any[]>([]);
+  const createdAvatars = ref<VrcAvatar[]>([]);
   const isLoadingAvatars = ref(false);
 
   // Local Data
-    const activityLogs = ref<any[]>([]);
+  const activityLogs = ref<ActivityLog[]>([]);
   const isLoadingActivity = ref(false);
+
+  const favoriteId = ref<string | null>(null);
+  const isFavorite = computed(() => !!favoriteId.value);
 
   const localNote = ref('');
   const isSavingNote = ref(false);
 
   // Open the profile for a specific user
-  const openProfile = async (userId: string, prefillData: any = null) => {
+  const openProfile = async (userId: string, prefillData: VrcUser | null = null) => {
     targetUserId.value = userId;
     isOpen.value = true;
     
@@ -44,6 +142,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     }
     
     mutualFriends.value = [];
+    mutualGroups.value = [];
     groups.value = [];
     createdWorlds.value = [];
     createdAvatars.value = [];
@@ -59,7 +158,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       if (cachedStr && !baseInfo.value) { // Don't override if prefillData was set and better
         try {
           const cachedData = JSON.parse(cachedStr);
-          baseInfo.value = { ...cachedData, ...baseInfo.value }; // Merge
+          baseInfo.value = { ...cachedData, ...(baseInfo.value || {}) }; // Merge
           // We can't turn off isLoadingBase yet, because we still want to show the background refresh happening for the core info.
         } catch(e) {}
       }
@@ -70,12 +169,12 @@ export const useUserProfileStore = defineStore('userProfile', () => {
         baseInfo.value = res;
         DbApi.saveApiCache({ key: baseCacheKey, data: JSON.stringify(res) }).catch(() => {});
       }),
-      DbApi.getNote({ userId }).then((res: any) => {
+      DbApi.getNote({ userId }).then((res: { note?: string } | null | undefined) => {
         if (res && res.note) {
           localNote.value = res.note;
         }
       }),
-      VrcApi.getCurrentUser().then((user: any) => {
+      VrcApi.getCurrentUser().then((user: { id?: string } | null | undefined) => {
         if (user && user.id) myId.value = user.id;
       })
     ]).finally(() => {
@@ -87,6 +186,9 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     fetchCreatedWorlds(userId);
     fetchCreatedAvatars(userId);
     fetchActivityLogs(userId);
+    fetchMutualFriends(userId);
+    fetchMutualGroups(userId);
+    checkIsFavorite(userId);
   };
 
   const saveLocalNote = async () => {
@@ -158,7 +260,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       }
 
       // Background fetch
-      const res = await VrcApi.request('/worlds', 'GET', { userId: userId, n: 60 });
+      const res = await VrcApi.request('/worlds', { method: 'GET', params: { userId: userId, n: 60 } });
       if (Array.isArray(res)) {
         createdWorlds.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -186,7 +288,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
         } catch(e) {}
       }
 
-      const res = await VrcApi.request('/avatars', 'GET', { userId: userId, n: 60 });
+      const res = await VrcApi.request('/avatars', { method: 'GET', params: { userId: userId, n: 60 } });
       if (Array.isArray(res)) {
         createdAvatars.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -215,19 +317,91 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   const fetchMutualFriends = async (userId: string) => {
     isLoadingMutual.value = true;
     try {
-      VrcApi.getMutualFriends({ userId }).then((res: any) => {
-        if (Array.isArray(res)) mutualFriends.value = res;
-        else mutualFriends.value = [];
-      }).catch(() => {
+      const res = await VrcApi.getMutualFriends({ userId });
+      if (Array.isArray(res)) {
+        mutualFriends.value = res;
+      } else {
         mutualFriends.value = [];
-      }).finally(() => {
-        isLoadingMutual.value = false;
-      });
+      }
     } catch (err) {
       console.warn("Failed to fetch mutual friends", err);
+      mutualFriends.value = [];
+    } finally {
       isLoadingMutual.value = false;
     }
   };
+
+  const fetchMutualGroups = async (userId: string) => {
+    isLoadingMutualGroups.value = true;
+    try {
+      const res = await VrcApi.getMutualGroups({ userId });
+      if (Array.isArray(res)) mutualGroups.value = res;
+      else mutualGroups.value = [];
+    } catch (err) {
+      console.warn("Failed to fetch mutual groups", err);
+      mutualGroups.value = [];
+    } finally {
+      isLoadingMutualGroups.value = false;
+    }
+  };
+
+  const checkIsFavorite = async (userId: string) => {
+    try {
+      const favorites = await VrcApi.getFavorites({ type: 'friend', n: 100 });
+      if (Array.isArray(favorites)) {
+        const fav = favorites.find((f: any) => f.favoriteId === userId);
+        favoriteId.value = fav ? fav.id : null;
+      }
+    } catch (err) {
+      console.warn("Failed to check if user is favorited", err);
+    }
+  };
+
+  const toggleFavorite = async () => {
+    if (!targetUserId.value) return;
+    try {
+      if (favoriteId.value) {
+        await VrcApi.deleteFavorite(favoriteId.value);
+        favoriteId.value = null;
+      } else {
+        const res = await VrcApi.addFavorite({
+          type: 'friend',
+          favoriteId: targetUserId.value,
+          tags: ['group_0'] // Default group
+        });
+        if (res && res.id) {
+          favoriteId.value = res.id;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to toggle favorite", err);
+    }
+  };
+
+  const socialLinks = computed(() => {
+    if (!baseInfo.value?.bio) return [];
+    const bio = baseInfo.value.bio;
+    const links: { type: string, url: string }[] = [];
+    
+    const patterns = [
+      { type: 'twitter', regex: /(?:https?:\/\/)?(?:www\.)?twitter\.com\/([a-zA-Z0-9_]+)/gi },
+      { type: 'x', regex: /(?:https?:\/\/)?(?:www\.)?x\.com\/([a-zA-Z0-9_]+)/gi },
+      { type: 'youtube', regex: /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:@|c\/|channel\/)?([a-zA-Z0-9_-]+)/gi },
+      { type: 'twitch', regex: /(?:https?:\/\/)?(?:www\.)?twitch\.tv\/([a-zA-Z0-9_]+)/gi },
+      { type: 'discord', regex: /(?:https?:\/\/)?(?:www\.)?discord(?:app)?\.(?:com\/invite|gg)\/([a-zA-Z0-9_-]+)/gi },
+      { type: 'github', regex: /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]+)/gi },
+      { type: 'patreon', regex: /(?:https?:\/\/)?(?:www\.)?patreon\.com\/([a-zA-Z0-9_-]+)/gi }
+    ];
+
+    patterns.forEach(p => {
+      let match;
+      while ((match = p.regex.exec(bio)) !== null) {
+        links.push({ type: p.type, url: match[0] });
+      }
+    });
+
+    return links;
+  });
 
   return {
     isOpen,
@@ -235,6 +409,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     baseInfo,
     myId,
     mutualFriends,
+    mutualGroups,
     groups,
     createdWorlds,
     createdAvatars,
@@ -243,17 +418,22 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingBase,
     isLoadingMutual,
     isLoadingGroups,
+    isLoadingMutualGroups,
     isLoadingWorlds,
     isLoadingAvatars,
     isLoadingActivity,
     activityLogs,
+    isFavorite,
+    socialLinks,
     openProfile,
     closeProfile,
     fetchMutualFriends,
+    fetchMutualGroups,
     fetchGroups,
     fetchCreatedWorlds,
     fetchCreatedAvatars,
     fetchActivityLogs,
-    saveLocalNote
+    saveLocalNote,
+    toggleFavorite
   };
 });

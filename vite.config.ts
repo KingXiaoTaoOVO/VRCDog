@@ -2,7 +2,6 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
@@ -34,15 +33,22 @@ export default defineConfig(async () => ({
     entries: ['index.html'],
   },
   build: {
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.includes('echarts')) {
+              return 'vendor-echarts';
+            }
             if (id.includes('vue')) {
               return 'vendor-vue';
             }
             if (id.includes('lucide')) {
               return 'vendor-lucide';
+            }
+            if (id.includes('@tauri-apps')) {
+              return 'vendor-tauri';
             }
             return 'vendor';
           }

@@ -57,7 +57,7 @@ onMounted(() => {
 <template>
   <!-- 使用琥珀色主题的半透明背景，通过 mousedown 手动调用 startDragging() 实现完美拖拽 -->
   <div
-    class="h-screen w-screen overflow-hidden bg-indigo-50/30 backdrop-blur-sm border border-indigo-300/30 rounded-lg flex flex-col justify-end p-4 pb-8 select-none"
+    class="h-screen w-screen overflow-hidden bg-primary/10 backdrop-blur-sm border-primary rounded-lg flex flex-col justify-end p-4 pb-8 select-none"
     @mousedown="startDrag"
   >
     <!-- 没有任何记录时的提示语 -->
@@ -66,7 +66,7 @@ onMounted(() => {
       class="flex flex-col items-center justify-center h-full w-full opacity-50 pointer-events-none"
     >
       <div
-        class="px-4 py-2 rounded-xl bg-black/20 text-white font-bold text-sm backdrop-blur-md border border-white/10 text-center"
+        class="px-4 py-2 rounded-xl bg-background/80 backdrop-blur-md/20 text-white font-bold text-sm backdrop-blur-md border-transparent text-center"
         v-html="t('overlay.ready_desc')"
       />
     </div>
@@ -84,8 +84,8 @@ onMounted(() => {
         :class="log.type === 'self' ? 'items-end' : 'items-start'"
       >
         <div
-          class="max-w-[85%] rounded-2xl p-3 shadow-lg backdrop-blur-md border border-white/20"
-          :class="log.type === 'self' ? 'bg-indigo-500/80 text-white rounded-br-sm' : 'bg-surface text-text rounded-bl-sm'"
+          class="max-w-[85%] rounded-2xl p-3 shadow-lg backdrop-blur-md border-transparent"
+          :class="log.type === 'self' ? 'bg-primary/10 text-white rounded-br-sm' : 'bg-surface text-text rounded-bl-sm'"
         >
           <p class="text-[13px] opacity-80 font-medium mb-0.5">
             {{ log.text }}

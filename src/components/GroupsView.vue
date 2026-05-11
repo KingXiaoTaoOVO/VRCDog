@@ -62,13 +62,13 @@ onMounted(() => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 shrink-0 z-10">
       <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-          <Users class="w-6 h-6 text-indigo-600" />
+        <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+          <Users class="w-6 h-6 text-primary" />
         </span>
         {{ t('groups.title') }}
       </h1>
@@ -80,13 +80,13 @@ onMounted(() => {
           <input
             v-model="searchQuery"
             type="text"
-            class="block w-64 pl-10 pr-4 py-2 bg-surface border border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 text-sm font-bold transition-all"
+            class="block w-64 pl-10 pr-4 py-2 bg-surface border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none   focus:ring-indigo-500/10 text-sm font-bold transition-all"
             :placeholder="t('groups.search_placeholder')"
           >
         </div>
         <button
           :disabled="loading"
-          class="p-2.5 rounded-xl bg-surface border border-border-soft shadow-sm text-text-muted hover:text-indigo-600 hover:border-indigo-200 transition-all disabled:opacity-50"
+          class="p-2.5 rounded-xl bg-surface border-border-soft shadow-sm text-text-muted hover:text-primary hover:border-primary transition-all disabled:opacity-50"
           @click="fetchGroups"
         >
           <Loader2
@@ -104,7 +104,7 @@ onMounted(() => {
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border border-red-200 text-sm font-bold mb-4 z-10"
+      class="bg-red-50 text-red-600 p-3 rounded-xl border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
@@ -112,7 +112,7 @@ onMounted(() => {
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading && groups.length === 0"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-primary bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -139,8 +139,8 @@ onMounted(() => {
         class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-10"
       >
         <VrcResourceCard
-          v-for="group in filteredGroups"
-          :key="group.groupId || group.id"
+          v-for="(group, index) in filteredGroups"
+          :key="group.id || index"
           type="group"
           :data="group"
           @click="openGroupDetail(group)"
@@ -162,7 +162,7 @@ onMounted(() => {
             custom-class="w-full h-full object-cover opacity-80"
           />
           <button
-            class="absolute top-4 right-4 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
+            class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
             @click="selectedGroup = null"
           >
             ✕
@@ -184,7 +184,7 @@ onMounted(() => {
               <div class="flex items-center gap-2 mt-1">
                 <span class="text-xs font-bold text-text-muted uppercase">{{ selectedGroup.shortCode }}</span>
                 <span class="w-1 h-1 rounded-full bg-surface" />
-                <span class="text-xs font-bold text-indigo-600 flex items-center gap-1"><UsersRound :size="12" /> {{ selectedGroup.memberCount || 0 }} {{ t('global.groups.members') }}</span>
+                <span class="text-xs font-bold text-primary flex items-center gap-1"><UsersRound :size="12" /> {{ selectedGroup.memberCount || 0 }} {{ t('global.groups.members') }}</span>
               </div>
             </div>
           </div>
@@ -196,9 +196,9 @@ onMounted(() => {
           </div>
 
           <div class="grid grid-cols-2 gap-3 mb-5">
-            <div class="bg-surface-hover border border-border-soft rounded-xl p-3 flex flex-col justify-center">
+            <div class="bg-surface-hover border-border-soft rounded-xl p-3 flex flex-col justify-center">
               <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
-                隐私状态
+                {{ t('global.groups.privacy_status') || '隐私状态' }}
               </p>
               <p class="text-sm font-black text-text flex items-center gap-1">
                 <Shield
@@ -207,27 +207,27 @@ onMounted(() => {
                 /> {{ selectedGroup.privacy === 'public' ? t('global.groups.public') : t('global.groups.private') }}
               </p>
             </div>
-            <div class="bg-surface-hover border border-border-soft rounded-xl p-3 flex flex-col justify-center">
+            <div class="bg-surface-hover border-border-soft rounded-xl p-3 flex flex-col justify-center">
               <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
-                加入方式
+                {{ t('global.groups.join_state') || '加入方式' }}
               </p>
               <p class="text-sm font-black text-text flex items-center gap-1">
                 <Check
                   :size="14"
                   class="text-green-500"
-                /> {{ selectedGroup.joinState === 'open' ? '自由加入' : (selectedGroup.joinState === 'request' ? '需申请' : '邀请制') }}
+                /> {{ selectedGroup.joinState === 'open' ? (t('global.groups.join_open') || '自由加入') : (selectedGroup.joinState === 'request' ? (t('global.groups.join_request') || '需申请') : (t('global.groups.join_invite') || '邀请制')) }}
               </p>
             </div>
           </div>
           
-          <div class="pt-4 border-t border-border-soft flex items-center justify-between">
+          <div class="pt-4 border-border-soft flex items-center justify-between">
             <div class="text-xs text-border-strong font-mono">
               {{ selectedGroup.id }}
             </div>
             <button
-              class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors shadow-sm" 
+              class="px-6 py-2.5 bg-primary/10 hover:bg-primary/10 text-white font-bold rounded-xl text-sm transition-colors shadow-sm" 
             >
-              在 VRChat 中查看
+              {{ t('global.groups.view_in_vrchat') || '在 VRChat 中查看' }}
             </button>
           </div>
         </div>

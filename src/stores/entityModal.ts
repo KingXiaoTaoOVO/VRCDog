@@ -1,16 +1,16 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { VrcApi, DbApi } from '../api';
-import type { VrcWorld } from '../types/vrc';
+import type { VrcWorld, VrcAvatar, VrcGroup } from './userProfile';
 
 export const useEntityModalStore = defineStore('entityModal', () => {
   const isWorldOpen = ref(false);
   const isGroupOpen = ref(false);
   const isAvatarOpen = ref(false);
 
-  const selectedWorld = ref<any>(null);
-  const selectedGroup = ref<any>(null);
-  const selectedAvatar = ref<any>(null);
+  const selectedWorld = ref<VrcWorld | null>(null);
+  const selectedGroup = ref<VrcGroup | null>(null);
+  const selectedAvatar = ref<VrcAvatar | null>(null);
 
   const isWorldFavorited = ref(false);
   const isAvatarFavorited = ref(false);
@@ -32,10 +32,10 @@ export const useEntityModalStore = defineStore('entityModal', () => {
       const world = await VrcApi.getWorld({ worldId });
       selectedWorld.value = world;
       
-      const favs: any = await DbApi.getFavoriteWorlds();
-      isWorldFavorited.value = favs.some((f: any) => f.world_id === worldId);
-    } catch (err: any) {
-      errorMsg.value = err.message || err;
+      const favs = await DbApi.getFavoriteWorlds() as Array<{world_id: string}>;
+      isWorldFavorited.value = favs.some((f) => f.world_id === worldId);
+    } catch (err: unknown) {
+      errorMsg.value = (err as Error).message || String(err);
     } finally {
       loadingWorld.value = false;
     }
@@ -47,13 +47,13 @@ export const useEntityModalStore = defineStore('entityModal', () => {
     if (!selectedWorld.value) return;
     try {
       if (isWorldFavorited.value) {
-        await DbApi.removeFavoriteWorld({ worldId: selectedWorld.value.id });
+        await DbApi.removeFavoriteWorld({ worldId: selectedWorld.value.id as string });
         isWorldFavorited.value = false;
       } else {
         await DbApi.addFavoriteWorld({
-          worldId: selectedWorld.value.id,
-          name: selectedWorld.value.name,
-          imageUrl: selectedWorld.value.imageUrl || selectedWorld.value.thumbnailImageUrl || null
+          worldId: selectedWorld.value.id as string,
+          name: selectedWorld.value.name as string,
+          imageUrl: (selectedWorld.value.imageUrl || selectedWorld.value.thumbnailImageUrl || null) as string | null
         });
         isWorldFavorited.value = true;
       }
@@ -62,13 +62,13 @@ export const useEntityModalStore = defineStore('entityModal', () => {
     }
   };
 
-  const openAvatar = async (avatar: any) => {
+  const openAvatar = async (avatar: VrcAvatar) => {
     isAvatarOpen.value = true;
     selectedAvatar.value = avatar;
     isAvatarFavorited.value = false;
     try {
-      const favs: any = await DbApi.getFavoriteAvatars();
-      isAvatarFavorited.value = favs.some((f: any) => f.avatar_id === avatar.id);
+      const favs = await DbApi.getFavoriteAvatars() as Array<{avatar_id: unknown}>;
+      isAvatarFavorited.value = favs.some((f) => f.avatar_id === avatar.id);
     } catch (e) {}
   };
 
@@ -78,15 +78,15 @@ export const useEntityModalStore = defineStore('entityModal', () => {
     if (!selectedAvatar.value) return;
     try {
       if (isAvatarFavorited.value) {
-        await DbApi.removeFavoriteAvatar({ avatarId: selectedAvatar.value.id });
+        await DbApi.removeFavoriteAvatar({ avatarId: selectedAvatar.value.id as string });
         isAvatarFavorited.value = false;
       } else {
         await DbApi.addFavoriteAvatar({
-          avatarId: selectedAvatar.value.id,
-          name: selectedAvatar.value.name,
-          imageUrl: selectedAvatar.value.imageUrl || selectedAvatar.value.thumbnailImageUrl || null,
-          authorId: selectedAvatar.value.authorId,
-          authorName: selectedAvatar.value.authorName
+          avatarId: selectedAvatar.value.id as string,
+          name: selectedAvatar.value.name as string,
+          imageUrl: (selectedAvatar.value.imageUrl || selectedAvatar.value.thumbnailImageUrl || null) as string | null,
+          authorId: selectedAvatar.value.authorId as string,
+          authorName: selectedAvatar.value.authorName as string
         });
         isAvatarFavorited.value = true;
       }
@@ -99,7 +99,7 @@ export const useEntityModalStore = defineStore('entityModal', () => {
   const groupPermissions = ref<string[]>([]);
   const loadingGroupData = ref(false);
 
-  const openGroup = async (groupOrId: any) => {
+  const openGroup = async (groupOrId: Record<string, unknown> | string) => {
     isGroupOpen.value = true;
     loadingGroup.value = true;
     errorMsg.value = '';
@@ -110,17 +110,17 @@ export const useEntityModalStore = defineStore('entityModal', () => {
     groupPermissions.value = [];
 
     try {
-      const groupId = typeof groupOrId === 'string' ? groupOrId : groupOrId.id;
+      const groupId = typeof groupOrId === 'string' ? groupOrId : groupOrId.id as string;
       if (typeof groupOrId !== 'string') {
-        selectedGroup.value = groupOrId; // Optimistic update
+        selectedGroup.value = groupOrId as VrcGroup; // Optimistic update
       }
 
       const fullGroup = await VrcApi.getGroup({ groupId });
-      selectedGroup.value = fullGroup;
+      selectedGroup.value = fullGroup as VrcGroup;
 
-      fetchGroupAdminData(groupId);
-    } catch (err: any) {
-      errorMsg.value = err.message || err;
+      fetchGroupAdminData(groupId as string);
+    } catch (err: unknown) {
+      errorMsg.value = (err as Error).message || String(err);
     } finally {
       loadingGroup.value = false;
     }
@@ -129,8 +129,8 @@ export const useEntityModalStore = defineStore('entityModal', () => {
   const fetchGroupAdminData = async (groupId: string) => {
     loadingGroupData.value = true;
     try {
-      const permsRes: any = await VrcApi.getUserGroupPermissions({ userId: 'me' });
-      const currentGroupPerms = permsRes.find((p: any) => p.groupId === groupId);
+      const permsRes = await VrcApi.getUserGroupPermissions({ userId: 'me' }) as Array<{groupId: string, permissions: string[]}>;
+      const currentGroupPerms = permsRes.find((p) => p.groupId === groupId);
       if (currentGroupPerms) {
         groupPermissions.value = currentGroupPerms.permissions || [];
       }
@@ -155,6 +155,18 @@ export const useEntityModalStore = defineStore('entityModal', () => {
     }
   };
 
+  const respondGroupJoinRequest = async (params: { groupId: string, requestId: string, action: 'accept' | 'reject' }) => {
+    try {
+      await VrcApi.respondGroupJoinRequest(params);
+      // Refresh join requests after action
+      const requestsRes = await VrcApi.getGroupJoinRequests({ groupId: params.groupId });
+      groupJoinRequests.value = requestsRes;
+    } catch (err) {
+      console.error("Failed to respond to group join request", err);
+      throw err;
+    }
+  };
+
   const closeGroup = () => { isGroupOpen.value = false; };
 
   return {
@@ -165,6 +177,6 @@ export const useEntityModalStore = defineStore('entityModal', () => {
     groupMembers, groupRoles, groupJoinRequests, groupPermissions, loadingGroupData,
     openWorld, closeWorld, toggleFavoriteWorld,
     openAvatar, closeAvatar, toggleFavoriteAvatar,
-    openGroup, closeGroup, fetchGroupAdminData
+    openGroup, closeGroup, fetchGroupAdminData, respondGroupJoinRequest
   };
 });

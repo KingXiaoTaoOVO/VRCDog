@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CustomSelect from './CustomSelect.vue';
 import { ref, onMounted, onUnmounted } from 'vue';
 import { SysApi } from "../api";
 import { Mic, MicOff, Languages, Send, RefreshCw, Volume2, MonitorUp, Headphones, Ear, Lock, Settings } from 'lucide-vue-next';
@@ -349,18 +350,18 @@ const manualPlay = () => {
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <header class="flex items-center justify-between mb-6 shrink-0 z-10">
       <h2 class="text-3xl font-extrabold text-text flex items-center gap-3 tracking-tight">
-        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-          <Languages class="w-6 h-6 text-indigo-600" />
+        <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+          <Languages class="w-6 h-6 text-primary" />
         </span>
         {{ t('translator.title') }}
       </h2>
       <button
-        :class="isOverlayOpen ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30 border border-red-500 text-white' : 'bg-surface hover:bg-surface-hover text-text-muted hover:text-indigo-600 border border-border-soft shadow-sm'" 
+        :class="isOverlayOpen ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30 border-red-500 text-white' : 'bg-surface hover:bg-surface-hover text-text-muted hover:text-primary border-border-soft shadow-sm'" 
         class="px-5 py-2.5 font-bold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-sm"
         @click="toggleOverlay"
       >
@@ -371,54 +372,47 @@ const manualPlay = () => {
 
     <div class="flex-1 flex flex-col overflow-y-auto custom-scrollbar pr-2 z-10 relative">
       <!-- 功能开关与 TTS 配置 (置顶) -->
-      <div class="flex flex-col gap-4 mb-5 bg-surface backdrop-blur-xl rounded-3xl p-5 border border-border-strong shadow-sm shrink-0">
+      <div class="flex flex-col gap-4 mb-5 bg-surface backdrop-blur-xl rounded-3xl p-5 border-border-strong shadow-sm shrink-0">
         <div class="flex flex-wrap items-center gap-6">
           <label class="flex items-center gap-2 cursor-pointer group">
             <input
               v-model="autoSendOsc"
               type="checkbox"
-              class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-border-soft"
+              class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft"
             >
-            <span class="text-sm font-bold text-text-muted group-hover:text-indigo-600 transition-colors">{{ t('translator.auto_osc') }}</span>
+            <span class="text-sm font-bold text-text-muted group-hover:text-primary transition-colors">{{ t('translator.auto_osc') }}</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer group">
             <input
               v-model="showOriginalOsc"
               type="checkbox"
-              class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-border-soft"
+              class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft"
             >
-            <span class="text-sm font-bold text-text-muted group-hover:text-indigo-600 transition-colors">{{ t('translator.show_original') }}</span>
+            <span class="text-sm font-bold text-text-muted group-hover:text-primary transition-colors">{{ t('translator.show_original') }}</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer group">
             <input
               v-model="autoPlayTts"
               type="checkbox"
-              class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-border-soft"
+              class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft"
             >
-            <span class="text-sm font-bold text-text-muted group-hover:text-indigo-600 transition-colors">{{ t('translator.auto_tts') }}</span>
+            <span class="text-sm font-bold text-text-muted group-hover:text-primary transition-colors">{{ t('translator.auto_tts') }}</span>
           </label>
         </div>
 
         <!-- TTS 高级配置 (当勾选自动语音播报或需要发声时可用) -->
         <div
           v-if="autoPlayTts"
-          class="bg-surface-hover p-4 rounded-2xl border border-border-soft flex flex-wrap gap-4 items-end animate-fade-in shadow-inner"
+          class="bg-surface-hover p-4 rounded-2xl border-border-soft flex flex-wrap gap-4 items-end animate-fade-in shadow-inner"
         >
           <div>
             <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Settings :size="12" /> {{ t('translator.tts_engine_label') }}
             </label>
-            <select
-              v-model="ttsEngine"
-              class="w-48 px-3 py-2 bg-surface border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
-            >
-              <option value="system">
-                {{ t('translator.tts_system') }}
-              </option>
-              <option value="gpt_sovits">
-                {{ t('translator.tts_gptsovits') }}
-              </option>
-            </select>
+            <CustomSelect v-model="ttsEngine" :options="[
+                  { label: t('translator.tts_system'), value: 'system' },
+                  { label: t('translator.tts_gptsovits'), value: 'gpt_sovits' }
+                ]" />
           </div>
           
           <div
@@ -429,14 +423,14 @@ const manualPlay = () => {
             <input
               v-model="gptSovitsUrl"
               type="text"
-              class="w-full px-4 py-2 bg-surface border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
+              class="w-full px-4 py-2 bg-surface border-border-soft rounded-xl text-sm font-bold text-text outline-none  focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
               :placeholder="t('translator.gptsovits_url_placeholder')"
             >
           </div>
           
           <div
             v-if="ttsEngine === 'gpt_sovits'"
-            class="text-[11px] font-bold text-text-muted max-w-sm ml-auto bg-surface backdrop-blur p-2.5 rounded-xl border border-border-soft shadow-sm"
+            class="text-[11px] font-bold text-text-muted max-w-sm ml-auto bg-surface backdrop-blur p-2.5 rounded-xl border-border-soft shadow-sm"
           >
             {{ t('translator.gptsovits_help') }}
           </div>
@@ -445,7 +439,7 @@ const manualPlay = () => {
 
       <div
         v-if="errorMsg"
-        class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 mb-5 shrink-0 shadow-sm"
+        class="bg-red-50 border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 mb-5 shrink-0 shadow-sm"
       >
         {{ errorMsg }}
       </div>
@@ -455,89 +449,58 @@ const manualPlay = () => {
         <!-- 左列: 我的语音 (发往 VRChat) -->
         <div class="flex flex-col gap-5 min-h-0">
           <!-- 语言设置 -->
-          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border border-border-soft shadow-sm shrink-0">
+          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border-border-soft shadow-sm shrink-0">
             <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 text-lg">
               <Mic
-                class="text-indigo-500"
+                class="text-primary"
                 :size="20"
               /> {{ t('translator.my_voice') }}
             </h3>
             <div class="mb-4">
               <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.engine') || '翻译引擎' }}</label>
-              <select
-                v-model="translateEngine"
-                class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all"
-              >
-                <option value="google">
-                  Google 翻译
-                </option>
-                <option value="deepl">
-                  DeepL 翻译
-                </option>
-                <option value="baidu">
-                  百度翻译
-                </option>
-              </select>
+              <CustomSelect v-model="translateEngine" :options="[
+                  { label: 'Google 翻译', value: 'google' },
+                  { label: 'DeepL 翻译', value: 'deepl' },
+                  { label: '百度翻译', value: 'baidu' }
+                ]" />
             </div>
             <div class="flex items-center gap-4">
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.source_lang') }}</label>
-                <select
-                  v-model="sourceLang"
-                  class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all"
-                >
-                  <option value="zh-CN">
-                    🇨🇳 中文
-                  </option>
-                  <option value="en-US">
-                    🇺🇸 英文
-                  </option>
-                  <option value="ja-JP">
-                    🇯🇵 日文
-                  </option>
-                  <option value="ko-KR">
-                    🇰🇷 韩文
-                  </option>
-                </select>
+                <CustomSelect v-model="sourceLang" :options="[
+                  { label: '🇨🇳 中文', value: 'zh-CN' },
+                  { label: '🇺🇸 英文', value: 'en-US' },
+                  { label: '🇯🇵 日文', value: 'ja-JP' },
+                  { label: '🇰🇷 韩文', value: 'ko-KR' }
+                ]" />
               </div>
               <div class="pt-5 text-text-muted">
                 <RefreshCw :size="16" />
               </div>
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.target_lang') }}</label>
-                <select
-                  v-model="targetLang"
-                  class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 transition-all"
-                >
-                  <option value="en">
-                    🇺🇸 英文
-                  </option>
-                  <option value="zh-CN">
-                    🇨🇳 中文
-                  </option>
-                  <option value="ja">
-                    🇯🇵 日文
-                  </option>
-                  <option value="ko">
-                    🇰🇷 韩文
-                  </option>
-                </select>
+                <CustomSelect v-model="targetLang" :options="[
+                  { label: '🇺🇸 英文', value: 'en' },
+                  { label: '🇨🇳 中文', value: 'zh-CN' },
+                  { label: '🇯🇵 日文', value: 'ja' },
+                  { label: '🇰🇷 韩文', value: 'ko' }
+                ]" />
               </div>
             </div>
           </div>
 
           <!-- 语音输入识别卡片 -->
-          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border border-border-soft shadow-sm relative overflow-hidden flex flex-col flex-1 min-h-[250px] group hover:shadow-lg transition-all hover:-translate-y-1">
-            <div class="absolute -right-4 -top-4 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl opacity-50 group-hover:bg-indigo-500/20 transition-colors" />
+          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border-border-soft shadow-sm relative overflow-hidden flex flex-col flex-1 min-h-[250px] group hover:shadow-lg transition-all ">
+            <div class="absolute -right-4 -top-4 w-32 h-32 bg-primary/10 rounded-full blur-3xl opacity-50 group-hover:bg-primary/10 transition-colors" />
             <div class="flex justify-between items-center mb-4 relative z-10 shrink-0">
               <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
                 <Mic
-                  class="text-indigo-500"
+                  class="text-primary"
                   :size="20"
                 /> {{ t('translator.voice_input') }}
               </h3>
               <button
-                :class="isRecording ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30 shadow-lg border border-red-500 animate-pulse' : 'bg-surface hover:bg-indigo-50 text-text-muted hover:text-indigo-600 shadow-sm border border-border-soft'" 
+                :class="isRecording ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30 shadow-lg border-red-500 animate-pulse' : 'bg-surface hover:bg-primary/10 text-text-muted hover:text-primary shadow-sm border-border-soft'" 
                 class="px-4 py-2 rounded-xl font-extrabold text-xs flex items-center gap-2 transition-all active:scale-95"
                 @click="toggleRecording"
               >
@@ -548,7 +511,7 @@ const manualPlay = () => {
                 {{ isRecording ? t('translator.stop_listen') : t('translator.start_listen') }}
               </button>
             </div>
-            <div class="flex-1 bg-surface-hover rounded-2xl p-5 border border-border-soft relative z-10 overflow-y-auto custom-scrollbar shadow-inner">
+            <div class="flex-1 bg-surface-hover rounded-2xl p-5 border-border-soft relative z-10 overflow-y-auto custom-scrollbar shadow-inner">
               <p
                 v-if="!recognizedText && !isRecording"
                 class="text-border-strong font-medium italic text-center mt-8 text-sm"
@@ -557,7 +520,7 @@ const manualPlay = () => {
               </p>
               <p
                 v-else-if="!recognizedText && isRecording"
-                class="text-indigo-500 font-extrabold text-center mt-8 animate-pulse text-sm"
+                class="text-primary font-extrabold text-center mt-8 animate-pulse text-sm"
               >
                 {{ t('translator.listening') }}
               </p>
@@ -574,7 +537,7 @@ const manualPlay = () => {
         <!-- 右列: 他人的翻译 (系统内录) -->
         <div class="flex flex-col gap-5 min-h-0">
           <!-- 引擎与语言设置 -->
-          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border border-border-soft shadow-sm shrink-0">
+          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border-border-soft shadow-sm shrink-0">
             <div class="flex justify-between items-center mb-4">
               <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
                 <Headphones
@@ -582,7 +545,7 @@ const manualPlay = () => {
                   :size="20"
                 /> {{ t('translator.others_voice') }}
               </h3>
-              <div class="flex items-center bg-surface-hover px-3 py-1.5 rounded-xl border border-border-soft shadow-inner">
+              <div class="flex items-center bg-surface-hover px-3 py-1.5 rounded-xl border-border-soft shadow-inner">
                 <span class="text-[11px] font-extrabold text-text-muted uppercase tracking-wider mr-3 flex items-center gap-1.5">
                   <Ear
                     class="text-emerald-500"
@@ -604,69 +567,40 @@ const manualPlay = () => {
             
             <div class="flex items-center gap-2 mb-4">
               <div class="flex-1">
-                <select
-                  v-model="otherEngine"
-                  class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-xs font-bold text-text outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 transition-all"
-                >
-                  <option value="cloud">
-                    {{ t('translator.engine_cloud') }}
-                  </option>
-                  <option value="local">
-                    {{ t('translator.engine_local') }}
-                  </option>
-                </select>
+                <CustomSelect v-model="otherEngine" :options="[
+                  { label: t('translator.engine_cloud'), value: 'cloud' },
+                  { label: t('translator.engine_local'), value: 'local' }
+                ]" />
               </div>
             </div>
 
             <div class="flex items-center gap-4">
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.source_lang') }}</label>
-                <select
-                  v-model="otherSourceLang"
-                  class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 transition-all"
-                >
-                  <option value="en-US">
-                    🇺🇸 英文
-                  </option>
-                  <option value="ja-JP">
-                    🇯🇵 日文
-                  </option>
-                  <option value="ko-KR">
-                    🇰🇷 韩文
-                  </option>
-                  <option value="zh-CN">
-                    🇨🇳 中文
-                  </option>
-                </select>
+                <CustomSelect v-model="otherSourceLang" :options="[
+                  { label: '🇺🇸 英文', value: 'en-US' },
+                  { label: '🇯🇵 日文', value: 'ja-JP' },
+                  { label: '🇰🇷 韩文', value: 'ko-KR' },
+                  { label: '🇨🇳 中文', value: 'zh-CN' }
+                ]" />
               </div>
               <div class="pt-5 text-text-muted">
                 <RefreshCw :size="16" />
               </div>
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.target_lang') }}</label>
-                <select
-                  v-model="otherTargetLang"
-                  class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 transition-all"
-                >
-                  <option value="zh-CN">
-                    🇨🇳 中文
-                  </option>
-                  <option value="en">
-                    🇺🇸 英文
-                  </option>
-                  <option value="ja">
-                    🇯🇵 日文
-                  </option>
-                  <option value="ko">
-                    🇰🇷 韩文
-                  </option>
-                </select>
+                <CustomSelect v-model="otherTargetLang" :options="[
+                  { label: '🇨🇳 中文', value: 'zh-CN' },
+                  { label: '🇺🇸 英文', value: 'en' },
+                  { label: '🇯🇵 日文', value: 'ja' },
+                  { label: '🇰🇷 韩文', value: 'ko' }
+                ]" />
               </div>
             </div>
           </div>
 
           <!-- 翻译输出卡片 -->
-          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border border-border-soft shadow-sm relative overflow-hidden flex flex-col flex-1 min-h-[250px] group hover:shadow-lg transition-all hover:-translate-y-1">
+          <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border-border-soft shadow-sm relative overflow-hidden flex flex-col flex-1 min-h-[250px] group hover:shadow-lg transition-all ">
             <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl opacity-50 group-hover:bg-emerald-500/20 transition-colors" />
             
             <div class="flex justify-between items-center mb-4 relative z-10 shrink-0">
@@ -678,7 +612,7 @@ const manualPlay = () => {
               </h3>
               <span
                 v-if="isTranslating"
-                class="text-[11px] font-extrabold text-indigo-500 flex items-center gap-1.5 bg-indigo-50 px-2 py-1 rounded-lg"
+                class="text-[11px] font-extrabold text-primary flex items-center gap-1.5 bg-primary/10 px-2 py-1 rounded-lg"
               >
                 <RefreshCw
                   class="animate-spin"
@@ -687,7 +621,7 @@ const manualPlay = () => {
               </span>
             </div>
             
-            <div class="flex-1 bg-surface-hover rounded-2xl p-5 border border-border-soft relative z-10 overflow-y-auto custom-scrollbar shadow-inner">
+            <div class="flex-1 bg-surface-hover rounded-2xl p-5 border-border-soft relative z-10 overflow-y-auto custom-scrollbar shadow-inner">
               <p
                 v-if="!translatedText"
                 class="text-border-strong font-medium italic text-center mt-8 text-sm"
@@ -704,7 +638,7 @@ const manualPlay = () => {
             
             <div class="mt-4 flex gap-3 relative z-10 shrink-0">
               <button
-                class="w-12 py-2.5 bg-surface border border-border-soft hover:border-emerald-300 hover:text-emerald-600 text-text-muted rounded-xl flex items-center justify-center transition-all shadow-sm active:scale-95"
+                class="w-12 py-2.5 bg-surface border-border-soft hover:border-emerald-300 hover:text-emerald-600 text-text-muted rounded-xl flex items-center justify-center transition-all shadow-sm active:scale-95"
                 @click="manualPlay"
               >
                 <Volume2 :size="16" />

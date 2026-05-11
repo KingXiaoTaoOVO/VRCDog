@@ -1,7 +1,16 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { AuthApi } from './auth';
+import { UserApi } from './user';
+import { FriendApi } from './friend';
+import { WorldApi } from './world';
+import { AvatarApi } from './avatar';
+import { GroupApi } from './group';
+import { NotificationApi } from './notification';
+import { FavoriteApi } from './favorite';
+import { FileApi } from './file';
+import { request as baseRequest } from './request';
 
 // [VRCX 对齐] Cookie 合并工具 — VRCX 的 CookieContainer 自动合并同名 cookie
-// 我们需要手动合并，确保 auth + twoFactorAuth 永远共存
 async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Promise<void> {
   if (!newCookieJson) return;
   try {
@@ -17,7 +26,6 @@ async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Pr
       }
     } catch { /* no existing cookies */ }
 
-    // 以 cookie name 为 key 合并（新的覆盖旧的同名 cookie）
     const cookieMap = new Map<string, string>();
     for (const c of existing) {
       const name = c.split('=')[0];
@@ -33,7 +41,7 @@ async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Pr
   } catch { /* ignore merge errors */ }
 }
 
-async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
     console.warn(`[Browser Mock] API Command: ${cmd}`, args);
     if (cmd === 'vrc_execute') return Promise.resolve({ status: 200, data: '{}' }) as any;
@@ -41,10 +49,7 @@ async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     if (cmd === 'db_get_auth') return Promise.resolve('mock_auth_cookie_abc123') as any;
     if (cmd === 'check_system_status') return Promise.resolve({ hub_installed: true, unity_installed: true, tool_installed: true, vcc_installed: true, alcom_installed: false }) as any;
     if (cmd === 'vrc_fetch_config' || cmd === 'db_getAllSettings' || cmd === 'db_get_all_settings') return Promise.resolve({}) as any;
-    if (cmd === 'vrc_get_friends') {
-      return Promise.resolve([]) as any;
-    }
-    if (cmd === 'vrc_search_users' || cmd === 'vrc_search_worlds' || cmd === 'vrc_get_notifications' || cmd === 'vrc_get_avatars' || cmd === 'db_get_status_presets' || cmd === 'vrc_get_latest_gamelogs' || cmd === 'db_get_all_notes') {
+    if (cmd === 'vrc_get_friends' || cmd === 'vrc_search_users' || cmd === 'vrc_search_worlds' || cmd === 'vrc_get_notifications' || cmd === 'vrc_get_avatars' || cmd === 'db_get_status_presets' || cmd === 'vrc_get_latest_gamelogs' || cmd === 'db_get_all_notes') {
       return Promise.resolve([]) as any;
     }
     return Promise.resolve({}) as any;
@@ -80,333 +85,151 @@ async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
   }
 }
 
+/**
+ * [VRCX 对齐] VRChat API 核心导出
+ * 全部重构为模块化 API，同时保持 VrcApi 对象兼容性
+ */
 export const VrcApi = {
+  // 核心请求方法 (转发到 request.ts)
+  request: baseRequest,
+  
+  // Tauri 命令
   setProxy: (params: { proxyUrl: string | null, authCookie?: string | null }) => safeInvoke<void>('vrc_set_proxy', params),
   getImageBytes: (params: any) => safeInvoke<string>('vrc_get_image_bytes', params),
+  clearCookies: () => safeInvoke('vrc_clear_cookies'),
 
-  request: async (url: string, method: string = 'GET', data?: any, authCookie?: string, customHeaders?: any) => {
-    let reqUrl = url.startsWith('http') ? url : `https://api.vrchat.cloud/api/1${url}`;
-    let bodyStr = null;
-    const headers: any = { ...customHeaders };
-
-    if (data && method !== 'GET') {
-      headers['Content-Type'] = 'application/json;charset=utf-8';
-      bodyStr = JSON.stringify(data);
-    } else if (data && method === 'GET') {
-      const params = new URLSearchParams();
-      for (const key in data) {
-        if (data[key] !== undefined && data[key] !== null) {
-          params.append(key, data[key].toString());
-        }
-      }
-      const qs = params.toString();
-      if (qs) {
-        reqUrl += (reqUrl.includes('?') ? '&' : '?') + qs;
-      }
-    }
-
-    // [VRCX 对齐] 始终自动注入存储的 auth cookie，就像 VRCX 的全局 CookieContainer
-    // VRCX 的 C# HttpClient 通过 CookieContainer 自动为每个请求附带认证 Cookie
-    // 我们通过在每次请求时从 DB 读取并注入来达到同样效果
-    let effectiveAuthCookie = authCookie;
-    if (!effectiveAuthCookie && reqUrl.includes('api.vrchat.cloud')) {
-      try {
-        const storedCookie = await invoke<string | null>('db_get_auth');
-        if (storedCookie) {
-          effectiveAuthCookie = storedCookie;
-        }
-      } catch { /* DB not ready yet, ignore */ }
-    }
-
-    const executeRequest = async (cookie?: string) => {
-      const res: any = await safeInvoke('vrc_execute', {
-        options: { url: reqUrl, method, headers, body: bodyStr, auth_cookie: cookie }
-      });
-
-      // [VRCX 对齐] 每次响应中如果有新的 Set-Cookie，自动合并保存到 DB
-      // VRCX 通过 CookieContainer 自动合并，我们手动 merge 保持 auth + twoFactorAuth 共存
-      if (res.auth_cookie && reqUrl.includes('api.vrchat.cloud')) {
-        await mergeCookiesAndSave(res.auth_cookie);
-      }
-
-      return res;
-    };
-
-    try {
-      let res = await executeRequest(effectiveAuthCookie);
-
-      let parsed = null;
-      if (res.data) {
-        try { parsed = JSON.parse(res.data); } catch { parsed = res.data; }
-      }
-
-      // [VRCX 对齐] 处理 "Missing Credentials" — VRCX 在 request.js 中检测到此错误时
-      // 会触发 authStore.handleAutoLogin() 重新认证
-      // 注意：只重试一次，避免无限循环！如果重试仍失败，派发事件通知 UI 强制重新登录
-      if (res.status === 401 && reqUrl.includes('api.vrchat.cloud') && !reqUrl.includes('/config')) {
-        const errMsg = parsed?.error?.message || '';
-        console.warn(`[VrcApi] 401 on ${reqUrl} — ${errMsg}`);
-        // 仅对 Missing Credentials 做一次自动重试
-        if (errMsg.includes('Missing Credentials') || errMsg.includes('missing credentials')) {
-          try {
-            const savedCookie = await invoke<string | null>('db_get_auth');
-            if (savedCookie) {
-              await invoke('vrc_set_proxy', { proxyUrl: null, authCookie: savedCookie });
-              const retryRes: any = await safeInvoke('vrc_execute', {
-                options: { url: reqUrl, method, headers, body: bodyStr, auth_cookie: savedCookie }
-              });
-              if (retryRes.status >= 200 && retryRes.status < 300) {
-                // 重试成功，用重试结果
-                res = retryRes;
-                if (res.data) {
-                  try { parsed = JSON.parse(res.data); } catch { parsed = res.data; }
-                }
-              } else {
-                // 重试仍失败，Cookie 确实已过期，通知 UI 重新登录
-                console.error('[VrcApi] Auth cookie expired, dispatching re-login event');
-                window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
-              }
-            } else {
-              window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
-            }
-          } catch (retryErr) {
-            console.warn('[VrcApi] Re-auth retry failed:', retryErr);
-          }
-        }
-      }
-
-      if (res.status >= 200 && res.status < 300) {
-        if (parsed && typeof parsed === 'object') {
-          parsed._auth_cookie = res.auth_cookie;
-        }
-        return parsed;
-      } else {
-        if (parsed && parsed.error && parsed.error.message) {
-          throw new Error(parsed.error.message);
-        }
-        throw new Error(`HTTP ${res.status}: ${res.data}`);
-      }
-    } catch (err: any) {
-      throw new Error(err.message || err);
-    }
+  // 认证模块
+  login: AuthApi.login,
+  verifyOTP: AuthApi.verifyOTP,
+  verifyTOTP: AuthApi.verifyTOTP,
+  verifyEmailOTP: AuthApi.verifyEmailOTP,
+  verify2fa: async (params: any) => {
+    const method = params.method?.toLowerCase() || 'totp';
+    if (method === 'emailotp') return AuthApi.verifyEmailOTP({ code: params.code });
+    if (method === 'otp') return AuthApi.verifyOTP({ code: params.code });
+    return AuthApi.verifyTOTP({ code: params.code });
   },
+  logout: () => safeInvoke('vrc_set_proxy', { proxyUrl: null, authCookie: null }),
+  getConfig: AuthApi.getConfig,
+  fetchConfig: AuthApi.getConfig,
+  getServerStatus: () => baseRequest('https://status.vrchat.com/api/v2/status.json', { method: 'GET', headers: { Referer: 'https://vrcx.app' } }),
 
-  uploadRequest: async (url: string, method: string = 'PUT', base64Data: string, mimeType: string) => {
-    let effectiveAuthCookie = null;
-    try {
-      effectiveAuthCookie = await invoke<string | null>('db_get_auth');
-    } catch {}
+  // 用户模块
+  getCurrentUser: () => baseRequest('/auth/user'),
+  getUser: UserApi.getUser,
+  searchUsers: (params: any) => UserApi.getUsers({ search: params.query || params.search, ...params }),
+  updateStatus: UserApi.updateStatus,
+  getMutualCounts: UserApi.getMutualCounts,
+  getMutualFriends: UserApi.getMutualFriends,
+  getMutualGroups: UserApi.getMutualGroups,
+  addUserTags: UserApi.addUserTags,
+  removeUserTags: UserApi.removeUserTags,
+  getUserFeedback: UserApi.getUserFeedback,
+  saveCurrentUser: UserApi.saveCurrentUser,
+  getUserNotes: UserApi.getUserNotes,
 
-    const headers = { 'Content-Type': mimeType };
-    const res: any = await safeInvoke('vrc_execute', {
-      options: { url, method, headers, body: base64Data, body_is_base64: true, auth_cookie: effectiveAuthCookie }
-    });
+  // 好友模块
+  getFriends: FriendApi.getFriends,
+  friendRequest: FriendApi.sendFriendRequest,
+  sendFriendRequest: FriendApi.sendFriendRequest,
+  cancelFriendRequest: FriendApi.cancelFriendRequest,
+  unfriend: FriendApi.deleteFriend,
+  deleteFriend: FriendApi.deleteFriend,
+  getFriendStatus: FriendApi.getFriendStatus,
+  deleteHiddenFriendRequest: FriendApi.deleteHiddenFriendRequest,
 
-    if (res.status >= 400) {
-      throw new Error(`Upload Failed: ${res.status} ${res.data}`);
-    }
-    try {
-      return res.data ? JSON.parse(res.data) : res;
-    } catch {
-      return res.data;
-    }
+  // 世界模块
+  getWorld: WorldApi.getWorld,
+  getWorlds: WorldApi.getWorlds,
+  searchWorlds: (params: any) => WorldApi.getWorlds({ search: params.query || params.search, ...params }),
+  searchGroups: GroupApi.searchGroups,
+  saveWorld: WorldApi.saveWorld,
+  updateWorld: WorldApi.saveWorld,
+  deleteWorld: WorldApi.deleteWorld,
+  publishWorld: WorldApi.publishWorld,
+  unpublishWorld: WorldApi.unpublishWorld,
+
+  // 形象模块
+  getAvatar: AvatarApi.getAvatar,
+  getAvatars: AvatarApi.getAvatars,
+  saveAvatar: AvatarApi.saveAvatar,
+  updateAvatar: AvatarApi.saveAvatar,
+  selectAvatar: AvatarApi.selectAvatar,
+  selectFallbackAvatar: AvatarApi.selectFallbackAvatar,
+  deleteAvatar: AvatarApi.deleteAvatar,
+  createImposter: AvatarApi.createImposter,
+  deleteImposter: AvatarApi.deleteImposter,
+  getAvailableAvatarStyles: AvatarApi.getAvailableAvatarStyles,
+  getLicensedAvatars: AvatarApi.getLicensedAvatars,
+
+  // 实例模块
+  createInstance: (params: any) => baseRequest('/instances', { method: 'POST', params }),
+  getInstance: (params: any) => baseRequest(`/instances/${params.worldId}:${params.instanceId}`),
+  inviteMyself: (params: any) => baseRequest(`/invite/myself/to/${params.worldId}:${params.instanceId}`, { method: 'POST' }),
+  inviteUser: (params: any) => baseRequest(`/invite/${params.userId}`, { method: 'POST', params: { instanceId: params.instanceId } }),
+  requestInvite: (params: any) => baseRequest(`/requestInvite/${params.userId}`, { method: 'POST' }),
+  closeInstance: (params: any) => baseRequest(`/instances/${params.location}`, { method: 'DELETE' }),
+
+  // 组模块
+  getGroup: GroupApi.getGroup,
+  getGroups: async () => {
+    const user: any = await baseRequest('/auth/user');
+    return GroupApi.getGroups({ userId: user.id });
   },
+  joinGroup: GroupApi.joinGroup,
+  leaveGroup: GroupApi.leaveGroup,
+  getGroupMembers: GroupApi.getGroupMembers,
+  getGroupRoles: GroupApi.getGroupRoles,
+  getGroupPosts: GroupApi.getGroupPosts,
+  createGroupPost: GroupApi.createGroupPost,
+  getGroupLogs: GroupApi.getGroupLogs,
+  sendGroupInvite: GroupApi.sendGroupInvite,
+  kickGroupMember: GroupApi.kickGroupMember,
+  banGroupMember: GroupApi.banGroupMember,
+  unbanGroupMember: GroupApi.unbanGroupMember,
+  getUserGroupPermissions: GroupApi.getUserGroupPermissions,
+  getGroupJoinRequests: GroupApi.getGroupJoinRequests,
+  respondGroupJoinRequest: GroupApi.respondGroupJoinRequest,
+  getRepresentedGroup: GroupApi.getRepresentedGroup,
 
-  uploadVrcPlusImage: async (base64Data: string, tag: 'gallery' | 'emoji' | 'icon' | 'avatarimage' | 'avatargallery' | 'worldimage' = 'gallery', entityId?: string) => {
-    let effectiveAuthCookie = null;
-    try {
-      effectiveAuthCookie = await invoke<string | null>('db_get_auth');
-    } catch {}
+  // 通知模块
+  getNotifications: NotificationApi.getNotifications,
+  acceptNotification: NotificationApi.acceptNotification,
+  hideNotification: NotificationApi.hideNotification,
+  getNotificationsV2: NotificationApi.getNotificationsV2,
 
+  // 收藏模块
+  getFavorites: FavoriteApi.getFavorites,
+  getFavoriteWorlds: FavoriteApi.getFavoriteWorlds,
+  getFavoriteAvatars: FavoriteApi.getFavoriteAvatars,
+  getFavoriteGroups: FavoriteApi.getFavoriteGroups,
+  addFavorite: FavoriteApi.addFavorite,
+  deleteFavorite: FavoriteApi.removeFavorite,
+
+  // 文件模块
+  getFile: FileApi.getFile,
+  deleteFile: FileApi.deleteFile,
+  getFileAnalysis: FileApi.getFileAnalysis,
+
+  // 播放器操作
+  getModerations: () => baseRequest('/auth/user/playermoderations'),
+  moderateUser: (params: any) => baseRequest('/auth/user/playermoderations', { method: 'POST', params }),
+  unmoderateUser: (params: any) => baseRequest('/auth/user/unplayermoderate', { method: 'PUT', params }),
+  
+  // 图片上传
+  uploadVrcPlusImage: async (base64Data: string, tag: string = 'gallery', entityId?: string) => {
     const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
-
     const formData: any[] = [
       { name: 'tag', value: tag },
       { name: 'file', file_name: 'image.png', file_content_base64: cleanBase64, file_mime: 'image/png' }
     ];
-    
-    if (entityId) {
-        if (tag === 'avatargallery') {
-            formData.push({ name: 'galleryId', value: entityId });
-        } else {
-            formData.push({ name: 'entityId', value: entityId });
-        }
-    }
+    if (entityId) formData.push({ name: tag === 'avatargallery' ? 'galleryId' : 'entityId', value: entityId });
 
     const res: any = await safeInvoke('vrc_execute', {
-      options: { 
-        url: 'https://api.vrchat.cloud/api/1/file/image', 
-        method: 'POST', 
-        form_data: formData,
-        auth_cookie: effectiveAuthCookie 
-      }
+      options: { url: 'https://api.vrchat.cloud/api/1/file/image', method: 'POST', form_data: formData }
     });
-
-    if (res.status >= 400) {
-      throw new Error(`VRC+ Image Upload Failed: ${res.status} ${res.data}`);
-    }
     return res.data ? JSON.parse(res.data) : res;
-  },
-
-  getServerStatus: () => VrcApi.request('https://status.vrchat.com/api/v2/status.json', 'GET', null, undefined, { Referer: 'https://vrcx.app' }),
-  fetchConfig: () => VrcApi.request('/config'),
-
-  clearCookies: () => safeInvoke('vrc_clear_cookies'),
-
-  login: async (params: any) => {
-    const headers: any = {};
-    if (params.username && params.password) {
-      const b64 = btoa(`${encodeURIComponent(params.username)}:${encodeURIComponent(params.password)}`);
-      headers['Authorization'] = `Basic ${b64}`;
-    } else if (!params.authCookie) {
-      return { error: '必须提供账号密码或Auth Cookie' };
-    }
-    try {
-      const res: any = await safeInvoke('vrc_execute', {
-        options: { url: 'https://api.vrchat.cloud/api/1/auth/user', method: 'GET', headers, auth_cookie: params.authCookie }
-      });
-      const parsed = res.data ? JSON.parse(res.data) : null;
-      
-      // [VRCX 对齐] 合并保存 Set-Cookie 到 DB（保留已有的 twoFactorAuth 等 Cookie）
-      if (res.auth_cookie) {
-        await mergeCookiesAndSave(res.auth_cookie);
-      }
-      
-      if (res.status >= 200 && res.status < 300) {
-        if (parsed && parsed.requiresTwoFactorAuth) {
-          return { requires_two_factor_auth: parsed.requiresTwoFactorAuth, auth_cookie: res.auth_cookie };
-        }
-        return { current_user: parsed, auth_cookie: res.auth_cookie };
-      } else if (res.status === 401) {
-        return { error: parsed?.error?.message || (params.authCookie && !params.username ? 'Auth Cookie 无效或已过期，请重新登录' : '账号或密码错误') };
-      } else if (res.status === 403) {
-        return { error: 'HTTP 403 — VRChat 拒绝连接。可能需要开 VPN 或检查网络。' };
-      } else {
-        return { error: `HTTP ${res.status}` };
-      }
-    } catch (err: any) {
-      return { error: err.message || err };
-    }
-  },
-
-  verify2fa: async (params: any) => {
-    const endpoint = params.method.toLowerCase() === 'emailotp' ? 'emailotp/verify' : params.method.toLowerCase() === 'otp' ? 'otp/verify' : 'totp/verify';
-    // [VRCX 对齐] 2FA 验证时，必须携带 auth cookie 且确保 twoFactorAuth 响应与之合并
-    // 从 DB 读取完整的已存 cookie（可能包含 login 阶段的 auth cookie）
-    let fullCookie = params.authCookie;
-    try {
-      const stored = await invoke<string | null>('db_get_auth');
-      if (stored) fullCookie = stored;
-    } catch {}
-    const result = await VrcApi.request(`/auth/twofactorauth/${endpoint}`, 'POST', { code: params.code }, fullCookie);
-    return result;
-  },
-
-  logout: async () => {
-    return safeInvoke('vrc_set_proxy', { proxyUrl: null, authCookie: null });
-  },
-
-  getCurrentUser: () => VrcApi.request('/auth/user'),
-  getUser: (params: any) => VrcApi.request(`/users/${params.userId || params}`),
-  getMutualCounts: (params: any) => VrcApi.request(`/users/${params.userId || params}/mutuals`),
-  getMutualFriends: (params: any) => VrcApi.request(`/users/${params.userId || params}/mutuals/friends`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
-
-  getFriends: (params: any) => {
-    const q: any = { n: params.n || 60, offset: params.offset || 0 };
-    if (params.offline) q.offline = true;
-    return VrcApi.request('/auth/user/friends', 'GET', q);
-  },
-
-  searchUsers: (params: any) => VrcApi.request('/users', 'GET', { search: params.query || params.search, n: params.n || 20, offset: params.offset || 0 }),
-  searchWorlds: (params: any) => VrcApi.request('/worlds', 'GET', { search: params.query || params.search, n: params.n || 20, offset: params.offset || 0 }),
-  searchGroups: (params: any) => VrcApi.request('/groups', 'GET', { search: params.query || params.search, n: params.n || 20, offset: params.offset || 0 }),
-  getWorld: (params: any) => VrcApi.request(`/worlds/${params.worldId || params}`),
-  updateWorld: (id: string, params: any) => VrcApi.request(`/worlds/${id}`, 'PUT', params),
-  createInstance: (params: any) => VrcApi.request('/instances', 'POST', params),
-
-  updateStatus: (params: any) => VrcApi.request(`/users/${params.userId || params.user_id}`, 'PUT', { status: params.status, statusDescription: params.statusDescription }),
-
-  getNotifications: (params: any) => {
-    const q: any = { n: params.n || 60, offset: params.offset || 0 };
-    if (params.type) q.type = params.type;
-    if (params.hidden !== undefined) q.hidden = params.hidden;
-    if (params.after) q.after = params.after;
-    return VrcApi.request('/auth/user/notifications', 'GET', q);
-  },
-
-  acceptNotification: (params: any) => VrcApi.request(`/auth/user/notifications/${params.notificationId || params}/accept`, 'PUT'),
-  hideNotification: (params: any) => VrcApi.request(`/auth/user/notifications/${params.notificationId || params}/hide`, 'PUT'),
-
-  getAvatars: (params: any) => {
-    const q: any = { n: params.n || 60, offset: params.offset || 0 };
-    if (params.user) { q.user = params.user; q.releaseStatus = 'all'; }
-    if (params.search || params.query) { q.search = params.search || params.query; }
-    if (params.releaseStatus) { q.releaseStatus = params.releaseStatus; }
-    return VrcApi.request('/avatars', 'GET', q);
-  },
-  getAvatar: (params: any) => VrcApi.request(`/avatars/${params.avatarId || params}`),
-  updateAvatar: (id: string, params: any) => VrcApi.request(`/avatars/${id}`, 'PUT', params),
-  selectAvatar: (params: any) => VrcApi.request(`/avatars/${params.avatarId || params}/select`, 'PUT'),
-
-  getFavorites: (params: any) => {
-    const q: any = { n: params.n || 60, offset: params.offset || 0 };
-    if (params.type_) q.type = params.type_;
-    if (params.type) q.type = params.type;
-    return VrcApi.request('/favorites', 'GET', q);
-  },
-  getFavoriteWorlds: (params: any) => {
-    const q: any = { n: params?.n || 60, offset: params?.offset || 0 };
-    if (params?.tag && params.tag !== 'all') q.tag = params.tag;
-    return VrcApi.request('/worlds/favorites', 'GET', q);
-  },
-  getFavoriteAvatars: (params: any) => {
-    const q: any = { n: params?.n || 60, offset: params?.offset || 0 };
-    if (params?.tag && params.tag !== 'all') q.tag = params.tag;
-    return VrcApi.request('/avatars/favorites', 'GET', q);
-  },
-  getFavoriteGroups: () => VrcApi.request('/favorite/groups'),
-
-  getGroups: async () => {
-    const user: any = await VrcApi.getCurrentUser();
-    if (!user || !user.id) throw new Error("Not logged in");
-    return VrcApi.request(`/users/${user.id}/groups`);
-  },
-  getGroup: (params: any) => VrcApi.request(`/groups/${params.groupId || params}`),
-  getModerations: () => VrcApi.request('/auth/user/playermoderations'),
-  moderateUser: (params: { moderated: string; type: 'block' | 'mute' | 'hideAvatar' | 'showAvatar' | 'interactOn' | 'interactOff' }) => VrcApi.request('/auth/user/playermoderations', 'POST', params),
-  unmoderateUser: (params: { moderated: string; type: 'block' | 'mute' | 'hideAvatar' | 'showAvatar' | 'interactOn' | 'interactOff' }) => VrcApi.request('/auth/user/unplayermoderate', 'PUT', params),
-
-  friendRequest: (params: any) => VrcApi.request(`/user/${params.userId || params}/friendRequest`, 'POST'),
-  unfriend: (params: any) => VrcApi.request(`/auth/user/friends/${params.userId || params}`, 'DELETE'),
-  inviteMyself: (params: any) => VrcApi.request(`/invite/myself/to/${params.worldId}:${params.instanceId}`, 'POST'),
-  inviteUser: (params: any) => VrcApi.request(`/invite/${params.userId || params}`, 'POST', { instanceId: params.instanceId }),
-  requestInvite: (params: any) => VrcApi.request(`/requestInvite/${params.userId || params}`, 'POST'),
-
-  // Group Admin Endpoints
-  getGroupMembers: (params: { groupId: string; n?: number; offset?: number; sort?: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/members`, 'GET', { n: params.n || 100, offset: params.offset || 0, sort: params.sort || 'joinedAt:desc' }),
-  getGroupJoinRequests: (params: { groupId: string; n?: number; offset?: number }) => 
-    VrcApi.request(`/groups/${params.groupId}/requests`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
-  respondGroupJoinRequest: (params: { groupId: string; userId: string; action: 'accept' | 'reject' }) => 
-    VrcApi.request(`/groups/${params.groupId}/requests/${params.userId}`, 'PUT', { action: params.action }),
-  getGroupRoles: (params: { groupId: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/roles`, 'GET'),
-  addGroupRole: (params: { groupId: string; userId: string; roleId: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/members/${params.userId}/roles/${params.roleId}`, 'POST'),
-  removeGroupRole: (params: { groupId: string; userId: string; roleId: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/members/${params.userId}/roles/${params.roleId}`, 'DELETE'),
-  kickGroupMember: (params: { groupId: string; userId: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/members/${params.userId}`, 'DELETE'),
-  getGroupAuditLogs: (params: { groupId: string; n?: number; offset?: number }) => 
-    VrcApi.request(`/groups/${params.groupId}/auditLogs`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
-  getGroupBans: (params: { groupId: string; n?: number; offset?: number }) => 
-    VrcApi.request(`/groups/${params.groupId}/bans`, 'GET', { n: params.n || 100, offset: params.offset || 0 }),
-  banGroupMember: (params: { groupId: string; userId: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/bans`, 'POST', { userId: params.userId }),
-  unbanGroupMember: (params: { groupId: string; userId: string }) => 
-    VrcApi.request(`/groups/${params.groupId}/bans/${params.userId}`, 'DELETE'),
-  getUserGroupPermissions: (params: { userId?: string }) => 
-    VrcApi.request(`/users/${params.userId || 'me'}/groups/permissions`, 'GET'),
+  }
 };
 
 export const DbApi = {
@@ -441,18 +264,12 @@ export const DbApi = {
   batchSaveNotifications: (params: { notificationsJson: string }) => safeInvoke<number>('db_batch_save_notifications', params),
   getNotifications: (params: { limit?: number; offset?: number }) => safeInvoke<any[]>('db_get_notifications', params),
   deleteNotification: (params: { id: string }) => safeInvoke<void>('db_delete_notification', params),
-  
-  // Favorite Worlds endpoints
   addFavoriteWorld: (params: { worldId: string; name: string; imageUrl?: string | null }) => safeInvoke<void>('db_add_favorite_world', params),
   getFavoriteWorlds: () => safeInvoke<any[]>('db_get_favorite_worlds'),
   removeFavoriteWorld: (params: { worldId: string }) => safeInvoke<void>('db_remove_favorite_world', params),
-
-  // Favorite Avatars endpoints
   addFavoriteAvatar: (params: { avatarId: string; name: string; imageUrl?: string | null; authorId?: string | null; authorName?: string | null }) => safeInvoke<void>('db_add_favorite_avatar', params),
   getFavoriteAvatars: () => safeInvoke<any[]>('db_get_favorite_avatars'),
   removeFavoriteAvatar: (params: { avatarId: string }) => safeInvoke<void>('db_remove_favorite_avatar', params),
-
-  // API Cache
   getApiCache: (params: { key: string }) => safeInvoke<string | null>('db_get_api_cache', params),
   saveApiCache: (params: { key: string, data: string }) => safeInvoke<void>('db_save_api_cache', params),
 };
@@ -515,14 +332,10 @@ export const OvrApi = {
   updateOverlayText: (params: { original: string; translated: string }) => safeInvoke<void>('ovr_update_overlay_text', params),
   setOverlayVisible: (params: { visible: boolean }) => safeInvoke<void>('ovr_set_overlay_visible', params),
   clearTranslation: () => safeInvoke<void>('ovr_clear_translation'),
-  translate: (params: {
-    req: {
-      text: string; source_lang: string; target_lang: string;
-      service: string; api_key: string; model: string; prompt: string;
-    }
-  }) => safeInvoke<any>('ovr_translate', params),
-  // Desktop mirror translation mode
+  translate: (params: { req: any }) => safeInvoke<any>('ovr_translate', params),
   desktopScanOnce: () => safeInvoke<void>('ovr_desktop_scan_once'),
   startAutoScan: () => safeInvoke<void>('ovr_start_auto_scan'),
   stopAutoScan: () => safeInvoke<void>('ovr_stop_auto_scan'),
 };
+
+export { AuthApi, UserApi, FriendApi, WorldApi, AvatarApi, GroupApi, NotificationApi, FavoriteApi, FileApi };

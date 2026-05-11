@@ -63,15 +63,15 @@ const saveAndClose = () => {
 <template>
   <div class="fixed inset-0 z-[9999] flex items-center justify-center p-4">
     <!-- Backdrop -->
-    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="emit('close')"></div>
+    <div class="absolute inset-0 bg-background/80 backdrop-blur-md/70 backdrop-blur-sm" @click="emit('close')"></div>
     
     <!-- Modal -->
-    <div class="relative w-full max-w-[500px] h-[600px] flex flex-col bg-[#1e1f22] rounded-xl shadow-2xl border border-white/10 overflow-hidden text-slate-200">
+    <div class="relative w-full max-w-[500px] h-[600px] flex flex-col bg-surface/60 backdrop-blur-md rounded-xl shadow-2xl border-transparent overflow-hidden text-text">
       <!-- Header -->
-      <div class="flex items-center justify-between p-4 border-b border-white/5">
+      <div class="flex items-center justify-between p-4 border-transparent">
         <h2 class="text-[15px] font-bold text-white">{{ $t('auto_966ed89c') }}</h2>
         <button class="p-1 hover:bg-white/10 rounded-md transition-colors" @click="emit('close')">
-          <X class="w-4 h-4 text-slate-400" />
+          <X class="w-4 h-4 text-text" />
         </button>
       </div>
 
@@ -81,7 +81,7 @@ const saveAndClose = () => {
           <div 
             v-for="(item, index) in navItems" 
             :key="item.key"
-            class="flex items-center gap-3 py-2 px-3 rounded-lg bg-[#2b2d31] hover:bg-[#35373c] border border-transparent hover:border-white/5 transition-colors"
+            class="flex items-center gap-3 py-2 px-3 rounded-lg bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md border-transparent hover:border-transparent transition-colors"
             :class="{'opacity-50': !item.visible}"
             draggable="true"
             @dragstart="onDragStart(index)"
@@ -90,25 +90,25 @@ const saveAndClose = () => {
             @dragover.prevent
           >
             <!-- Drag Handle -->
-            <div class="cursor-grab active:cursor-grabbing text-slate-500 hover:text-slate-300">
+            <div class="cursor-grab active:cursor-grabbing text-text-muted hover:text-text">
               <GripVertical class="w-4 h-4" />
             </div>
             
             <!-- Icon -->
-            <div class="w-5 h-5 flex items-center justify-center text-slate-400">
+            <div class="w-5 h-5 flex items-center justify-center text-text">
               <component v-if="item.icon" :is="item.icon" class="w-4 h-4" />
-              <div v-else class="w-2 h-2 rounded-full bg-slate-500"></div>
+              <div v-else class="w-2 h-2 rounded-full bg-surface-hover"></div>
             </div>
 
             <!-- Label -->
-            <span class="flex-1 text-[13px] font-bold text-slate-200">
+            <span class="flex-1 text-[13px] font-bold text-text">
               {{ $t(item.label) }}
             </span>
 
             <!-- Visibility Toggle (like eye or check) -->
             <button 
-              class="w-6 h-6 flex items-center justify-center rounded border transition-colors"
-              :class="item.visible ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-transparent border-slate-600 text-transparent hover:border-slate-400'"
+              class="w-6 h-6 flex items-center justify-center rounded transition-colors"
+              :class="item.visible ? 'bg-primary border-primary text-white' : 'bg-transparent border-border-soft text-transparent hover:border-border-soft'"
               @click="toggleVisibility(index)"
             >
               <Check v-if="item.visible" class="w-3.5 h-3.5" />
@@ -118,13 +118,13 @@ const saveAndClose = () => {
       </div>
 
       <!-- Footer Buttons -->
-      <div class="p-4 border-t border-white/5 flex items-center justify-between bg-[#1e1f22]">
+      <div class="p-4 border-transparent flex items-center justify-between bg-surface/60 backdrop-blur-md">
         <div class="flex items-center gap-2">
-          <button class="px-4 py-2 bg-[#2b2d31] hover:bg-[#35373c] text-white text-[13px] font-bold rounded flex items-center gap-1.5 transition-colors">
+          <button class="px-4 py-2 bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md text-white text-[13px] font-bold rounded flex items-center gap-1.5 transition-colors">
             <Plus class="w-4 h-4" />
             添加文件夹
           </button>
-          <button class="px-4 py-2 bg-[#2b2d31] hover:bg-[#35373c] text-white text-[13px] font-bold rounded flex items-center gap-1.5 transition-colors">
+          <button class="px-4 py-2 bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md text-white text-[13px] font-bold rounded flex items-center gap-1.5 transition-colors">
             <Folder class="w-4 h-4" />
             新建仪表板
           </button>
@@ -134,10 +134,10 @@ const saveAndClose = () => {
           <button class="text-red-400 hover:text-red-300 text-[13px] font-bold px-2 transition-colors" @click="restoreDefault">
             恢复默认
           </button>
-          <button class="px-5 py-2 bg-[#2b2d31] hover:bg-[#35373c] text-white text-[13px] font-bold rounded transition-colors" @click="emit('close')">
+          <button class="px-5 py-2 bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md text-white text-[13px] font-bold rounded transition-colors" @click="emit('close')">
             取消
           </button>
-          <button class="px-5 py-2 bg-white hover:bg-slate-200 text-slate-900 text-[13px] font-bold rounded transition-colors" @click="saveAndClose">
+          <button class="px-5 py-2 bg-primary hover:bg-primary-hover text-white text-[13px] font-bold rounded transition-colors" @click="saveAndClose">
             确认
           </button>
         </div>

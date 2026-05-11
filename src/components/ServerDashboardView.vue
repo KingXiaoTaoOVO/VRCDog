@@ -1,10 +1,17 @@
 <template>
-  <div class="h-screen w-screen flex flex-col bg-background text-text font-mono p-4 relative overflow-hidden transition-colors duration-500">
+  <div 
+    class="h-screen w-screen flex flex-col bg-background text-text font-mono p-4 relative overflow-hidden transition-colors duration-500"
+    :style="themeStyles"
+  >
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="absolute inset-0 bg-black/10 pointer-events-none" />
+
     <!-- Animated background grid -->
     <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTAgNjBMMjAgNjBMMjAgMEwwIDBaIiBmaWxsPSIjMThBMEZCIi8+PHBhdGggZD0iTTYwIDBMMCAwTDAgMjBMNjAgMjBaIiBmaWxsPSIjMThBMEZCIi8+PC9nPjwvc3ZnPg==')] opacity-10 pointer-events-none" />
 
     <!-- Top Bar -->
-    <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-soft shrink-0 relative z-50">
+    <div class="flex items-center justify-between mb-4 pb-4 border-border-soft shrink-0 relative z-50">
       <div class="flex items-center gap-4">
         <div class="relative">
           <div
@@ -12,7 +19,7 @@
             :class="{'animate-pulse': isRunning}"
           />
           <div
-            class="w-12 h-12 rounded-2xl flex items-center justify-center transition-all border shadow-sm"
+            class="w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-sm"
             :class="isRunning ? 'bg-primary border-primary shadow-primary/30' : 'bg-surface border-border-soft hover:bg-surface-hover'"
           >
             <Server
@@ -40,26 +47,26 @@
       <div class="flex gap-3 items-center">
         <!-- Theme Switcher -->
         <div class="relative group">
-          <button class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border border-border-soft rounded-2xl text-text hover:text-primary text-xs transition-all font-bold shadow-sm">
+          <button class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border-border-soft rounded-2xl text-text hover:text-primary text-xs transition-all font-bold shadow-sm">
             <Palette class="w-4 h-4" />
             <span class="capitalize">{{ themes[currentThemeId]?.name || currentThemeId }}</span>
           </button>
-          <div class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-2xl border border-border-soft rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 flex flex-col p-2 gap-1">
+          <div class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-2xl border-border-soft rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 flex flex-col p-2 gap-1">
             <button
-              v-for="t in Object.values(themes)"
-              :key="t.id"
+              v-for="themeItem in Object.values(themes)"
+              :key="themeItem.id"
               class="w-full text-left px-3 py-2 text-xs transition-all rounded-xl flex items-center justify-between"
-              :class="currentThemeId === t.id ? 'bg-primary text-white font-bold shadow-md shadow-primary/30' : 'text-text-muted hover:bg-surface-hover hover:text-primary'"
-              @click="setTheme(t.id as ThemeId)"
+              :class="currentThemeId === themeItem.id ? 'bg-primary text-white font-bold shadow-md shadow-primary/30' : 'text-text-muted hover:bg-surface-hover hover:text-primary'"
+              @click="setTheme(themeItem.id as ThemeId)"
             >
-              {{ t.name }}
-              <Check v-if="currentThemeId === t.id" class="w-3 h-3" />
+              {{ themeItem.name }}
+              <Check v-if="currentThemeId === themeItem.id" class="w-3 h-3" />
             </button>
           </div>
         </div>
 
         <button
-          class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border border-border-soft rounded-2xl text-text hover:text-primary text-xs font-bold transition-all shadow-sm"
+          class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border-border-soft rounded-2xl text-text hover:text-primary text-xs font-bold transition-all shadow-sm"
           @click="cycleLanguage"
         >
           <Globe class="w-4 h-4" /> {{ currentLangLabel }}
@@ -88,18 +95,18 @@
             class="space-y-3"
           >
             <div>
-              <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">BIND IP</label>
+              <label class="text-[10px] text-text block mb-1 uppercase tracking-wider">BIND IP</label>
               <input
                 v-model="serverHost"
-                class="w-full bg-surface border border-border-soft text-text focus:border-primary border border-border-soft rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/30 text-text font-mono transition-colors"
+                class="w-full bg-surface/50 border border-border-soft rounded-lg px-3 py-2 text-xs outline-none text-text-strong font-mono transition-colors"
               >
             </div>
             <div>
-              <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">PORT</label>
+              <label class="text-[10px] text-text-soft block mb-1 uppercase tracking-wider">PORT</label>
               <input
                 v-model.number="serverPort"
                 type="number"
-                class="w-full bg-surface border border-border-soft text-text focus:border-primary border border-border-soft rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/30 text-text font-mono transition-colors"
+                class="w-full bg-surface/50 border border-border-soft rounded-lg px-3 py-2 text-xs outline-none text-text-strong font-mono transition-colors"
               >
             </div>
             <button
@@ -116,14 +123,14 @@
             v-else
             class="space-y-4"
           >
-            <div class="text-2xl font-black text-white tracking-widest bg-surface border border-border-soft text-text focus:border-primary p-3 rounded-lg border border-border-soft text-center shadow-inner">
-              <span class="text-primary">{{ serverHost }}</span>:<span class="text-primary">{{ serverPort }}</span>
+            <div class="text-2xl font-black tracking-widest bg-surface-hover/40 backdrop-blur-md text-text p-3 rounded-lg border-border-soft text-center shadow-inner">
+              <span class="text-primary">{{ serverHost }}</span><span class="text-primary/50">:</span><span class="text-primary">{{ serverPort }}</span>
             </div>
             <p class="text-xs text-primary text-center animate-pulse uppercase tracking-[0.2em]">
               {{ t('role.dashboard_listening') }}
             </p>
             <button
-              class="w-full py-2.5 bg-red-950/40 text-red-400 hover:bg-red-900/50 font-bold rounded-lg text-xs border border-red-900/50 flex justify-center items-center gap-2 transition-all"
+              class="w-full py-2.5 bg-red-500/10 text-red-500 hover:bg-red-500/20 font-bold rounded-lg text-xs border border-red-500/20 hover:border-red-500/40 flex justify-center items-center gap-2 transition-all"
               @click="stopLocalServer"
             >
               <Square
@@ -135,7 +142,7 @@
         </div>
 
         <!-- Radar Map (Online Clients) -->
-        <div class="glass-panel rounded-2xl p-5 border border-primary/30 flex-1 overflow-hidden flex flex-col relative group">
+        <div class="glass-panel rounded-2xl p-5 border-primary/30 flex-1 overflow-hidden flex flex-col relative group">
           <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/10 to-transparent pointer-events-none" />
           
           <div class="flex justify-between items-center mb-4 relative z-10">
@@ -146,7 +153,7 @@
               />
               PLAYER RADAR
             </h2>
-            <span class="text-xs font-black text-primary bg-primary/20/50 px-2 py-0.5 rounded border border-primary/30">{{ onlineClients.length }} ONLINE</span>
+            <span class="text-xs font-black text-primary bg-primary/20/50 px-2 py-0.5 rounded border-primary/30">{{ onlineClients.length }} ONLINE</span>
           </div>
 
           <div
@@ -156,7 +163,7 @@
             <div
               v-for="c in onlineClients"
               :key="c.user_id"
-              class="flex items-center gap-3 p-3 bg-surface rounded-xl border border-border-soft hover:border-primary/50 hover:bg-primary/20/30 cursor-pointer transition-all glass-panel-hover"
+              class="flex items-center gap-3 p-3 bg-surface rounded-xl border-border-soft hover:border-primary/50 hover:bg-primary/20/30 cursor-pointer transition-all glass-panel-hover"
               @click="selectUser(c.user_id)"
             >
               <div class="relative">
@@ -168,7 +175,7 @@
                 >
               </div>
               <div class="min-w-0 flex-1">
-                <div class="text-sm font-bold text-white truncate drop-shadow-md">
+                <div class="text-sm font-bold text-text truncate drop-shadow-md">
                   {{ c.display_name }}
                 </div>
                 <div class="text-[10px] text-text-muted truncate font-mono mt-0.5">
@@ -194,7 +201,7 @@
             class="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl"
           >
             <div
-              class="w-[200%] h-[200%] absolute top-[-50%] left-[-50%] border-t border-primary/30 rounded-full animate-radar-sweep"
+              class="w-[200%] h-[200%] absolute top-[-50%] left-[-50%] border-primary/30 rounded-full animate-radar-sweep"
               style="background: conic-gradient(from 0deg, transparent 0deg, transparent 90deg, rgba(6, 182, 212, 0.1) 180deg);"
             />
           </div>
@@ -204,12 +211,12 @@
       <!-- Right Panel: Tabs -->
       <div class="flex-1 flex flex-col overflow-hidden">
         <!-- Tab Buttons -->
-        <div class="flex gap-2 mb-4 shrink-0 glass-panel p-1.5 rounded-xl border border-primary/30 inline-flex w-fit shadow-md">
+        <div class="flex gap-2 mb-4 shrink-0 glass-panel p-1.5 rounded-xl border-primary/30 inline-flex w-fit shadow-md">
           <button
             v-for="tab in tabs"
             :key="tab.key"
             class="px-5 py-2 rounded-lg text-xs font-bold transition-all uppercase tracking-wider relative overflow-hidden"
-            :class="activeTab === tab.key ? 'text-white' : 'text-slate-500 hover:text-slate-300'"
+            :class="activeTab === tab.key ? 'text-white' : 'text-text-muted hover:text-primary'"
             @click="activeTab = tab.key"
           >
             <div
@@ -220,15 +227,14 @@
           </button>
         </div>
 
-        <!-- Tab: Terminal Logs -->
         <div
           v-show="activeTab === 'logs'"
-          class="flex-1 bg-[#0a0a0a] rounded-2xl border border-slate-800 p-4 flex flex-col overflow-hidden relative shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]"
+          class="flex-1 terminal-black rounded-2xl border border-white/10 p-4 flex flex-col overflow-hidden relative"
         >
           <div class="flex justify-between items-center mb-3">
-            <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-2"><Terminal class="w-3 h-3" /> SYSTEM LOGS</span>
+            <span class="text-[10px] text-zinc-400 uppercase tracking-widest font-bold flex items-center gap-2"><Terminal class="w-3 h-3" /> SYSTEM LOGS</span>
             <button
-              class="text-[10px] text-slate-500 hover:text-primary uppercase tracking-wider border border-border-soft hover:border-slate-500 px-2 py-1 rounded transition-colors"
+              class="text-[10px] text-zinc-400 hover:text-white uppercase tracking-wider border-zinc-800 hover:border-zinc-700 px-2 py-1 rounded transition-colors"
               @click="logs = []"
             >
               {{ t('role.dashboard_clear_logs') }}
@@ -243,12 +249,12 @@
               :key="idx"
               class="mb-1 leading-relaxed break-all flex gap-3 hover:bg-white/5 px-2 py-0.5 rounded transition-colors"
             >
-              <span class="text-slate-600 shrink-0 select-none">[{{ log.time }}]</span>
-              <span :class="{'text-primary': log.level==='INFO','text-red-400': log.level==='ERROR','text-indigo-400': log.level==='WARN','text-emerald-400': log.level==='SUCCESS'}">{{ log.content }}</span>
+              <span class="text-zinc-500 shrink-0 select-none">[{{ log.time }}]</span>
+              <span :class="{'text-zinc-300': log.level==='INFO','text-red-400': log.level==='ERROR','text-yellow-400': log.level==='WARN','text-emerald-400': log.level==='SUCCESS'}">{{ log.content }}</span>
             </div>
             <div
               v-if="logs.length===0"
-              class="text-slate-700 mt-10 text-center uppercase tracking-widest opacity-50 flex flex-col items-center gap-2"
+              class="text-zinc-600 mt-10 text-center uppercase tracking-widest opacity-50 flex flex-col items-center gap-2"
             >
               <Terminal class="w-8 h-8" /> AWAITING INPUT...
             </div>
@@ -258,139 +264,69 @@
         <!-- Tab: User Management -->
         <div
           v-show="activeTab === 'users'"
-          class="flex-1 glass-panel rounded-2xl border border-primary/30 p-1 flex flex-col overflow-hidden"
+          class="flex-1 glass-panel rounded-2xl border-primary/30 p-1 flex flex-col overflow-hidden"
         >
           <div class="flex-1 overflow-y-auto custom-scrollbar">
-            <table
-              v-if="allUsers.length > 0"
-              class="w-full text-xs"
-            >
-              <thead class="sticky top-0 bg-slate-900/90 backdrop-blur-md z-10 shadow-sm">
-                <tr class="text-primary text-left text-[10px] uppercase tracking-widest">
-                  <th class="py-3 px-4 rounded-tl-xl">
-                    {{ t('role.user_name') }}
-                  </th>
-                  <th class="py-3 px-2">
-                    {{ t('role.status') }}
-                  </th>
-                  <th class="py-3 px-2">
-                    {{ t('role.login_count') }}
-                  </th>
-                  <th class="py-3 px-2">
-                    {{ t('role.role') }}
-                  </th>
-                  <th class="py-3 px-4 text-right rounded-tr-xl">
-                    {{ t('role.action') }}
-                  </th>
+            <table v-if="allUsers.length > 0" class="w-full text-left border-collapse">
+              <thead>
+                <tr class="text-[10px] text-primary uppercase tracking-[0.2em] border-b border-border-soft">
+                  <th class="p-4 font-bold">{{ t('role.user') || 'USER' }}</th>
+                  <th class="p-4 font-bold">{{ t('role.status') || 'STATUS' }}</th>
+                  <th class="p-4 font-bold">{{ t('role.role') || 'ROLE' }}</th>
+                  <th class="p-4 font-bold">{{ t('role.actions') || 'ACTIONS' }}</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-border-soft">
-                <tr
-                  v-for="u in allUsers"
-                  :key="u.user_id"
-                  class="hover:bg-primary/20/20 transition-colors group"
-                >
-                  <td class="py-3 px-4">
+              <tbody>
+                <tr v-for="u in allUsers" :key="u.user_id" class="border-b border-border-soft/30 hover:bg-surface/40 transition-colors group">
+                  <td class="p-4">
                     <div class="flex items-center gap-3">
-                      <img
-                        :src="u.avatar_url"
-                        class="w-8 h-8 rounded-lg object-cover border border-border-soft"
-                        @error="(e) => (e.target as HTMLImageElement).src='https://assets.vrchat.com/www/images/default_avatar.png'"
-                      >
-                      <div>
-                        <div class="font-bold text-slate-200 group-hover:text-primary transition-colors">
-                          {{ u.display_name }}
-                        </div>
-                        <div class="text-[9px] text-slate-500 font-mono">
-                          {{ u.user_id }}
-                        </div>
+                      <div class="relative">
+                        <img :src="u.avatar_url" class="w-8 h-8 rounded-full border border-border-soft object-cover" @error="(e) => (e.target as HTMLImageElement).src='https://assets.vrchat.com/www/images/default_avatar.png'">
+                        <div v-if="u.is_online" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-surface rounded-full" />
+                      </div>
+                      <div class="min-w-0">
+                        <div class="text-xs font-bold text-text truncate">{{ u.display_name }}</div>
+                        <div class="text-[10px] text-text-muted truncate font-mono">{{ u.user_id }}</div>
                       </div>
                     </div>
                   </td>
-                  <td class="py-3 px-2">
-                    <div v-if="banMap[u.user_id]">
-                      <span class="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[10px] uppercase tracking-wider font-bold">{{ t('role.ban') }}</span>
-                      <div class="text-[9px] text-red-400/70 mt-1 whitespace-nowrap font-mono">
-                        <span v-if="banMap[u.user_id].duration_hours">{{ banMap[u.user_id].duration_hours }}{{ t('role.hours') }}</span>
-                        <span v-else>{{ t('role.permanent') }}</span>
-                      </div>
+                  <td class="p-4">
+                    <div class="flex flex-col gap-1">
+                       <span :class="u.is_online ? 'text-emerald-400' : 'text-text-muted'" class="text-[10px] font-bold uppercase tracking-wider">
+                         {{ u.is_online ? 'Online' : 'Offline' }}
+                       </span>
+                       <span v-if="banMap[u.user_id]" class="text-[9px] text-red-500 font-bold uppercase">{{ t('role.banned') }}</span>
+                       <span v-if="freezeMap[u.user_id]" class="text-[9px] text-blue-400 font-bold uppercase">{{ t('role.frozen') }}</span>
                     </div>
-                    <div v-else-if="freezeMap[u.user_id]">
-                      <span class="px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded text-[10px] uppercase tracking-wider font-bold">{{ t('role.freeze') }}</span>
-                    </div>
-                    <span
-                      v-else-if="u.is_online"
-                      class="px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded text-[10px] uppercase tracking-wider font-bold shadow-md shadow-primary/20"
-                    >{{ t('role.online') }}</span>
-                    <span
-                      v-else
-                      class="px-2 py-0.5 bg-slate-800 text-slate-500 border border-border-soft rounded text-[10px] uppercase tracking-wider font-bold"
-                    >{{ t('role.offline') }}</span>
                   </td>
-                  <td class="py-3 px-2 text-slate-400 font-mono text-[10px]">
-                    {{ u.login_count }}
+                  <td class="p-4">
+                    <CustomSelect 
+                      :modelValue="u.role_id" 
+                      @update:modelValue="(val) => setUserRole(u.user_id, val as string | null)"
+                      :options="allRoles.map(role => ({ label: role.role_name, value: role.role_id }))"
+                      class="w-36"
+                    />
                   </td>
-                  <td class="py-3 px-2">
-                    <select
-                      v-model="u.role_id"
-                      class="bg-slate-900/80 border border-border-soft rounded-lg text-[10px] px-2 py-1 outline-none focus:border-primary/30 text-text uppercase tracking-wider cursor-pointer"
-                      @change="setUserRole(u.user_id, u.role_id)"
-                    >
-                      <option :value="null">
-                        {{ t('role.default_role') }}
-                      </option>
-                      <option
-                        v-for="r in allRoles"
-                        :key="r.role_id"
-                        :value="r.role_id"
-                      >
-                        {{ r.role_name }}
-                      </option>
-                    </select>
-                  </td>
-                  <td class="py-3 px-4 text-right">
-                    <div class="flex gap-1.5 justify-end flex-wrap">
-                      <button
-                        v-if="u.is_online"
-                        class="px-2 py-1 bg-indigo-500/10 text-indigo-500 border border-slate-1000/30 hover:bg-indigo-500/20 hover:border-slate-1000/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
-                        @click="kickUser(u.user_id)"
-                      >
-                        {{ t('role.kick') }}
-                      </button>
-                      <button
-                        v-if="!banMap[u.user_id]"
-                        class="px-2 py-1 bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
-                        @click="openBanDialog(u)"
-                      >
-                        {{ t('role.ban') }}
-                      </button>
-                      <button
-                        v-else
-                        class="px-2 py-1 bg-green-500/10 text-green-500 border border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
-                        @click="unbanUser(u.user_id)"
-                      >
-                        {{ t('role.unban') }}
-                      </button>
-                      <button
-                        v-if="!freezeMap[u.user_id]"
-                        class="px-2 py-1 bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 hover:border-primary/30 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
-                        @click="openFreezeDialog(u)"
-                      >
-                        {{ t('role.freeze') }}
-                      </button>
-                      <button
-                        v-else
-                        class="px-2 py-1 bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 hover:border-primary/50 rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
-                        @click="unfreezeUser(u.user_id)"
-                      >
-                        {{ t('role.unfreeze') }}
-                      </button>
-                      <button
-                        class="px-2 py-1 bg-slate-800 text-slate-400 border border-border-soft hover:bg-slate-700 hover:text-white rounded text-[9px] uppercase font-bold tracking-wider transition-colors"
-                        @click="removeUser(u.user_id)"
-                      >
-                        <Trash2 class="w-3 h-3" />
-                      </button>
+                  <td class="p-4">
+                    <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <button v-if="u.is_online" class="p-1.5 hover:bg-yellow-500/20 text-yellow-500 rounded-lg transition-colors" :title="t('role.kick')" @click="kickUser(u.user_id)">
+                         <LogOut class="w-4 h-4" />
+                       </button>
+                       <button v-if="!banMap[u.user_id]" class="p-1.5 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors" :title="t('role.ban')" @click="openBanDialog(u)">
+                         <ShieldAlert class="w-4 h-4" />
+                       </button>
+                       <button v-else class="p-1.5 hover:bg-emerald-500/20 text-emerald-500 rounded-lg transition-colors" :title="t('role.unban')" @click="unbanUser(u.user_id)">
+                         <UserCheck class="w-4 h-4" />
+                       </button>
+                       <button v-if="!freezeMap[u.user_id]" class="p-1.5 hover:bg-blue-500/20 text-blue-500 rounded-lg transition-colors" :title="t('role.freeze')" @click="openFreezeDialog(u)">
+                         <Snowflake class="w-4 h-4" />
+                       </button>
+                       <button v-else class="p-1.5 hover:bg-emerald-500/20 text-emerald-500 rounded-lg transition-colors" :title="t('role.unfreeze')" @click="unfreezeUser(u.user_id)">
+                         <Activity class="w-4 h-4" />
+                       </button>
+                       <button class="p-1.5 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors" :title="t('role.remove')" @click="removeUser(u.user_id)">
+                         <Trash2 class="w-4 h-4" />
+                       </button>
                     </div>
                   </td>
                 </tr>
@@ -398,7 +334,7 @@
             </table>
             <div
               v-else
-              class="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs h-full gap-3 uppercase tracking-widest"
+              class="flex-1 flex flex-col items-center justify-center text-text-muted text-xs h-full gap-3 uppercase tracking-widest"
             >
               <Users class="w-10 h-10 opacity-30" />
               {{ t('role.no_user_records') }}
@@ -409,16 +345,16 @@
         <!-- Tab: Roles -->
         <div
           v-show="activeTab === 'features'"
-          class="flex-1 glass-panel rounded-2xl border border-primary/30 p-1 flex overflow-hidden"
+          class="flex-1 glass-panel rounded-2xl border-primary/30 p-1 flex overflow-hidden"
         >
           <!-- Roles List -->
-          <div class="w-1/3 flex flex-col border-r border-primary/30 p-3 bg-surface/30">
+          <div class="w-1/3 flex flex-col border-primary/30 p-3 bg-surface/30">
             <div class="flex justify-between items-center mb-4 shrink-0">
               <h3 class="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-2">
                 <Shield class="w-3 h-3" /> {{ t('role.dashboard_roles_list') || 'ROLES LIST' }}
               </h3>
               <button
-                class="px-2 py-1 bg-primary/20 text-primary hover:bg-primary/40 border border-primary/30 rounded text-[10px] font-bold transition-colors"
+                class="px-2 py-1 bg-primary/20 text-primary hover:bg-primary/40 border-primary/30 rounded text-[10px] font-bold transition-colors"
                 @click="createNewRole"
               >
                 +
@@ -428,18 +364,18 @@
               <div
                 v-for="r in allRoles"
                 :key="r.role_id"
-                class="p-3 rounded-xl border cursor-pointer flex justify-between items-center transition-all group"
-                :class="selectedRole?.role_id === r.role_id ? 'bg-primary/20 border-primary/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-border-soft'"
+                class="p-3 rounded-xl cursor-pointer flex justify-between items-center transition-all group"
+                :class="selectedRole?.role_id === r.role_id ? 'bg-primary/20 border-primary/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]' : 'bg-surface/80 border-border-soft text-text hover:border-border-soft'"
                 @click="selectRole(r)"
               >
                 <div
                   class="text-xs font-bold"
-                  :class="selectedRole?.role_id === r.role_id ? 'text-primary' : 'text-slate-300'"
+                  :class="selectedRole?.role_id === r.role_id ? 'text-primary' : 'text-text'"
                 >
                   {{ r.role_name }} 
                   <span
                     v-if="r.is_default"
-                    class="text-[8px] uppercase tracking-wider bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded ml-2 font-mono"
+                    class="text-[8px] uppercase tracking-wider bg-surface-hover text-text px-1.5 py-0.5 rounded ml-2 font-mono"
                   >{{ t('role.default') }}</span>
                 </div>
                 <div
@@ -448,7 +384,7 @@
                 >
                   <button
                     v-if="!r.is_default"
-                    class="text-slate-400 hover:text-indigo-400 transition-colors"
+                    class="text-text hover:text-primary transition-colors"
                     :title="t('role.set_default')"
                     @click.stop="setDefaultRole(r.role_id)"
                   >
@@ -456,7 +392,7 @@
                   </button>
                   <button
                     v-if="!r.is_default"
-                    class="text-slate-400 hover:text-red-400 transition-colors"
+                    class="text-text hover:text-red-400 transition-colors"
                     :title="t('role.delete')"
                     @click.stop="deleteRole(r.role_id)"
                   >
@@ -471,33 +407,33 @@
             v-if="selectedRole"
             class="flex-1 flex flex-col overflow-y-auto p-4 custom-scrollbar"
           >
-            <div class="mb-5 shrink-0 bg-slate-900/50 p-4 rounded-xl border border-primary/30">
+            <div class="mb-5 shrink-0 bg-surface/80 p-4 rounded-xl border-primary/30">
               <label class="text-[10px] text-primary font-bold block mb-2 uppercase tracking-widest">{{ t('role.role_name') }}</label>
               <input
                 v-model="selectedRole.role_name"
-                class="w-full bg-[#02040A] border border-border-soft rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/30 text-text font-bold transition-colors shadow-inner"
+                class="w-full bg-surface/50 border border-border-soft rounded-lg px-3 py-2 text-sm outline-none text-text-strong font-bold transition-colors shadow-inner"
               >
             </div>
             
             <div class="space-y-6 flex-1">
               <div>
-                <h3 class="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest border-b border-slate-800 pb-1">
+                <h3 class="text-[10px] font-bold text-text mb-3 uppercase tracking-widest border-border-soft pb-1">
                   {{ t('role.feature_menus') }}
                 </h3>
                 <div class="grid grid-cols-3 gap-2">
                   <label
                     v-for="(enabled, key) in selectedRole.features.menus"
                     :key="key"
-                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-border-soft cursor-pointer text-xs group transition-colors"
+                    class="flex items-center gap-3 p-2 bg-surface/80 rounded-lg border-border-soft hover:border-border-soft cursor-pointer text-xs group transition-colors"
                     :class="{'bg-primary/20/30 border-primary/30': enabled}"
                   >
                     <div
-                      class="w-4 h-4 rounded border flex items-center justify-center transition-colors"
+                      class="w-4 h-4 rounded flex items-center justify-center transition-colors"
                       :class="enabled ? 'bg-primary border-primary/30' : 'bg-surface border-border-soft'"
                     >
                       <Check
                         v-if="enabled"
-                        class="w-3 h-3 text-[#050914] font-bold"
+                        class="w-3 h-3 text-white font-bold"
                         stroke-width="3"
                       />
                     </div>
@@ -506,29 +442,29 @@
                       type="checkbox"
                       class="hidden"
                     >
-                    <span class="text-slate-300 font-medium group-hover:text-text transition-colors">{{ t('sidebar.' + key) || key }}</span>
+                    <span class="text-text font-medium group-hover:text-text transition-colors">{{ t('sidebar.' + key) || key }}</span>
                   </label>
                 </div>
               </div>
               
               <div>
-                <h3 class="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest border-b border-slate-800 pb-1">
+                <h3 class="text-[10px] font-bold text-text mb-3 uppercase tracking-widest border-border-soft pb-1">
                   {{ t('role.feature_modes') }}
                 </h3>
                 <div class="grid grid-cols-2 gap-2">
                   <label
                     v-for="(enabled, key) in selectedRole.features.modes"
                     :key="key"
-                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-border-soft cursor-pointer text-xs group transition-colors"
+                    class="flex items-center gap-3 p-2 bg-surface/80 rounded-lg border-border-soft hover:border-border-soft cursor-pointer text-xs group transition-colors"
                     :class="{'bg-primary/20/30 border-primary/30': enabled}"
                   >
                     <div
-                      class="w-4 h-4 rounded border flex items-center justify-center transition-colors"
+                      class="w-4 h-4 rounded flex items-center justify-center transition-colors"
                       :class="enabled ? 'bg-primary border-primary/30' : 'bg-surface border-border-soft'"
                     >
                       <Check
                         v-if="enabled"
-                        class="w-3 h-3 text-[#050914] font-bold"
+                        class="w-3 h-3 text-white font-bold"
                         stroke-width="3"
                       />
                     </div>
@@ -537,29 +473,29 @@
                       type="checkbox"
                       class="hidden"
                     >
-                    <span class="text-slate-300 font-medium group-hover:text-text transition-colors uppercase tracking-wider">{{ t('role.mode_' + key) || (key === 'pc' ? 'PC Desktop' : key === 'vr' ? 'VR Overlay' : key) }}</span>
+                    <span class="text-text font-medium group-hover:text-text transition-colors uppercase tracking-wider">{{ t('role.mode_' + key) || (key === 'pc' ? 'PC Desktop' : key === 'vr' ? 'VR Overlay' : key) }}</span>
                   </label>
                 </div>
               </div>
               
               <div>
-                <h3 class="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest border-b border-slate-800 pb-1">
+                <h3 class="text-[10px] font-bold text-text mb-3 uppercase tracking-widest border-border-soft pb-1">
                   {{ t('role.feature_themes') }}
                 </h3>
                 <div class="grid grid-cols-3 gap-2">
                   <label
                     v-for="(enabled, key) in selectedRole.features.themes"
                     :key="key"
-                    class="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg border border-slate-800 hover:border-border-soft cursor-pointer text-xs group transition-colors"
+                    class="flex items-center gap-3 p-2 bg-surface/80 rounded-lg border-border-soft hover:border-border-soft cursor-pointer text-xs group transition-colors"
                     :class="{'bg-primary/20/30 border-primary/30': enabled}"
                   >
                     <div
-                      class="w-4 h-4 rounded border flex items-center justify-center transition-colors"
+                      class="w-4 h-4 rounded flex items-center justify-center transition-colors"
                       :class="enabled ? 'bg-primary border-primary/30' : 'bg-surface border-border-soft'"
                     >
                       <Check
                         v-if="enabled"
-                        class="w-3 h-3 text-[#050914] font-bold"
+                        class="w-3 h-3 text-white font-bold"
                         stroke-width="3"
                       />
                     </div>
@@ -568,13 +504,13 @@
                       type="checkbox"
                       class="hidden"
                     >
-                    <span class="text-slate-300 font-medium group-hover:text-text transition-colors uppercase tracking-wider">{{ t('role.theme_' + key) || (key.charAt(0).toUpperCase() + key.slice(1)) }}</span>
+                    <span class="text-text font-medium group-hover:text-text transition-colors uppercase tracking-wider">{{ t('role.theme_' + key) || (key.charAt(0).toUpperCase() + key.slice(1)) }}</span>
                   </label>
                 </div>
               </div>
             </div>
             
-            <div class="mt-6 pt-4 border-t border-primary/30 shrink-0">
+            <div class="mt-6 pt-4 border-primary/30 shrink-0">
               <button
                 class="w-full py-2.5 bg-gradient-to-r from-primary/80 to-primary/80 hover:from-primary/80 hover:to-primary/80 text-white font-black rounded-xl text-xs uppercase tracking-widest shadow-md shadow-primary/30 transition-all flex items-center justify-center gap-2"
                 @click="saveRole"
@@ -585,7 +521,7 @@
           </div>
           <div
             v-else
-            class="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs gap-3 uppercase tracking-widest font-bold"
+            class="flex-1 flex flex-col items-center justify-center text-text-muted text-xs gap-3 uppercase tracking-widest font-bold"
           >
             <Shield class="w-12 h-12 opacity-20" />
             {{ t('role.select_or_create_role') }}
@@ -597,37 +533,37 @@
     <!-- Ban Dialog -->
     <div
       v-if="showBanDialog"
-      class="fixed inset-0 bg-[#050914]/80 backdrop-blur-md flex items-center justify-center z-[999]"
+      class="fixed inset-0 bg-surface/80 backdrop-blur-md flex items-center justify-center z-[999]"
       @click.self="showBanDialog=false"
     >
-      <div class="bg-slate-900/90 rounded-2xl p-6 w-96 border border-red-900/50 shadow-[0_0_30px_rgba(220,38,38,0.2)]">
+      <div class="bg-surface/80 rounded-2xl p-6 w-96 border-red-900/50 shadow-[0_0_30px_rgba(220,38,38,0.2)]">
         <h3 class="text-sm font-black mb-4 text-red-500 uppercase tracking-widest flex items-center gap-2">
           <ShieldAlert class="w-4 h-4" /> {{ t('role.ban_user') }}
         </h3>
-        <p class="text-white font-bold mb-4 bg-surface p-2 rounded-lg border border-slate-800">
+        <p class="text-text font-bold mb-4 bg-surface p-2 rounded-lg border-border-soft">
           {{ dialogUser?.display_name }}
         </p>
         <div class="space-y-4">
           <div>
-            <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">{{ t('role.ban_reason') }}</label>
+            <label class="text-[10px] text-text block mb-1 uppercase tracking-wider">{{ t('role.ban_reason') }}</label>
             <input
               v-model="banReason"
-              class="w-full bg-[#02040A] border border-red-900/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500 text-white"
+              class="w-full bg-surface border-red-900/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500 text-text"
               :placeholder="t('role.ban_reason_ph')"
             >
           </div>
           <div>
-            <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">{{ t('role.ban_duration') }}</label>
+            <label class="text-[10px] text-text block mb-1 uppercase tracking-wider">{{ t('role.ban_duration') }}</label>
             <input
               v-model.number="banDuration"
               type="number"
-              class="w-full bg-[#02040A] border border-red-900/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500 text-white"
+              class="w-full bg-surface border-red-900/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500 text-text"
               :placeholder="t('role.ban_duration_ph')"
             >
           </div>
-          <div class="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-800">
+          <div class="flex gap-3 justify-end mt-6 pt-4 border-border-soft">
             <button
-              class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-300 uppercase tracking-wider transition-colors"
+              class="px-4 py-2 bg-surface-hover hover:bg-surface-active rounded-lg text-xs font-bold text-text uppercase tracking-wider transition-colors"
               @click="showBanDialog=false"
             >
               {{ t('role.cancel') }}
@@ -646,28 +582,28 @@
     <!-- Freeze Dialog -->
     <div
       v-if="showFreezeDialog"
-      class="fixed inset-0 bg-[#050914]/80 backdrop-blur-md flex items-center justify-center z-[999]"
+      class="fixed inset-0 bg-surface/80 backdrop-blur-md flex items-center justify-center z-[999]"
       @click.self="showFreezeDialog=false"
     >
-      <div class="bg-slate-900/90 rounded-2xl p-6 w-96 border border-primary/30 shadow-xl shadow-primary/30">
+      <div class="bg-surface/80 rounded-2xl p-6 w-96 border-primary/30 shadow-xl shadow-primary/30">
         <h3 class="text-sm font-black mb-4 text-primary uppercase tracking-widest flex items-center gap-2">
           <Snowflake class="w-4 h-4" /> {{ t('role.freeze_user') }}
         </h3>
-        <p class="text-white font-bold mb-4 bg-surface p-2 rounded-lg border border-slate-800">
+        <p class="text-white font-bold mb-4 bg-surface p-2 rounded-lg border-border-soft">
           {{ dialogUser?.display_name }}
         </p>
         <div class="space-y-4">
           <div>
-            <label class="text-[10px] text-slate-400 block mb-1 uppercase tracking-wider">{{ t('role.freeze_reason') }}</label>
+            <label class="text-[10px] text-text block mb-1 uppercase tracking-wider">{{ t('role.freeze_reason') }}</label>
             <input
               v-model="freezeReason"
-              class="w-full bg-[#02040A] border border-primary/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/30 text-white"
+              class="w-full bg-surface border-primary/30 rounded-lg px-3 py-2 text-sm outline-none /30 text-white"
               :placeholder="t('role.freeze_reason_ph')"
             >
           </div>
-          <div class="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-800">
+          <div class="flex gap-3 justify-end mt-6 pt-4 border-border-soft">
             <button
-              class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-300 uppercase tracking-wider transition-colors"
+              class="px-4 py-2 bg-surface-hover hover:bg-surface-active rounded-lg text-xs font-bold text-text uppercase tracking-wider transition-colors"
               @click="showFreezeDialog=false"
             >
               {{ t('role.cancel') }}
@@ -686,7 +622,7 @@
     <!-- Toast -->
     <div
       v-if="toastMessage"
-      class="fixed top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-primary/20 backdrop-blur-md border border-primary/30 text-cyan-50 rounded-xl shadow-md shadow-primary/50 z-[1000] text-sm font-black tracking-widest transition-all uppercase flex items-center gap-2"
+      class="fixed top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-primary/20 backdrop-blur-md border-primary/30 text-cyan-50 rounded-xl shadow-md shadow-primary/50 z-[1000] text-sm font-black tracking-widest transition-all uppercase flex items-center gap-2"
     >
       <div class="w-2 h-2 bg-primary rounded-full animate-pulse" />
       {{ toastMessage }}
@@ -695,6 +631,7 @@
 </template>
 
 <script setup lang="ts">
+import CustomSelect from './CustomSelect.vue';
 import { useToast } from "../composables/useToast";
 
 const toast = useToast();
@@ -705,6 +642,29 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from 'vue-i18n';
 import { SysApi, DbApi, VrcApi } from '../api';
 import { useStorage } from '@vueuse/core';
+
+// 动态注入 CSS 变量
+const themeStyles = computed(() => {
+  const colors = themes[currentThemeId.value]?.colors || themes.dog.colors;
+  return {
+    '--theme-bg-main': colors.bgMain,
+    '--theme-surface': colors.surface,
+    '--theme-surface-hover': colors.surfaceHover,
+    '--theme-blob1': colors.blob1,
+    '--theme-blob2': colors.blob2,
+    '--theme-border-soft': colors.borderSoft,
+    '--theme-border-strong': colors.borderStrong,
+    '--theme-text-strong': colors.textStrong,
+    '--theme-text-soft': colors.textSoft,
+    '--theme-active-bg': colors.activeBg,
+    '--theme-primary-btn-bg': colors.primaryBtnBg,
+    '--theme-primary-btn-hover': colors.primaryBtnHover,
+    '--theme-terminal-bg': colors.terminalBg,
+    '--theme-glass-effect': colors.glassEffect,
+    '--theme-primary': colors.primaryBtnBg,
+    '--theme-primary-hover': colors.primaryBtnHover,
+  };
+});
 
 const { t, locale } = useI18n();
 const langMap: Record<string, string> = { 'zh-CN': '简体中文', 'en-US': 'English', 'ja-JP': '日本語' };
@@ -777,14 +737,14 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 const fetchClients = async () => {
   if (!isRunning.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/clients`, 'GET');
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/clients`, { method: 'GET' });
     onlineClients.value = data.clients || [];
   } catch { /* ignore */ }
 };
 const fetchUsers = async () => {
   if (!isRunning.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users`, 'GET');
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users`, { method: 'GET' });
     allUsers.value = data.users || [];
     banMap.value = data.bans || {};
     freezeMap.value = data.frozen || {};
@@ -793,7 +753,7 @@ const fetchUsers = async () => {
 const fetchRoles = async () => {
   if (!isRunning.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, 'GET');
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, { method: 'GET' });
     allRoles.value = data.roles || [];
   } catch { /* ignore */ }
 };
@@ -809,7 +769,7 @@ const selectUser = (uid: string) => { selectedUserId.value = uid; activeTab.valu
 
 const adminPost = async (endpoint: string, body: any) => {
   try {
-    const data = await VrcApi.request(`${serverUrl.value}${endpoint}`, 'POST', body);
+    const data = await VrcApi.request(`${serverUrl.value}${endpoint}`, { method: 'POST', params: body });
     
     if (data && data.success === false) {
        throw new Error(data.message || '操作未成功');
@@ -842,7 +802,11 @@ const confirmBan = () => {
     toast.info(t('role.please_input_ban_reason'));
     return;
   }
-  adminPost('/api/admin/ban', { user_id: dialogUser.value.user_id, reason: banReason.value.trim(), duration_hours: banDuration.value || null });
+  adminPost('/api/admin/ban', { 
+    user_id: dialogUser.value.user_id, 
+    reason: banReason.value.trim(), 
+    duration_hours: banDuration.value ?? null 
+  });
   showBanDialog.value = false;
 };
 
@@ -880,7 +844,7 @@ const selectRole = (r: Role) => { selectedRole.value = JSON.parse(JSON.stringify
 const saveRole = async () => {
   if (!selectedRole.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, 'POST', selectedRole.value);
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, { method: 'POST', params: selectedRole.value });
     if(data.success) {
       toast.info(t('settings.saved'));
       fetchRoles();
@@ -894,7 +858,7 @@ const saveRole = async () => {
 const deleteRole = async (role_id: string) => {
   if(!confirm('确定删除此角色吗？')) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles/delete`, 'POST', { role_id });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles/delete`, { method: 'POST', params: { role_id } });
     if(data.success) {
        if(selectedRole.value?.role_id === role_id) selectedRole.value = null;
        showToast('删除成功');
@@ -908,7 +872,7 @@ const deleteRole = async (role_id: string) => {
 
 const setDefaultRole = async (role_id: string) => {
   try {
-    await VrcApi.request(`${serverUrl.value}/api/admin/roles/set_default`, 'POST', { role_id });
+    await VrcApi.request(`${serverUrl.value}/api/admin/roles/set_default`, { method: 'POST', params: { role_id } });
     showToast('默认角色已更改');
     fetchRoles();
   } catch {}
@@ -916,7 +880,7 @@ const setDefaultRole = async (role_id: string) => {
 
 const setUserRole = async (user_id: string, role_id: string | null) => {
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users/set_role`, 'POST', { user_id, role_id });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users/set_role`, { method: 'POST', params: { user_id, role_id } });
     if (data.success) {
       showToast('角色分配成功！');
     }
@@ -964,8 +928,12 @@ onMounted(async () => {
 onUnmounted(() => { unlistenLog?.(); unlistenClients?.(); stopPolling(); });
 
 const openNewClient = async () => {
-  try { addLog('[INFO] 正在启动新客户端窗口...'); await SysApi.openNewClient(); }
-  catch (err: any) { addLog('[ERROR] 启动客户端失败: ' + (err.message || err)); }
+  try {
+    addLog('[INFO] 正在启动新客户端窗口...');
+    await SysApi.openNewClient();
+  } catch (err: any) {
+    addLog('[ERROR] 启动客户端失败: ' + (err.message || err));
+  }
 };
 const stopAndExit = () => { stopPolling(); emit('exit'); };
 </script>

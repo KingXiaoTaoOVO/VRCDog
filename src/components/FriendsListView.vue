@@ -73,7 +73,7 @@ const totalCount = computed(() => onlineFriends.value.length + activeFriends.val
 // Extract Trust Color
 const getTrustColor = (tags: string[]) => {
   if (!tags) return '#CCCCCC'; // Visitor
-  if (tags.includes('system_trust_legend') || tags.includes('system_trust_veteran')) return '#8143e6'; // Trusted (Purple)
+  if (tags.includes('system_trust_legend') || tags.includes('system_trust_veteran')) return 'var(--color-primary)'; // Trusted (Primary)
   if (tags.includes('system_trust_trusted')) return '#ff7b42'; // Known (Orange)
   if (tags.includes('system_trust_known')) return '#2bcf5c'; // User (Green)
   if (tags.includes('system_trust_basic')) return '#1778ff'; // New User (Blue)
@@ -159,13 +159,13 @@ const cleanLocName = (loc: string) => {
 </script>
 
 <template>
-  <div class="h-full w-full flex justify-center bg-[#111214] text-text-muted overflow-hidden">
+  <div class="h-full w-full flex justify-center bg-background/80 backdrop-blur-md text-text-muted overflow-hidden">
     <!-- Main container mimicking VRCX right sidebar -->
-    <div class="w-full max-w-[340px] h-full flex flex-col bg-[#1a1b1e] border-l border-r border-[#2c2d31]">
+    <div class="w-full max-w-[340px] h-full flex flex-col bg-surface/80 border-border-soft">
       
       <!-- Top Bar -->
-      <div class="flex items-center gap-2 p-2 border-b border-[#2c2d31]">
-        <div class="flex-1 relative flex items-center bg-[#242528] rounded px-3 py-1.5 focus-within:ring-1 focus-within:ring-slate-500 transition-all">
+      <div class="flex items-center gap-2 p-2 border-border-soft">
+        <div class="flex-1 relative flex items-center bg-surface rounded px-3 py-1.5 focus-within:ring-1 focus-within:ring-slate-500 transition-all">
           <Search class="w-4 h-4 text-border-strong mr-2 shrink-0" />
           <input
             v-model="searchQuery"
@@ -174,12 +174,12 @@ const cleanLocName = (loc: string) => {
             :placeholder="$t('auto_e5f71fc3')"
           >
           <div class="flex items-center gap-1 shrink-0 ml-2">
-            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-border-strong border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">Ctrl</kbd>
-            <kbd class="min-w-[20px] text-center bg-[#1a1b1e] text-border-strong border border-[#2c2d31] rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">K</kbd>
+            <kbd class="min-w-[20px] text-center bg-surface/80 text-border-strong border-border-soft rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">Ctrl</kbd>
+            <kbd class="min-w-[20px] text-center bg-surface/80 text-border-strong border-border-soft rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">K</kbd>
           </div>
         </div>
         <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" @click="fetchFriends" :title="$t('auto_694fc5ef')">
-          <RefreshCcw class="w-4 h-4" :class="{'animate-spin text-white': loading}" />
+          <RefreshCcw class="w-4 h-4" :class="{'animate-spin text-primary': loading}" />
         </button>
         <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" :title="$t('auto_5660bcd2')">
           <Bell class="w-4 h-4" />
@@ -190,21 +190,21 @@ const cleanLocName = (loc: string) => {
       </div>
 
       <!-- Tabs -->
-      <div class="flex border-b border-[#2c2d31]">
+      <div class="flex border-border-soft">
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
-          :class="activeTab === 'friends' ? 'text-white' : 'text-text-muted hover:text-text-muted'"
+          :class="activeTab === 'friends' ? 'text-text' : 'text-text-muted hover:text-text'"
           @click="activeTab = 'friends'"
         >
-          好友 ({{ onlineCount }}/{{ totalCount }})
+          {{ $t('friends.title') || '好友' }} ({{ onlineCount }}/{{ totalCount }})
           <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-surface"></div>
         </button>
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
-          :class="activeTab === 'groups' ? 'text-white' : 'text-text-muted hover:text-text-muted'"
+          :class="activeTab === 'groups' ? 'text-text' : 'text-text-muted hover:text-text'"
           @click="activeTab = 'groups'"
         >
-          群组房间 (0)
+          {{ $t('groups.title') || '群组房间' }} (0)
           <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-surface"></div>
         </button>
       </div>
@@ -225,13 +225,13 @@ const cleanLocName = (loc: string) => {
               @click="toggleSection('me')"
             >
               <component :is="collapsedSections.has('me') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              我
+              {{ $t('friends.me') || '我' }}
             </div>
             <div v-show="!collapsedSections.has('me')" class="mt-1 pl-2">
               <div class="flex items-center gap-3 py-1.5 px-4 rounded-md transition-colors">
                 <div class="relative shrink-0">
-                  <img :src="currentUser?.currentAvatarThumbnailImageUrl || currentUser?.profilePicOverride || 'https://via.placeholder.com/150'" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e] bg-green-500"></div>
+                  <img :src="currentUser?.currentAvatarThumbnailImageUrl || currentUser?.profilePicOverride || 'https://via.placeholder.com/150'" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong bg-green-500"></div>
                 </div>
                 <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
                   <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(currentUser?.tags) }">
@@ -249,7 +249,7 @@ const cleanLocName = (loc: string) => {
               @click="toggleSection('sameRoom')"
             >
               <component :is="collapsedSections.has('sameRoom') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              同一房间 — {{ groupedFriends.sameRoom.length }}
+              {{ $t('friends.same_room') || '同一房间' }} — {{ groupedFriends.sameRoom.length }}
             </div>
             
             <div v-show="!collapsedSections.has('sameRoom')" class="mt-1">
@@ -264,18 +264,18 @@ const cleanLocName = (loc: string) => {
                 <div 
                   v-for="friend in group.friends" 
                   :key="friend.id"
-                  class="flex items-center gap-3 py-1.5 px-6 ml-4 mr-2 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                  class="flex items-center gap-3 py-1.5 px-6 ml-4 mr-2 cursor-pointer hover:bg-surface-hover rounded transition-colors"
                   @click="openDetail(friend)"
                 >
                   <div class="relative shrink-0">
-                    <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
-                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e]" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
+                    <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
+                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
                   </div>
                   <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
                     <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
                       {{ friend.displayName }}
                     </span>
-                    <span class="text-[11px] text-[#8e9297] mt-0.5">{{ $t('auto_3bdab2c6') }}</span> <!-- Mock time to match design -->
+                    <span class="text-[11px] text-text-muted mt-0.5">{{ $t('auto_3bdab2c6') }}</span> <!-- Mock time to match design -->
                   </div>
                 </div>
               </template>
@@ -289,25 +289,25 @@ const cleanLocName = (loc: string) => {
               @click="toggleSection('online')"
             >
               <component :is="collapsedSections.has('online') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              在线 — {{ groupedFriends.online.length }}
+              {{ $t('friends.online') || '在线' }} — {{ groupedFriends.online.length }}
             </div>
             
             <div v-show="!collapsedSections.has('online')" class="mt-1 pl-2 pr-2">
               <div 
                 v-for="friend in groupedFriends.online" 
                 :key="friend.id"
-                class="flex items-center gap-3 py-2 px-4 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                class="flex items-center gap-3 py-2 px-4 cursor-pointer hover:bg-surface-hover rounded transition-colors"
                 @click="openDetail(friend)"
               >
                 <div class="relative shrink-0">
-                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e]" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
+                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
                 </div>
                 <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
                   <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
                     {{ friend.displayName }}
                   </span>
-                  <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-[#8e9297] truncate">
+                  <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-text-muted truncate">
                     <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80">🔒</span>
                     <span v-else class="shrink-0 text-[12px]">{{ getFlag(friend.location) }}</span>
                     <span class="truncate">{{ cleanLocName(friend.location) }}</span>
@@ -324,24 +324,24 @@ const cleanLocName = (loc: string) => {
               @click="toggleSection('active')"
             >
               <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              活跃中 (仅登录网页端) — {{ activeFriends.length }}
+              {{ $t('friends.active_web') || '活跃中 (网页端)' }} — {{ activeFriends.length }}
             </div>
             <div v-show="!collapsedSections.has('active')" class="mt-1 pl-2 pr-2">
               <div 
                 v-for="friend in activeFriends" 
                 :key="friend.id"
-                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-surface-hover rounded transition-colors"
                 @click="openDetail(friend)"
               >
                 <div class="relative shrink-0">
-                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31]" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e]" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
+                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
                 </div>
                 <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
                   <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
                     {{ friend.displayName }}
                   </span>
-                  <span class="text-[11px] text-[#8e9297] mt-0.5 truncate">{{ $t('auto_7cdc4c2a') }}</span>
+                  <span class="text-[11px] text-text-muted mt-0.5 truncate">{{ $t('auto_7cdc4c2a') }}</span>
                 </div>
               </div>
             </div>
@@ -354,24 +354,24 @@ const cleanLocName = (loc: string) => {
               @click="toggleSection('offline')"
             >
               <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-text-muted" />
-              离线 — {{ offlineFriends.length }}
+              {{ $t('friends.offline') || '离线' }} — {{ offlineFriends.length }}
             </div>
             <div v-show="!collapsedSections.has('offline')" class="mt-1 pl-2 pr-2 opacity-60 hover:opacity-100 transition-opacity">
               <div 
                 v-for="friend in offlineFriends" 
                 :key="friend.id"
-                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-[#2c2d31] rounded transition-colors"
+                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-surface-hover rounded transition-colors"
                 @click="openDetail(friend)"
               >
                 <div class="relative shrink-0">
-                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-[#2c2d31] grayscale" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#1a1b1e] bg-surface-hover0"></div>
+                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover grayscale" />
+                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong bg-surface"></div>
                 </div>
                 <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-                  <span class="text-[13px] font-bold truncate text-[#8e9297]">
+                  <span class="text-[13px] font-bold truncate text-text-muted">
                     {{ friend.displayName }}
                   </span>
-                  <span class="text-[11px] text-[#6b6f75] mt-0.5 truncate">{{ $t('auto_50d4a850') }}</span>
+                  <span class="text-[11px] text-text-muted/70 mt-0.5 truncate">{{ $t('auto_50d4a850') }}</span>
                 </div>
               </div>
             </div>
@@ -380,7 +380,7 @@ const cleanLocName = (loc: string) => {
         </template>
         
         <div v-else class="h-full flex flex-col items-center justify-center text-text-muted text-sm font-medium">
-          暂无群组房间
+          {{ $t('groups.no_groups') || '暂无群组房间' }}
         </div>
 
       </div>
@@ -391,6 +391,6 @@ const cleanLocName = (loc: string) => {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 8px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #3f4147; border-radius: 4px; border: 2px solid #1a1b1e; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #565860; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--color-surface-hover); border-radius: 4px; border: 2px solid var(--color-border-soft); }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 </style>

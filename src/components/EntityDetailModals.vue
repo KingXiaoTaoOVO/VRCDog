@@ -18,11 +18,11 @@ const profileStore = useUserProfileStore();
 
 const groupActiveTab = ref<'info' | 'members' | 'requests'>('info');
 
-const handleJoinRequest = async (userId: string, action: 'accept' | 'reject') => {
+const handleJoinRequest = async (requestId: string, action: 'accept' | 'reject') => {
   try {
-    await VrcApi.respondGroupJoinRequest({ groupId: entityStore.selectedGroup.id, userId, action });
+    await VrcApi.respondGroupJoinRequest({ groupId: entityStore.selectedGroup!.id, requestId, action });
     // Refresh admin data
-    entityStore.fetchGroupAdminData(entityStore.selectedGroup.id);
+    entityStore.fetchGroupAdminData(entityStore.selectedGroup!.id);
   } catch (err) {
     console.error("Failed to handle join request", err);
   }
@@ -42,14 +42,15 @@ const handleAvatarUpload = async (e: Event) => {
     reader.onload = async (ev) => {
       try {
         const base64 = ev.target?.result as string;
-        const res = await VrcApi.uploadVrcPlusImage(base64, 'avatarimage', entityStore.selectedAvatar.id);
+        const res = await VrcApi.uploadVrcPlusImage(base64, 'avatarimage', entityStore.selectedAvatar!.id);
         
         if (res.versions && res.versions.length > 0) {
             const latestVer = res.versions[res.versions.length - 1];
             const fileUrl = latestVer.file?.url;
             
             if (fileUrl) {
-               await VrcApi.updateAvatar(entityStore.selectedAvatar.id, {
+               await VrcApi.updateAvatar({
+                   id: entityStore.selectedAvatar!.id,
                    imageUrl: fileUrl
                });
                toast.info(t('entity_modal.upload_avatar_success'));
@@ -84,14 +85,15 @@ const handleWorldUpload = async (e: Event) => {
     reader.onload = async (ev) => {
       try {
         const base64 = ev.target?.result as string;
-        const res = await VrcApi.uploadVrcPlusImage(base64, 'worldimage', entityStore.selectedWorld.id);
+        const res = await VrcApi.uploadVrcPlusImage(base64, 'worldimage', entityStore.selectedWorld!.id);
         
         if (res.versions && res.versions.length > 0) {
             const latestVer = res.versions[res.versions.length - 1];
             const fileUrl = latestVer.file?.url;
             
             if (fileUrl) {
-               await VrcApi.updateWorld(entityStore.selectedWorld.id, {
+               await VrcApi.updateWorld({
+                   id: entityStore.selectedWorld!.id,
                    imageUrl: fileUrl
                });
                toast.info(t('entity_modal.upload_world_success'));
@@ -128,7 +130,7 @@ const handleWorldUpload = async (e: Event) => {
           custom-class="w-full h-full object-cover"
         />
         <button
-          class="absolute top-4 right-4 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
+          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
           @click="entityStore.closeWorld()"
         >
           ✕
@@ -142,7 +144,7 @@ const handleWorldUpload = async (e: Event) => {
           {{ t('search.author') }}: {{ entityStore.selectedWorld.authorName }}
         </p>
         <div class="grid grid-cols-3 gap-3 text-center mb-5">
-          <div class="bg-surface-hover border border-border-soft rounded-xl p-3">
+          <div class="bg-surface-hover border-border-soft rounded-xl p-3">
             <p class="text-lg font-black text-text">
               {{ entityStore.selectedWorld.capacity || '?' }}
             </p>
@@ -150,7 +152,7 @@ const handleWorldUpload = async (e: Event) => {
               {{ t('search.capacity') }}
             </p>
           </div>
-          <div class="bg-surface-hover border border-border-soft rounded-xl p-3">
+          <div class="bg-surface-hover border-border-soft rounded-xl p-3">
             <p class="text-lg font-black text-text">
               {{ entityStore.selectedWorld.favorites || 0 }}
             </p>
@@ -158,7 +160,7 @@ const handleWorldUpload = async (e: Event) => {
               {{ t('search.favorites_count') }}
             </p>
           </div>
-          <div class="bg-surface-hover border border-border-soft rounded-xl p-3">
+          <div class="bg-surface-hover border-border-soft rounded-xl p-3">
             <p class="text-lg font-black text-text">
               {{ entityStore.selectedWorld.visits || 0 }}
             </p>
@@ -181,11 +183,11 @@ const handleWorldUpload = async (e: Event) => {
           <span
             v-for="tag in entityStore.selectedWorld.tags.filter((t: string) => !t.startsWith('system_') && !t.startsWith('admin_'))"
             :key="tag"
-            class="text-[10px] font-bold bg-background/10 border border-border-soft text-text-muted px-2.5 py-1 rounded-md uppercase"
+            class="text-[10px] font-bold bg-surface border-border-soft text-text-muted px-2.5 py-1 rounded-md uppercase"
           >{{ tag }}</span>
         </div>
 
-        <div class="pt-4 border-t border-border-soft flex items-center justify-end gap-3">
+        <div class="pt-4 border-border-soft flex items-center justify-end gap-3">
           <input
             ref="worldImageInput"
             type="file"
@@ -195,7 +197,7 @@ const handleWorldUpload = async (e: Event) => {
           >
           <button
             v-if="entityStore.selectedWorld.authorId === profileStore.baseInfo?.id"
-            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-surface-hover border border-border-soft text-text-muted hover:bg-background/10"
+            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-surface-hover border-border-soft text-text-muted hover:bg-surface"
             :disabled="isUploadingWorldImage"
             @click="worldImageInput?.click()"
           >
@@ -205,7 +207,7 @@ const handleWorldUpload = async (e: Event) => {
 
           <button
             class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm" 
-            :class="entityStore.isWorldFavorited ? 'bg-red-50 border border-red-200 text-red-600 hover:bg-red-100' : 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'"
+            :class="entityStore.isWorldFavorited ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' : 'bg-primary/10 border-primary text-primary hover:bg-primary/10'"
             @click="entityStore.toggleFavoriteWorld()"
           >
             <span>{{ entityStore.isWorldFavorited ? t('search.remove_favorite') : '⭐ ' + t('search.add_favorite') }}</span>
@@ -214,30 +216,30 @@ const handleWorldUpload = async (e: Event) => {
 
         <div
           v-if="entityStore.selectedWorld.instances?.length"
-          class="mt-6 pt-5 border-t border-border-soft"
+          class="mt-6 pt-5 border-border-soft"
         >
           <h3 class="text-base font-extrabold text-text mb-3 flex items-center gap-2">
-            <Globe class="text-indigo-500 w-5 h-5" /> {{ t('entity_modal.active_instances') }}
+            <Globe class="text-primary w-5 h-5" /> {{ t('entity_modal.active_instances') }}
           </h3>
           <div class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
             <div
               v-for="inst in entityStore.selectedWorld.instances"
               :key="inst[0]"
-              class="p-3 bg-surface-hover hover:bg-indigo-50/50 rounded-xl border border-border-soft transition-colors flex items-center justify-between"
+              class="p-3 bg-surface-hover hover:bg-primary/10 rounded-xl border-border-soft transition-colors flex items-center justify-between"
             >
               <div class="flex items-center gap-2">
                 <span class="font-bold text-text">#{{ inst[0] }}</span>
-                <span class="text-xs font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">{{ inst[1] }} / {{ entityStore.selectedWorld.capacity }}</span>
+                <span class="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{{ inst[1] }} / {{ entityStore.selectedWorld.capacity }}</span>
               </div>
               <div class="flex gap-2">
                 <button
-                  class="px-3 py-1.5 bg-surface border border-border-soft hover:border-indigo-300 text-indigo-600 rounded-lg text-xs font-bold shadow-sm transition-all"
+                  class="px-3 py-1.5 bg-surface border-border-soft hover:border-primary text-primary rounded-lg text-xs font-bold shadow-sm transition-all"
                   @click="SysApi.launchVrc({ launchArgs: `vrchat://launch?id=${entityStore.selectedWorld.id}:${inst[0]}` })"
                 >
                   {{ t('entity_modal.join') }}
                 </button>
                 <button
-                  class="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
+                  class="px-3 py-1.5 bg-primary/10 hover:bg-primary/10 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
                   @click="VrcApi.inviteMyself({ worldId: entityStore.selectedWorld.id, instanceId: inst[0] })"
                 >
                   {{ t('entity_modal.drop_portal') }}
@@ -264,7 +266,7 @@ const handleWorldUpload = async (e: Event) => {
           custom-class="w-full h-full object-cover"
         />
         <button
-          class="absolute top-4 right-4 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
+          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
           @click="entityStore.closeAvatar()"
         >
           ✕
@@ -288,11 +290,11 @@ const handleWorldUpload = async (e: Event) => {
           <span
             v-for="tag in entityStore.selectedAvatar.tags"
             :key="tag"
-            class="text-[10px] font-bold bg-background/10 border border-border-soft text-text-muted px-2.5 py-1 rounded-md uppercase"
+            class="text-[10px] font-bold bg-surface border-border-soft text-text-muted px-2.5 py-1 rounded-md uppercase"
           >{{ tag }}</span>
         </div>
 
-        <div class="pt-4 border-t border-border-soft flex items-center justify-end gap-3">
+        <div class="pt-4 border-border-soft flex items-center justify-end gap-3">
           <input
             ref="imageInput"
             type="file"
@@ -302,7 +304,7 @@ const handleWorldUpload = async (e: Event) => {
           >
           <button
             v-if="entityStore.selectedAvatar.authorId === profileStore.baseInfo?.id"
-            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-surface-hover border border-border-soft text-text-muted hover:bg-background/10"
+            class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm bg-surface-hover border-border-soft text-text-muted hover:bg-surface"
             :disabled="isUploadingImage"
             @click="imageInput?.click()"
           >
@@ -312,7 +314,7 @@ const handleWorldUpload = async (e: Event) => {
           
           <button
             class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm" 
-            :class="entityStore.isAvatarFavorited ? 'bg-red-50 border border-red-200 text-red-600 hover:bg-red-100' : 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'"
+            :class="entityStore.isAvatarFavorited ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' : 'bg-primary/10 border-primary text-primary hover:bg-primary/10'"
             @click="entityStore.toggleFavoriteAvatar()"
           >
             <span>{{ entityStore.isAvatarFavorited ? t('search.remove_favorite') : '⭐ ' + t('search.add_favorite') }}</span>
@@ -336,7 +338,7 @@ const handleWorldUpload = async (e: Event) => {
           custom-class="w-full h-full object-cover opacity-80"
         />
         <button
-          class="absolute top-4 right-4 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur transition-colors"
+          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
           @click="entityStore.closeGroup()"
         >
           ✕
@@ -358,22 +360,22 @@ const handleWorldUpload = async (e: Event) => {
             <div class="flex items-center gap-2 mt-1">
               <span class="text-xs font-bold text-text-muted uppercase">{{ entityStore.selectedGroup.shortCode }}</span>
               <span class="w-1 h-1 rounded-full bg-surface" />
-              <span class="text-xs font-bold text-indigo-600 flex items-center gap-1"><UsersRound :size="12" /> {{ entityStore.selectedGroup.memberCount || 0 }} {{ t('entity_modal.members') }}</span>
+              <span class="text-xs font-bold text-primary flex items-center gap-1"><UsersRound :size="12" /> {{ entityStore.selectedGroup.memberCount || 0 }} {{ t('entity_modal.members') }}</span>
             </div>
           </div>
         </div>
         
-        <div class="flex border-b border-border-soft mb-4 px-2">
+        <div class="flex border-border-soft mb-4 px-2">
           <button
             class="px-4 py-2 text-sm font-bold border-b-2 transition-colors"
-            :class="groupActiveTab === 'info' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-text-muted hover:text-text-muted'"
+            :class="groupActiveTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-muted'"
             @click="groupActiveTab = 'info'"
           >
             {{ t('entity_modal.info') }}
           </button>
           <button
             class="px-4 py-2 text-sm font-bold border-b-2 transition-colors"
-            :class="groupActiveTab === 'members' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-text-muted hover:text-text-muted'"
+            :class="groupActiveTab === 'members' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-muted'"
             @click="groupActiveTab = 'members'"
           >
             {{ t('entity_modal.members') }} ({{ entityStore.groupMembers.length }})
@@ -381,7 +383,7 @@ const handleWorldUpload = async (e: Event) => {
           <button
             v-if="entityStore.groupPermissions.includes('group-join-requests-manage')"
             class="px-4 py-2 text-sm font-bold border-b-2 transition-colors flex items-center gap-2"
-            :class="groupActiveTab === 'requests' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-text-muted hover:text-text-muted'"
+            :class="groupActiveTab === 'requests' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-muted'"
             @click="groupActiveTab = 'requests'"
           >
             {{ t('entity_modal.requests') }}
@@ -400,7 +402,7 @@ const handleWorldUpload = async (e: Event) => {
           </div>
 
           <div class="grid grid-cols-2 gap-3 mb-5">
-            <div class="bg-surface-hover border border-border-soft rounded-xl p-3 flex flex-col justify-center">
+            <div class="bg-surface-hover border-border-soft rounded-xl p-3 flex flex-col justify-center">
               <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
                 {{ t('entity_modal.privacy_status') }}
               </p>
@@ -411,7 +413,7 @@ const handleWorldUpload = async (e: Event) => {
                 /> {{ entityStore.selectedGroup.privacy === 'public' ? t('entity_modal.public_group') : t('entity_modal.private_group') }}
               </p>
             </div>
-            <div class="bg-surface-hover border border-border-soft rounded-xl p-3 flex flex-col justify-center">
+            <div class="bg-surface-hover border-border-soft rounded-xl p-3 flex flex-col justify-center">
               <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
                 {{ t('entity_modal.join_state') }}
               </p>
@@ -445,7 +447,7 @@ const handleWorldUpload = async (e: Event) => {
           <div
             v-for="member in entityStore.groupMembers"
             :key="member.id"
-            class="flex items-center justify-between p-3 bg-surface-hover border border-border-soft rounded-xl hover:border-indigo-200 transition-colors"
+            class="flex items-center justify-between p-3 bg-surface-hover border-border-soft rounded-xl hover:border-primary transition-colors"
           >
             <div class="flex items-center gap-3">
               <VrcAvatar
@@ -489,7 +491,7 @@ const handleWorldUpload = async (e: Event) => {
           <div
             v-for="req in entityStore.groupJoinRequests"
             :key="req.id"
-            class="flex items-center justify-between p-3 bg-surface-hover border border-border-soft rounded-xl hover:border-indigo-200 transition-colors"
+            class="flex items-center justify-between p-3 bg-surface-hover border-border-soft rounded-xl hover:border-primary transition-colors"
           >
             <div class="flex items-center gap-3">
               <VrcAvatar
@@ -509,13 +511,13 @@ const handleWorldUpload = async (e: Event) => {
             <div class="flex gap-2">
               <button
                 class="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
-                @click="handleJoinRequest(req.user.id, 'accept')"
+                @click="handleJoinRequest(req.id, 'accept')"
               >
                 <Check :size="16" />
               </button>
               <button
                 class="p-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
-                @click="handleJoinRequest(req.user.id, 'reject')"
+                @click="handleJoinRequest(req.id, 'reject')"
               >
                 <Shield :size="16" />
               </button>
@@ -523,12 +525,12 @@ const handleWorldUpload = async (e: Event) => {
           </div>
         </div>
         
-        <div class="pt-4 border-t border-border-soft flex items-center justify-between">
+        <div class="pt-4 border-border-soft flex items-center justify-between">
           <div class="text-xs text-border-strong font-mono">
             {{ entityStore.selectedGroup.id }}
           </div>
           <button
-            class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors shadow-sm"
+            class="px-6 py-2.5 bg-primary/10 hover:bg-primary/10 text-white font-bold rounded-xl text-sm transition-colors shadow-sm"
             @click="SysApi.launchVrc({ launchArgs: `vrchat://launch?id=${entityStore.selectedGroup.id}` })"
           >
             {{ t('entity_modal.view_in_vrc') }}

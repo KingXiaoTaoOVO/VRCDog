@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CustomSelect from './CustomSelect.vue';
 import { ref, onMounted, computed } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
 import { Sparkles, Plus, Trash2, Zap, Send, Loader2, Check } from 'lucide-vue-next';
@@ -116,18 +117,18 @@ onMounted(() => fetchPresets());
 <template>
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
       <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-        <span class="inline-flex items-center justify-center p-2 bg-indigo-100 rounded-2xl shadow-sm border border-indigo-200/50">
-          <Sparkles class="w-6 h-6 text-indigo-600" />
+        <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+          <Sparkles class="w-6 h-6 text-primary" />
         </span>
         {{ t('status_presets.title') }}
       </h2>
       <button
-        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+        class="bg-primary hover:bg-primary text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
         @click="showForm = !showForm"
       >
         <Plus :size="16" /> {{ t('status_presets.add_preset') }}
@@ -137,7 +138,7 @@ onMounted(() => fetchPresets());
     <!-- 新增表单 -->
     <div
       v-if="showForm"
-      class="bg-surface backdrop-blur-xl rounded-2xl p-6 border border-border-soft mb-6 shadow-md z-10 relative"
+      class="bg-surface backdrop-blur-xl rounded-2xl p-6 border-border-soft mb-6 shadow-md z-10 relative"
     >
       <div class="grid grid-cols-2 gap-5 mb-5">
         <div>
@@ -146,23 +147,12 @@ onMounted(() => fetchPresets());
             v-model="form.name"
             type="text"
             :placeholder="t('status_presets.preset_name_placeholder')"
-            class="w-full px-4 py-2.5 rounded-xl border border-border-soft focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
+            class="w-full px-4 py-2.5 rounded-xl border-border-soft  focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
           >
         </div>
         <div>
           <label class="block text-xs font-extrabold text-text-muted mb-2 tracking-wide">{{ t('status_presets.status_type') }}</label>
-          <select
-            v-model="form.status"
-            class="w-full px-4 py-2.5 rounded-xl border border-border-soft focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
-          >
-            <option
-              v-for="opt in statusOptions"
-              :key="opt.value"
-              :value="opt.value"
-            >
-              {{ opt.label }}
-            </option>
-          </select>
+          <CustomSelect v-model="form.status" :options="statusOptions" />
         </div>
       </div>
       <div class="mb-5">
@@ -171,18 +161,18 @@ onMounted(() => fetchPresets());
           v-model="form.status_description"
           type="text"
           :placeholder="t('status_presets.status_desc_placeholder')"
-          class="w-full px-4 py-2.5 rounded-xl border border-border-soft focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
+          class="w-full px-4 py-2.5 rounded-xl border-border-soft  focus:ring-4 focus:ring-indigo-500/10 outline-none text-sm bg-surface-hover transition-all font-medium text-text"
         >
       </div>
-      <div class="flex gap-3 justify-end pt-2 border-t border-border-soft">
+      <div class="flex gap-3 justify-end pt-2 border-border-soft">
         <button
-          class="text-sm text-text-muted hover:text-text-muted font-bold px-4 py-2 rounded-xl hover:bg-background/10 transition-colors"
+          class="text-sm text-text-muted hover:text-text-muted font-bold px-4 py-2 rounded-xl hover:bg-surface transition-colors"
           @click="showForm = false"
         >
           {{ t('status_presets.cancel') }}
         </button>
         <button
-          class="text-sm bg-indigo-600 text-white font-bold px-5 py-2 rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-colors"
+          class="text-sm bg-primary text-white font-bold px-5 py-2 rounded-xl hover:bg-primary/10 shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-colors"
           @click="addPreset"
         >
           <Zap :size="16" /> {{ t('status_presets.save') }}
@@ -194,7 +184,7 @@ onMounted(() => fetchPresets());
     <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar z-10 relative">
       <div
         v-if="loading"
-        class="absolute inset-0 flex flex-col items-center justify-center text-indigo-500/80 bg-surface-hover backdrop-blur-sm z-10"
+        class="absolute inset-0 flex flex-col items-center justify-center text-primary bg-surface-hover backdrop-blur-sm z-10"
       >
         <Loader2
           class="animate-spin mb-4"
@@ -226,7 +216,7 @@ onMounted(() => fetchPresets());
         <div
           v-for="(preset, idx) in presets"
           :key="preset.id ?? idx"
-          class="bg-surface backdrop-blur-xl rounded-2xl p-5 border border-border-soft shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col gap-4 group relative"
+          class="bg-surface backdrop-blur-xl rounded-2xl p-5 border-border-soft shadow-sm hover:shadow-md hover:border-primary transition-all flex flex-col gap-4 group relative"
         >
           <div class="flex items-start gap-3">
             <div
@@ -243,12 +233,12 @@ onMounted(() => fetchPresets());
             </div>
           </div>
           
-          <div class="flex items-center justify-end gap-2 mt-auto border-t border-border-soft pt-3">
+          <div class="flex items-center justify-end gap-2 mt-auto border-border-soft pt-3">
             <button
               v-if="props.userId"
               :disabled="applyingId === preset.id"
               class="flex-1 flex justify-center items-center gap-1.5 py-2 rounded-xl text-sm font-bold transition-all"
-              :class="appliedId === preset.id ? 'bg-green-100 text-green-700' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-700'"
+              :class="appliedId === preset.id ? 'bg-green-100 text-green-700' : 'bg-primary/10 hover:bg-primary/10 text-primary hover:text-primary'"
               @click="applyPreset(preset)"
             >
               <Check

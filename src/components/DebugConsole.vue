@@ -130,48 +130,48 @@ const formatArgs = (args: any) => {
   <!-- 悬浮触发按钮 -->
   <button
     v-if="!isVisible && isMasterEnabled"
-    class="fixed bottom-4 right-4 z-[999] bg-slate-800 hover:bg-slate-700 text-green-400 p-3 rounded-full shadow-2xl transition-all hover:scale-110 border border-slate-600 flex items-center justify-center group"
+    class="fixed bottom-4 right-4 z-[999] bg-surface-hover hover:bg-surface-active text-green-400 p-3 rounded-full shadow-2xl transition-all hover:scale-110 border-border-strong flex items-center justify-center group"
     @click="isVisible = true"
   >
     <Terminal :size="20" />
-    <span class="absolute right-full mr-3 whitespace-nowrap bg-slate-800 text-xs text-slate-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
+    <span class="absolute right-full mr-3 whitespace-nowrap bg-surface-hover text-xs text-text px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
   </button>
 
   <!-- 调试控制台面板 -->
   <div
     v-if="isVisible && isMasterEnabled" 
-    class="fixed bottom-0 right-0 z-[1000] bg-slate-900 shadow-2xl border-t border-l border-slate-700 flex flex-col transition-all duration-300 ease-in-out"
-    :class="isExpanded ? 'w-full h-[60vh]' : 'w-[450px] h-[400px] rounded-tl-xl'"
+    class="fixed bottom-0 right-0 z-[1000] terminal-black shadow-2xl border-l border-t border-white/10 flex flex-col transition-all duration-300 ease-in-out"
+    :class="isExpanded ? 'w-full h-[60vh]' : 'w-[450px] h-[400px] rounded-tl-2xl'"
   >
     <!-- 头部工具栏 -->
     <div
-      class="h-10 bg-slate-800 flex items-center justify-between px-3 border-b border-slate-700 shrink-0"
+      class="h-10 bg-surface-hover flex items-center justify-between px-3 border-border-soft shrink-0"
       :class="{ 'rounded-tl-xl': !isExpanded }"
     >
-      <div class="flex items-center gap-2 text-slate-300 font-mono text-xs select-none">
+      <div class="flex items-center gap-2 text-text font-mono text-xs select-none">
         <Terminal
           :size="14"
           class="text-green-500"
         /> API Debug Console
-        <span class="bg-slate-700 px-1.5 py-0.5 rounded text-[10px]">{{ logs.length }}</span>
+        <span class="bg-surface-active px-1.5 py-0.5 rounded text-[10px]">{{ logs.length }}</span>
       </div>
       <div class="flex items-center gap-1.5">
         <button
-          class="p-1 hover:bg-slate-700 text-slate-400 hover:text-green-400 rounded transition-colors"
+          class="p-1 hover:bg-surface-active text-text hover:text-green-400 rounded transition-colors"
           :title="t('debug.export_logs')"
           @click="exportLogs"
         >
           <Download :size="14" />
         </button>
         <button
-          class="p-1 hover:bg-slate-700 text-slate-400 hover:text-red-400 rounded transition-colors"
+          class="p-1 hover:bg-surface-active text-text hover:text-red-400 rounded transition-colors"
           :title="t('debug.clear_logs')"
           @click="clearLogs"
         >
           <Trash2 :size="14" />
         </button>
         <button
-          class="p-1 hover:bg-slate-700 text-slate-400 hover:text-white rounded transition-colors"
+          class="p-1 hover:bg-surface-active text-text hover:text-white rounded transition-colors"
           :title="isExpanded ? t('debug.restore') : t('debug.maximize')"
           @click="isExpanded = !isExpanded"
         >
@@ -180,9 +180,9 @@ const formatArgs = (args: any) => {
             :size="14"
           />
         </button>
-        <div class="w-px h-4 bg-slate-600 mx-1" />
+        <div class="w-px h-4 bg-surface-hover mx-1" />
         <button
-          class="p-1 hover:bg-red-500 hover:text-white text-slate-400 rounded transition-colors"
+          class="p-1 hover:bg-red-500 hover:text-white text-text rounded transition-colors"
           :title="t('debug.close')"
           @click="isVisible = false"
         >
@@ -194,11 +194,11 @@ const formatArgs = (args: any) => {
     <!-- 日志列表 -->
     <div
       ref="logContainer"
-      class="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-950 font-mono text-[11px] custom-scrollbar"
+      class="flex-1 overflow-y-auto p-2 space-y-2 bg-background font-mono text-[11px] custom-scrollbar"
     >
       <div
         v-if="logs.length === 0"
-        class="flex h-full items-center justify-center text-slate-600 italic select-none"
+        class="flex h-full items-center justify-center text-text-muted italic select-none"
       >
         {{ t('debug.waiting_api') }}
       </div>
@@ -206,8 +206,8 @@ const formatArgs = (args: any) => {
       <div
         v-for="(log, idx) in logs"
         :key="idx" 
-        class="rounded p-2 border relative group"
-        :class="log.type === 'error' ? 'bg-red-950/30 border-red-900/50 text-red-200' : 'bg-slate-900 border-slate-800 text-slate-300'"
+        class="rounded p-2 relative group"
+        :class="log.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' : 'bg-surface border-border-soft text-text'"
       >
         <div class="flex items-center justify-between mb-1 opacity-80">
           <div class="flex items-center gap-1.5">
@@ -222,21 +222,21 @@ const formatArgs = (args: any) => {
               class="text-red-500"
             />
             <span class="font-bold text-blue-400">{{ log.cmd }}</span>
-            <span class="text-slate-500">{{ log.duration }}ms</span>
+            <span class="text-text-muted">{{ log.duration }}ms</span>
           </div>
-          <span class="text-[10px] text-slate-500">{{ log.timestamp }}</span>
+          <span class="text-[10px] text-text-muted">{{ log.timestamp }}</span>
         </div>
 
         <div
           v-if="log.args && Object.keys(log.args).length > 0"
-          class="mt-1.5 p-1.5 bg-slate-950 rounded border border-slate-800/50 overflow-x-auto whitespace-pre"
+          class="mt-1.5 p-1.5 bg-background rounded border-border-soft/50 overflow-x-auto whitespace-pre"
         >
-          <span class="text-purple-400">Args:</span> {{ formatArgs(log.args) }}
+          <span class="text-primary">Args:</span> {{ formatArgs(log.args) }}
         </div>
 
         <div
           v-if="log.type === 'error'"
-          class="mt-1.5 p-1.5 bg-red-950/50 rounded border border-red-900/50 text-red-400 whitespace-pre-wrap font-bold"
+          class="mt-1.5 p-1.5 bg-red-500/10 rounded border-red-500/20 text-red-500 whitespace-pre-wrap font-bold"
         >
           {{ log.error }}
         </div>

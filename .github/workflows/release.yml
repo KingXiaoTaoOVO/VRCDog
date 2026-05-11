@@ -54,7 +54,7 @@ jobs:
           tagName: ${{ github.ref_name }} # 使用触发该工作流的 tag 作为版本号
           releaseName: 'VRCDog ${{ github.ref_name }}'
           releaseBody: |
-            ## VRC狗狗管家 更新发布
+            ## VRCDog 更新发布
             有关此版本的详细更新内容，请参阅提交历史。
             
             如果使用安装包，请下载 `VRCDog_x.x.x_x64_zh-CN.msi`。

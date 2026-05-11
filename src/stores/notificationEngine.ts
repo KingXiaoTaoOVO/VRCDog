@@ -33,12 +33,12 @@ export const useNotificationEngine = () => {
 
   const getRules = async (): Promise<NotificationRules> => {
     // Fetch rules from DB. Fallback to defaults.
-    const all = await DbApi.getAllSettings() as Record<string, any>;
+    const all = await DbApi.getAllSettings() as Record<string, unknown>;
     return {
-      desktopCondition: all.notifyDesktopCondition || 'always',
+      desktopCondition: (all.notifyDesktopCondition as NotificationCondition) || 'always',
       showWhenAfk: all.notifyShowWhenAfk !== false,
-      ttsCondition: all.notifyTtsCondition || 'never',
-      ttsVoice: all.notifyTtsVoice || '',
+      ttsCondition: (all.notifyTtsCondition as NotificationCondition) || 'never',
+      ttsVoice: (all.notifyTtsVoice as string) || '',
       ttsVolume: Number(all.notifyTtsVolume) || 50
     };
   };

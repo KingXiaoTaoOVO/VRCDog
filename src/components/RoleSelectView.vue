@@ -17,7 +17,7 @@
 
     <div class="fixed top-4 right-4 z-50 flex gap-2">
       <button
-        class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border border-black/10 transition-all font-medium text-sm shadow-sm"
+        class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border-black/10 transition-all font-medium text-sm shadow-sm"
         :style="{ color: themeConfig.colors.textStrong }"
         @click="cycleLanguage"
       >
@@ -27,7 +27,7 @@
     </div>
 
     <div
-      class="z-10 bg-surface backdrop-blur-2xl p-10 rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border transition-all duration-500 w-[500px]"
+      class="z-10 bg-surface backdrop-blur-2xl p-10 rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] transition-all duration-500 w-[500px]"
       :style="{ borderColor: themeConfig.colors.borderSoft }"
     >
       <!-- 头部 Logo -->
@@ -114,7 +114,7 @@
             v-model="serverUrl"
             type="text"
             :placeholder="t('role.server_address_ph')"
-            class="w-full px-5 py-4 rounded-2xl bg-surface border-2 outline-none transition-all placeholder:text-black/30"
+            class="w-full px-5 py-4 rounded-2xl bg-surface border-2 outline-none transition-all placeholder:text-text/30"
             :style="{ borderColor: themeConfig.colors.borderSoft, color: themeConfig.colors.textStrong }"
             @focus="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderStrong"
             @blur="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderSoft"
@@ -122,7 +122,7 @@
         </div>
         <div class="flex gap-3 mt-6">
           <button
-            class="px-5 py-4 rounded-2xl font-bold bg-background/10 hover:bg-background/20 text-text-muted transition-all flex-1"
+            class="px-5 py-4 rounded-2xl font-bold bg-surface hover:bg-background/20 text-text-muted transition-all flex-1"
             @click="selectedRole = null"
           >
             {{ t('role.back') }}
@@ -162,7 +162,7 @@
             v-model="serverPassword"
             type="password"
             :placeholder="t('role.server_password_ph')"
-            class="w-full px-5 py-4 rounded-2xl bg-surface border-2 outline-none transition-all placeholder:text-black/30"
+            class="w-full px-5 py-4 rounded-2xl bg-surface border-2 outline-none transition-all placeholder:text-text/30"
             :style="{ borderColor: themeConfig.colors.borderSoft, color: themeConfig.colors.textStrong }"
             @focus="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderStrong"
             @blur="(e) => (e.target as HTMLElement).style.borderColor = themeConfig.colors.borderSoft"
@@ -170,7 +170,7 @@
         </div>
         <div class="flex gap-3 mt-6">
           <button
-            class="px-5 py-4 rounded-2xl font-bold bg-background/10 hover:bg-background/20 text-text-muted transition-all flex-1"
+            class="px-5 py-4 rounded-2xl font-bold bg-surface hover:bg-background/20 text-text-muted transition-all flex-1"
             @click="selectedRole = null"
           >
             {{ t('role.back') }}
