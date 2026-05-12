@@ -107,14 +107,14 @@ onMounted(() => {
       </h1>
       <div class="flex rounded-xl border-border-soft overflow-hidden bg-surface text-sm font-bold shadow-sm p-1">
         <button
-          :class="activeTab === 'worlds' ? 'bg-primary/10 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
+          :class="activeTab === 'worlds' ? 'bg-primary text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
           class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'worlds'"
         >
           <Globe :size="16" /> {{ t('favorites.worlds') }}
         </button>
         <button
-          :class="activeTab === 'avatars' ? 'bg-primary/10 text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
+          :class="activeTab === 'avatars' ? 'bg-primary text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
           class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'avatars'"
         >
@@ -136,10 +136,10 @@ onMounted(() => {
       <div class="w-56 flex-shrink-0 bg-surface backdrop-blur-xl rounded-2xl border-border-strong shadow-lg shadow-slate-200/40 p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
         <button
           class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between"
-          :class="activeGroup === 'all' ? 'bg-primary/10 text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
+          :class="activeGroup === 'all' ? 'bg-primary text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
           @click="activeGroup = 'all'"
         >
-          <span>{{ t('favorites.all_groups') === 'favorites.all_groups' ? '全部收藏' : t('favorites.all_groups') }}</span>
+          <span>{{ t('favorites.all_groups') === 'favorites.all_groups' ? t('favorites.all_groups_fallback') : t('favorites.all_groups') }}</span>
         </button>
         
         <div
@@ -157,7 +157,7 @@ onMounted(() => {
             v-for="group in getGroupsByType(activeTab === 'worlds' ? 'world' : 'avatar')"
             :key="group.id"
             class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between group/btn"
-            :class="activeGroup === group.name ? 'bg-primary/10 text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
+            :class="activeGroup === group.name ? 'bg-primary text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
             @click="activeGroup = group.name"
           >
             <span
@@ -196,7 +196,7 @@ onMounted(() => {
               :size="64"
             />
             <p class="font-bold text-xl text-text-muted">
-              {{ t('search.no_results') || '暂无数据' }}
+              {{ t('search.no_results') }}
             </p>
             <p class="text-sm mt-2 font-medium">
               {{ t('favorites.no_worlds') }}
@@ -235,7 +235,7 @@ onMounted(() => {
               :size="64"
             />
             <p class="font-bold text-xl text-text-muted">
-              {{ t('search.no_results') || '暂无数据' }}
+              {{ t('search.no_results') }}
             </p>
             <p class="text-sm mt-2 font-medium">
               {{ t('favorites.no_avatars') }}
@@ -259,9 +259,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
+
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;

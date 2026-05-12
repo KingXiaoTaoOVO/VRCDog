@@ -55,9 +55,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <!-- 使用琥珀色主题的半透明背景，通过 mousedown 手动调用 startDragging() 实现完美拖拽 -->
   <div
-    class="h-screen w-screen overflow-hidden bg-primary/10 backdrop-blur-sm border-primary rounded-lg flex flex-col justify-end p-4 pb-8 select-none"
+    class="h-screen w-screen overflow-hidden bg-black border border-[var(--theme-primary)] rounded-xl flex flex-col justify-end p-4 pb-8 select-none shadow-[0_0_20px_rgba(var(--theme-primary),0.3)] font-mono"
     @mousedown="startDrag"
   >
     <!-- 没有任何记录时的提示语 -->
@@ -66,7 +65,7 @@ onMounted(() => {
       class="flex flex-col items-center justify-center h-full w-full opacity-50 pointer-events-none"
     >
       <div
-        class="px-4 py-2 rounded-xl bg-background/80 backdrop-blur-md/20 text-white font-bold text-sm backdrop-blur-md border-transparent text-center"
+        class="px-4 py-2 text-[var(--theme-primary)] font-bold text-sm text-center"
         v-html="t('overlay.ready_desc')"
       />
     </div>
@@ -74,25 +73,23 @@ onMounted(() => {
     <!-- 聊天气泡区域 -->
     <div
       v-else
-      class="space-y-3 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar"
+      class="space-y-2 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar"
       data-tauri-drag-region
     >
       <div
         v-for="log in logs"
         :key="log.id" 
-        class="flex flex-col animate-fade-in"
-        :class="log.type === 'self' ? 'items-end' : 'items-start'"
+        class="flex flex-col animate-fade-in w-full"
       >
-        <div
-          class="max-w-[85%] rounded-2xl p-3 shadow-lg backdrop-blur-md border-transparent"
-          :class="log.type === 'self' ? 'bg-primary/10 text-white rounded-br-sm' : 'bg-surface text-text rounded-bl-sm'"
-        >
-          <p class="text-[13px] opacity-80 font-medium mb-0.5">
-            {{ log.text }}
+        <div class="w-full">
+          <p class="text-[13px] opacity-70 font-medium mb-0.5 flex items-start gap-2" :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'">
+            <span class="opacity-50 mt-0.5">&gt;</span> 
+            <span class="break-words flex-1">{{ log.text }}</span>
           </p>
           <p
             v-if="log.translation"
-            class="text-[16px] font-bold leading-snug"
+            class="text-[16px] font-bold leading-snug pl-4 break-words"
+            :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'"
           >
             {{ log.translation }}
           </p>
@@ -112,11 +109,6 @@ onMounted(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-}
+
+
 </style>

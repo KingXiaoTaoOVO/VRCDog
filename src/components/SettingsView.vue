@@ -41,6 +41,7 @@ const isCheckingUpdate = ref(false);
 
 const vrcConfigText = ref('');
 const vrcConfigError = ref('');
+const vrcConfigSuccess = ref(false);
 const vrcConfigSaving = ref(false);
 
 const loadVrcConfig = async () => {
@@ -54,6 +55,7 @@ const loadVrcConfig = async () => {
 
 const saveVrcConfig = async () => {
   vrcConfigError.value = '';
+  vrcConfigSuccess.value = false;
   try {
     JSON.parse(vrcConfigText.value); // Validate JSON format first
   } catch (err: any) {
@@ -65,6 +67,7 @@ const saveVrcConfig = async () => {
     vrcConfigSaving.value = true;
     await SysApi.saveVrcConfig({ content: vrcConfigText.value });
     vrcConfigError.value = t('settings.vrc_config_saved');
+    vrcConfigSuccess.value = true;
     setTimeout(() => {
       if (vrcConfigError.value === t('settings.vrc_config_saved')) vrcConfigError.value = '';
     }, 3000);
@@ -437,21 +440,21 @@ const testNotification = () => {
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_afcde261') }}</h2>
             <div class="space-y-1">
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-xl transition-all glass-panel-hover">
-                <div class="text-[13px] text-[var(--theme-text-muted)]">界面语言 (Language)</div>
+                <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('app.ui_language') }}</div>
                 <CustomSelect v-model="config.language" :options="[
-                  { label: '小狗 (简体中文)', value: 'zh-CN' },
-                  { label: '小猫 (English)', value: 'en-US' },
-                  { label: '头盔 (日本語)', value: 'ja-JP' },
-                  { label: '黑白 (한국어)', value: 'ko' }
+                  { label: t('settings.lang_zh'), value: 'zh-CN' },
+                  { label: 'Cat (English)', value: 'en-US' },
+                  { label: t('settings.lang_ja'), value: 'ja-JP' },
+                  { label: 'Mono (한국어)', value: 'ko' }
                 ]" />
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-xl transition-all glass-panel-hover">
-                <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('settings.theme') || '主题风格' }}</div>
+                <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('settings.theme') }}</div>
                 <CustomSelect v-model="config.theme" :options="[
-                  { label: '小狗', value: 'dog' },
-                  { label: '小猫', value: 'cat' },
-                  { label: '头盔', value: 'helmet' },
-                  { label: '黑白', value: 'mono' }
+                  { label: 'Dog', value: 'dog' },
+                  { label: 'Cat', value: 'cat' },
+                  { label: 'Helmet', value: 'helmet' },
+                  { label: 'Mono', value: 'mono' }
                 ]" />
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
@@ -792,7 +795,7 @@ const testNotification = () => {
               <div class="flex flex-col p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="flex items-center justify-between mb-2">
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_d54de199') }}</div>
-                  <div class="text-[13px] font-bold text-primary">{{ config.pollInterval }} 秒</div>
+                  <div class="text-[13px] font-bold text-primary">{{ config.pollInterval }}s</div>
                 </div>
                 <input
                   v-model="config.pollInterval"
@@ -867,13 +870,13 @@ const testNotification = () => {
                     class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-colors flex items-center gap-2"
                     @click="testTTS"
                   >
-                    <Play class="w-3.5 h-3.5" /> 播放测试语音
+                    <Play class="w-3.5 h-3.5" /> {{ t('settings.play_test') || 'Play Test' }}
                   </button>
                   <button
                     class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-colors flex items-center gap-2"
                     @click="testNotification"
                   >
-                    <Bell class="w-3.5 h-3.5" /> 发送测试通知
+                    <Bell class="w-3.5 h-3.5" /> {{ t('settings.send_notification') || 'Test Notify' }}
                   </button>
                 </div>
               </div>
@@ -928,7 +931,7 @@ const testNotification = () => {
                       @click="clearCache"
                     >
                       <Trash2 class="w-3.5 h-3.5" :class="{'animate-spin': isClearing}" />
-                      {{ isClearing ? '正在清理...' : '一键清理' }}
+                      {{ isClearing ? t('settings.clearing') : t('settings.clear_all') }}
                     </button>
                   </div>
                   <div v-if="actionMessage && activeTab === 'storage'" class="px-3 py-2 text-[12px] text-green-400 bg-green-400/10 rounded mb-2">{{ actionMessage }}</div>
@@ -1112,7 +1115,7 @@ const testNotification = () => {
                 </div>
                 <div v-if="config.remoteAvatarDbEnabled" class="flex justify-end pt-2 px-3">
                   <button class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-colors">
-                    贡献我的头像信息
+                    {{ t('settings.contribute_avatar') || 'Contribute Avatar Data' }}
                   </button>
                 </div>
               </div>
@@ -1218,7 +1221,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.hardwareAcceleration ? 'bg-primary' : 'bg-white/10'"
+                  :class="config.hardwareAcceleration ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1243,7 +1246,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.oscAutomation ? 'bg-primary' : 'bg-white/10'"
+                  :class="config.oscAutomation ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1303,7 +1306,7 @@ const testNotification = () => {
                 />
               </div>
 
-              <div v-if="vrcConfigError" class="p-4 rounded-xl flex items-center gap-3 animate-in fade-in zoom-in-95 duration-300" :class="vrcConfigError.includes('成功') ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'">
+              <div v-if="vrcConfigError" class="p-4 rounded-xl flex items-center gap-3 animate-in fade-in zoom-in-95 duration-300" :class="vrcConfigSuccess ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'">
                 <AlertCircle :size="16" />
                 <span class="text-xs font-bold">{{ vrcConfigError }}</span>
               </div>
@@ -1405,7 +1408,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.vrOverlayEnabled ? 'bg-primary' : 'bg-white/10'"
+                  :class="config.vrOverlayEnabled ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1449,7 +1452,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.wristMode ? 'bg-primary' : 'bg-white/10'"
+                  :class="config.wristMode ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1481,7 +1484,7 @@ const testNotification = () => {
                  <div class="text-primary/60 group-hover:text-white/60 text-[10px]">Setup auto-start and manifest</div>
                </button>
                <button 
-                class="p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-left transition-all group active:scale-95"
+                class="p-4 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 border border-black/10 dark:border-white/10 rounded-2xl text-left transition-all group active:scale-95"
                 @click="openBindings"
                >
                  <div class="text-text group-hover:text-primary font-bold text-sm mb-1">Input Bindings</div>
@@ -1576,10 +1579,10 @@ const testNotification = () => {
 </template>
 
 <style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.2); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(245, 158, 11, 0.4); }
+
+
+
+
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

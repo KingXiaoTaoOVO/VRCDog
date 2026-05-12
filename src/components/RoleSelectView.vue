@@ -122,10 +122,16 @@
         </div>
         <div class="flex gap-3 mt-6">
           <button
-            class="px-5 py-4 rounded-2xl font-bold bg-surface hover:bg-background/20 text-text-muted transition-all flex-1"
+            class="group relative overflow-hidden px-5 py-4 rounded-2xl font-bold transition-all duration-300 flex-1 flex items-center justify-center gap-2 active:scale-95 shadow-sm hover:shadow-md"
+            :style="{ background: 'var(--color-surface)', color: 'var(--color-text-strong)', border: '1px solid var(--color-border-soft)' }"
+            @mouseover="(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-strong)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)' }"
+            @mouseleave="(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-soft)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)' }"
             @click="selectedRole = null"
           >
-            {{ t('role.back') }}
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div class="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300" style="background: currentColor;"></div>
+            <ArrowLeft class="w-4 h-4 transition-all duration-300 group-hover:-translate-x-1.5 opacity-70 group-hover:opacity-100 relative z-10" />
+            <span class="relative z-10 tracking-wide">{{ t('role.back') }}</span>
           </button>
           <button
             :disabled="isConnecting"
@@ -170,10 +176,16 @@
         </div>
         <div class="flex gap-3 mt-6">
           <button
-            class="px-5 py-4 rounded-2xl font-bold bg-surface hover:bg-background/20 text-text-muted transition-all flex-1"
+            class="group relative overflow-hidden px-5 py-4 rounded-2xl font-bold transition-all duration-300 flex-1 flex items-center justify-center gap-2 active:scale-95 shadow-sm hover:shadow-md"
+            :style="{ background: 'var(--color-surface)', color: 'var(--color-text-strong)', border: '1px solid var(--color-border-soft)' }"
+            @mouseover="(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-strong)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)' }"
+            @mouseleave="(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-soft)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)' }"
             @click="selectedRole = null"
           >
-            {{ t('role.back') }}
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div class="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300" style="background: currentColor;"></div>
+            <ArrowLeft class="w-4 h-4 transition-all duration-300 group-hover:-translate-x-1.5 opacity-70 group-hover:opacity-100 relative z-10" />
+            <span class="relative z-10 tracking-wide">{{ t('role.back') }}</span>
           </button>
           <button
             :disabled="isStarting"
@@ -201,7 +213,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Monitor, Server, Loader2, Globe } from 'lucide-vue-next';
+import { Monitor, Server, Loader2, Globe, ArrowLeft } from 'lucide-vue-next';
 import { currentTheme as themeConfig } from '../theme';
 import { SysApi, DbApi } from '../api';
 import { useStorage } from '@vueuse/core';

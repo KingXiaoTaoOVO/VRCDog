@@ -122,23 +122,23 @@ const saveAndClose = () => {
         <div class="flex items-center gap-2">
           <button class="px-4 py-2 bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md text-white text-[13px] font-bold rounded flex items-center gap-1.5 transition-colors">
             <Plus class="w-4 h-4" />
-            添加文件夹
+            {{ t('nav.add_folder') || 'Add Folder' }}
           </button>
           <button class="px-4 py-2 bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md text-white text-[13px] font-bold rounded flex items-center gap-1.5 transition-colors">
             <Folder class="w-4 h-4" />
-            新建仪表板
+            {{ t('nav.add_dashboard') || 'New Dashboard' }}
           </button>
         </div>
         
         <div class="flex items-center gap-3">
           <button class="text-red-400 hover:text-red-300 text-[13px] font-bold px-2 transition-colors" @click="restoreDefault">
-            恢复默认
+            {{ t('nav.reset_default') || 'Reset' }}
           </button>
           <button class="px-5 py-2 bg-surface-hover/60 backdrop-blur-md hover:bg-surface-active/60 backdrop-blur-md text-white text-[13px] font-bold rounded transition-colors" @click="emit('close')">
-            取消
+            {{ t('common.cancel') || 'Cancel' }}
           </button>
           <button class="px-5 py-2 bg-primary hover:bg-primary-hover text-white text-[13px] font-bold rounded transition-colors" @click="saveAndClose">
-            确认
+            {{ t('common.confirm') || 'Confirm' }}
           </button>
         </div>
       </div>
@@ -146,9 +146,4 @@ const saveAndClose = () => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 8px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #3f4147; border-radius: 4px; border: 2px solid #1e1f22; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #565860; }
-</style>
+

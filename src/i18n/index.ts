@@ -17,6 +17,7 @@ const savedLocale = localStorage.getItem('vrcdog-locale') || 'zh-CN';
 
 const i18n = createI18n({
   legacy: false,
+  globalInjection: true,
   locale: savedLocale,
   fallbackLocale: 'zh-CN',
   messages: {

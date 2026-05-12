@@ -121,7 +121,7 @@ const openPlayerProfile = (m: any) => {
           <VolumeX :size="16" /> {{ t('moderation.tab_muted') }}
         </button>
         <button
-          :class="activeTab === 'hidden' ? 'bg-primary/10 text-white shadow-md shadow-purple-500/30' : 'text-text-muted hover:bg-surface hover:text-primary'"
+          :class="activeTab === 'hidden' ? 'bg-primary text-white shadow-md shadow-purple-500/30' : 'text-text-muted hover:bg-surface hover:text-primary'"
           class="px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
           @click="activeTab = 'hidden'"
         >
@@ -205,11 +205,11 @@ const openPlayerProfile = (m: any) => {
             <div class="px-5 py-4 bg-surface-hover backdrop-blur border-border-soft flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div 
-                  class="w-7 h-7 rounded-lg flex items-center justify-center shadow-sm"
+                  class="w-7 h-7 rounded-lg flex items-center justify-center shadow-sm border"
                   :class="{
-                    'bg-red-100 text-red-600 border-red-200/50': item.type === 'blocked',
-                    'bg-orange-100 text-orange-600 border-orange-200/50': item.type === 'muted',
-                    'bg-primary/10 text-primary border-primary': item.type === 'hidden',
+                    'bg-red-500/10 text-red-500 border-red-500/20': item.type === 'blocked',
+                    'bg-orange-500/10 text-orange-500 border-orange-500/20': item.type === 'muted',
+                    'bg-primary/10 text-primary border-primary/20': item.type === 'hidden',
                   }"
                 >
                   <UserX
@@ -243,9 +243,4 @@ const openPlayerProfile = (m: any) => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.5); }
-</style>
+

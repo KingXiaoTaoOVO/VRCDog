@@ -132,32 +132,32 @@ onUnmounted(() => {
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'users'"
       >
-        {{ t('search.type_users') || '玩家' }}
+        {{ t('search.type_users') }}
       </button>
       <button
         :class="searchType === 'worlds' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'worlds'"
       >
-        {{ t('search.type_worlds') || '世界' }}
+        {{ t('search.type_worlds') }}
       </button>
       <button
         :class="searchType === 'avatars' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'avatars'"
       >
-        {{ t('search.type_avatars') || '模型' }}
+        {{ t('search.type_avatars') }}
       </button>
       <button
         :class="searchType === 'groups' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
         class="py-3 px-4 transition-all text-sm"
         @click="searchType = 'groups'"
       >
-        {{ t('search.type_groups') || '群组' }}
+        {{ t('search.type_groups') }}
       </button>
     </div>
 
-    <!-- 搜索栏 -->
+    <!-- {{ t('search.placeholder') || 'Search' }}栏 -->
     <div class="flex gap-3 mb-6 px-2">
       <div class="flex-1 relative">
         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -185,7 +185,7 @@ onUnmounted(() => {
           v-else
           class="w-4 h-4"
         />
-        搜索
+        {{ t('search.placeholder') || 'Search' }}
       </button>
     </div>
 
@@ -219,10 +219,10 @@ onUnmounted(() => {
           :size="64"
         />
         <p class="font-bold text-xl text-text-muted">
-          {{ t('search.no_data') || '暂无数据' }}
+          {{ t('search.no_data') }}
         </p>
         <p class="text-sm mt-2 font-medium">
-          {{ t('search.no_match') || '没有找到任何匹配结果' }}
+          {{ t('search.no_match') }}
         </p>
       </div>
 
@@ -235,7 +235,7 @@ onUnmounted(() => {
           :size="80"
         />
         <p class="font-bold text-xl text-border-strong tracking-wide">
-          {{ t('search.start_explore') || '输入关键词开始探索世界' }}
+          {{ t('search.start_explore') }}
         </p>
       </div>
 
@@ -253,7 +253,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- 世界搜索结果 -->
+      <!-- 世界{{ t('search.placeholder') || 'Search' }}结果 -->
       <div
         v-else-if="searchType === 'worlds'"
         class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5 pb-10"
@@ -267,7 +267,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- 模型搜索结果 -->
+      <!-- 模型{{ t('search.placeholder') || 'Search' }}结果 -->
       <div
         v-else-if="searchType === 'avatars'"
         class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-10"
@@ -281,7 +281,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- {{ t('search.type_groups') || '群组' }}搜索结果 -->
+      <!-- {{ t('search.type_groups') }}{{ t('search.placeholder') || 'Search' }}结果 -->
       <div
         v-else-if="searchType === 'groups'"
         class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-10"
@@ -301,8 +301,8 @@ onUnmounted(() => {
 <style scoped>
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+
+
+
 </style>

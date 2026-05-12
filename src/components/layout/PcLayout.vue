@@ -38,10 +38,11 @@ const handleSaveCustomNavConfig = async (newConfig: any[] | null) => {
 
 const getStatusColor = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'active': case 'join me': return 'bg-primary'
-    case 'ask me': return 'bg-orange-500'
-    case 'busy': case 'do not disturb': return 'bg-red-500'
-    default: return 'bg-surface'
+    case 'active': return 'bg-green-500';
+    case 'join me': return 'bg-blue-500';
+    case 'ask me': return 'bg-orange-500';
+    case 'busy': case 'do not disturb': return 'bg-red-500';
+    default: return 'bg-slate-400';
   }
 }
 
@@ -80,7 +81,7 @@ const themeStyles = computed(() => {
 
     <!-- 侧边栏 -->
     <aside
-      class="w-64 bg-surface/40 backdrop-blur-3xl shadow-[20px_0_40px_rgba(0,0,0,0.02)] border-r border-white/10 flex flex-col z-10 p-5 relative flex-shrink-0 transition-all duration-500"
+      class="w-[240px] shadow-lg border-r border-white/10 flex flex-col z-10 p-3 relative flex-shrink-0 transition-all duration-300" :style="{ backgroundColor: 'var(--theme-terminal-bg)' }"
     >
       <div class="flex items-center gap-2.5 mb-2">
         <div
@@ -129,7 +130,7 @@ const themeStyles = computed(() => {
         <button
           v-for="tab in activeSidebarTabs"
           :key="tab.key"
-          class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border font-bold transition-all text-left text-sm"
+          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg font-bold transition-all text-left text-[13px] mb-1"
           :style="activeTab === tab.key ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong, borderColor: currentTheme.colors.borderStrong } : { color: currentTheme.colors.textSoft, borderColor: 'transparent' }"
           @click="uiStore.activeTab = tab.key as any"
         >
@@ -208,7 +209,7 @@ const themeStyles = computed(() => {
             class="w-1.5 h-1.5 rounded-full"
             :class="serverConnected ? 'bg-emerald-500' : 'bg-red-500'"
           />
-          <span>{{ serverConnected ? '服务端已连接' : '服务端断开' }}</span>
+          <span>{{ serverConnected ? $t('app.server_connected') : $t('app.server_disconnected') }}</span>
         </div>
 
         <!-- VRC 服务器状态 -->
@@ -224,7 +225,7 @@ const themeStyles = computed(() => {
             class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-orange-500 hover:bg-orange-50 font-bold text-xs transition-colors border border-transparent hover:border-orange-100"
             @click="uiStore.appMode = null"
           >
-            <Monitor :size="14" /> 重选模式
+            <Monitor :size="14" /> {{ $t('app.reselect_mode') }}
           </button>
           <button
             class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs transition-colors border border-transparent hover:border-red-100"
@@ -242,20 +243,20 @@ const themeStyles = computed(() => {
           <div class="p-3 flex items-center justify-between border-b border-white/5 bg-surface-hover">
             <div class="flex items-center gap-2">
               <MessageSquare class="w-4 h-4" :style="{ color: currentTheme.colors.textStrong }" />
-              <span class="font-bold text-[13px]" :style="{ color: currentTheme.colors.textStrong }">VRCX ♥</span>
+              <span class="font-bold text-[13px]" :style="{ color: currentTheme.colors.textStrong }">{{ $t('app.vrcx_menu') }}</span>
             </div>
             <span class="text-[11px]" :style="{ color: currentTheme.colors.textSoft }">2026.05.10</span>
           </div>
           <div class="py-1">
             <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }" @click="uiStore.activeTab='settings'; showVrcxMenu=false">{{ $t('auto_e366ccf1') }}</button>
             <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }">
-              主题 <ChevronRight class="w-4 h-4 opacity-50" />
+              {{ $t('app.theme') }} <ChevronRight class="w-4 h-4 opacity-50" />
             </button>
             <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }">
-              行高密度 <ChevronRight class="w-4 h-4 opacity-50" />
+              {{ $t('app.line_density') }} <ChevronRight class="w-4 h-4 opacity-50" />
             </button>
             <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }" @click="showCustomNavModal = true; showVrcxMenu=false">
-              自定义导航栏
+              {{ $t('app.customize_navbar') }}
             </button>
           </div>
           <div class="py-1 border-t border-white/5">
@@ -263,7 +264,7 @@ const themeStyles = computed(() => {
               class="w-full text-left px-4 py-2 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
               @click="authStore.handleLogout(false); showVrcxMenu=false"
             >
-              退出登录
+              {{ $t('app.logout') }}
             </button>
           </div>
         </div>
@@ -281,7 +282,7 @@ const themeStyles = computed(() => {
     </aside>
 
     <!-- 主内容区 -->
-    <main class="flex-1 relative z-10 overflow-y-auto">
+    <main class="flex-1 relative z-10 overflow-y-auto shadow-2xl border-l border-white/5 bg-background" :style="{ backgroundColor: currentTheme.colors.surface }">
       <div class="p-6 h-full overflow-hidden flex flex-col">
         <slot></slot>
       </div>

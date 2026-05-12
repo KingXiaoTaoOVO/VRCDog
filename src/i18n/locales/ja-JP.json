@@ -70,7 +70,9 @@
     "tts_error": "音声再生エラー: {err}",
     "osc_error": "VRChatへの送信に失敗しました: {err}",
     "network_error": "翻訳リクエストが失敗しました。ネットワークを確認してください。",
-    "overlay_title": "翻訳オーバーレイ"
+    "overlay_title": "翻訳オーバーレイ",
+    "overlay_fail": "オーバーレイの作成に失敗しました: {error}",
+    "exception": "例外が発生しました: {error}"
   },
   "overlay": {
     "ready_desc": "オーバーレイの準備ができました<br/>メイン画面で話すか翻訳を送信してください"
@@ -103,26 +105,27 @@
     "sending_request": "送信中..."
   },
   "login": {
-    "error_require_credentials": "ユーザー名/パスワードまたはCookieを入力してください",
-    "error_network": "ネットワーク接続に失敗しました: {err}",
-    "error_verify_failed": "認証に成功しましたがユーザー情報の取得に失敗しました",
-    "error_code_wrong": "認証コードが間違っています",
-    "title": "VRC 狗狗管家",
-    "subtitle": "究極のVRChatソーシャルハブ",
+    "error_require_credentials": "ユーザー名/パスワードまたはCookieが必要です",
+    "error_network": "ネットワークエラー: {err}",
+    "error_verify_failed": "認証は成功しましたが、ユーザー情報の取得に失敗しました",
+    "error_code_wrong": "無効なコード",
+    "title": "VRCドッグマネージャー",
+    "subtitle": "オールインワンVRChatソーシャルハブ",
     "username": "VRChat ユーザー名またはメールアドレス",
     "password": "パスワード",
     "or": "または",
     "use_cookie": "Auth Cookieを使用 (パスワードをスキップ)",
+    "cookie_ph": "例: auth=xxxxxxx...",
     "btn_login": "ワン！ログイン",
     "btn_logging_in": "認証中...",
-    "2fa_title": "2段階認証 (2FA)",
-    "2fa_desc": "アカウントで{method}認証が有効になっています",
+    "2fa_title": "二段階認証が必要です",
+    "2fa_desc": "アカウントで {method} 二段階認証が有効になっています。",
     "2fa_method_totp": "認証アプリ",
     "2fa_method_email": "メール",
     "2fa_placeholder": "6桁のコードを入力",
     "btn_submit_code": "コードを送信",
-    "btn_submitting": "コードを確認中...",
-    "btn_cancel": "キャンセルして戻る"
+    "btn_submitting": "確認中...",
+    "btn_cancel": "キャンセル"
   },
   "tools": {
     "title": "ツールボックス (VRCX Tools)",
@@ -189,12 +192,8 @@
     "system": "システム通知"
   },
   "groups": {
-    "title": "グループ管理",
-    "search_placeholder": "グループを検索 (名前/ショートコード)...",
-    "loading": "グループを読み込み中...",
-    "no_groups": "まだどのグループにも参加していません",
-    "member_count": "メンバー数",
-    "privacy": "プライバシー設定"
+    "title": "グループ",
+    "no_groups": "グループがありません"
   },
   "notes": {
     "title": "Doggoメモ",
@@ -213,7 +212,11 @@
     "button": "JSONバックアップをエクスポート",
     "packing": "データをパック中...",
     "success": "エクスポート成功！ファイルが保存されました",
-    "fail": "エクスポート失敗"
+    "fail": "エクスポート失敗",
+    "backup_btn": "ファイルにバックアップ (Backup)",
+    "restore_desc": "以前に保存したバックアップファイルからすべてのデータを復元します。",
+    "restoring": "復元中...",
+    "restore_btn": "ファイルから復元 (Restore)"
   },
   "moderation": {
     "title": "セーフティシールド",
@@ -248,7 +251,40 @@
     "install_unity": "わんちゃんにUnity 2022をインストール",
     "install_tool": "便利な骨ツールを選ぶ",
     "select_mode_title": "実行モードを選択",
-    "select_mode_desc": "VrcDogは、デスクトップ管理ダッシュボードとSteamVRの没入型内蔵オーバーレイの2つのエクスペリエンスを提供します。"
+    "select_mode_desc": "VrcDogは、デスクトップ管理ダッシュボードとSteamVRの没入型内蔵オーバーレイの2つのエクスペリエンスを提供します。",
+    "server_connected": "サーバー接続済み",
+    "server_disconnected": "サーバー切断",
+    "reselect_mode": "モード選択",
+    "vrcx_menu": "設定",
+    "theme": "テーマ",
+    "line_density": "行の密度",
+    "customize_navbar": "ナビゲーション設定",
+    "external_launch": "外部起動リクエストを検出しました！\nすぐにインスタンスに参加しますか：\n{worldId}",
+    "banned_message": "アカウントがBANされました！理由: {reason}{duration}",
+    "server_disconnected_desc": "VrcDog サーバーに接続できません。機能は一時停止されています。<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> 秒後に自動再接続します...",
+    "confirm_delete_role": "この役割を削除してもよろしいですか？",
+    "ui_language": "UI 言語",
+    "restore_from_file": "ファイルから復元",
+    "restoring": "復元中...",
+    "create_overlay_failed": "オーバーレイの作成に失敗しました: {error}",
+    "exception_occurred": "例外が発生しました: {error}",
+    "translation_result": "【翻訳結果】",
+    "copy_image_failed": "画像のコピーに失敗しました",
+    "lang_zh_cn": "Dog (簡体字中国語)",
+    "lang_ja_jp": "Helmet (日本語)",
+    "start_server": "[INFO] サーバーを起動しています...",
+    "start_server_fail": "[ERROR] 起動に失敗しました: {error}",
+    "stop_server": "[INFO] サーバーを停止しています...",
+    "stop_server_success": "[INFO] サーバーは正常に停止しました",
+    "stop_server_fail": "[ERROR] 停止に失敗しました: {error}",
+    "server_running": "[INFO] サーバーはすでにバックグラウンドで実行されています...",
+    "start_client": "[INFO] 新しいクライアントウィンドウを起動しています...",
+    "start_client_fail": "[ERROR] クライアントの起動に失敗しました: {error}",
+    "save_fail": "[ERROR] 保存に失敗しました: {error}",
+    "external_launch_confirm": "外部からの起動要求を検出しました！\nすぐにインスタンスに参加しますか：\n{worldId}",
+    "ban_reason": "アカウントがBANされました！理由: {reason}",
+    "vrcdog_offline": "VrcDogサーバーに接続できません。機能は一時停止されています。",
+    "reconnect_seconds": "{seconds} 秒後に再接続を試みます..."
   },
   "sidebar": {
     "dashboard": "ダッシュボード",
@@ -559,7 +595,10 @@
     "auto_ac653a57": "自动检测",
     "auto_129d0594": "目标语言",
     "auto_31cba103": "输入 {{ t('settings.api_key') }}",
-    "auto_d205ac69": "例如: gpt-4o 或 deepseek-chat"
+    "auto_d205ac69": "例如: gpt-4o 或 deepseek-chat",
+    "language_label": "インターフェース言語 (Language)",
+    "lang_zh": "Dog (簡体字中国語)",
+    "lang_ja": "Helmet (日本語)"
   },
   "status_presets": {
     "title": "ステータスプリセット",
@@ -583,7 +622,9 @@
     "active": "オンライン",
     "join_me": "Join Me",
     "ask_me": "Ask Me",
-    "busy": "取り込み中"
+    "busy": "取り込み中",
+    "applied_fallback": "適用済み",
+    "apply_fallback": "プリセットを適用"
   },
   "status_card": {
     "uninstall": "アンインストール",
@@ -633,7 +674,8 @@
     "loading_worlds": "お気に入りワールドを読み込み中...",
     "loading_avatars": "お気に入りアバターを読み込み中...",
     "no_worlds": "お気に入りワールドはまだありません",
-    "no_avatars": "お気に入りアバターはまだありません"
+    "no_avatars": "お気に入りアバターはまだありません",
+    "all_groups_fallback": "すべてのお気に入り"
   },
   "my_avatars": {
     "title": "マイアバター",
@@ -991,7 +1033,7 @@
     "server_password_ph": "パスワードを入力",
     "back": "戻る",
     "connect_server": "サーバーに接続",
-    "start_server": "サーバーを起動",
+    "start_server": "サーバー起動",
     "error_require_url": "サーバーアドレスを入力してください",
     "error_require_pwd": "サーバーのパスワードを入力してください",
     "dashboard_title": "VrcDog サーバーダッシュボード",
@@ -1007,7 +1049,7 @@
     "dashboard_no_logs": "まだログがありません...",
     "dashboard_logs_tab": "ターミナルログ",
     "dashboard_users_tab": "ユーザー管理",
-    "dashboard_roles_tab": "役割と権限",
+    "dashboard_roles_tab": "ロールと権限",
     "dashboard_roles_list": "役割リスト",
     "feature_menus": "メニュー機能の制御",
     "feature_modes": "実行モードの制御",
@@ -1042,14 +1084,14 @@
     "confirm_remove": "このユーザーの記録を削除しますか？次回ログイン時に自動的に再登録されます。",
     "ban_user": "ユーザーをBAN:",
     "ban_reason": "BANの理由",
-    "ban_reason_ph": "BANの理由を入力してください...",
+    "ban_reason_ph": "BANの理由",
     "ban_duration": "BANの期間 (時間、空白=永久)",
-    "ban_duration_ph": "例: 24 = 1日, 168 = 7日",
+    "ban_duration_ph": "期間 (時間、空=永久)",
     "cancel": "キャンセル",
     "confirm_ban": "BANを確認",
     "freeze_user": "ユーザーを凍結:",
     "freeze_reason": "凍結の理由",
-    "freeze_reason_ph": "凍結の理由を入力してください...",
+    "freeze_reason_ph": "凍結の理由",
     "confirm_freeze": "凍結を確認",
     "please_input_ban_reason": "BANの理由を入力してください！",
     "please_input_freeze_reason": "凍結の理由を入力してください！",
@@ -1058,7 +1100,9 @@
     "default": "デフォルト",
     "new_role": "新しい役割",
     "set_default": "デフォルトに設定",
-    "delete": "削除"
+    "delete": "削除",
+    "server_status": "サーバステータス",
+    "stop_server": "サーバー停止"
   },
   "user_profile": {
     "req_invite": "Request Invite (Req)",
@@ -1319,5 +1363,56 @@
   "common": {
     "yes": "はい",
     "no": "いいえ"
+  },
+  "friends": {
+    "title": "フレンド",
+    "me": "自分",
+    "same_room": "同じルーム",
+    "online": "オンライン",
+    "active_web": "アクティブ (Web)",
+    "offline": "オフライン",
+    "search_placeholder": "フレンド / グループを検索...",
+    "loc_private": "プライベートルーム",
+    "loc_traveling": "移動中",
+    "loc_offline": "オフライン"
+  },
+  "debug": {
+    "open_debugger": "APIデバッガーを開く",
+    "export_logs": "ログをエクスポート",
+    "clear_logs": "ログをクリア",
+    "restore": "元に戻す",
+    "maximize": "最大化",
+    "close": "閉じる",
+    "waiting_api": "APIリクエストを待機中...",
+    "log_write_fail": "ログまたはキャッシュへの書き込みに失敗しました"
+  },
+  "bilidown": {
+    "step_desc": "Xiaohongshuアプリを開き、ダウンロードしたい動画、画像、またはLiveノートを見つけ、共有ボタンをクリックして、"
+  },
+  "server": {
+    "op_failed": "操作失敗: {error}",
+    "save_failed": "保存失敗: {error}",
+    "confirm_delete": "この役割を削除してもよろしいですか？",
+    "delete_success": "削除されました",
+    "default_changed": "デフォルトの役割が変更されました",
+    "role_assigned": "役割が正常に割り当てられました！",
+    "starting": "サーバーを起動しています...",
+    "start_fail": "起動失敗: {error}",
+    "stopping": "サーバーを停止しています...",
+    "stop_success": "サーバーが正常に停止しました",
+    "stop_fail": "停止失敗: {error}",
+    "loaded_tip": "ロードされました。設定後に「起動」をクリックしてください。",
+    "running_bg": "サーバーはすでにバックグラウンドで実行中であることが検出されました...",
+    "start_client": "新しいクライアントウィンドウを起動しています..."
+  },
+  "user": {
+    "translate_result": "【翻訳結果】",
+    "copy_fail": "画像をコピーできませんでした"
+  },
+  "theme": {
+    "dog": "子犬",
+    "cat": "子猫",
+    "helmet": "ヘルメット",
+    "mono": "モノ"
   }
 }

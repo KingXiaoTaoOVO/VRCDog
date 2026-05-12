@@ -14,19 +14,11 @@ const props = defineProps<{
 
 const emit = defineEmits(['update:config']);
 
+// 使用原生的 props 绑定以避免响应式死循环
+// ESLint 的警告将通过 template 注释忽略
+
 const updateConfig = (key: string, value: any) => {
-  const keys = key.split('.');
-  if (keys.length === 2) {
-    emit('update:config', {
-      ...props.config,
-      [keys[0]]: {
-        ...props.config[keys[0]],
-        [keys[1]]: value
-      }
-    });
-  } else {
-    emit('update:config', { ...props.config, [key]: value });
-  }
+  emit('update:config', { ...props.config, [key]: value });
 };
 
 // ===== Native Playspace Control (replaces OVRAS INI sync) =====
@@ -41,9 +33,9 @@ const perfStats = ref<any>({
 const applyPlayspaceOffset = async () => {
   try {
     await invoke('ovr_set_playspace_offset', {
-      x: props.config.playspace.offsetX || 0,
-      y: props.config.playspace.offsetY || 0,
-      z: props.config.playspace.offsetZ || 0,
+      x: props.config.spaceOffsetX || 0,
+      y: props.config.spaceOffsetY || 0,
+      z: props.config.spaceOffsetZ || 0,
     });
   } catch (e) {
     console.warn('[OvrAdvPanels] Playspace offset error:', e);
@@ -53,7 +45,7 @@ const applyPlayspaceOffset = async () => {
 const applyPlayspaceRotation = async () => {
   try {
     await invoke('ovr_set_playspace_rotation', {
-      degrees: props.config.playspace.rotation || 0,
+      degrees: props.config.spaceRotation || 0,
     });
   } catch (e) {
     console.warn('[OvrAdvPanels] Playspace rotation error:', e);
@@ -72,10 +64,10 @@ const toggleHeight = async () => {
 const resetPlayspace = async () => {
   try {
     await invoke('ovr_reset_playspace');
-    updateConfig('playspace.offsetX', 0);
-    updateConfig('playspace.offsetY', 0);
-    updateConfig('playspace.offsetZ', 0);
-    updateConfig('playspace.rotation', 0);
+    updateConfig('spaceOffsetX', 0);
+    updateConfig('spaceOffsetY', 0);
+    updateConfig('spaceOffsetZ', 0);
+    updateConfig('spaceRotation', 0);
     heightToggled.value = false;
   } catch (e) {
     console.warn('[OvrAdvPanels] Reset playspace error:', e);
@@ -91,11 +83,11 @@ const fixFloor = async () => {
 };
 
 // Auto-apply offset when slider changes
-watch(() => [props.config.playspace.offsetX, props.config.playspace.offsetY, props.config.playspace.offsetZ], () => {
+watch(() => [props.config.spaceOffsetX, props.config.spaceOffsetY, props.config.spaceOffsetZ], () => {
   applyPlayspaceOffset();
 }, { deep: true });
 
-watch(() => props.config.playspace.rotation, () => {
+watch(() => props.config.spaceRotation, () => {
   applyPlayspaceRotation();
 });
 
@@ -139,7 +131,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.steamvr.timingOverlay"
+            v-model="config.steamvrTimingOverlay"
             type="checkbox"
             class="sr-only peer"
           >
@@ -158,7 +150,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.steamvr.multiDriver"
+            v-model="config.steamvrMultiDriver"
             type="checkbox"
             class="sr-only peer"
           >
@@ -177,7 +169,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.steamvr.requireHmd"
+            v-model="config.steamvrRequireHmd"
             type="checkbox"
             class="sr-only peer"
           >
@@ -193,7 +185,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.steamvr.disableNotifs"
+            v-model="config.steamvrDisableNotifs"
             type="checkbox"
             class="sr-only peer"
           >
@@ -209,7 +201,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.steamvr.noFadeGrid"
+            v-model="config.steamvrNoFadeGrid"
             type="checkbox"
             class="sr-only peer"
           >
@@ -233,7 +225,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.steamvr.cameraEnable"
+            v-model="config.steamvrCameraEnable"
             type="checkbox"
             class="sr-only peer"
           >
@@ -254,9 +246,9 @@ onUnmounted(() => {
     <div class="space-y-3">
       <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.chap_visibility') }}: {{ config.chaperone.visibility }}%</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.chap_visibility') }}: {{ config.chapVisibility }}%</label>
           <input
-            v-model.number="config.chaperone.visibility"
+            v-model.number="config.chapVisibility"
             type="range"
             min="30"
             max="100"
@@ -265,9 +257,9 @@ onUnmounted(() => {
           >
         </div>
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.chap_fade_distance') }}: {{ config.chaperone.fadeDistance }} m</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.chap_fade_distance') }}: {{ config.chapFadeDistance }} m</label>
           <input
-            v-model.number="config.chaperone.fadeDistance"
+            v-model.number="config.chapFadeDistance"
             type="range"
             min="0"
             max="2"
@@ -276,9 +268,9 @@ onUnmounted(() => {
           >
         </div>
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.chap_height') }}: {{ config.chaperone.height }} m</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.chap_height') }}: {{ config.chapHeight }} m</label>
           <input
-            v-model.number="config.chaperone.height"
+            v-model.number="config.chapHeight"
             type="range"
             min="0"
             max="4"
@@ -299,7 +291,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.chaperone.forceBounds"
+            v-model="config.chapForceBounds"
             type="checkbox"
             class="sr-only peer"
           >
@@ -318,7 +310,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.chaperone.disable"
+            v-model="config.chapDisable"
             type="checkbox"
             class="sr-only peer"
           >
@@ -333,7 +325,7 @@ onUnmounted(() => {
       <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
         <label class="flex items-center space-x-2">
           <input
-            v-model="config.chaperone.beginnerMode"
+            v-model="config.chapBeginnerMode"
             type="checkbox"
             class="rounded text-primary"
           >
@@ -341,7 +333,7 @@ onUnmounted(() => {
         </label>
         <label class="flex items-center space-x-2">
           <input
-            v-model="config.chaperone.hapticFeedback"
+            v-model="config.chapHapticFeedback"
             type="checkbox"
             class="rounded text-primary"
           >
@@ -349,7 +341,7 @@ onUnmounted(() => {
         </label>
         <label class="flex items-center space-x-2">
           <input
-            v-model="config.chaperone.audioWarning"
+            v-model="config.chapAudioWarning"
             type="checkbox"
             class="rounded text-primary"
           >
@@ -362,7 +354,7 @@ onUnmounted(() => {
           </h4>
           <div class="flex gap-2">
             <input
-              v-model="config.chaperone.colorHex"
+              v-model="config.chapColor"
               type="color"
               class="w-full h-8 rounded border-border-soft cursor-pointer"
             >
@@ -391,9 +383,9 @@ onUnmounted(() => {
       
       <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_offset_x') }}: {{ config.playspace.offsetX }} m</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_offset_x') }}: {{ config.spaceOffsetX }} m</label>
           <input
-            v-model.number="config.playspace.offsetX"
+            v-model.number="config.spaceOffsetX"
             type="range"
             min="-10"
             max="10"
@@ -402,9 +394,9 @@ onUnmounted(() => {
           >
         </div>
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_offset_y') }}: {{ config.playspace.offsetY }} m</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_offset_y') }}: {{ config.spaceOffsetY }} m</label>
           <input
-            v-model.number="config.playspace.offsetY"
+            v-model.number="config.spaceOffsetY"
             type="range"
             min="-10"
             max="10"
@@ -413,9 +405,9 @@ onUnmounted(() => {
           >
         </div>
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_offset_z') }}: {{ config.playspace.offsetZ }} m</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_offset_z') }}: {{ config.spaceOffsetZ }} m</label>
           <input
-            v-model.number="config.playspace.offsetZ"
+            v-model.number="config.spaceOffsetZ"
             type="range"
             min="-10"
             max="10"
@@ -436,7 +428,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.general.spaceAdjustChap"
+            v-model="config.spaceAdjustChap"
             type="checkbox"
             class="sr-only peer"
           >
@@ -457,7 +449,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.playspace.dragLeft"
+            v-model="config.motionDragLeft"
             type="checkbox"
             class="sr-only peer"
           >
@@ -473,7 +465,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.playspace.dragRight"
+            v-model="config.motionDragRight"
             type="checkbox"
             class="sr-only peer"
           >
@@ -523,9 +515,9 @@ onUnmounted(() => {
       
       <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_rotation') }}: {{ config.playspace.rotation || 0 }}°</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.space_rotation') }}: {{ config.spaceRotation || 0 }}°</label>
           <input
-            v-model.number="config.playspace.rotation"
+            v-model.number="config.spaceRotation"
             type="range"
             min="-180"
             max="180"
@@ -536,19 +528,19 @@ onUnmounted(() => {
         <div class="flex justify-between">
           <button
             class="px-3 py-1 bg-surface hover:bg-background/20 text-text-muted text-xs font-bold rounded"
-            @click="config.playspace.rotation = -90"
+            @click="config.spaceRotation = -90"
           >
             -90°
           </button>
           <button
             class="px-3 py-1 bg-surface hover:bg-background/20 text-text-muted text-xs font-bold rounded"
-            @click="config.playspace.rotation = 0"
+            @click="config.spaceRotation = 0"
           >
             {{ t('ovr.stats_reset') }}
           </button>
           <button
             class="px-3 py-1 bg-surface hover:bg-background/20 text-text-muted text-xs font-bold rounded"
-            @click="config.playspace.rotation = 90"
+            @click="config.spaceRotation = 90"
           >
             +90°
           </button>
@@ -563,18 +555,18 @@ onUnmounted(() => {
         <label class="flex items-center justify-between">
           <span class="text-sm font-bold text-primary">{{ t('ovr.motion_gravity') }}</span>
           <input
-            v-model="config.general.motionGravityOn"
+            v-model="config.motionGravity"
             type="checkbox"
             class="rounded text-primary"
           >
         </label>
         <div
-          v-if="config.general.motionGravityOn"
+          v-if="config.motionGravity"
           class="pl-4 border-l-2 border-primary space-y-3 mt-2"
         >
-          <label class="block text-xs font-bold text-primary">{{ t('ovr.motion_gravity_strength', { val: config.general.motionGravityStrength || 9.8 }) }}</label>
+          <label class="block text-xs font-bold text-primary">{{ t('ovr.motion_gravity_strength', { val: config.motionGravityStrength || 9.8 }) }}</label>
           <input
-            v-model.number="config.general.motionGravityStrength"
+            v-model.number="config.motionGravityStrength"
             type="range"
             min="0"
             max="20"
@@ -583,7 +575,7 @@ onUnmounted(() => {
           >
           <label class="flex items-center space-x-2">
             <input
-              v-model="config.general.motionSaveMomentum"
+              v-model="config.motionGravitySaveMomentum"
               type="checkbox"
               class="rounded text-primary"
             >
@@ -594,7 +586,7 @@ onUnmounted(() => {
         <label class="flex items-center justify-between border-primary pt-3">
           <span class="text-sm font-bold text-primary">{{ t('ovr.rotation_auto_turn') }}</span>
           <input
-            v-model="config.general.rotationAutoTurn"
+            v-model="config.rotationAutoTurn"
             type="checkbox"
             class="rounded text-primary"
           >
@@ -602,7 +594,7 @@ onUnmounted(() => {
         <label class="flex items-center justify-between border-primary pt-3">
           <span class="text-sm font-bold text-primary">{{ t('ovr.rotation_redirected_walk') }}</span>
           <input
-            v-model="config.general.rotationRedirectedWalk"
+            v-model="config.rotationRedirectedWalk"
             type="checkbox"
             class="rounded text-primary"
           >
@@ -631,7 +623,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.audio.proxSensor"
+            v-model="config.audioProxSensor"
             type="checkbox"
             class="sr-only peer"
           >
@@ -650,7 +642,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.audio.pTT"
+            v-model="config.audioPTT"
             type="checkbox"
             class="sr-only peer"
           >
@@ -680,7 +672,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.video.brightnessOn"
+            v-model="config.videoBrightnessOn"
             type="checkbox"
             class="sr-only peer"
           >
@@ -689,13 +681,13 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="config.video.brightnessOn"
+        v-if="config.videoBrightnessOn"
         class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4"
       >
         <div>
-          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.video_brightness_value') }}: {{ config.video.brightnessValue }}%</label>
+          <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.video_brightness_value') }}: {{ config.videoBrightnessValue }}%</label>
           <input
-            v-model.number="config.video.brightnessValue"
+            v-model.number="config.videoBrightnessValue"
             type="range"
             min="0"
             max="150"
@@ -716,7 +708,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.video.motionSmooth"
+            v-model="config.videoMotionSmooth"
             type="checkbox"
             class="sr-only peer"
           >
@@ -726,17 +718,17 @@ onUnmounted(() => {
 
       <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
         <label class="flex items-center justify-between">
-          <span class="text-sm font-bold text-primary">{{ t('ovr.video_adv_ss_filter') }}</span>
+          <span class="text-sm font-bold text-primary">Advanced SS Filtering</span>
           <input
-            v-model="config.video.advSSFilter"
+            v-model="config.videoAdvSSFiltering"
             type="checkbox"
             class="rounded text-primary"
           >
         </label>
         <div class="pt-2 border-primary">
-          <label class="block text-xs font-bold text-primary mb-2">{{ t('ovr.video_super_sampling') }}: {{ config.video.superSampling || 100 }}%</label>
+          <label class="block text-xs font-bold text-primary mb-2">SuperSampling Override: {{ config.videoSuperSampling || 100 }}%</label>
           <input
-            v-model.number="config.video.superSampling"
+            v-model.number="config.videoSuperSampling"
             type="range"
             min="20"
             max="500"
@@ -746,9 +738,9 @@ onUnmounted(() => {
         </div>
         <div class="pt-2 border-primary">
           <label class="flex items-center justify-between">
-            <span class="text-sm font-bold text-primary">{{ t('ovr.video_overlay_color') }}</span>
+            <span class="text-sm font-bold text-primary">Use Overlay For Color</span>
             <input
-              v-model="config.video.overlayColor"
+              v-model="config.videoOverlayColor"
               type="checkbox"
               class="rounded text-primary"
             >
@@ -778,7 +770,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.utilities.alarmEnabled"
+            v-model="config.utilAlarmEnabled"
             type="checkbox"
             class="sr-only peer"
           >
@@ -787,13 +779,13 @@ onUnmounted(() => {
       </div>
       
       <div
-        v-if="config.utilities.alarmEnabled"
+        v-if="config.utilAlarmEnabled"
         class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4"
       >
         <div>
           <label class="block text-sm font-bold text-primary mb-2">{{ t('ovr.util_alarm_time') }}</label>
           <input
-            v-model="config.utilities.alarmTime"
+            v-model="config.utilAlarmTime"
             type="time"
             class="w-full px-3 py-2 bg-primary/10 rounded-lg border-primary text-primary"
           >
@@ -811,7 +803,7 @@ onUnmounted(() => {
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
-            v-model="config.utilities.trackerBattery"
+            v-model="config.utilTrackerBattery"
             type="checkbox"
             class="sr-only peer"
           >
@@ -823,7 +815,7 @@ onUnmounted(() => {
         <label class="flex items-center justify-between">
           <span class="text-sm font-bold text-primary">{{ t('ovr.util_media_keys') }}</span>
           <input
-            v-model="config.utilities.mediaKeys"
+            v-model="config.utilMediaKeys"
             type="checkbox"
             class="rounded text-primary"
           >
@@ -835,7 +827,7 @@ onUnmounted(() => {
         <label class="flex items-center justify-between border-primary pt-3">
           <span class="text-sm font-bold text-primary">{{ t('ovr.util_keyboard') }}</span>
           <input
-            v-model="config.utilities.keyboard"
+            v-model="config.utilKeyboard"
             type="checkbox"
             class="rounded text-primary"
           >

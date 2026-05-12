@@ -1,3 +1,4 @@
+import i18n from '../i18n';
 import { reactive } from 'vue';
 import { VrcApi, DbApi } from './index';
 
@@ -159,7 +160,7 @@ async function handlePipeline(json: any) {
     }
 
   } catch (err) {
-    console.warn('[WSS] 写入日志或缓存失败', err);
+    console.warn(i18n.global.t('debug.log_write_fail'), err);
   }
 
   for (const handler of handlers) {

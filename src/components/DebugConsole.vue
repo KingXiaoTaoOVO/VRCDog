@@ -130,48 +130,48 @@ const formatArgs = (args: any) => {
   <!-- 悬浮触发按钮 -->
   <button
     v-if="!isVisible && isMasterEnabled"
-    class="fixed bottom-4 right-4 z-[999] bg-surface-hover hover:bg-surface-active text-green-400 p-3 rounded-full shadow-2xl transition-all hover:scale-110 border-border-strong flex items-center justify-center group"
+    class="fixed bottom-4 right-4 z-[999] bg-[#000000] hover:bg-[#111111] text-primary p-3 rounded-full shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all hover:scale-110 border border-primary/50 flex items-center justify-center group"
     @click="isVisible = true"
   >
     <Terminal :size="20" />
-    <span class="absolute right-full mr-3 whitespace-nowrap bg-surface-hover text-xs text-text px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
+    <span class="absolute right-full mr-3 whitespace-nowrap bg-[#000000] text-xs text-primary px-2 py-1 rounded border border-primary/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
   </button>
 
   <!-- 调试控制台面板 -->
   <div
     v-if="isVisible && isMasterEnabled" 
-    class="fixed bottom-0 right-0 z-[1000] terminal-black shadow-2xl border-l border-t border-white/10 flex flex-col transition-all duration-300 ease-in-out"
+    class="fixed bottom-0 right-0 z-[1000] bg-[#000000] shadow-[0_0_30px_rgba(var(--theme-primary),0.1)] border-l border-t border-primary/30 flex flex-col transition-all duration-300 ease-in-out"
     :class="isExpanded ? 'w-full h-[60vh]' : 'w-[450px] h-[400px] rounded-tl-2xl'"
   >
     <!-- 头部工具栏 -->
     <div
-      class="h-10 bg-surface-hover flex items-center justify-between px-3 border-border-soft shrink-0"
-      :class="{ 'rounded-tl-xl': !isExpanded }"
+      class="h-10 bg-[#000000] flex items-center justify-between px-3 border-b border-primary/30 shrink-0"
+      :class="{ 'rounded-tl-2xl': !isExpanded }"
     >
-      <div class="flex items-center gap-2 text-text font-mono text-xs select-none">
+      <div class="flex items-center gap-2 text-primary font-mono text-xs select-none font-bold">
         <Terminal
           :size="14"
-          class="text-green-500"
+          class="text-primary"
         /> API Debug Console
-        <span class="bg-surface-active px-1.5 py-0.5 rounded text-[10px]">{{ logs.length }}</span>
+        <span class="bg-primary/20 text-primary px-1.5 py-0.5 rounded text-[10px]">{{ logs.length }}</span>
       </div>
       <div class="flex items-center gap-1.5">
         <button
-          class="p-1 hover:bg-surface-active text-text hover:text-green-400 rounded transition-colors"
+          class="p-1 hover:bg-primary/20 text-primary/70 hover:text-primary rounded transition-colors"
           :title="t('debug.export_logs')"
           @click="exportLogs"
         >
           <Download :size="14" />
         </button>
         <button
-          class="p-1 hover:bg-surface-active text-text hover:text-red-400 rounded transition-colors"
+          class="p-1 hover:bg-red-500/20 text-primary/70 hover:text-red-400 rounded transition-colors"
           :title="t('debug.clear_logs')"
           @click="clearLogs"
         >
           <Trash2 :size="14" />
         </button>
         <button
-          class="p-1 hover:bg-surface-active text-text hover:text-white rounded transition-colors"
+          class="p-1 hover:bg-primary/20 text-primary/70 hover:text-primary rounded transition-colors"
           :title="isExpanded ? t('debug.restore') : t('debug.maximize')"
           @click="isExpanded = !isExpanded"
         >
@@ -180,9 +180,9 @@ const formatArgs = (args: any) => {
             :size="14"
           />
         </button>
-        <div class="w-px h-4 bg-surface-hover mx-1" />
+        <div class="w-px h-4 bg-primary/30 mx-1" />
         <button
-          class="p-1 hover:bg-red-500 hover:text-white text-text rounded transition-colors"
+          class="p-1 hover:bg-red-500 hover:text-white text-primary/70 rounded transition-colors"
           :title="t('debug.close')"
           @click="isVisible = false"
         >
@@ -191,14 +191,13 @@ const formatArgs = (args: any) => {
       </div>
     </div>
 
-    <!-- 日志列表 -->
     <div
       ref="logContainer"
-      class="flex-1 overflow-y-auto p-2 space-y-2 bg-background font-mono text-[11px] custom-scrollbar"
+      class="flex-1 overflow-y-auto p-2 space-y-2 bg-[#000000] font-mono text-[11px] custom-scrollbar"
     >
       <div
         v-if="logs.length === 0"
-        class="flex h-full items-center justify-center text-text-muted italic select-none"
+        class="flex h-full items-center justify-center text-primary/50 italic select-none"
       >
         {{ t('debug.waiting_api') }}
       </div>
@@ -207,36 +206,36 @@ const formatArgs = (args: any) => {
         v-for="(log, idx) in logs"
         :key="idx" 
         class="rounded p-2 relative group"
-        :class="log.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' : 'bg-surface border-border-soft text-text'"
+        :class="log.type === 'error' ? 'bg-red-950/30 border border-red-900/50 text-red-400' : 'bg-[#000000] border border-primary/20 text-primary'"
       >
         <div class="flex items-center justify-between mb-1 opacity-80">
           <div class="flex items-center gap-1.5">
             <CheckCircle2
               v-if="log.type === 'success'"
               :size="12"
-              class="text-green-500"
+              class="text-primary"
             />
             <AlertCircle
               v-else
               :size="12"
               class="text-red-500"
             />
-            <span class="font-bold text-blue-400">{{ log.cmd }}</span>
-            <span class="text-text-muted">{{ log.duration }}ms</span>
+            <span class="font-bold text-primary">{{ log.cmd }}</span>
+            <span class="text-primary/70">{{ log.duration }}ms</span>
           </div>
-          <span class="text-[10px] text-text-muted">{{ log.timestamp }}</span>
+          <span class="text-[10px] text-primary/50">{{ log.timestamp }}</span>
         </div>
 
         <div
           v-if="log.args && Object.keys(log.args).length > 0"
-          class="mt-1.5 p-1.5 bg-background rounded border-border-soft/50 overflow-x-auto whitespace-pre"
+          class="mt-1.5 p-1.5 bg-[#0a0a0a] rounded border border-primary/20 overflow-x-auto whitespace-pre text-primary/80"
         >
-          <span class="text-primary">Args:</span> {{ formatArgs(log.args) }}
+          <span class="text-primary font-bold">Args:</span> {{ formatArgs(log.args) }}
         </div>
 
         <div
           v-if="log.type === 'error'"
-          class="mt-1.5 p-1.5 bg-red-500/10 rounded border-red-500/20 text-red-500 whitespace-pre-wrap font-bold"
+          class="mt-1.5 p-1.5 bg-red-950/50 rounded border border-red-900/50 text-red-400 whitespace-pre-wrap font-bold"
         >
           {{ log.error }}
         </div>
@@ -245,9 +244,4 @@ const formatArgs = (args: any) => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
-</style>
+

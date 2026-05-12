@@ -6,17 +6,19 @@ import {
   LogIn, Mail, Hand, MessageSquarePlus, Settings, PenLine, User, Users, 
   History, Ban, VolumeX, MessageSquareOff, Eye, EyeOff, ShieldBan, Flag, 
   UserMinus, Search, ChevronDown, Download, Check, ZoomIn, ZoomOut, RotateCcw, RotateCw, Globe, PencilLine, Save, Languages, Image, Heart, Map, Cuboid, LogOut,
-  Shield, ExternalLink, Info, Database, Clock, Calendar, FileJson
+  Shield, ExternalLink, Info, Database, Clock, Calendar, FileJson, Code, AlignLeft, MapPin
 } from 'lucide-vue-next';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useToast } from '../composables/useToast';
 import { VrcApi, DbApi } from '../api';
+import VrcAvatar from './VrcAvatar.vue';
+import VrcResourceCard from './VrcResourceCard.vue';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
 const toast = useToast();
 
-const activeTab = ref<'info' | 'mutual' | 'groups' | 'created_worlds' | 'fav_worlds' | 'created_avatars' | 'activity' | 'raw_json'>('info');
+const activeTab = ref<'info' | 'social' | 'mutual' | 'groups' | 'created_worlds' | 'fav_worlds' | 'created_avatars' | 'activity' | 'raw_json'>('info');
 const showMoreMenu = ref(false);
 const showFavoriteModal = ref(false);
 const isFavorite = ref(false);
@@ -39,49 +41,49 @@ const executeAction = async (action: string) => {
     switch (action) {
       case 'refresh':
         await profileStore.openProfile(userId);
-        toast.success(t('user_profile.actions.refresh_success') || '刷新成功');
+        toast.success(t('user_profile.actions.refresh_success'));
         break;
       case 'copy_id':
         navigator.clipboard.writeText(userId);
-        toast.success(t('user_profile.actions.copy_id_success') || 'ID 已复制');
+        toast.success(t('user_profile.actions.copy_id_success'));
         break;
       case 'copy_vrc_url':
         navigator.clipboard.writeText('https://vrchat.com/home/user/' + userId);
-        toast.success(t('user_profile.actions.copy_url_success') || '链接已复制');
+        toast.success(t('user_profile.actions.copy_url_success'));
         break;
       case 'view_on_vrc':
         window.open('https://vrchat.com/home/user/' + userId, '_blank');
         break;
       case 'request_invite':
         await VrcApi.requestInvite(userId);
-        toast.success(t('user_profile.actions.request_invite_success') || '请求已发送');
+        toast.success(t('user_profile.actions.request_invite_success'));
         break;
       case 'invite':
         await VrcApi.inviteUser(userId);
-        toast.success(t('user_profile.actions.invite_success') || '邀请已发送');
+        toast.success(t('user_profile.actions.invite_success'));
         break;
       case 'unfriend':
-        if (confirm(t('user_profile.actions.unfriend_confirm') || '确定要解除好友关系吗？')) {
+        if (confirm(t('user_profile.actions.unfriend_confirm'))) {
           await VrcApi.unfriend({ userId });
-          toast.success(t('user_profile.actions.unfriend_success') || '好友关系已解除');
+          toast.success(t('user_profile.actions.unfriend_success'));
           profileStore.closeProfile();
         }
         break;
       case 'block':
         await VrcApi.moderateUser({ moderated: userId, type: 'block' });
-        toast.success(t('user_profile.actions.block_success') || '已封禁');
+        toast.success(t('user_profile.actions.block_success'));
         break;
       case 'mute':
         await VrcApi.moderateUser({ moderated: userId, type: 'mute' });
-        toast.success(t('user_profile.actions.mute_success') || '已静音');
+        toast.success(t('user_profile.actions.mute_success'));
         break;
       case 'showAvatar':
         await VrcApi.moderateUser({ moderated: userId, type: 'showAvatar' });
-        toast.success(t('user_profile.actions.show_avatar_success') || '已显示头像');
+        toast.success(t('user_profile.actions.show_avatar_success'));
         break;
       case 'hideAvatar':
         await VrcApi.moderateUser({ moderated: userId, type: 'hideAvatar' });
-        toast.success(t('user_profile.actions.hide_avatar_success') || '已隐藏头像');
+        toast.success(t('user_profile.actions.hide_avatar_success'));
         break;
     }
   } catch (e: any) {
@@ -97,7 +99,7 @@ const handleTranslate = async () => {
   isTranslating.value = true;
   // Mock translation for now, or use an API if available
   await new Promise(r => setTimeout(r, 600));
-  translatedBio.value = "【翻译结果】" + (profileStore.baseInfo?.bio || '');
+  translatedBio.value = t('user.translate_result') + (profileStore.baseInfo?.bio || '');
   isTranslating.value = false;
 };
 
@@ -105,7 +107,7 @@ const saveLocalNote = async () => {
   profileStore.localNote = localNote.value;
   await profileStore.saveLocalNote();
   isEditingNote.value = false;
-  toast.success(t('user_profile.info.memo_saved') || '备注已保存');
+  toast.success(t('user_profile.info.memo_saved'));
 };
 
 // Image Preview logic
@@ -135,9 +137,9 @@ const handleCopyImage = async () => {
     const response = await fetch(url);
     const blob = await response.blob();
     await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-    toast.success(t('user_profile.actions.copy_image_success') || '图片已复制');
+    toast.success(t('user_profile.actions.copy_image_success'));
   } catch (err) {
-    toast.error('无法复制图片');
+    toast.error(t('user.copy_fail'));
   }
 };
 
@@ -172,11 +174,12 @@ const trustName = computed(() => {
 });
 
 const getStatusColor = (status: string) => {
-  switch (status) {
+  switch (status?.toLowerCase()) {
     case 'active': return '#22c55e';
     case 'join me': return '#3b82f6';
     case 'ask me': return '#f97316';
-    case 'busy': return '#ef4444';
+    case 'busy': return '#f97316';
+    case 'do not disturb': return '#ef4444';
     default: return '#64748b';
   }
 };
@@ -236,10 +239,10 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
           <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[100px] pointer-events-none"></div>
 
           <!-- Header Section -->
-          <div class="relative shrink-0 border-b border-white/5 bg-transparent z-20 overflow-hidden">
+          <div class="relative shrink-0 border-b border-border-soft bg-transparent z-20 overflow-hidden">
             <!-- Banner Background -->
             <div class="absolute inset-0 z-0 h-48 overflow-hidden">
-              <div class="absolute inset-0 bg-gradient-to-b from-black/20 via-background/60 to-background z-10"></div>
+              <div class="absolute inset-0 bg-gradient-to-b from-black/20 via-[var(--theme-surface)]/80 to-[var(--theme-surface)] z-10"></div>
               <img 
                 v-if="profileStore.baseInfo?.profilePicOverride || profileStore.baseInfo?.currentAvatarThumbnailImageUrl"
                 :src="profileStore.baseInfo?.profilePicOverride || profileStore.baseInfo?.currentAvatarThumbnailImageUrl"
@@ -251,127 +254,110 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
               <div class="flex gap-8 items-end">
                 <!-- Avatar -->
                 <div 
-                  class="w-40 h-40 shrink-0 bg-background/40 backdrop-blur-md rounded-3xl flex items-center justify-center overflow-hidden border border-white/10 cursor-pointer group relative shadow-2xl z-20"
+                  class="w-40 h-40 shrink-0 bg-[var(--theme-surface)]/40 backdrop-blur-md rounded-3xl flex items-center justify-center overflow-hidden border border-border-soft cursor-pointer group relative shadow-2xl z-20"
                   @click="toggleImagePreview"
                 >
-                  <img 
-                    v-if="profileStore.baseInfo?.profilePicOverride || profileStore.baseInfo?.currentAvatarThumbnailImageUrl || profileStore.baseInfo?.currentAvatarImageUrl"
-                    :src="profileStore.baseInfo?.profilePicOverride || profileStore.baseInfo?.currentAvatarThumbnailImageUrl || profileStore.baseInfo?.currentAvatarImageUrl"
-                    class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                  />
-                  <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                    <Search class="w-8 h-8 text-white/80" />
+                  <div class="relative group shrink-0">
+                    <div class="w-28 h-28 rounded-[2rem] overflow-hidden border-4 border-[var(--theme-surface)] shadow-2xl transition-transform hover:scale-105 hover:-rotate-3" @click.stop="toggleImagePreview">
+                      <img 
+                        :src="profileStore.baseInfo?.currentAvatarThumbnailImageUrl || profileStore.baseInfo?.currentAvatarImageUrl || profileStore.baseInfo?.profilePicOverride || 'https://via.placeholder.com/150'" 
+                        class="w-full h-full object-cover bg-[var(--theme-surface)]"
+                      />
+                    </div>
+                    <!-- Status Indicator -->
+                    <div 
+                      class="absolute bottom-1 right-1 w-6 h-6 rounded-full border-4 border-[var(--theme-surface)] shadow-lg"
+                      :style="{ backgroundColor: getStatusColor(profileStore.baseInfo?.status || 'offline') }"
+                    ></div>
                   </div>
-                  <!-- Status Circle -->
-                  <div class="absolute bottom-3 right-3 w-6 h-6 rounded-full border-4 border-background shadow-lg" :style="{ backgroundColor: getStatusColor(profileStore.baseInfo?.status || '') }"></div>
                 </div>
 
                 <!-- Basic Info -->
                 <div class="flex-1 min-w-0 pb-1">
-                  <div class="flex items-start justify-between">
-                    <div>
-                      <div class="flex items-center gap-3 mb-2">
-                        <h1 class="text-4xl font-black text-white tracking-tight truncate drop-shadow-lg">
-                          {{ profileStore.baseInfo?.displayName || t('user_profile.loading') }}
-                        </h1>
-                        
-                        <!-- Trust Level Badge -->
-                        <span 
-                          class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border shadow-lg ml-2 bg-background/40 backdrop-blur-md"
-                          :style="{ color: trustColor, borderColor: trustColor + '40' }"
-                        >
-                          <Shield :size="12" />
-                          {{ trustName }}
-                        </span>
-                        
-                        <!-- Friend Icon -->
-                        <Users v-if="profileStore.baseInfo?.isFriend" :size="18" class="text-emerald-400 drop-shadow-lg" />
-                      </div>
-                      
-                      <div class="flex items-center gap-4">
-                        <div class="text-[14px] text-white/60 font-bold font-mono tracking-wide flex items-center gap-2">
-                          <span class="opacity-80">@{{ profileStore.baseInfo?.username || profileStore.baseInfo?.displayName || '' }}</span>
-                          <span class="px-2 py-0.5 rounded-lg bg-white/5 border border-white/5 text-[11px] cursor-pointer hover:bg-white/10 transition-all flex items-center gap-1" @click="executeAction('copy_id')">
-                            <Copy :size="12" /> {{ profileStore.baseInfo?.id?.substring(0, 12) }}...
-                          </span>
-                        </div>
-                        <div v-if="profileStore.baseInfo?.pronouns" class="text-[12px] text-primary font-black uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-lg border border-primary/20">
-                          {{ profileStore.baseInfo.pronouns }}
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="flex gap-3 more-menu-container relative z-30">
-                      <button @click="executeAction('refresh')" class="w-11 h-11 rounded-2xl bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg hover:text-primary active:scale-95">
-                        <RefreshCcw :size="20" :class="{'animate-spin': profileStore.isLoadingBase}" />
-                      </button>
-                      <button 
-                        v-if="!isSelf"
-                        class="w-11 h-11 rounded-2xl bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center transition-all border border-white/10 shadow-lg active:scale-95"
-                        :class="profileStore.isFavorite ? 'text-pink-500' : 'text-white/70 hover:text-pink-500'"
-                        @click="profileStore.toggleFavorite"
-                      >
-                        <Heart :size="20" :fill="profileStore.isFavorite ? 'currentColor' : 'none'" />
-                      </button>
-                      <button 
-                        v-if="!isSelf"
-                        class="w-11 h-11 rounded-2xl bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center text-white/70 transition-all border border-white/10 shadow-lg hover:text-primary active:scale-95"
-                        @click="showMoreMenu = !showMoreMenu"
-                      >
-                        <MoreHorizontal :size="20" />
-                      </button>
-
-                      <!-- Action Dropdown -->
-                      <transition name="dropdown">
-                        <div v-if="showMoreMenu" class="absolute top-14 right-0 w-60 bg-surface/90 backdrop-blur-3xl rounded-2xl py-3 border border-white/10 shadow-2xl z-[100] overflow-hidden text-[13px] font-bold">
-                          <div class="px-4 py-2 hover:bg-white/5 cursor-pointer flex items-center gap-3 text-white/80 hover:text-primary transition-all" @click="executeAction('copy_id')">
-                            <Copy :size="16" /> {{ t('user_profile.actions.copy_id') }}
-                          </div>
-                          <div class="px-4 py-2 hover:bg-white/5 cursor-pointer flex items-center gap-3 text-white/80 hover:text-primary transition-all" @click="executeAction('copy_vrc_url')">
-                            <Share2 :size="16" /> {{ t('user_profile.actions.copy_vrc_url') }}
-                          </div>
-                          <div class="px-4 py-2 hover:bg-white/5 cursor-pointer flex items-center gap-3 text-white/80 hover:text-primary transition-all" @click="executeAction('view_on_vrc')">
-                            <ExternalLink :size="16" /> {{ t('user_profile.actions.view_on_vrc') }}
-                          </div>
-                          <div class="h-[1px] bg-white/5 my-2"></div>
-                          <div v-if="profileStore.baseInfo?.isFriend" class="px-4 py-2 hover:bg-red-500/10 cursor-pointer flex items-center gap-3 text-red-400 transition-all" @click="executeAction('unfriend')">
-                            <UserMinus :size="16" /> {{ t('user_profile.actions.unfriend') }}
-                          </div>
-                          <div v-else class="px-4 py-2 hover:bg-primary/10 cursor-pointer flex items-center gap-3 text-primary transition-all">
-                            <Users :size="16" /> {{ t('user_profile.actions.add_friend') }}
-                          </div>
-                          <div class="h-[1px] bg-white/5 my-2"></div>
-                          <div class="px-4 py-2 hover:bg-red-500/10 cursor-pointer flex items-center gap-3 text-red-500 transition-all" @click="executeAction('block')">
-                            <ShieldBan :size="16" /> {{ t('user_profile.actions.block') }}
-                          </div>
-                          <div class="px-4 py-2 hover:bg-white/5 cursor-pointer flex items-center gap-3 text-white/80 transition-all" @click="executeAction('mute')">
-                            <VolumeX :size="16" /> {{ t('user_profile.actions.mute') }}
-                          </div>
-                        </div>
-                      </transition>
-                    </div>
+                  <div class="flex items-center gap-3">
+                    <h2 class="text-3xl font-black text-[var(--theme-text-strong)] truncate tracking-tight">{{ profileStore.baseInfo?.displayName || 'Loading...' }}</h2>
+                    <span 
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-bold tracking-wide uppercase border border-border-soft"
+                      :style="{ color: trustColor, backgroundColor: `${trustColor}15`, borderColor: `${trustColor}30` }"
+                    >
+                      {{ trustName }}
+                    </span>
                   </div>
                   
-                  <!-- Platform & Status Indicators -->
-                  <div class="flex items-center gap-3 mt-5 flex-wrap">
-                    <span v-if="profileStore.baseInfo?.last_platform" class="px-4 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white/80 text-[11px] font-black uppercase tracking-widest shadow-lg flex items-center gap-2 backdrop-blur-md">
-                      <Monitor class="w-3.5 h-3.5 text-primary" /> {{ profileStore.baseInfo.last_platform }}
-                    </span>
-                    <span v-if="profileStore.baseInfo?.statusDescription" class="px-4 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white/80 text-[12px] font-bold shadow-lg flex items-center gap-2 backdrop-blur-md max-w-[450px] truncate italic opacity-90">
-                       "{{ profileStore.baseInfo.statusDescription }}"
-                    </span>
-                    <div v-if="profileStore.baseInfo?.languages?.length" class="flex gap-1">
-                      <span v-for="lang in profileStore.baseInfo.languages" :key="lang" class="px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest">
-                        {{ lang }}
-                      </span>
+                  <div class="flex items-center gap-2 mt-2 text-sm font-medium text-[var(--theme-text-muted)] truncate max-w-lg">
+                    <span class="truncate">{{ profileStore.baseInfo?.statusDescription || t('auto_37e93fbb') }}</span>
+                  </div>
+                  
+                  <div v-if="profileStore.baseInfo?.location && profileStore.baseInfo.location !== 'offline'" class="flex items-center gap-2 mt-2.5">
+                    <div class="px-3 py-1.5 rounded-xl bg-[var(--theme-surface)]/60 backdrop-blur-md border border-border-soft flex items-center gap-2 text-[12px] text-[var(--theme-text-strong)] cursor-pointer hover:bg-[var(--theme-surface)]-hover transition-colors shadow-sm">
+                      <MapPin class="w-3.5 h-3.5 text-blue-400" />
+                      <span class="truncate max-w-[200px]">{{ profileStore.baseInfo.location.split('~')[0] }}</span>
                     </div>
                   </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="flex items-center gap-2 pb-1 relative">
+                  <button 
+                    class="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--theme-surface)] border border-border-soft text-[var(--theme-text-strong)] hover:bg-[var(--theme-surface)]-hover transition-all shadow-lg hover:-translate-y-0.5 fav-menu-container"
+                    @click.stop="showFavoriteModal = !showFavoriteModal"
+                  >
+                    <Star :size="18" :class="{ 'fill-yellow-400 text-yellow-400': profileStore.baseInfo?.isFriend, 'text-[var(--theme-text-muted)]': !profileStore.baseInfo?.isFriend }" />
+                  </button>
+                  
+                  <transition name="fade">
+                    <div v-if="showFavoriteModal" class="absolute top-12 right-12 w-64 glass-panel border-border-soft rounded-2xl shadow-2xl p-2 z-50 overflow-hidden text-[13px] fav-menu-container">
+                      <div class="px-3 py-2 text-[11px] font-bold text-[var(--theme-text-muted)] uppercase tracking-wider mb-1">{{ t('user_profile.groups.favorite') }}</div>
+                      <div class="max-h-48 overflow-y-auto custom-scrollbar">
+                        <div 
+                          class="px-3 py-2 rounded-xl hover:bg-[var(--theme-surface)]-hover cursor-pointer flex items-center justify-between text-[var(--theme-text-strong)] transition-colors mb-1"
+                          @click="executeAction('favorite_group_1')"
+                        >
+                          <div class="flex items-center gap-2">
+                            <div class="w-2.5 h-2.5 rounded-full bg-blue-500"></div> {{ t('user_profile.groups.group_1') }}
+                          </div>
+                        </div>
+                        <div 
+                          class="px-3 py-2 rounded-xl hover:bg-[var(--theme-surface)]-hover cursor-pointer flex items-center justify-between text-[var(--theme-text-strong)] transition-colors mb-1"
+                          @click="executeAction('favorite_group_2')"
+                        >
+                          <div class="flex items-center gap-2">
+                            <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div> {{ t('user_profile.groups.group_2') }}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </transition>
+
+                  <button 
+                    class="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--theme-surface)] border border-border-soft text-[var(--theme-text-strong)] hover:bg-[var(--theme-surface)]-hover transition-all shadow-lg hover:-translate-y-0.5 more-menu-container"
+                    @click.stop="showMoreMenu = !showMoreMenu"
+                  >
+                    <MoreHorizontal :size="18" />
+                  </button>
+                  
+                  <transition name="fade">
+                    <div v-if="showMoreMenu" class="absolute top-12 right-0 w-56 glass-panel border-border-soft rounded-2xl shadow-2xl py-2 z-50 overflow-hidden text-[13px] more-menu-container">
+                      <div class="px-4 py-2 hover:bg-[var(--theme-surface)]-hover cursor-pointer flex items-center gap-3 text-[var(--theme-text-strong)] transition-all" @click="executeAction('copy_id')">
+                        <Copy :size="16" /> {{ t('user_profile.actions.copy_id') }}
+                      </div>
+                      <div class="px-4 py-2 hover:bg-[var(--theme-surface)]-hover cursor-pointer flex items-center gap-3 text-[var(--theme-text-strong)] transition-all" @click="executeAction('copy_vrc_url')">
+                        <Share2 :size="16" /> {{ t('user_profile.actions.copy_vrc_url') }}
+                      </div>
+                      <div class="px-4 py-2 hover:bg-[var(--theme-surface)]-hover cursor-pointer flex items-center gap-3 text-[var(--theme-text-strong)] transition-all" @click="executeAction('view_on_vrc')">
+                        <ExternalLink :size="16" /> {{ t('user_profile.actions.view_on_vrc') }}
+                      </div>
+                      <div class="h-[1px] bg-border-soft my-1"></div>
+                      <div class="px-4 py-2 hover:bg-red-500/10 cursor-pointer flex items-center gap-3 text-red-500 transition-all" @click="executeAction('block')">
+                        <ShieldBan :size="16" /> {{ t('user_profile.actions.block') }}
+                      </div>
+                    </div>
+                  </transition>
                 </div>
               </div>
 
               <!-- Navigation Tabs -->
-              <div class="flex gap-2 mt-10 overflow-x-auto no-scrollbar relative z-30">
+              <div class="flex gap-2 mt-8 overflow-x-auto no-scrollbar relative z-30">
                 <button 
                   v-for="tab in [
                     { id: 'info', label: t('user_profile.tabs.info'), icon: Info },
@@ -381,14 +367,14 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
                     { id: 'created_worlds', label: t('user_profile.tabs.worlds'), icon: Map },
                     { id: 'created_avatars', label: t('user_profile.tabs.avatars'), icon: Cuboid },
                     { id: 'activity', label: t('user_profile.tabs.activity'), icon: History },
-                    { id: 'raw_json', label: t('user_profile.tabs.raw'), icon: FileJson }
+                    { id: 'raw_json', label: t('user_profile.tabs.raw'), icon: Code }
                   ]"
                   :key="tab.id"
                   v-show="!tab.hide"
                   class="px-5 py-2.5 text-[12px] font-black rounded-xl transition-all flex items-center gap-2 border whitespace-nowrap active:scale-95"
                   :class="activeTab === tab.id 
                     ? 'bg-primary text-white border-primary shadow-xl shadow-primary/30' 
-                    : 'bg-white/5 text-white/40 border-white/5 hover:bg-white/10 hover:text-white/80'"
+                    : 'bg-[var(--theme-surface)] text-[var(--theme-text-muted)] border-border-soft hover:bg-[var(--theme-surface)]-hover hover:text-[var(--theme-text-strong)]'"
                   @click="activeTab = tab.id as any"
                 >
                   <component :is="tab.icon" :size="16" />
@@ -400,313 +386,250 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
           </div>
 
           <!-- Content Body -->
-          <div class="flex-1 overflow-y-auto custom-scrollbar p-8 bg-transparent relative z-10">
+          <div class="flex-1 overflow-y-auto custom-scrollbar p-8 bg-[var(--theme-surface)]/40 relative">
             
             <!-- Info Tab -->
             <template v-if="activeTab === 'info'">
-              <!-- Current Location Banner -->
-              <div v-if="profileStore.baseInfo?.location && profileStore.baseInfo?.status !== 'offline'" class="mb-10 p-6 bg-white/5 border border-white/10 rounded-3xl flex items-center justify-between shadow-2xl backdrop-blur-xl group hover:border-primary/40 transition-all">
-                <div class="flex items-center gap-6">
-                  <div class="w-20 h-20 rounded-2xl bg-black/40 flex items-center justify-center border border-white/10 shrink-0 overflow-hidden relative shadow-inner">
-                    <img v-if="profileStore.baseInfo.location === 'private'" src="https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=200&q=80" class="w-full h-full object-cover opacity-20" />
-                    <img v-else :src="profileStore.baseInfo.currentAvatarThumbnailImageUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=200&q=80'" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                  </div>
-                  <div>
-                    <div class="flex items-center gap-3 mb-2">
-                      <span class="text-lg font-black text-white tracking-tight">{{ profileStore.baseInfo.location === 'private' ? t('status_card.private') : profileStore.baseInfo.location }}</span>
-                    </div>
-                    <div class="text-[12px] text-white/50 flex items-center gap-4 font-bold tracking-wide">
-                      <span class="flex items-center gap-2"><Globe :size="14" class="text-emerald-400" /> Active Instance</span>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="!isSelf && profileStore.baseInfo.location !== 'private'" class="flex gap-3">
-                  <button class="px-6 py-2.5 bg-primary hover:bg-primary-hover text-white border-none text-[13px] font-black rounded-xl transition-all flex items-center gap-2 shadow-xl shadow-primary/20 active:scale-95" @click="executeAction('request_invite')">
-                    <LogIn :size="18" /> {{ t('user_profile.actions.request_invite') }}
-                  </button>
-                </div>
-              </div>
-
-              <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <!-- Main Info Column -->
-                <div class="lg:col-span-2 space-y-8">
-                  <!-- Memo / Local Note -->
-                  <div class="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-xl backdrop-blur-xl relative overflow-hidden group">
-                    <div class="absolute top-0 left-0 w-1.5 h-full bg-primary opacity-40 group-hover:opacity-100 transition-opacity"></div>
-                    <div class="flex items-center justify-between mb-5">
-                      <h3 class="text-[11px] font-black text-white/80 uppercase tracking-[0.2em] flex items-center gap-3">
-                        <PencilLine :size="16" class="text-primary" /> {{ t('user_profile.info.memo') }}
-                      </h3>
-                      <button v-if="!isEditingNote" @click="isEditingNote = true" class="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary hover:text-white text-[11px] font-black rounded-lg transition-all border border-primary/20 active:scale-95">
-                        {{ t('search.save_note') }}
-                      </button>
-                    </div>
-                    
-                    <div v-if="isEditingNote" class="space-y-4">
-                      <textarea 
-                        v-model="localNote" 
-                        class="w-full h-32 bg-black/20 border border-white/10 rounded-2xl p-5 text-[13px] text-white outline-none focus:border-primary/50 transition-all resize-none font-medium leading-relaxed"
-                        :placeholder="t('search.local_note_placeholder')"
-                      ></textarea>
-                      <div class="flex justify-end gap-3">
-                        <button @click="isEditingNote = false" class="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/50 text-[12px] font-bold rounded-xl transition-all">{{ t('common.cancel') || '取消' }}</button>
-                        <button @click="saveLocalNote" class="px-6 py-2 bg-primary text-white text-[12px] font-black rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-primary/30"><Save :size="14" />{{ t('common.save') || '保存' }}</button>
-                      </div>
-                    </div>
-                    <div v-else class="text-[14px] text-white/70 font-medium whitespace-pre-wrap leading-relaxed min-h-[40px] px-2 italic">
-                      {{ localNote || t('user_profile.no_data') }}
-                    </div>
-                  </div>
-
-                  <!-- Bio Card -->
-                  <div class="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-xl backdrop-blur-xl">
-                    <div class="flex items-center justify-between mb-5">
-                      <h3 class="text-[11px] font-black text-white/80 uppercase tracking-[0.2em] flex items-center gap-3">
-                        <Languages :size="16" class="text-emerald-400" /> {{ t('user_profile.info.bio') }}
-                      </h3>
-                      <button @click="handleTranslate" class="px-4 py-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white text-[11px] font-black rounded-lg transition-all border border-emerald-500/20 flex items-center gap-2 active:scale-95" :disabled="isTranslating">
-                        <Globe :size="14" /> {{ translatedBio ? t('user_profile.info.bio') : t('user_profile.info.bio_translated') }}
-                      </button>
-                    </div>
-                    <div class="text-[14px] text-white/80 font-medium whitespace-pre-wrap leading-relaxed px-2" :class="{'opacity-40 animate-pulse': isTranslating}">
-                      {{ isTranslating ? t('user_profile.loading') : (translatedBio || profileStore.baseInfo?.bio || t('user_profile.no_data')) }}
-                    </div>
-                  </div>
-
-                  <!-- Badges Section -->
-                  <div v-if="profileStore.baseInfo?.badges?.length" class="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-xl backdrop-blur-xl">
-                    <h3 class="text-[11px] font-black text-white/80 uppercase tracking-[0.2em] flex items-center gap-3 mb-5">
-                      <Shield :size="16" class="text-yellow-400" /> {{ t('user_profile.info.badges') }}
+                <div class="md:col-span-2 space-y-8">
+                  <!-- Biography -->
+                  <div class="glass-panel border-border-soft p-6 rounded-3xl shadow-xl hover:shadow-2xl transition-shadow relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-bl-full transition-transform group-hover:scale-110"></div>
+                    <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <AlignLeft class="w-4 h-4 text-primary" /> {{ t('user_profile.sections.biography') }}
                     </h3>
-                    <div class="flex flex-wrap gap-3">
-                      <div v-for="badge in profileStore.baseInfo.badges" :key="badge.badgeId" class="group/badge relative">
-                        <img :src="badge.badgeImageUrl" :alt="badge.badgeName" class="w-10 h-10 rounded-lg border border-white/10 hover:border-primary/50 transition-all cursor-help" />
-                        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-black/80 backdrop-blur-md rounded-lg text-[10px] text-white opacity-0 group-hover/badge:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-white/10">
-                          {{ badge.badgeName }}
+                    <p class="text-[14px] leading-relaxed text-[var(--theme-text-strong)] whitespace-pre-wrap font-medium">{{ profileStore.baseInfo?.bio || t('auto_37e93fbb') }}</p>
+                  </div>
+                </div>
+
+                <!-- Right Column: Details & JSON -->
+                <div class="space-y-6">
+                  <!-- Details Card -->
+                  <div class="glass-panel border-border-soft rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                    <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Info class="w-4 h-4 text-primary" /> {{ t('user_profile.sections.details') }}
+                    </h3>
+                    <div class="space-y-4">
+                      <div class="flex flex-col gap-1 border-b border-border-soft pb-3 last:border-0 last:pb-0">
+                        <span class="text-[11px] font-bold text-[var(--theme-text-muted)] uppercase tracking-wider">{{ t('user_profile.details.id') }}</span>
+                        <div class="flex items-center justify-between">
+                          <span class="text-[13px] font-mono text-[var(--theme-text-strong)] truncate mr-2">{{ profileStore.baseInfo?.id }}</span>
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <!-- Social Links -->
-                  <div v-if="profileStore.socialLinks.length" class="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-xl backdrop-blur-xl">
-                    <h3 class="text-[11px] font-black text-white/80 uppercase tracking-[0.2em] flex items-center gap-3 mb-6">
-                      <Share2 :size="16" class="text-blue-400" /> {{ t('user_profile.tabs.social_links') }}
-                    </h3>
-                    <div class="flex flex-wrap gap-4">
-                      <a 
-                        v-for="link in profileStore.socialLinks" 
-                        :key="link.url" 
-                        :href="link.url" 
-                        target="_blank"
-                        class="flex items-center gap-3 bg-white/5 px-4 py-2.5 rounded-2xl border border-white/5 hover:border-primary/40 hover:bg-primary/5 transition-all group/social"
-                      >
-                        <component 
-                          :is="link.type === 'twitter' || link.type === 'x' ? Globe : link.type === 'youtube' ? Globe : link.type === 'twitch' ? Globe : link.type === 'github' ? Globe : link.type === 'discord' ? MessageSquarePlus : Globe" 
-                          :size="16" 
-                          class="text-white/40 group-hover/social:text-primary transition-colors" 
-                        />
-                        <span class="text-[13px] font-bold text-white/80 group-hover/social:text-white capitalize">{{ link.type }}</span>
-                        <ExternalLink :size="12" class="text-white/20 group-hover/social:text-primary/60" />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-
-
-              <!-- Stats Sidebar -->
-                <div class="space-y-6">
-                  <div class="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-xl backdrop-blur-xl relative overflow-hidden">
-                    <div class="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-3xl -mr-12 -mt-12"></div>
-                    <h3 class="text-[10px] font-black text-white/30 mb-6 uppercase tracking-[0.3em]">{{ t('charts.overview') }}</h3>
-                    <div class="space-y-6">
-                      <div class="flex flex-col gap-1.5">
-                        <div class="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">{{ t('user_profile.info.last_login') }}</div>
-                        <div class="text-[13px] font-bold text-white/90 flex items-center gap-2"><Clock :size="14" class="text-primary" /> {{ formatTime(profileStore.baseInfo?.last_login) }}</div>
+                      
+                      <div class="flex flex-col gap-1 border-b border-border-soft pb-3 last:border-0 last:pb-0">
+                        <span class="text-[11px] font-bold text-[var(--theme-text-muted)] uppercase tracking-wider">{{ t('user_profile.details.joined') }}</span>
+                        <span class="text-[13px] text-[var(--theme-text-strong)] font-medium">{{ formatDate(profileStore.baseInfo?.date_joined) }}</span>
                       </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <div class="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">{{ t('user_profile.info.date_joined') }}</div>
-                        <div class="text-[13px] font-bold text-white/90 flex items-center gap-2"><Calendar :size="14" class="text-emerald-400" /> {{ formatDate(profileStore.baseInfo?.date_joined) }}</div>
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <div class="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">{{ t('user_profile.info.friend_key') }}</div>
-                        <div class="text-[13px] font-mono text-primary font-bold tracking-wider">{{ profileStore.baseInfo?.friendKey || 'N/A' }}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-xl backdrop-blur-xl">
-                    <h3 class="text-[10px] font-black text-white/30 mb-5 uppercase tracking-[0.3em]">{{ t('user_profile.info.tags') }}</h3>
-                    <div class="flex flex-wrap gap-2">
-                      <span v-for="tag in profileStore.baseInfo?.tags?.slice(0, 10)" :key="tag" class="px-3 py-1 rounded-lg bg-white/5 border border-white/5 text-[9px] font-black text-white/40 uppercase tracking-widest hover:text-white/80 transition-colors">
-                        {{ tag.replace('system_', '') }}
-                      </span>
                     </div>
                   </div>
                 </div>
               </div>
             </template>
 
-            <!-- Mutual Friends Tab -->
-            <!-- Mutual Tab -->
-            <template v-else-if="activeTab === 'mutual'">
-              <div class="space-y-10">
-                <!-- Mutual Friends -->
-                <section>
-                  <div class="flex items-center gap-3 mb-6">
-                    <Users :size="18" class="text-primary" />
-                    <h3 class="text-[14px] font-black text-white uppercase tracking-wider">{{ t('user_profile.tabs.mutual') }} ({{ profileStore.mutualFriends.length }})</h3>
-                  </div>
-                  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-                    <div v-if="profileStore.isLoadingMutual" class="col-span-full py-10 flex flex-col items-center gap-4">
-                      <RefreshCcw :size="32" class="animate-spin text-primary/40" />
+            <!-- Social / Mutual Tab -->
+            <template v-else-if="activeTab === 'social' || activeTab === 'mutual'">
+              <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                    <Users class="w-4 h-4 text-primary" /> {{ activeTab === 'social' ? t('user_profile.tabs.social') : t('user_profile.tabs.mutual') }}
+                  </h3>
+                </div>
+                
+                <div v-if="profileStore.isLoadingMutual" class="flex justify-center p-8 text-primary">
+                  <RefreshCcw class="animate-spin w-8 h-8" />
+                </div>
+                <div v-else-if="profileStore.mutualFriends.length === 0" class="flex flex-col items-center justify-center p-12 opacity-50">
+                  <Users class="w-16 h-16 mb-4" />
+                  <p class="font-bold">{{ t('global.empty', 'Empty') }}</p>
+                </div>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div 
+                    v-for="friend in profileStore.mutualFriends" 
+                    :key="friend.id"
+                    class="bg-[var(--theme-surface)] hover:bg-[var(--theme-surface)]-hover border border-border-soft p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-colors shadow-sm"
+                    @click="profileStore.openProfile(friend.id, friend)"
+                  >
+                    <div class="w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-black/20">
+                      <VrcAvatar :user="friend" :url="friend.currentAvatarThumbnailImageUrl" custom-class="w-full h-full object-cover" />
                     </div>
-                    <div v-else-if="profileStore.mutualFriends.length === 0" class="col-span-full py-10 text-center text-white/40 font-bold">
-                      {{ t('user_profile.no_data') }}
-                    </div>
-                    <div v-for="friend in profileStore.mutualFriends" :key="friend.id" class="group/friend bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-4 hover:bg-white/10 hover:border-primary/40 cursor-pointer transition-all shadow-lg active:scale-95" @click="profileStore.openProfile(friend.id, friend)">
-                      <div class="relative">
-                        <img :src="friend.currentAvatarThumbnailImageUrl || friend.profilePicOverride || 'https://via.placeholder.com/128'" class="w-20 h-20 rounded-2xl object-cover border-2 border-white/5 group-hover/friend:border-primary/40 transition-all">
-                        <div class="absolute -bottom-1 -right-1 w-5 h-5 border-4 border-background rounded-full" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
-                      </div>
-                      <div class="text-center w-full">
-                        <div class="font-black text-[13px] text-white truncate group-hover/friend:text-primary transition-colors">{{ friend.displayName }}</div>
-                        <div class="text-[10px] text-white/40 mt-1 font-bold uppercase tracking-widest">{{ friend.status }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <!-- Mutual Groups -->
-                <section>
-                  <div class="flex items-center gap-3 mb-6">
-                    <Globe :size="18" class="text-emerald-400" />
-                    <h3 class="text-[14px] font-black text-white uppercase tracking-wider">{{ t('user_profile.tabs.groups') }} ({{ profileStore.mutualGroups.length }})</h3>
-                  </div>
-                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div v-if="profileStore.isLoadingMutualGroups" class="col-span-full py-10 flex justify-center">
-                      <RefreshCcw :size="32" class="animate-spin text-emerald-500/40" />
-                    </div>
-                    <div v-else-if="profileStore.mutualGroups.length === 0" class="col-span-full py-10 text-center text-white/40 font-bold">
-                      {{ t('user_profile.no_data') }}
-                    </div>
-                    <div v-for="group in profileStore.mutualGroups" :key="group.id" class="group bg-white/5 border border-white/10 rounded-3xl p-5 flex items-center gap-5 hover:bg-white/10 hover:border-emerald-500/40 cursor-pointer transition-all shadow-xl">
-                      <img :src="group.iconUrl || group.bannerUrl || 'https://via.placeholder.com/128'" class="w-16 h-16 rounded-2xl object-cover border border-white/10 shadow-lg">
-                      <div class="flex-1 min-w-0">
-                        <div class="font-black text-[15px] text-white truncate group-hover:text-emerald-400 transition-colors">{{ group.name }}</div>
-                        <div class="text-[11px] font-black text-white/40 uppercase tracking-widest mt-1">{{ group.memberCount || 0 }} Members</div>
-                      </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="font-bold text-sm text-[var(--theme-text-strong)] truncate">{{ friend.displayName }}</div>
+                      <div class="text-xs text-[var(--theme-text-muted)] truncate">{{ friend.statusDescription || friend.status }}</div>
                     </div>
                   </div>
-                </section>
+                </div>
               </div>
             </template>
 
             <!-- Groups Tab -->
             <template v-else-if="activeTab === 'groups'">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div v-if="profileStore.isLoadingGroups" class="col-span-full py-20 flex justify-center"><RefreshCcw :size="40" class="animate-spin text-primary/40" /></div>
-                <div v-else-if="profileStore.groups.length === 0" class="col-span-full py-20 text-center text-white/40 font-bold">{{ t('user_profile.no_data') }}</div>
-                <div v-for="group in profileStore.groups" :key="group.id" class="group bg-white/5 border border-white/10 rounded-3xl p-5 flex items-center gap-5 hover:bg-white/10 hover:border-emerald-500/40 cursor-pointer transition-all shadow-xl relative overflow-hidden">
-                  <div class="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
-                  <img :src="group.iconUrl || group.bannerUrl || 'https://via.placeholder.com/128'" class="w-16 h-16 rounded-2xl object-cover border border-white/10 shadow-lg relative z-10">
-                  <div class="flex-1 min-w-0 relative z-10">
-                    <div class="font-black text-[15px] text-white truncate group-hover:text-emerald-400 transition-colors">{{ group.name }}</div>
-                    <div class="flex items-center gap-4 mt-1.5">
-                      <span class="text-[11px] font-black text-white/40 uppercase tracking-widest flex items-center gap-1.5"><Users :size="12" /> {{ group.memberCount || 0 }}</span>
-                      <span class="px-2 py-0.5 rounded-lg bg-white/5 border border-white/5 text-[9px] font-black text-white/40 uppercase tracking-tighter">{{ group.shortCode }}</span>
-                    </div>
-                  </div>
+              <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                    <Globe class="w-4 h-4 text-primary" /> {{ t('user_profile.tabs.groups') }}
+                  </h3>
+                </div>
+                
+                <div v-if="profileStore.isLoadingGroups" class="flex justify-center p-8 text-primary">
+                  <RefreshCcw class="animate-spin w-8 h-8" />
+                </div>
+                <div v-else-if="profileStore.groups.length === 0" class="flex flex-col items-center justify-center p-12 opacity-50">
+                  <Globe class="w-16 h-16 mb-4" />
+                  <p class="font-bold">{{ t('global.empty', 'Empty') }}</p>
+                </div>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <VrcResourceCard 
+                    v-for="group in profileStore.groups" 
+                    :key="group.id" 
+                    type="group" 
+                    :data="group" 
+                  />
                 </div>
               </div>
             </template>
 
-            <!-- Worlds Tab -->
+            <!-- Created Worlds Tab -->
             <template v-else-if="activeTab === 'created_worlds'">
-              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                <div v-if="profileStore.isLoadingWorlds" class="col-span-full py-20 flex justify-center"><RefreshCcw :size="40" class="animate-spin text-primary/40" /></div>
-                <div v-else-if="profileStore.createdWorlds.length === 0" class="col-span-full py-20 text-center text-white/40 font-bold">{{ t('user_profile.no_data') }}</div>
-                <div v-for="world in profileStore.createdWorlds" :key="world.id" class="group bg-white/5 border border-white/10 rounded-3xl overflow-hidden hover:border-primary/40 cursor-pointer transition-all shadow-2xl">
-                  <div class="relative h-44">
-                    <img :src="world.imageUrl || world.thumbnailImageUrl || 'https://via.placeholder.com/600x300'" class="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                      <div class="flex items-center gap-3">
-                        <span class="px-2.5 py-1 bg-primary/80 backdrop-blur-md rounded-lg text-[10px] font-black text-white flex items-center gap-1.5 shadow-lg"><Users :size="12" /> {{ world.occupants || 0 }}</span>
-                      </div>
-                      <span class="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] shadow-lg">{{ formatDate(world.updated_at) }}</span>
-                    </div>
-                  </div>
-                  <div class="p-6">
-                    <div class="font-black text-[16px] text-white mb-2 group-hover:text-primary transition-colors truncate tracking-tight">{{ world.name }}</div>
-                    <div class="flex items-center gap-4 text-[11px] font-bold text-white/40">
-                      <span class="flex items-center gap-1.5"><Heart :size="12" class="text-pink-500" /> {{ world.favorites || 0 }}</span>
-                      <span class="flex items-center gap-1.5"><Eye :size="12" class="text-sky-500" /> {{ world.visits || 0 }}</span>
-                    </div>
-                  </div>
+              <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                    <Map class="w-4 h-4 text-primary" /> {{ t('user_profile.tabs.worlds') }}
+                  </h3>
+                </div>
+                
+                <div v-if="profileStore.isLoadingWorlds" class="flex justify-center p-8 text-primary">
+                  <RefreshCcw class="animate-spin w-8 h-8" />
+                </div>
+                <div v-else-if="profileStore.createdWorlds.length === 0" class="flex flex-col items-center justify-center p-12 opacity-50">
+                  <Map class="w-16 h-16 mb-4" />
+                  <p class="font-bold">{{ t('global.empty', 'Empty') }}</p>
+                </div>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <VrcResourceCard 
+                    v-for="world in profileStore.createdWorlds" 
+                    :key="world.id" 
+                    type="world" 
+                    :data="world" 
+                  />
                 </div>
               </div>
             </template>
 
-            <!-- Avatars Tab -->
+            <!-- Created Avatars Tab -->
             <template v-else-if="activeTab === 'created_avatars'">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                <div v-if="profileStore.isLoadingAvatars" class="col-span-full py-20 flex justify-center"><RefreshCcw :size="40" class="animate-spin text-primary/40" /></div>
-                <div v-else-if="profileStore.createdAvatars.length === 0" class="col-span-full py-20 text-center text-white/40 font-bold">{{ t('user_profile.no_data') }}</div>
-                <div v-for="avatar in profileStore.createdAvatars" :key="avatar.id" class="group bg-white/5 border border-white/10 rounded-3xl p-4 hover:bg-white/10 hover:border-primary/40 transition-all shadow-xl">
-                  <div class="relative aspect-square rounded-2xl overflow-hidden mb-4">
-                    <img :src="avatar.imageUrl || avatar.thumbnailImageUrl" class="w-full h-full object-cover transition-transform group-hover:scale-110">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                      <span class="text-[10px] font-black text-white/90 uppercase tracking-widest">{{ avatar.releaseStatus }}</span>
-                    </div>
-                  </div>
-                  <div class="px-2">
-                    <div class="font-black text-[14px] text-white truncate group-hover:text-primary transition-colors mb-1">{{ avatar.name }}</div>
-                    <div class="text-[10px] font-bold text-white/30 uppercase tracking-widest">{{ formatDate(avatar.updated_at) }}</div>
-                  </div>
+              <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                    <Cuboid class="w-4 h-4 text-primary" /> {{ t('user_profile.tabs.avatars') }}
+                  </h3>
+                </div>
+                
+                <div v-if="profileStore.isLoadingAvatars" class="flex justify-center p-8 text-primary">
+                  <RefreshCcw class="animate-spin w-8 h-8" />
+                </div>
+                <div v-else-if="profileStore.createdAvatars.length === 0" class="flex flex-col items-center justify-center p-12 opacity-50">
+                  <Cuboid class="w-16 h-16 mb-4" />
+                  <p class="font-bold">{{ t('global.empty', 'Empty') }}</p>
+                </div>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <VrcResourceCard 
+                    v-for="avatar in profileStore.createdAvatars" 
+                    :key="avatar.id" 
+                    type="avatar" 
+                    :data="avatar" 
+                  />
                 </div>
               </div>
             </template>
+
+            <!-- Activity / Notes Tab -->
             <template v-else-if="activeTab === 'activity'">
-              <div class="space-y-4 max-w-3xl mx-auto">
-                <div v-if="profileStore.isLoadingActivity" class="py-20 flex justify-center"><RefreshCcw :size="40" class="animate-spin text-primary/40" /></div>
-                <div v-else-if="profileStore.activityLogs.length === 0" class="py-20 text-center text-white/40 font-bold">{{ t('user_profile.no_data') }}</div>
-                <div v-for="log in profileStore.activityLogs" :key="log.id" class="flex items-start gap-5 p-5 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all group">
-                   <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 group-hover:scale-110 transition-transform">
-                      <History :size="18" class="text-primary" />
-                   </div>
-                   <div class="flex-1 min-w-0">
-                      <div class="flex items-center justify-between mb-1">
-                        <span class="text-[14px] font-bold text-white/90">{{ log.type || 'Activity' }}</span>
-                        <span class="text-[11px] font-medium text-white/30">{{ formatTime(log.created_at) }}</span>
+              <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                    <History class="w-4 h-4 text-primary" /> {{ t('user_profile.tabs.activity') }}
+                  </h3>
+                </div>
+                
+                <div class="glass-panel border-border-soft rounded-3xl p-6 shadow-xl relative overflow-hidden group">
+                  <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                      <PencilLine class="w-4 h-4 text-primary" /> {{ t('user_profile.sections.personal_memo') }}
+                    </h3>
+                    <button 
+                      v-if="!isEditingNote" 
+                      @click="isEditingNote = true" 
+                      class="text-xs font-bold px-3 py-1.5 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors"
+                    >
+                      {{ t('user_profile.actions.edit_memo') }}
+                    </button>
+                    <div v-else class="flex gap-2">
+                      <button @click="isEditingNote = false" class="text-xs font-bold px-3 py-1.5 bg-border-soft text-text-muted rounded-lg hover:bg-border-strong transition-colors">{{ t('common.cancel') }}</button>
+                      <button @click="saveLocalNote" class="text-xs font-bold px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors flex items-center gap-1">
+                        <Save class="w-3 h-3" /> {{ t('common.save') }}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div v-if="!isEditingNote" class="min-h-[60px] p-4 bg-[var(--theme-surface)]/60 rounded-xl border border-[var(--theme-border-soft)] text-sm whitespace-pre-wrap font-medium">
+                    {{ localNote || t('user_profile.info.no_memo') }}
+                  </div>
+                  <textarea 
+                    v-else 
+                    v-model="localNote" 
+                    rows="4" 
+                    class="w-full p-4 bg-[var(--theme-surface)] border border-primary/50 focus:border-primary rounded-xl text-sm text-[var(--theme-text-strong)] focus:outline-none transition-colors"
+                    :placeholder="t('user_profile.info.write_memo')"
+                  ></textarea>
+                </div>
+
+                <div class="glass-panel border-border-soft rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <Clock class="w-4 h-4 text-primary" /> {{ t('user_profile.sections.recent_activity') }}
+                  </h3>
+                  <div v-if="profileStore.isLoadingActivity" class="flex justify-center p-4 text-primary">
+                    <RefreshCcw class="animate-spin w-6 h-6" />
+                  </div>
+                  <div v-else-if="profileStore.activityLogs.length === 0" class="text-sm text-text-muted italic">
+                    {{ t('user_profile.info.no_activity') }}
+                  </div>
+                  <div v-else class="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                    <div v-for="(log, index) in profileStore.activityLogs" :key="index" class="flex items-start gap-3 p-3 bg-[var(--theme-surface)]/60 rounded-xl border border-border-soft">
+                      <div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                        <History class="w-4 h-4 text-primary" />
                       </div>
-                      <div class="text-[13px] text-white/60 leading-relaxed">{{ log.message || 'Details...' }}</div>
-                   </div>
+                      <div>
+                        <div class="text-sm font-bold text-[var(--theme-text-strong)]">{{ log.type }}</div>
+                        <div class="text-xs text-[var(--theme-text-muted)]">{{ formatTime(log.created_at) }}</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </template>
 
             <!-- Raw JSON Tab -->
             <template v-else-if="activeTab === 'raw_json'">
-              <div class="bg-black/40 rounded-3xl p-8 border border-white/10 relative shadow-2xl">
-                <div class="absolute top-4 right-4">
-                  <button @click="executeAction('copy_id')" class="p-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl transition-all border border-white/10 active:scale-95">
-                    <Copy :size="18" />
-                  </button>
+              <div class="glass-panel border-border-soft rounded-3xl p-6 shadow-xl relative overflow-hidden flex flex-col max-h-[400px]">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-[13px] font-black text-[var(--theme-text-muted)] uppercase tracking-widest flex items-center gap-2">
+                    <Code class="w-4 h-4 text-primary" /> {{ t('user_profile.sections.json_data') }}
+                  </h3>
                 </div>
-                <pre class="font-mono text-[13px] leading-relaxed overflow-x-auto custom-scrollbar whitespace-pre-wrap select-text" v-html="highlightJson(profileStore.baseInfo)"></pre>
+                <div class="bg-[var(--theme-surface)]/60 rounded-xl p-3 overflow-auto custom-scrollbar flex-1 border border-border-soft shadow-inner">
+                  <pre class="text-[11px] font-mono leading-relaxed" v-html="highlightJson(profileStore.baseInfo)"></pre>
+                </div>
               </div>
             </template>
 
           </div>
 
-          <!-- Close Button Top Right -->
+          <!-- Close Button -->
           <button 
             @click="profileStore.closeProfile"
-            class="absolute top-6 right-6 w-12 h-12 bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-500 rounded-full flex items-center justify-center transition-all border border-white/10 z-[110] active:scale-95"
+            class="absolute top-6 right-6 w-12 h-12 bg-[var(--theme-surface)]/50 hover:bg-red-500/20 text-[var(--theme-text-muted)] hover:text-red-500 rounded-full flex items-center justify-center transition-all border border-[var(--theme-border-soft)] z-[110] active:scale-95"
           >
             <X :size="24" />
           </button>
@@ -720,8 +643,8 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
     <div v-if="showImagePreview" class="fixed inset-0 bg-black/95 z-[1000] flex items-center justify-center backdrop-blur-3xl" @click="toggleImagePreview">
       <div class="relative w-full h-full flex flex-col items-center justify-center p-10" @click.stop>
         <div class="absolute top-10 right-10 flex gap-4">
-          <button @click="handleResetImage" class="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white/70 transition-all border border-white/10"><RotateCcw :size="20" /></button>
-          <button @click="toggleImagePreview" class="p-4 bg-white/5 hover:bg-red-500/20 rounded-2xl text-white/70 hover:text-red-500 transition-all border border-white/10"><X :size="24" /></button>
+          <button @click="handleResetImage" class="p-4 bg-[var(--theme-surface)]/50 hover:bg-[var(--theme-surface)]/80 rounded-2xl text-[var(--theme-text-muted)] transition-all border border-[var(--theme-border-soft)]"><RotateCcw :size="20" /></button>
+          <button @click="toggleImagePreview" class="p-4 bg-[var(--theme-surface)]/50 hover:bg-red-500/20 rounded-2xl text-[var(--theme-text-muted)] hover:text-red-500 transition-all border border-[var(--theme-border-soft)]"><X :size="24" /></button>
         </div>
         
         <div class="flex-1 flex items-center justify-center overflow-hidden w-full h-full">
@@ -732,15 +655,16 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
           />
         </div>
 
-        <div class="mt-10 flex gap-4 p-5 bg-white/5 rounded-3xl border border-white/10 backdrop-blur-xl">
-          <button @click="handleZoomOut" class="p-4 hover:bg-white/10 rounded-2xl text-white/70 transition-all"><ZoomOut :size="24" /></button>
-          <div class="w-[1px] bg-white/10"></div>
-          <button @click="handleZoomIn" class="p-4 hover:bg-white/10 rounded-2xl text-white/70 transition-all"><ZoomIn :size="24" /></button>
-          <div class="w-[1px] bg-white/10"></div>
-          <button @click="handleRotateCw" class="p-4 hover:bg-white/10 rounded-2xl text-white/70 transition-all"><RotateCw :size="24" /></button>
-          <div class="w-[1px] bg-white/10"></div>
-          <button @click="handleCopyImage" class="p-4 hover:bg-white/10 rounded-2xl text-white/70 transition-all"><Copy :size="24" /></button>
-          <button @click="handleDownloadImage" class="p-4 hover:bg-emerald-500/20 rounded-2xl text-emerald-400 transition-all"><Download :size="24" /></button>
+        <div class="mt-10 flex gap-4 p-5 bg-[var(--theme-surface)]/50 rounded-3xl border border-[var(--theme-border-soft)] backdrop-blur-xl">
+          <button @click="handleZoomOut" class="p-4 hover:bg-[var(--theme-surface)]/80 rounded-2xl text-[var(--theme-text-muted)] transition-all"><ZoomOut :size="24" /></button>
+          <div class="w-[1px] bg-[var(--theme-border-soft)]"></div>
+          <button @click="handleZoomIn" class="p-4 hover:bg-[var(--theme-surface)]/80 rounded-2xl text-[var(--theme-text-muted)] transition-all"><ZoomIn :size="24" /></button>
+          <div class="w-[1px] bg-[var(--theme-border-soft)]"></div>
+          <button @click="handleRotateCw" class="p-4 hover:bg-[var(--theme-surface)]/80 rounded-2xl text-[var(--theme-text-muted)] transition-all"><RotateCw :size="24" /></button>
+          <div class="w-[1px] bg-[var(--theme-border-soft)]"></div>
+          <button @click="handleCopyImage" class="p-4 hover:bg-[var(--theme-surface)]/80 rounded-2xl text-[var(--theme-text-muted)] transition-all"><Copy :size="24" /></button>
+          <div class="w-[1px] bg-[var(--theme-border-soft)]"></div>
+          <button @click="handleDownloadImage" class="p-4 hover:bg-[var(--theme-surface)]/80 rounded-2xl text-[var(--theme-text-muted)] transition-all"><Download :size="24" /></button>
         </div>
       </div>
     </div>
@@ -753,24 +677,12 @@ onUnmounted(() => document.removeEventListener('click', closeMenus));
   backdrop-filter: blur(40px) saturate(180%);
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
+
+
+
+
+
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.4s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

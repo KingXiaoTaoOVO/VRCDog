@@ -42,11 +42,11 @@ const config = ref({
     advGpuAccel: false,
     advDebugMode: false,
     advAutoStart: false,
-    desktopMode: false,         // 启用桌面投屏截图翻译,
-    autoScanEnabled: false,     // 自动定时扫描,
+    desktopMode: false,         
+    autoScanEnabled: false,     
     autoScanInterval: 5,        // 自动扫描间隔 (秒),
-    ttsEnabled: true,           // 语音播报开关,
-    oscChatboxEnabled: true,    // OSC 聊天框输出开关,
+    ttsEnabled: true,           
+    oscChatboxEnabled: true,    
     spaceAdjustChap: true,
     motionDragComfort: 0,
     motionDragForceBounds: true,
@@ -102,6 +102,7 @@ const config = ref({
     colorR: 0,
     colorG: 255,
     colorB: 128,
+    colorHex: '#00FF80',
     floorAlways: false,
     activationDistance: 0.5,
   },
@@ -161,6 +162,7 @@ const config = ref({
     alarmEnabled: false,
     alarmTime: '08:00',
     trackerBattery: false,
+    keyboard: false,
   },
 });
 
@@ -684,7 +686,7 @@ const getKeyDisplay = (val: string) => {
         </button>
         <button
           class="px-6 py-2 rounded-full font-bold shadow-md transition-all flex items-center gap-2"
-          :class="saved ? 'bg-green-500 text-white shadow-green-500/30' : 'bg-primary/10 hover:bg-primary/10 text-white shadow-indigo-500/30'"
+          :class="saved ? 'bg-green-500 text-white shadow-green-500/30' : 'bg-primary text-white hover:brightness-110 shadow-indigo-500/30'"
           @click="saveSettings"
         >
           <Check
@@ -750,7 +752,7 @@ const getKeyDisplay = (val: string) => {
         <!-- OVR Advanced Settings 分隔线 -->
         <div class="my-3 flex items-center gap-2">
           <div class="flex-1 border-primary" />
-          <span class="text-[10px] font-bold text-primary uppercase tracking-wider whitespace-nowrap">OVR Advanced</span>
+          <span class="text-[10px] font-bold text-primary uppercase tracking-wider whitespace-nowrap">{{ t('ovr.title_adv') }}</span>
           <div class="flex-1 border-primary" />
         </div>
 
@@ -910,7 +912,7 @@ const getKeyDisplay = (val: string) => {
           </h2>
 
           <!-- 功能说明 -->
-          <div class="p-4 bg-gradient-to-r from-indigo-50 to-violet-50 rounded-2xl border-primary shadow-sm">
+          <div class="p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-2xl border border-primary/20 shadow-sm">
             <p class="text-sm text-primary leading-relaxed">
               {{ t('ovr.desktop_desc') }}
             </p>
@@ -1066,11 +1068,11 @@ const getKeyDisplay = (val: string) => {
                 {{ desktopTranslationResult.original }}
               </p>
             </div>
-            <div class="p-3 bg-violet-50/50 rounded-xl">
-              <p class="text-xs font-bold text-violet-700 mb-1">
+            <div class="p-3 bg-primary/5 rounded-xl border border-primary/10">
+              <p class="text-xs font-bold text-primary mb-1">
                 {{ t('ovr.desktop_translated') }}
               </p>
-              <p class="text-sm text-violet-900 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto custom-scrollbar font-medium">
+              <p class="text-sm text-primary/90 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto custom-scrollbar font-medium">
                 {{ desktopTranslationResult.translated }}
               </p>
             </div>
@@ -1148,14 +1150,14 @@ const getKeyDisplay = (val: string) => {
                 <CustomSelect v-model="config.general.transSourceLang" :options="[
                   { label: t('ovr.trans_auto'), value: 'auto' },
                   { label: 'English', value: 'en' },
-                  { label: '日本語', value: 'ja' },
+                  { label: 'Japanese', value: 'ja' },
                   { label: '한국어', value: 'ko' }
                 ]" />
               </div>
               <div>
                 <label class="block text-sm font-bold text-primary mb-1">{{ t('ovr.trans_target') }}</label>
                 <CustomSelect v-model="config.general.transTargetLang" :options="[
-                  { label: '简体中文', value: 'zh' },
+                  { label: 'Chinese', value: 'zh' },
                   { label: 'English', value: 'en' }
                 ]" />
               </div>
@@ -1209,7 +1211,7 @@ const getKeyDisplay = (val: string) => {
                 <div
                   v-if="apiTestResult !== 'idle'"
                   class="mt-2 text-sm font-bold px-3 py-2 rounded-lg flex items-center gap-2"
-                  :class="apiTestResult === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'"
+                  :class="apiTestResult === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/30' : 'bg-red-500/10 text-red-500 border border-red-500/30'"
                 >
                   <Check
                     v-if="apiTestResult === 'success'"

@@ -74,7 +74,7 @@
         <button class="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl shadow-md shadow-primary/30 text-xs font-bold transition-all" @click="openNewClient">
           <Monitor class="w-4 h-4" /> {{ t('role.dashboard_open_client') }}
         </button>
-        <button class="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-md shadow-red-500/30 text-xs font-bold transition-all" @click="stopAndExit">
+        <button class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface-hover text-text hover:text-red-500 border border-border-soft rounded-xl shadow-sm text-xs font-bold transition-all" @click="stopAndExit">
           <LogOut class="w-4 h-4" /> {{ t('role.back') }}
         </button>
       </div>
@@ -229,7 +229,8 @@
 
         <div
           v-show="activeTab === 'logs'"
-          class="flex-1 terminal-black rounded-2xl border border-white/10 p-4 flex flex-col overflow-hidden relative"
+          class="flex-1 terminal-black rounded-2xl border border-zinc-800/50 p-4 flex flex-col overflow-hidden relative shadow-inner"
+          style="background: rgba(10, 10, 10, 0.95) !important;"
         >
           <div class="flex justify-between items-center mb-3">
             <span class="text-[10px] text-zinc-400 uppercase tracking-widest font-bold flex items-center gap-2"><Terminal class="w-3 h-3" /> SYSTEM LOGS</span>
@@ -247,16 +248,17 @@
             <div
               v-for="(log, idx) in logs"
               :key="idx"
-              class="mb-1 leading-relaxed break-all flex gap-3 hover:bg-white/5 px-2 py-0.5 rounded transition-colors"
+              class="mb-1 leading-relaxed break-words whitespace-pre-wrap flex gap-3 hover:bg-white/5 px-2 py-0.5 rounded transition-colors"
             >
               <span class="text-zinc-500 shrink-0 select-none">[{{ log.time }}]</span>
-              <span :class="{'text-zinc-300': log.level==='INFO','text-red-400': log.level==='ERROR','text-yellow-400': log.level==='WARN','text-emerald-400': log.level==='SUCCESS'}">{{ log.content }}</span>
+              <span class="shrink-0 select-none font-bold" :class="{'text-blue-400': log.level==='INFO','text-red-400': log.level==='ERROR','text-yellow-400': log.level==='WARN','text-emerald-400': log.level==='SUCCESS'}">[{{ log.level }}]</span>
+              <span class="text-zinc-300">{{ log.content }}</span>
             </div>
             <div
               v-if="logs.length===0"
-              class="text-zinc-600 mt-10 text-center uppercase tracking-widest opacity-50 flex flex-col items-center gap-2"
+              class="text-zinc-600 mt-10 text-center uppercase tracking-widest opacity-50 flex flex-col items-center gap-2 m-auto"
             >
-              <Terminal class="w-8 h-8" /> AWAITING INPUT...
+              <Terminal class="w-8 h-8" /> {{ t('debug.waiting_api') || 'AWAITING INPUT...' }}
             </div>
           </div>
         </div>
@@ -582,34 +584,34 @@
     <!-- Freeze Dialog -->
     <div
       v-if="showFreezeDialog"
-      class="fixed inset-0 bg-surface/80 backdrop-blur-md flex items-center justify-center z-[999]"
+      class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999]"
       @click.self="showFreezeDialog=false"
     >
-      <div class="bg-surface/80 rounded-2xl p-6 w-96 border-primary/30 shadow-xl shadow-primary/30">
+      <div class="bg-surface rounded-2xl p-6 w-96 border border-border-soft shadow-xl">
         <h3 class="text-sm font-black mb-4 text-primary uppercase tracking-widest flex items-center gap-2">
           <Snowflake class="w-4 h-4" /> {{ t('role.freeze_user') }}
         </h3>
-        <p class="text-white font-bold mb-4 bg-surface p-2 rounded-lg border-border-soft">
+        <p class="text-text font-bold mb-4 bg-surface-hover p-2 rounded-lg border border-border-soft">
           {{ dialogUser?.display_name }}
         </p>
         <div class="space-y-4">
           <div>
-            <label class="text-[10px] text-text block mb-1 uppercase tracking-wider">{{ t('role.freeze_reason') }}</label>
+            <label class="text-[10px] text-text-muted block mb-1 uppercase tracking-wider">{{ t('role.freeze_reason') }}</label>
             <input
               v-model="freezeReason"
-              class="w-full bg-surface border-primary/30 rounded-lg px-3 py-2 text-sm outline-none /30 text-white"
+              class="w-full bg-surface border border-border-soft focus:border-primary rounded-lg px-3 py-2 text-sm outline-none text-text transition-colors"
               :placeholder="t('role.freeze_reason_ph')"
             >
           </div>
-          <div class="flex gap-3 justify-end mt-6 pt-4 border-border-soft">
+          <div class="flex gap-3 justify-end mt-6 pt-4 border-t border-border-soft">
             <button
-              class="px-4 py-2 bg-surface-hover hover:bg-surface-active rounded-lg text-xs font-bold text-text uppercase tracking-wider transition-colors"
+              class="px-4 py-2 bg-surface hover:bg-surface-hover rounded-lg text-xs font-bold text-text-muted border border-border-soft uppercase tracking-wider transition-colors"
               @click="showFreezeDialog=false"
             >
               {{ t('role.cancel') }}
             </button>
             <button
-              class="px-4 py-2 bg-primary/20 hover:bg-primary/20 text-white font-black rounded-lg text-xs uppercase tracking-widest shadow-lg shadow-primary/40 transition-all"
+              class="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-content font-bold rounded-lg text-xs uppercase tracking-widest transition-colors"
               @click="confirmFreeze"
             >
               {{ t('role.confirm_freeze') }}
@@ -667,7 +669,7 @@ const themeStyles = computed(() => {
 });
 
 const { t, locale } = useI18n();
-const langMap: Record<string, string> = { 'zh-CN': '简体中文', 'en-US': 'English', 'ja-JP': '日本語' };
+const langMap: Record<string, string> = { 'zh-CN': 'Chinese', 'en-US': 'English', 'ja-JP': 'Japanese' };
 const currentLangLabel = computed(() => langMap[locale.value] || 'Language');
 const cycleLanguage = () => {
   const keys = Object.keys(langMap);
@@ -682,9 +684,9 @@ const serverPort = useStorage('vrc_dashboard_port', 11451);
 const isRunning = ref(false);
 const activeTab = ref('logs');
 const tabs = computed(() => [
-  { key: 'logs', label: t('role.dashboard_logs_tab') || '终端日志' },
-  { key: 'users', label: t('role.dashboard_users_tab') || '用户管理' },
-  { key: 'features', label: t('role.dashboard_roles_tab') || '角色与权限' },
+  { key: 'logs', label: t('role.dashboard_logs_tab') },
+  { key: 'users', label: t('role.dashboard_users_tab') },
+  { key: 'features', label: t('role.dashboard_roles_tab') },
 ]);
 
 const toastMessage = ref('');
@@ -772,16 +774,16 @@ const adminPost = async (endpoint: string, body: any) => {
     const data = await VrcApi.request(`${serverUrl.value}${endpoint}`, { method: 'POST', params: body });
     
     if (data && data.success === false) {
-       throw new Error(data.message || '操作未成功');
+       throw new Error(data.message);
     }
     
     addLog(`[INFO] ${data?.message || 'OK'}`);
-    showToast(data?.message || '操作成功');
+    showToast(data?.message);
     fetchClients(); 
     fetchUsers();
   } catch (e: any) { 
     addLog(`[ERROR] ${e.message || e}`); 
-    showToast(`操作失败: ${e.message || e}`);
+    showToast(t('server.op_failed', { error: e.message || e }));
   }
 };
 
@@ -850,18 +852,18 @@ const saveRole = async () => {
       fetchRoles();
     }
   } catch (e: any) { 
-    addLog(`[ERROR] 保存失败: ${e.message || e}`);
-    showToast(`保存失败: ${e.message || e}`);
+    addLog(t('app.save_fail', { error: e.message || e }));
+    showToast(t('app.save_fail', { error: e.message || e }));
   }
 };
 
 const deleteRole = async (role_id: string) => {
-  if(!confirm('确定删除此角色吗？')) return;
+  if(!confirm(t('app.confirm_delete_role'))) return;
   try {
     const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles/delete`, { method: 'POST', params: { role_id } });
     if(data.success) {
        if(selectedRole.value?.role_id === role_id) selectedRole.value = null;
-       showToast('删除成功');
+       showToast(t('role.delete_success') || 'Success');
        fetchRoles(); fetchUsers();
     } else {
        addLog(`[WARN] ${data.message}`);
@@ -873,7 +875,7 @@ const deleteRole = async (role_id: string) => {
 const setDefaultRole = async (role_id: string) => {
   try {
     await VrcApi.request(`${serverUrl.value}/api/admin/roles/set_default`, { method: 'POST', params: { role_id } });
-    showToast('默认角色已更改');
+    showToast(t('role.default_changed') || 'Changed');
     fetchRoles();
   } catch {}
 };
@@ -882,7 +884,7 @@ const setUserRole = async (user_id: string, role_id: string | null) => {
   try {
     const data = await VrcApi.request(`${serverUrl.value}/api/admin/users/set_role`, { method: 'POST', params: { user_id, role_id } });
     if (data.success) {
-      showToast('角色分配成功！');
+      showToast(t('role.assign_success') || 'Success');
     }
   } catch {}
 };
@@ -890,27 +892,27 @@ const setUserRole = async (user_id: string, role_id: string | null) => {
 // === Server Lifecycle ===
 const startLocalServer = async () => {
   try {
-    addLog('[INFO] 正在启动服务端...');
+    addLog(t('app.start_server'));
     await SysApi.startServer({ host: serverHost.value, port: serverPort.value });
     isRunning.value = true;
     setTimeout(startPolling, 500);
-  } catch (err: any) { addLog('[ERROR] 启动失败: ' + (err.message || err)); }
+  } catch (err: any) { addLog(t('app.start_server_fail', { error: err.message || err })); }
 };
 const stopLocalServer = async () => {
   try {
-    addLog('[INFO] 正在停止服务端...');
+    addLog(t('app.stop_server'));
     await SysApi.stopServer();
     isRunning.value = false;
     stopPolling();
-    addLog('[INFO] 服务端已成功停止');
+    addLog(t('app.stop_server_success'));
   } catch (err: any) {
-    addLog('[ERROR] 停止失败: ' + (err.message || err));
+    addLog(t('app.stop_server_fail', { error: err.message || err }));
   }
 };
 
 // === Lifecycle ===
 onMounted(async () => {
-  addLog('[INFO] ' + t('role.dashboard_title') + ' 已加载。请配置后点击启动。');
+  addLog('[INFO] ' + t('role.dashboard_title') + ' loaded');
   unlistenLog = await listen<string>('server_log', (e) => addLog(e.payload));
   unlistenClients = await listen<string>('clients_updated', () => { fetchClients(); fetchUsers(); });
   
@@ -918,21 +920,21 @@ onMounted(async () => {
     const running = await SysApi.isServerRunning();
     if (running) {
       isRunning.value = true;
-      addLog('[INFO] 检测到服务端已经在后台运行中...');
+      addLog(t('app.server_running'));
       setTimeout(startPolling, 500);
     }
   } catch (err: any) {
-    console.warn("检查服务端状态失败", err);
+    console.warn("Failed to check server status", err);
   }
 });
 onUnmounted(() => { unlistenLog?.(); unlistenClients?.(); stopPolling(); });
 
 const openNewClient = async () => {
   try {
-    addLog('[INFO] 正在启动新客户端窗口...');
+    addLog(t('app.start_client'));
     await SysApi.openNewClient();
   } catch (err: any) {
-    addLog('[ERROR] 启动客户端失败: ' + (err.message || err));
+    addLog(t('app.start_client_fail', { error: err.message || err }));
   }
 };
 const stopAndExit = () => { stopPolling(); emit('exit'); };
@@ -949,18 +951,8 @@ const stopAndExit = () => { stopPolling(); emit('exit'); };
 .animate-spin-slow {
   animation: spin 8s linear infinite;
 }
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5);
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(6, 182, 212, 0.3);
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.6);
-}
+
+
+
+
 </style>

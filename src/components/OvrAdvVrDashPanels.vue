@@ -13,7 +13,18 @@ const props = defineProps<{
 const emit = defineEmits(['update:config']);
 
 const updateConfig = (key: string, value: any) => {
-  emit('update:config', { ...props.config, [key]: value });
+  const keys = key.split('.');
+  if (keys.length === 2) {
+    emit('update:config', {
+      ...props.config,
+      [keys[0]]: {
+        ...props.config[keys[0]],
+        [keys[1]]: value
+      }
+    });
+  } else {
+    emit('update:config', { ...props.config, [key]: value });
+  }
 };
 
 </script>
@@ -28,8 +39,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.steamvr_timing_overlay') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.steamvrTimingOverlay }"
-        @click="updateConfig('steamvrTimingOverlay', !config.steamvrTimingOverlay)"
+        :class="{ 'on': config.steamvr.timingOverlay }"
+        @click="updateConfig('steamvr.timingOverlay', !config.steamvr.timingOverlay)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -38,8 +49,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.steamvr_camera_enable') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.steamvrCameraEnable }"
-        @click="updateConfig('steamvrCameraEnable', !config.steamvrCameraEnable)"
+        :class="{ 'on': config.steamvr.cameraEnable }"
+        @click="updateConfig('steamvr.cameraEnable', !config.steamvr.cameraEnable)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -55,15 +66,15 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.chap_visibility') }}</span>
       <span
         class="vr-dash-value"
-        @click="updateConfig('chapVisibility', config.chapVisibility >= 100 ? 30 : config.chapVisibility + 10)"
-      >{{ config.chapVisibility }}%</span>
+        @click="updateConfig('chaperone.visibility', config.chaperone.visibility >= 100 ? 30 : config.chaperone.visibility + 10)"
+      >{{ config.chaperone.visibility }}%</span>
     </div>
     <div class="vr-dash-row">
       <span>{{ t('ovr.chap_force_bounds') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.chapForceBounds }"
-        @click="updateConfig('chapForceBounds', !config.chapForceBounds)"
+        :class="{ 'on': config.chaperone.forceBounds }"
+        @click="updateConfig('chaperone.forceBounds', !config.chaperone.forceBounds)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -73,12 +84,12 @@ const updateConfig = (key: string, value: any) => {
       <div class="flex gap-2">
         <div
           class="vr-dash-switch"
-          :class="{ 'on': config.chapHapticFeedback }"
-          @click="updateConfig('chapHapticFeedback', !config.chapHapticFeedback)"
+          :class="{ 'on': config.chaperone.hapticFeedback }"
+          @click="updateConfig('chaperone.hapticFeedback', !config.chaperone.hapticFeedback)"
         >
           <div class="vr-dash-switch-knob" />
         </div>
-        <span style="font-size: 11px">Haptic</span>
+        <span style="font-size: 11px">{{ t('ovr.chap_haptic_feedback') }}</span>
       </div>
     </div>
   </div>
@@ -92,8 +103,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.space_adjust_chap') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.spaceAdjustChap }"
-        @click="updateConfig('spaceAdjustChap', !config.spaceAdjustChap)"
+        :class="{ 'on': config.general.spaceAdjustChap }"
+        @click="updateConfig('general.spaceAdjustChap', !config.general.spaceAdjustChap)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -102,8 +113,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.motion_drag_left') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.motionDragLeft }"
-        @click="updateConfig('motionDragLeft', !config.motionDragLeft)"
+        :class="{ 'on': config.playspace.dragLeft }"
+        @click="updateConfig('playspace.dragLeft', !config.playspace.dragLeft)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -133,23 +144,21 @@ const updateConfig = (key: string, value: any) => {
         class="flex justify-between"
         style="width: 100%"
       >
-        <span style="font-size: 11px; opacity: 0.8">Rotation ({{ config.spaceRotation || 0 }}°)</span>
+        <span style="font-size: 11px; opacity: 0.8">Rotation ({{ config.playspace.rotation || 0 }}°)</span>
         <div class="flex gap-2">
           <button
             class="vr-dash-btn"
-            @click="updateConfig('spaceRotation', -90)"
+            @click="updateConfig('playspace.rotation', -90)"
           >
             -90°
           </button>
           <button
             class="vr-dash-btn"
-            @click="updateConfig('spaceRotation', 0)"
-          >
-            Reset
-          </button>
+            @click="updateConfig('playspace.rotation', 0)"
+          >{{ t('ovr.stats_reset') }}</button>
           <button
             class="vr-dash-btn"
-            @click="updateConfig('spaceRotation', 90)"
+            @click="updateConfig('playspace.rotation', 90)"
           >
             +90°
           </button>
@@ -159,11 +168,11 @@ const updateConfig = (key: string, value: any) => {
         class="flex justify-between"
         style="width: 100%; align-items: center"
       >
-        <span style="font-size: 11px; opacity: 0.8">Gravity Sim</span>
+        <span style="font-size: 11px; opacity: 0.8">{{ t('ovr.motion_gravity') }}</span>
         <div
           class="vr-dash-switch"
-          :class="{ 'on': config.motionGravity }"
-          @click="updateConfig('motionGravity', !config.motionGravity)"
+          :class="{ 'on': config.general.motionGravityOn }"
+          @click="updateConfig('general.motionGravityOn', !config.general.motionGravityOn)"
         >
           <div class="vr-dash-switch-knob" />
         </div>
@@ -180,8 +189,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.audio_prox_sensor') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.audioProxSensor }"
-        @click="updateConfig('audioProxSensor', !config.audioProxSensor)"
+        :class="{ 'on': config.audio.proxSensor }"
+        @click="updateConfig('audio.proxSensor', !config.audio.proxSensor)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -190,8 +199,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.audio_ptt') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.audioPTT }"
-        @click="updateConfig('audioPTT', !config.audioPTT)"
+        :class="{ 'on': config.audio.pTT }"
+        @click="updateConfig('audio.pTT', !config.audio.pTT)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -207,8 +216,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.video_brightness_on') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.videoBrightnessOn }"
-        @click="updateConfig('videoBrightnessOn', !config.videoBrightnessOn)"
+        :class="{ 'on': config.video.brightnessOn }"
+        @click="updateConfig('video.brightnessOn', !config.video.brightnessOn)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -217,18 +226,18 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.video_motion_smooth') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.videoMotionSmooth }"
-        @click="updateConfig('videoMotionSmooth', !config.videoMotionSmooth)"
+        :class="{ 'on': config.video.motionSmooth }"
+        @click="updateConfig('video.motionSmooth', !config.video.motionSmooth)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
     </div>
     <div class="vr-dash-row mt-2">
-      <span style="font-size: 11px; opacity: 0.8">SuperSampling</span>
+      <span style="font-size: 11px; opacity: 0.8">{{ t('ovr.video_super_sampling') }}</span>
       <span
         class="vr-dash-value"
-        @click="updateConfig('videoSuperSampling', config.videoSuperSampling >= 500 ? 100 : (config.videoSuperSampling || 100) + 50)"
-      >{{ config.videoSuperSampling || 100 }}%</span>
+        @click="updateConfig('video.superSampling', config.video.superSampling >= 500 ? 100 : (config.video.superSampling || 100) + 50)"
+      >{{ config.video.superSampling || 100 }}%</span>
     </div>
   </div>
 
@@ -241,8 +250,8 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.util_alarm_enabled') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.utilAlarmEnabled }"
-        @click="updateConfig('utilAlarmEnabled', !config.utilAlarmEnabled)"
+        :class="{ 'on': config.utilities.alarmEnabled }"
+        @click="updateConfig('utilities.alarmEnabled', !config.utilities.alarmEnabled)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
@@ -251,18 +260,18 @@ const updateConfig = (key: string, value: any) => {
       <span>{{ t('ovr.util_tracker_battery') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.utilTrackerBattery }"
-        @click="updateConfig('utilTrackerBattery', !config.utilTrackerBattery)"
+        :class="{ 'on': config.utilities.trackerBattery }"
+        @click="updateConfig('utilities.trackerBattery', !config.utilities.trackerBattery)"
       >
         <div class="vr-dash-switch-knob" />
       </div>
     </div>
     <div class="vr-dash-row mt-2">
-      <span style="font-size: 11px; opacity: 0.8">Media Keys Integration</span>
+      <span style="font-size: 11px; opacity: 0.8">{{ t('ovr.util_media_keys') }}</span>
       <div
         class="vr-dash-switch"
-        :class="{ 'on': config.utilMediaKeys }"
-        @click="updateConfig('utilMediaKeys', !config.utilMediaKeys)"
+        :class="{ 'on': config.utilities.mediaKeys }"
+        @click="updateConfig('utilities.mediaKeys', !config.utilities.mediaKeys)"
       >
         <div class="vr-dash-switch-knob" />
       </div>

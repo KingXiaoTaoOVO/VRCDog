@@ -2,29 +2,41 @@
 import { ref, computed } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
 import { invoke } from '@tauri-apps/api/core';
-import { Bone, Key, User, Loader2, Globe } from 'lucide-vue-next';
+import { Bone, Key, User, Loader2, Globe, ArrowLeft } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import i18n from '../i18n';
 import { getVersion } from '@tauri-apps/api/app';
+import { currentTheme } from '../theme';
 
-const { t, locale } = useI18n();
+const { t, locale } = useI18n({ useScope: 'global' });
 const appVersion = ref('');
 
-const langMap: Record<string, string> = {
-  'zh-CN': t('auto_d688a3a4'),
-  'en-US': 'English',
-  'ja-JP': t('auto_00110af8')
-};
 
-const currentLangLabel = computed(() => langMap[locale.value] || 'Language');
+
+const languages = [
+  { code: 'zh-CN', label: 'Chinese' },
+  { code: 'en-US', label: 'English' },
+  { code: 'ja-JP', label: 'Japanese' }
+];
+
+const currentLangLabel = computed(() => {
+  const lang = languages.find(l => l.code === locale.value);
+  return lang ? lang.label : 'Chinese';
+});
 
 const cycleLanguage = () => {
-  const keys = Object.keys(langMap);
-  const idx = keys.indexOf(locale.value);
-  const nextIdx = (idx + 1) % keys.length;
-  const nextLang = keys[nextIdx];
+  const currentIndex = languages.findIndex(l => l.code === locale.value);
+  const nextIndex = (currentIndex + 1) % languages.length;
+  const nextLang = languages[nextIndex].code;
+  
+  // Update global locale immediately
+  if (i18n.global) {
+    (i18n.global.locale as any).value = nextLang;
+  }
   locale.value = nextLang;
+  
   localStorage.setItem('vrcdog-locale', nextLang);
-  // Optional: save to DbApi if needed
+  window.dispatchEvent(new CustomEvent('settings-updated', { detail: { language: nextLang } }));
   DbApi.saveSetting({ key: 'language', value: JSON.stringify(nextLang) }).catch(() => {});
 };
 
@@ -53,6 +65,7 @@ const handleLogin = async () => {
 
   try {
     // 关键步骤：清空可能残留的旧会话（否则随便输密码也能通过）
+    await DbApi.clearAuth();
     await VrcApi.clearCookies();
     // 关键步骤：必须先调用 /config 获取初始 session cookie
     try { await VrcApi.fetchConfig(); } catch (e: any) {
@@ -68,10 +81,11 @@ const handleLogin = async () => {
     });
 
     if (res.error) {
-      errorMsg.value = res.error;
-    } else if (res.requires_two_factor_auth && res.requires_two_factor_auth.length > 0) {
+      errorMsg.value = res.error.message || JSON.stringify(res.error);
+    } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
       show2FA.value = true;
-      twoFactorMethods.value = res.requires_two_factor_auth;
+      twoFactorMethods.value = Array.isArray(res.requiresTwoFactorAuth) ? res.requiresTwoFactorAuth : Array.isArray(res.requires_two_factor_auth) ? res.requires_two_factor_auth : ['totp'];
+      
       // [VRCX 对齐] 合并保存中间 cookie（login 阶段产生的 auth cookie）
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
@@ -92,7 +106,7 @@ const handleLogin = async () => {
           try { await DbApi.saveAuth({ cookie: res.auth_cookie }); } catch {}
         }
       }
-    } else if (res.current_user) {
+    } else if (res.id || res.currentUser || res.current_user) {
       // [VRCX 对齐] 合并保存 auth cookie
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
@@ -111,10 +125,19 @@ const handleLogin = async () => {
           try { await DbApi.saveAuth({ cookie: res.auth_cookie }); } catch {}
         }
       }
-      emit('login-success', res.current_user);
+      const user = res.currentUser || res.current_user || res;
+      emit('login-success', user);
+    } else {
+      errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;
     }
   } catch (err: any) {
-    errorMsg.value = err.message || err;
+    const msg = err.message || JSON.stringify(err);
+    if (msg.includes("hold your horses") || msg.toLowerCase().includes("twofactor")) {
+      show2FA.value = true;
+      twoFactorMethods.value = ["emailOtp"];
+    } else {
+      errorMsg.value = msg;
+    }
   } finally {
     loading.value = false;
   }
@@ -161,12 +184,16 @@ import { onMounted } from 'vue';
 onMounted(async () => {
   try {
     appVersion.value = await getVersion();
+    const cookie = await DbApi.getAuth();
+    if (cookie) {
+      authCookie.value = cookie;
+    }
   } catch (e) {}
 });
 </script>
 
 <template>
-  <div class="flex items-center justify-center h-screen bg-orange-50/50 relative overflow-hidden">
+  <div class="flex items-center justify-center h-screen bg-[var(--theme-bg-main)] relative overflow-hidden">
     <div class="fixed top-4 right-4 z-50 flex gap-2">
       <button
         class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface backdrop-blur rounded-xl border-orange-200 transition-all font-medium text-sm shadow-sm text-text"
@@ -190,12 +217,12 @@ onMounted(async () => {
       />
     </div>
 
-    <div class="bg-surface p-8 rounded-3xl shadow-xl w-full max-w-md border-orange-100 relative z-10">
+    <div class="bg-[var(--theme-surface)]/90 backdrop-blur-xl p-8 rounded-3xl shadow-2xl w-full max-w-md border border-[var(--theme-border-soft)] relative z-10 flex flex-col">
       <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold text-orange-600 mb-2 font-mono flex items-center justify-center gap-2">
+        <h1 class="text-3xl font-bold text-white mb-2 font-mono flex items-center justify-center gap-2">
           <Bone class="animate-bounce" /> {{ t('login.title') }}
         </h1>
-        <p class="text-orange-900/60 text-sm">
+        <p class="text-zinc-400 text-sm">
           {{ t('login.subtitle') }}
         </p>
       </div>
@@ -211,8 +238,8 @@ onMounted(async () => {
           <input
             v-model="username"
             type="text"
-            placeholder="Username / Email"
-            class="w-full px-4 py-3 rounded-xl border-2 border-orange-100 focus:border-orange-400 focus:ring-0 outline-none transition-colors bg-orange-50/30"
+            :placeholder="t('login.username')"
+            class="w-full px-4 py-3 rounded-xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)]"
           >
         </div>
         <div>
@@ -222,16 +249,16 @@ onMounted(async () => {
           <input
             v-model="password"
             type="password"
-            placeholder="Password"
-            class="w-full px-4 py-3 rounded-xl border-2 border-orange-100 focus:border-orange-400 focus:ring-0 outline-none transition-colors bg-orange-50/30"
+            :placeholder="t('login.password')"
+            class="w-full px-4 py-3 rounded-xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)]"
             @keyup.enter="handleLogin"
           >
         </div>
 
-        <div class="relative flex items-center py-2">
-          <div class="flex-grow border-orange-200" />
-          <span class="flex-shrink-0 mx-4 text-orange-400 text-xs font-bold">{{ t('login.or') }}</span>
-          <div class="flex-grow border-orange-200" />
+        <div class="relative flex items-center py-4">
+          <div class="flex-grow border-t border-[var(--theme-border-soft)]" />
+          <span class="flex-shrink-0 mx-4 text-zinc-500 text-xs font-bold uppercase tracking-widest">{{ t('login.or') }}</span>
+          <div class="flex-grow border-t border-[var(--theme-border-soft)]" />
         </div>
 
         <div>
@@ -239,15 +266,15 @@ onMounted(async () => {
           <input
             v-model="authCookie"
             type="text"
-            placeholder="auth=xxxxxxx..."
-            class="w-full px-4 py-2 rounded-xl border-2 border-orange-100 focus:border-orange-400 focus:ring-0 outline-none transition-colors bg-orange-50/30 text-xs"
+            :placeholder="t('login.cookie_ph')"
+            class="w-full px-4 py-2 rounded-xl border border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-500 text-xs"
             @keyup.enter="handleLogin"
           >
         </div>
 
         <button
           :disabled="loading"
-          class="w-full mt-4 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full mt-4 bg-primary hover:bg-primary/80 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           @click="handleLogin"
         >
           <Loader2
@@ -263,9 +290,9 @@ onMounted(async () => {
         v-else
         class="space-y-5"
       >
-        <div class="text-center p-4 bg-orange-50 rounded-xl mb-4">
+        <div class="text-center p-4 bg-black/40 rounded-xl mb-4 border border-white/5">
           <Key
-            class="mx-auto text-orange-500 mb-2"
+            class="mx-auto text-primary mb-2 animate-pulse"
             :size="32"
           />
           <p class="text-text font-bold">
@@ -280,13 +307,13 @@ onMounted(async () => {
             v-model="twoFactorCode"
             type="text"
             :placeholder="t('login.2fa_placeholder')"
-            class="w-full px-4 py-4 rounded-xl border-2 border-orange-100 focus:border-orange-400 focus:ring-0 outline-none transition-colors bg-orange-50/30 text-center text-2xl tracking-widest font-mono font-bold"
+            class="w-full px-4 py-4 rounded-xl border border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-600 text-center text-2xl tracking-[0.5em] font-mono font-bold"
             @keyup.enter="handle2FA"
           >
         </div>
         <button
           :disabled="loading"
-          class="w-full mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-green-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full mt-4 bg-green-500/90 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(34,197,94,0.3)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           @click="handle2FA"
         >
           <Loader2
@@ -296,12 +323,16 @@ onMounted(async () => {
           />
           {{ loading ? t('login.btn_submitting') : t('login.btn_submit_code') }}
         </button>
-        <button
-          class="w-full text-orange-600 hover:text-orange-800 text-sm font-bold mt-2"
-          @click="show2FA = false; errorMsg = ''"
-        >
-          {{ t('login.btn_cancel') }}
-        </button>
+        <div class="mt-6 flex justify-center">
+          <button 
+            @click="show2FA = false" 
+            class="group relative px-6 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all duration-300 overflow-hidden bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)]"
+          >
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[var(--theme-surface-hover)] to-transparent -translate-x-[100%] group-hover:animate-[shimmer_1.5s_infinite]" />
+            <ArrowLeft class="w-4 h-4 text-zinc-400 group-hover:-translate-x-1 transition-transform" />
+            <span class="text-[var(--theme-text-muted)] group-hover:text-[var(--theme-text)] transition-colors">{{ t('login.btn_cancel') || 'Cancel' }}</span>
+          </button>
+        </div>
       </div>
 
       <p
@@ -312,9 +343,10 @@ onMounted(async () => {
       </p>
     </div>
     
-    <!-- 左下角版本号 -->
+    <!-- 宸︿笅瑙掔増鏈彿 -->
     <div class="absolute bottom-4 left-4 z-50">
       <span class="text-xs font-mono font-bold text-text-muted/40 bg-surface backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
     </div>
   </div>
 </template>
+

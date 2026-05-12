@@ -148,20 +148,20 @@ const handleMouseEnter = () => {
               class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="copyId"
             >
-              <Copy :size="14" /> {{ $t('card.copy_id') || '复制 ID' }}
+              <Copy :size="14" /> {{ $t('card.copy_id') }}
             </button>
             <button
               class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="openInBrowser"
             >
-              <ExternalLink :size="14" /> {{ $t('card.open_browser') || '浏览器打开' }}
+              <ExternalLink :size="14" /> {{ $t('card.open_browser') }}
             </button>
             <button
               v-if="type !== 'group'"
               class="w-full text-left px-4 py-2.5 text-xs font-bold text-primary hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="emit('favorite', data)"
             >
-              <Star :size="14" /> {{ $t('card.favorite') || '收藏/分组' }}
+              <Star :size="14" /> {{ $t('card.favorite') }}
             </button>
           </div>
         </div>
@@ -175,7 +175,7 @@ const handleMouseEnter = () => {
             class="px-4 py-2 bg-primary/10 hover:bg-primary/10 text-text-inverse text-xs font-extrabold rounded-xl shadow-lg shadow-indigo-500/30 backdrop-blur-md flex items-center gap-2 transition-all transform translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 active:scale-95"
             @click.stop=""
           >
-            <Play :size="14" /> {{ $t('card.create_instance') || '创建实例' }}
+            <Play :size="14" /> {{ $t('card.create_instance') }}
           </button>
         </div>
       </div>

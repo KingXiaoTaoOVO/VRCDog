@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
-import { Users, Loader2, Shield, Search, Check, UsersRound } from 'lucide-vue-next';
+import { Users, Loader2, Shield, Search, Check, UsersRound, Settings, ScrollText, Megaphone, ShieldAlert, FileText, Lock, Globe } from 'lucide-vue-next';
 import VrcAvatar from './VrcAvatar.vue';
 import VrcResourceCard from './VrcResourceCard.vue';
 import BaseModal from './BaseModal.vue';
@@ -16,6 +16,22 @@ const errorMsg = ref('');
 const selectedGroup = ref<any>(null);
 const loadingGroup = ref(false);
 const searchQuery = ref('');
+
+// Tabs state
+const activeTab = ref('info');
+const groupMembers = ref<any[]>([]);
+const groupRoles = ref<any[]>([]);
+const groupPosts = ref<any[]>([]);
+const groupLogs = ref<any[]>([]);
+const loadingTab = ref(false);
+
+const tabs = computed(() => [
+  { id: 'info', name: t('groups.tabs.info'), icon: Shield },
+  { id: 'members', name: t('groups.tabs.members'), icon: UsersRound },
+  { id: 'roles', name: t('groups.tabs.roles'), icon: Settings },
+  { id: 'posts', name: t('groups.tabs.posts'), icon: Megaphone },
+  { id: 'logs', name: t('groups.tabs.logs'), icon: ScrollText }
+]);
 
 const fetchGroups = async () => {
   loading.value = true;
@@ -35,8 +51,16 @@ const openGroupDetail = async (group: any) => {
   const groupId = group.groupId || group.id;
   loadingGroup.value = true;
   selectedGroup.value = null;
+  activeTab.value = 'info';
+  
+  // reset state
+  groupMembers.value = [];
+  groupRoles.value = [];
+  groupPosts.value = [];
+  groupLogs.value = [];
+  
   try {
-    const fetchedGroup: any = await VrcApi.getGroup({ groupId: groupId });
+    const fetchedGroup: any = await VrcApi.getGroup({ groupId: groupId, includeRoles: true });
     selectedGroup.value = fetchedGroup;
   } catch (err: any) {
     errorMsg.value = err.message || err;
@@ -44,6 +68,35 @@ const openGroupDetail = async (group: any) => {
     loadingGroup.value = false;
   }
 };
+
+const fetchTabContent = async () => {
+  if (!selectedGroup.value) return;
+  const groupId = selectedGroup.value.id;
+  loadingTab.value = true;
+  try {
+    if (activeTab.value === 'members' && groupMembers.value.length === 0) {
+      const res: any = await VrcApi.getGroupMembers({ groupId });
+      groupMembers.value = Array.isArray(res) ? res : [];
+    } else if (activeTab.value === 'roles' && groupRoles.value.length === 0) {
+      const res: any = await VrcApi.getGroupRoles({ groupId });
+      groupRoles.value = Array.isArray(res) ? res : [];
+    } else if (activeTab.value === 'posts' && groupPosts.value.length === 0) {
+      const res: any = await VrcApi.getGroupPosts({ groupId });
+      groupPosts.value = Array.isArray(res) ? res : [];
+    } else if (activeTab.value === 'logs' && groupLogs.value.length === 0) {
+      const res: any = await VrcApi.getGroupLogs({ groupId });
+      groupLogs.value = Array.isArray(res) ? res : [];
+    }
+  } catch (err) {
+    console.error("Failed to load tab content:", err);
+  } finally {
+    loadingTab.value = false;
+  }
+};
+
+watch(activeTab, () => {
+  fetchTabContent();
+});
 
 const filteredGroups = computed(() => {
   if (!searchQuery.value) return groups.value;
@@ -152,25 +205,31 @@ onMounted(() => {
     <BaseModal
       :show="!!selectedGroup"
       :loading="loadingGroup"
+      custom-classes="w-full max-w-4xl h-[85vh] flex flex-col bg-surface shadow-2xl overflow-hidden relative"
       @close="selectedGroup = null"
     >
       <template v-if="selectedGroup">
-        <div class="h-32 bg-surface relative overflow-hidden rounded-t-2xl">
+        <!-- 头部背景图 -->
+        <div class="h-40 bg-surface relative overflow-hidden rounded-t-2xl shrink-0">
           <VrcAvatar
             :user="selectedGroup"
             :url="selectedGroup.bannerUrl"
             custom-class="w-full h-full object-cover opacity-80"
           />
+          <!-- 磨砂渐变遮罩 -->
+          <div class="absolute inset-0 bg-gradient-to-t from-surface via-surface/40 to-transparent"></div>
           <button
-            class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
+            class="absolute top-4 right-4 p-2 rounded-full bg-surface/50 hover:bg-background/80 backdrop-blur-md text-text transition-colors z-20"
             @click="selectedGroup = null"
           >
             ✕
           </button>
         </div>
-        <div class="p-6 relative">
-          <div class="flex gap-4 mb-4">
-            <div class="w-20 h-20 -mt-12 rounded-xl border-4 border-border-strong shadow-md bg-surface flex-shrink-0 relative z-10 overflow-hidden">
+
+        <div class="px-6 relative flex flex-col flex-1 min-h-0 -mt-16 z-10">
+          <!-- 头部信息 -->
+          <div class="flex gap-5 mb-6 shrink-0 items-end">
+            <div class="w-28 h-28 rounded-2xl border-4 border-surface shadow-xl bg-surface flex-shrink-0 relative overflow-hidden">
               <VrcAvatar
                 :user="selectedGroup"
                 :url="selectedGroup.iconUrl"
@@ -178,57 +237,159 @@ onMounted(() => {
               />
             </div>
             <div class="flex-1 pb-1 min-w-0">
-              <h2 class="text-xl font-black text-text truncate">
+              <h2 class="text-3xl font-black text-text truncate tracking-tight drop-shadow-md">
                 {{ selectedGroup.name }}
               </h2>
-              <div class="flex items-center gap-2 mt-1">
-                <span class="text-xs font-bold text-text-muted uppercase">{{ selectedGroup.shortCode }}</span>
-                <span class="w-1 h-1 rounded-full bg-surface" />
-                <span class="text-xs font-bold text-primary flex items-center gap-1"><UsersRound :size="12" /> {{ selectedGroup.memberCount || 0 }} {{ t('global.groups.members') }}</span>
+              <div class="flex items-center gap-3 mt-2">
+                <span class="text-sm font-bold text-text-muted bg-surface-hover px-2 py-0.5 rounded-md uppercase">{{ selectedGroup.shortCode }}</span>
+                <span class="text-sm font-bold text-primary flex items-center gap-1 bg-primary/10 px-2 py-0.5 rounded-md">
+                  <UsersRound :size="14" /> {{ selectedGroup.memberCount || 0 }} {{ t('global.groups.members') }}
+                </span>
+                <span class="text-sm font-bold text-text-muted flex items-center gap-1 bg-surface-hover px-2 py-0.5 rounded-md">
+                  <Shield :size="14" :class="selectedGroup.privacy === 'public' ? 'text-blue-500' : 'text-yellow-500'" />
+                  {{ selectedGroup.privacy === 'public' ? t('global.groups.public') : t('global.groups.private') }}
+                </span>
               </div>
             </div>
           </div>
-          
-          <div class="mb-5">
-            <p class="text-sm text-text-muted leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar">
-              {{ selectedGroup.description || t('global.groups.no_desc') }}
-            </p>
-          </div>
 
-          <div class="grid grid-cols-2 gap-3 mb-5">
-            <div class="bg-surface-hover border-border-soft rounded-xl p-3 flex flex-col justify-center">
-              <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
-                {{ t('global.groups.privacy_status') || '隐私状态' }}
-              </p>
-              <p class="text-sm font-black text-text flex items-center gap-1">
-                <Shield
-                  :size="14"
-                  class="text-blue-500"
-                /> {{ selectedGroup.privacy === 'public' ? t('global.groups.public') : t('global.groups.private') }}
-              </p>
-            </div>
-            <div class="bg-surface-hover border-border-soft rounded-xl p-3 flex flex-col justify-center">
-              <p class="text-[10px] text-border-strong font-bold uppercase tracking-wider mb-1">
-                {{ t('global.groups.join_state') || '加入方式' }}
-              </p>
-              <p class="text-sm font-black text-text flex items-center gap-1">
-                <Check
-                  :size="14"
-                  class="text-green-500"
-                /> {{ selectedGroup.joinState === 'open' ? (t('global.groups.join_open') || '自由加入') : (selectedGroup.joinState === 'request' ? (t('global.groups.join_request') || '需申请') : (t('global.groups.join_invite') || '邀请制')) }}
-              </p>
-            </div>
+          <!-- 导航 Tabs -->
+          <div class="flex space-x-1 border-b border-border-soft shrink-0 mb-4 overflow-x-auto custom-scrollbar">
+            <button
+              v-for="tab in tabs"
+              :key="tab.id"
+              class="px-5 py-3 text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap border-b-2"
+              :class="activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text hover:border-border-strong'"
+              @click="activeTab = tab.id"
+            >
+              <component :is="tab.icon" :size="16" />
+              {{ tab.name }}
+            </button>
           </div>
           
-          <div class="pt-4 border-border-soft flex items-center justify-between">
-            <div class="text-xs text-border-strong font-mono">
-              {{ selectedGroup.id }}
+          <!-- 内容区 -->
+          <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-6 relative min-h-0">
+            <!-- 加载中 -->
+            <div v-if="loadingTab" class="absolute inset-0 flex items-center justify-center text-primary bg-surface/50 z-10 backdrop-blur-sm rounded-xl">
+              <Loader2 class="animate-spin" :size="32" />
             </div>
-            <button
-              class="px-6 py-2.5 bg-primary/10 hover:bg-primary/10 text-white font-bold rounded-xl text-sm transition-colors shadow-sm" 
-            >
-              {{ t('global.groups.view_in_vrchat') || '在 VRChat 中查看' }}
-            </button>
+
+            <!-- Tab: 信息 -->
+            <div v-if="activeTab === 'info'" class="space-y-6">
+              <div class="bg-surface-hover rounded-xl p-5 border border-border-soft">
+                <h3 class="text-lg font-bold text-text mb-2 flex items-center gap-2"><FileText :size="18" class="text-primary" /> {{ t('groups.tabs.info') }}</h3>
+                <p class="text-sm text-text-muted leading-relaxed whitespace-pre-wrap">
+                  {{ selectedGroup.description || t('global.groups.no_desc') }}
+                </p>
+              </div>
+
+              <div class="bg-surface-hover rounded-xl p-5 border border-border-soft">
+                <h3 class="text-lg font-bold text-text mb-2 flex items-center gap-2"><ShieldAlert :size="18" class="text-primary" /> {{ t('groups.info.rules') }}</h3>
+                <p class="text-sm text-text-muted leading-relaxed whitespace-pre-wrap">
+                  {{ selectedGroup.rules || t('groups.info.no_rules') }}
+                </p>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4">
+                <div class="bg-surface-hover border border-border-soft rounded-xl p-4 flex flex-col justify-center">
+                  <p class="text-xs text-border-strong font-bold uppercase tracking-wider mb-1">
+                    {{ t('global.groups.join_state') }}
+                  </p>
+                  <p class="text-sm font-black text-text flex items-center gap-1">
+                    <Check :size="14" class="text-green-500" /> 
+                    {{ selectedGroup.joinState === 'open' ? t('global.groups.join_open') : (selectedGroup.joinState === 'request' ? t('global.groups.join_request') : t('global.groups.join_invite')) }}
+                  </p>
+                </div>
+                <div class="bg-surface-hover border border-border-soft rounded-xl p-4 flex flex-col justify-center">
+                  <p class="text-xs text-border-strong font-bold uppercase tracking-wider mb-1">
+                    {{ t('groups.info.owner') }}
+                  </p>
+                  <p class="text-sm font-black text-text truncate">
+                    {{ selectedGroup.ownerId }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: 成员 -->
+            <div v-else-if="activeTab === 'members'" class="h-full">
+              <div v-if="groupMembers.length === 0" class="h-full flex flex-col items-center justify-center text-border-strong">
+                <UsersRound class="mb-4 opacity-30" :size="48" />
+                <p class="font-bold text-text-muted">{{ t('groups.members.no_members') }}</p>
+              </div>
+              <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div v-for="member in groupMembers" :key="member.id" class="flex items-center gap-3 p-3 bg-surface-hover rounded-xl border border-border-soft hover:border-primary/50 transition-colors cursor-pointer">
+                  <VrcAvatar :user="member.user" custom-class="w-10 h-10 rounded-full object-cover shadow-sm border border-border-soft shrink-0" />
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-bold text-text truncate">{{ member.user?.displayName || member.userId }}</p>
+                    <p class="text-xs text-text-muted truncate">{{ member.roleId ? t('groups.tabs.roles') + ': ' + member.roleId : 'Member' }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: 角色 -->
+            <div v-else-if="activeTab === 'roles'" class="h-full">
+              <div v-if="groupRoles.length === 0" class="h-full flex flex-col items-center justify-center text-border-strong">
+                <Settings class="mb-4 opacity-30" :size="48" />
+                <p class="font-bold text-text-muted">{{ t('groups.roles.no_roles') }}</p>
+              </div>
+              <div v-else class="flex flex-col gap-3">
+                <div v-for="role in groupRoles" :key="role.id" class="p-4 bg-surface-hover rounded-xl border border-border-soft">
+                  <div class="flex items-center justify-between mb-2">
+                    <h4 class="text-base font-bold text-text flex items-center gap-2">
+                      <Shield class="text-primary" :size="16"/> {{ role.name }}
+                    </h4>
+                    <span class="text-xs font-bold bg-background px-2 py-1 rounded text-text-muted">{{ role.id }}</span>
+                  </div>
+                  <p class="text-sm text-text-muted mb-2">{{ role.description || t('global.groups.no_desc') }}</p>
+                  <div class="flex flex-wrap gap-1">
+                    <span v-for="perm in role.permissions" :key="perm" class="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-md">
+                      {{ perm }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: 动态 -->
+            <div v-else-if="activeTab === 'posts'" class="h-full">
+              <div v-if="groupPosts.length === 0" class="h-full flex flex-col items-center justify-center text-border-strong">
+                <Megaphone class="mb-4 opacity-30" :size="48" />
+                <p class="font-bold text-text-muted">{{ t('groups.posts.no_posts') }}</p>
+              </div>
+              <div v-else class="flex flex-col gap-4">
+                <div v-for="post in groupPosts" :key="post.id" class="p-5 bg-surface-hover rounded-xl border border-border-soft shadow-sm">
+                  <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-lg font-bold text-text">{{ post.title }}</h4>
+                    <span class="text-xs text-text-muted font-mono">{{ new Date(post.createdAt).toLocaleString() }}</span>
+                  </div>
+                  <p class="text-sm text-text-muted whitespace-pre-wrap">{{ post.text }}</p>
+                  <div class="mt-3 flex items-center gap-2" v-if="post.authorId">
+                    <VrcAvatar :user="{ id: post.authorId }" custom-class="w-6 h-6 rounded-full shrink-0" />
+                    <span class="text-xs text-text-muted truncate">{{ post.authorId }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: 审计日志 -->
+            <div v-else-if="activeTab === 'logs'" class="h-full">
+              <div v-if="groupLogs.length === 0" class="h-full flex flex-col items-center justify-center text-border-strong">
+                <ScrollText class="mb-4 opacity-30" :size="48" />
+                <p class="font-bold text-text-muted">{{ t('groups.logs.no_logs') }}</p>
+              </div>
+              <div v-else class="flex flex-col gap-2">
+                <div v-for="log in groupLogs" :key="log.id" class="p-3 bg-surface-hover rounded-lg border border-border-soft flex items-center justify-between text-sm">
+                  <div class="flex flex-col min-w-0">
+                    <span class="font-bold text-text truncate">{{ log.eventType }}</span>
+                    <span class="text-xs text-text-muted truncate mt-0.5">{{ log.actorId }} {{ log.description ? ' - ' + log.description : '' }}</span>
+                  </div>
+                  <span class="text-xs text-border-strong font-mono shrink-0 ml-4">{{ new Date(log.created_at).toLocaleString() }}</span>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       </template>
@@ -236,9 +397,4 @@ onMounted(() => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

@@ -24,9 +24,9 @@ const selectAppMode = async (mode: 'pc' | 'vr') => {
       uiStore.modeSelectionError = e.message || t('auto_a712a9fb');
       return;
     }
-    uiStore.activeTab = 'ovr'; // VR 模式默认进入 OVR 翻译设置
+    uiStore.activeTab = 'ovr'; 
   } else {
-    uiStore.activeTab = 'dashboard'; // PC 模式默认进入仪表盘
+    uiStore.activeTab = 'dashboard'; 
   }
   uiStore.appMode = mode;
 
@@ -54,10 +54,10 @@ const selectAppMode = async (mode: 'pc' | 'vr') => {
         class="w-24 h-24 rounded-full border-4 border-white/60 shadow-lg mx-auto mb-6"
       >
       <h2 class="text-3xl font-extrabold text-text mb-2">
-        {{ $t('app.select_mode_title') || '选择运行模式' }}
+        {{ $t('app.select_mode_title') }}
       </h2>
       <p class="text-text-muted mb-8 font-medium">
-        {{ $t('app.select_mode_desc') || 'VrcDog 提供桌面管理看板与 SteamVR 沉浸式内置叠加层两种体验。' }}
+        {{ $t('app.select_mode_desc') }}
       </p>
       
       <div class="grid grid-cols-2 gap-4">

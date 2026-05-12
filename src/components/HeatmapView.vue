@@ -47,8 +47,8 @@ const getCellColor = (count: number) => {
   const ratio = count / maxCount.value;
   if (ratio < 0.25) return 'bg-primary/10 border-primary';
   if (ratio < 0.5) return 'bg-primary/10 border-primary shadow-sm';
-  if (ratio < 0.75) return 'bg-primary/10 text-white shadow-md border-primary';
-  return 'bg-primary/10 text-white shadow-lg animate-pulse border-primary';
+  if (ratio < 0.75) return 'bg-primary text-white shadow-md border-primary';
+  return 'bg-primary text-white shadow-lg animate-pulse border-primary';
 };
 
 const peakHour = computed(() => {
@@ -249,9 +249,4 @@ const openDetails = async (day: number, hour: number) => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

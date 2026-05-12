@@ -142,7 +142,7 @@ pub fn run() {
                             .menu(&menu)
                             .on_menu_event(|app, event| match event.id.as_ref() {
                                 "quit" => {
-                                    std::process::exit(0);
+                                    app.exit(0);
                                 }
                                 "show" => {
                                     if let Some(window) = app.get_webview_window("main") {
@@ -177,15 +177,10 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
-            }
-        })
         .manage(vrc_api::VrcState::new())
         .manage(ovr::OvrState::new())
         .plugin(tauri_plugin_dialog::init())
+        
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
@@ -362,7 +357,7 @@ fn sys_open_new_client() -> Result<(), String> {
     Ok(())
 }
 
-/// OVRAS INI sync — OPT-IN ONLY, user must manually trigger this.
+/// OVRAS INI sync 鈥?OPT-IN ONLY, user must manually trigger this.
 /// Will NOT auto-run on startup. Requires OVRAS to be already installed.
 #[tauri::command]
 async fn ovr_sync_ovras_ini(payload: String) -> Result<(), String> {
@@ -488,3 +483,4 @@ async fn ovr_load_ovras_ini() -> Result<String, String> {
 
     Ok(serde_json::Value::Object(map).to_string())
 }
+

@@ -8,7 +8,40 @@
     "install_unity": "Install Unity 2022 for Doggo",
     "install_tool": "Pick a handy bone tool",
     "select_mode_title": "Select Running Mode",
-    "select_mode_desc": "VrcDog offers two experiences: a desktop management dashboard and an immersive SteamVR built-in overlay."
+    "select_mode_desc": "VrcDog offers two experiences: a desktop management dashboard and an immersive SteamVR built-in overlay.",
+    "server_connected": "Server Connected",
+    "server_disconnected": "Server Disconnected",
+    "reselect_mode": "Select Mode",
+    "vrcx_menu": "Settings",
+    "theme": "Theme",
+    "line_density": "Line Density",
+    "customize_navbar": "Customize Navbar",
+    "external_launch": "External launch requested!\nJoin instance immediately:\n{worldId}",
+    "banned_message": "Account Banned! Reason: {reason}{duration}",
+    "server_disconnected_desc": "Cannot connect to VrcDog server. Functions paused.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> seconds until auto reconnect...",
+    "confirm_delete_role": "Are you sure you want to delete this role?",
+    "ui_language": "UI Language",
+    "restore_from_file": "Restore from File",
+    "restoring": "Restoring...",
+    "create_overlay_failed": "Failed to create overlay: {error}",
+    "exception_occurred": "Exception occurred: {error}",
+    "translation_result": "[Translation Result]",
+    "copy_image_failed": "Failed to copy image",
+    "lang_zh_cn": "Dog (Simplified Chinese)",
+    "lang_ja_jp": "Helmet (Japanese)",
+    "start_server": "[INFO] Starting server...",
+    "start_server_fail": "[ERROR] Failed to start: {error}",
+    "stop_server": "[INFO] Stopping server...",
+    "stop_server_success": "[INFO] Server stopped successfully",
+    "stop_server_fail": "[ERROR] Failed to stop: {error}",
+    "server_running": "[INFO] Server is already running in background...",
+    "start_client": "[INFO] Starting new client window...",
+    "start_client_fail": "[ERROR] Failed to start client: {error}",
+    "save_fail": "[ERROR] Failed to save: {error}",
+    "external_launch_confirm": "External launch request detected!\nJoin instance immediately:\n{worldId}",
+    "ban_reason": "Account has been banned! Reason: {reason}",
+    "vrcdog_offline": "Unable to connect to VrcDog server, software features suspended.",
+    "reconnect_seconds": "Automatically reconnecting in {seconds} seconds..."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -352,7 +385,10 @@
     "auto_launch_title": "Auto Launch Apps",
     "auto_launch_desc": "Apps to launch automatically when VRChat starts",
     "kill_apps_on_exit": "Kill these apps when VRChat exits",
-    "auto_launch_list": "App list (one path per line)"
+    "auto_launch_list": "App list (one path per line)",
+    "language_label": "Interface Language",
+    "lang_zh": "Dog (Simplified Chinese)",
+    "lang_ja": "Helmet (Japanese)"
   },
   "status_presets": {
     "title": "Status Presets",
@@ -376,7 +412,9 @@
     "active": "Online",
     "join_me": "Join Me",
     "ask_me": "Ask Me",
-    "busy": "Busy"
+    "busy": "Busy",
+    "applied_fallback": "Applied",
+    "apply_fallback": "Apply Preset"
   },
   "status_card": {
     "sniffing": "Sniffing...",
@@ -427,7 +465,8 @@
     "loading_worlds": "Loading Favorite Worlds...",
     "loading_avatars": "Loading Favorite Avatars...",
     "no_worlds": "You have no favorite worlds",
-    "no_avatars": "You have no favorite avatars"
+    "no_avatars": "You have no favorite avatars",
+    "all_groups_fallback": "All Favorites"
   },
   "my_avatars": {
     "title": "My Avatars",
@@ -591,11 +630,7 @@
   },
   "groups": {
     "title": "Groups",
-    "search_placeholder": "Search groups (Name/Shortcode)...",
-    "loading": "Loading groups...",
-    "no_groups": "You haven't joined any groups yet",
-    "member_count": "Members",
-    "privacy": "Privacy"
+    "no_groups": "No Groups Available"
   },
   "charts": {
     "title": "Charts & Stats",
@@ -682,32 +717,35 @@
     "tts_error": "TTS play failed: {err}",
     "osc_error": "Failed to send to VRChat: {err}",
     "network_error": "Translation request failed. Check network.",
-    "overlay_title": "Translation Overlay"
+    "overlay_title": "Translation Overlay",
+    "overlay_fail": "Overlay creation failed: {error}",
+    "exception": "Exception occurred: {error}"
   },
   "overlay": {
     "ready_desc": "Overlay is ready<br/>Please speak or send translation from the main window"
   },
   "login": {
-    "error_require_credentials": "Please enter Username/Password or Cookie",
-    "error_network": "Network connection failed: {err}",
-    "error_verify_failed": "Verified but failed to fetch user info",
-    "error_code_wrong": "Invalid 2FA code",
-    "title": "VrcDog Manager",
-    "subtitle": "Your Ultimate VRChat Social Hub",
+    "error_require_credentials": "Username/Password or Cookie required",
+    "error_network": "Network Error: {err}",
+    "error_verify_failed": "Verification succeeded but failed to get user info",
+    "error_code_wrong": "Invalid Code",
+    "title": "VRC Dog Manager",
+    "subtitle": "Your All-in-one VRChat Social Hub",
     "username": "VRChat Username or Email",
     "password": "Password",
     "or": "OR",
-    "use_cookie": "Use Auth Cookie (Skip Password)",
+    "use_cookie": "Use Auth Cookie (Skip password)",
+    "cookie_ph": "e.g., auth=xxxxxxx...",
     "btn_login": "Woof! Login",
-    "btn_logging_in": "Verifying identity...",
-    "2fa_title": "Two-Factor Authentication (2FA)",
-    "2fa_desc": "Your account has {method} verification enabled",
-    "2fa_method_totp": "Authenticator",
+    "btn_logging_in": "Authenticating...",
+    "2fa_title": "Two-Factor Authentication Required",
+    "2fa_desc": "Your account has {method} 2FA enabled.",
+    "2fa_method_totp": "Authenticator App",
     "2fa_method_email": "Email",
     "2fa_placeholder": "Enter 6-digit code",
     "btn_submit_code": "Submit Code",
-    "btn_submitting": "Verifying code...",
-    "btn_cancel": "Cancel, go back"
+    "btn_submitting": "Verifying...",
+    "btn_cancel": "Cancel"
   },
   "tools": {
     "title": "Toolbox (VRCX Tools)",
@@ -779,7 +817,11 @@
     "button": "Export JSON Backup",
     "packing": "Packing data...",
     "success": "Export successful! File saved",
-    "fail": "Export failed"
+    "fail": "Export failed",
+    "backup_btn": "Backup to File (Backup)",
+    "restore_desc": "Restore all data from a previously saved backup file.",
+    "restoring": "Restoring...",
+    "restore_btn": "Restore from File (Restore)"
   },
   "moderation": {
     "title": "Safety Shield",
@@ -1088,14 +1130,14 @@
     "confirm_remove": "Remove this user record? They will be re-registered automatically upon next login.",
     "ban_user": "Ban User:",
     "ban_reason": "Ban Reason",
-    "ban_reason_ph": "Please enter ban reason...",
+    "ban_reason_ph": "Reason for ban",
     "ban_duration": "Ban Duration (hours, empty=permanent)",
-    "ban_duration_ph": "e.g., 24 = 1 day, 168 = 7 days",
+    "ban_duration_ph": "Duration in hours (empty=perm)",
     "cancel": "Cancel",
     "confirm_ban": "Confirm Ban",
     "freeze_user": "Freeze User:",
     "freeze_reason": "Freeze Reason",
-    "freeze_reason_ph": "Please enter freeze reason...",
+    "freeze_reason_ph": "Reason for freeze",
     "confirm_freeze": "Confirm Freeze",
     "please_input_ban_reason": "Please enter ban reason!",
     "please_input_freeze_reason": "Please enter freeze reason!",
@@ -1104,7 +1146,9 @@
     "default": "Default",
     "new_role": "New Role",
     "set_default": "Set Default",
-    "delete": "Delete"
+    "delete": "Delete",
+    "server_status": "Server Status",
+    "stop_server": "Stop Server"
   },
   "user_profile": {
     "req_invite": "Request Invite (Req)",
@@ -1244,7 +1288,8 @@
     "status_fetching": "Fetching",
     "status_confirm": "Confirm on phone",
     "cancel_login": "Cancel Login",
-    "media": "Media "
+    "media": "Media ",
+    "step_desc": "Open the Xiaohongshu App, find the video, picture, or Live note you want to download, click the share button, "
   },
   "debug": {
     "open_debugger": "Open API Debugger",
@@ -1253,7 +1298,8 @@
     "restore": "Restore",
     "maximize": "Maximize",
     "close": "Close",
-    "waiting_api": "Waiting for API requests..."
+    "waiting_api": "Awaiting API requests...",
+    "log_write_fail": "Failed to write log or cache"
   },
   "direct_open": {
     "fetch_fail": "Failed to fetch information",
@@ -1450,5 +1496,43 @@
   "common": {
     "yes": "Yes",
     "no": "No"
+  },
+  "friends": {
+    "title": "Friends",
+    "me": "Me",
+    "same_room": "Same Room",
+    "online": "Online",
+    "active_web": "Active (Web)",
+    "offline": "Offline",
+    "search_placeholder": "Search friends / groups...",
+    "loc_private": "Private Room",
+    "loc_traveling": "Traveling",
+    "loc_offline": "Offline"
+  },
+  "server": {
+    "op_failed": "Operation failed: {error}",
+    "save_failed": "Save failed: {error}",
+    "confirm_delete": "Are you sure you want to delete this role?",
+    "delete_success": "Deleted successfully",
+    "default_changed": "Default role changed",
+    "role_assigned": "Role assigned successfully!",
+    "starting": "Starting server...",
+    "start_fail": "Start failed: {error}",
+    "stopping": "Stopping server...",
+    "stop_success": "Server stopped successfully",
+    "stop_fail": "Stop failed: {error}",
+    "loaded_tip": "Loaded. Please configure and click Start.",
+    "running_bg": "Server is already running in background...",
+    "start_client": "Starting new client window..."
+  },
+  "user": {
+    "translate_result": "【Translation Result】",
+    "copy_fail": "Failed to copy image"
+  },
+  "theme": {
+    "dog": "Dog",
+    "cat": "Cat",
+    "helmet": "Helmet",
+    "mono": "Mono"
   }
 }

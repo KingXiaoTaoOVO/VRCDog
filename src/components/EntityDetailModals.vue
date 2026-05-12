@@ -239,7 +239,7 @@ const handleWorldUpload = async (e: Event) => {
                   {{ t('entity_modal.join') }}
                 </button>
                 <button
-                  class="px-3 py-1.5 bg-primary/10 hover:bg-primary/10 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
+                  class="px-3 py-1.5 bg-primary text-white hover:brightness-110 rounded-lg text-xs font-bold shadow-sm transition-all"
                   @click="VrcApi.inviteMyself({ worldId: entityStore.selectedWorld.id, instanceId: inst[0] })"
                 >
                   {{ t('entity_modal.drop_portal') }}
@@ -530,7 +530,7 @@ const handleWorldUpload = async (e: Event) => {
             {{ entityStore.selectedGroup.id }}
           </div>
           <button
-            class="px-6 py-2.5 bg-primary/10 hover:bg-primary/10 text-white font-bold rounded-xl text-sm transition-colors shadow-sm"
+            class="px-6 py-2.5 bg-primary text-white hover:brightness-110 font-bold rounded-xl text-sm transition-colors shadow-sm"
             @click="SysApi.launchVrc({ launchArgs: `vrchat://launch?id=${entityStore.selectedGroup.id}` })"
           >
             {{ t('entity_modal.view_in_vrc') }}
@@ -541,9 +541,4 @@ const handleWorldUpload = async (e: Event) => {
   </BaseModal>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

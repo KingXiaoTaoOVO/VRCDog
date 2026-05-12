@@ -303,14 +303,14 @@ const downloadVideo = async () => {
             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
             @click="activeTab = 'bilibili'"
           >
-            哔哩哔哩
+            Bilibili
           </button>
           <button
             :class="activeTab === 'xhs' ? 'bg-surface shadow-sm text-rose-600 border-border-soft' : 'text-text-muted hover:text-text-muted'"
             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
             @click="activeTab = 'xhs'"
           >
-            小红书
+            Xiaohongshu
           </button>
         </div>
       </div>
@@ -330,11 +330,11 @@ const downloadVideo = async () => {
         </template>
         <template v-else>
           <button
-            class="flex items-center gap-2 px-6 py-2.5 bg-primary/10 hover:bg-primary/10 text-white rounded-xl font-bold transition-all shadow-md hover:shadow-lg active:scale-95"
+            class="flex items-center gap-2 px-6 py-2.5 bg-primary text-white hover:brightness-110 rounded-xl font-bold transition-all shadow-md hover:shadow-lg active:scale-95"
             @click="openLogin"
           >
             <QrCode class="w-5 h-5" />
-            扫码登录
+            {{ t('bili.scan_login') || 'Scan to Login' }}
           </button>
         </template>
       </div>
@@ -372,7 +372,7 @@ const downloadVideo = async () => {
               class="w-6 h-6 animate-spin"
             />
             <template v-else>
-              解析获取
+              {{ t('bili.fetch_info') || 'Fetch' }}
             </template>
           </button>
         </div>
@@ -398,7 +398,7 @@ const downloadVideo = async () => {
               class="w-6 h-6 animate-spin"
             />
             <template v-else>
-              解析获取
+              {{ t('bili.fetch_info') || 'Fetch' }}
             </template>
           </button>
         </div>
@@ -469,7 +469,7 @@ const downloadVideo = async () => {
             <div class="mt-6 flex items-center gap-4">
               <button 
                 :disabled="isDownloading"
-                class="flex-1 bg-primary/10 hover:bg-primary/10 text-white rounded-2xl py-4 font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-xl active:scale-95 disabled:bg-surface disabled:cursor-not-allowed disabled:shadow-none"
+                class="flex-1 bg-primary text-white hover:brightness-110 rounded-2xl py-4 font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-xl active:scale-95 disabled:bg-surface disabled:cursor-not-allowed disabled:shadow-none"
                 @click="downloadVideo"
               >
                 <Download class="w-5 h-5" />
@@ -694,7 +694,7 @@ const downloadVideo = async () => {
                 {{ t('bilidown.step_copy') }}
               </h4>
               <p class="text-text-muted leading-relaxed">
-                打开小红书 App，找到想要下载的视频、图片或实况Live笔记，点击分享按钮，{{ t('bilidown.step_copy') }}。
+                {{ $t('bilidown.step_desc') }}{{ t('bilidown.step_copy') }}。
               </p>
             </div>
           </div>

@@ -500,7 +500,7 @@ onUnmounted(() => {
               </div>
               <button 
                 v-else-if="!mutualGraphReady"
-                class="px-5 py-2.5 bg-primary/10 hover:bg-primary/10 text-white text-sm font-bold rounded-xl shadow-sm shadow-indigo-500/30 transition-all active:scale-95 flex items-center gap-2"
+                class="px-5 py-2.5 bg-primary text-white hover:brightness-110 text-sm font-bold rounded-xl shadow-sm shadow-indigo-500/30 transition-all active:scale-95 flex items-center gap-2"
                 @click="fetchMutualFriends"
               >
                 <Network :size="18" />
@@ -636,9 +636,4 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

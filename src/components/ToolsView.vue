@@ -343,7 +343,7 @@ onUnmounted(() => {
             <input
               v-model="oscForm.address"
               type="text"
-              placeholder="/avatar/parameters/..."
+              :placeholder="t('tools.osc_address_ph')"
               class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
             >
           </div>
@@ -444,9 +444,4 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

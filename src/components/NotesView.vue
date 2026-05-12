@@ -135,7 +135,7 @@ onMounted(() => fetchNotes());
                 <X :size="14" /> {{ t('notes.cancel') }}
               </button>
               <button
-                class="text-xs bg-primary/10 text-white font-bold px-4 py-2 rounded-lg hover:bg-primary/10 shadow-sm shadow-indigo-500/30 transition-colors flex items-center gap-1.5"
+                class="text-xs bg-primary text-white font-bold px-4 py-2 rounded-lg hover:bg-primary/10 shadow-sm shadow-indigo-500/30 transition-colors flex items-center gap-1.5"
                 @click="saveEdit(note)"
               >
                 <Save :size="14" /> {{ t('notes.save') }}
@@ -160,9 +160,4 @@ onMounted(() => fetchNotes());
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

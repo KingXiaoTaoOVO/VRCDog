@@ -361,7 +361,7 @@ onMounted(() => {
               /> {{ t('env.scan_local') }}
             </button>
             <button 
-              class="flex-1 xl:flex-none px-4 py-2.5 bg-primary/10 hover:bg-primary/10 text-white rounded-xl font-bold shadow-sm shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              class="flex-1 xl:flex-none px-4 py-2.5 bg-primary text-white hover:brightness-110 rounded-xl font-bold shadow-sm shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
               @click="loadVpmRepo"
             >
               <RefreshCcw
@@ -482,7 +482,7 @@ onMounted(() => {
           <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
-                <AlertTriangle class="w-6 h-6" /> 确认卸载?
+                <AlertTriangle class="w-6 h-6" /> {{ t('env.confirm_uninstall') || 'Uninstall?' }}
               </h3>
               <button
                 class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
@@ -499,13 +499,13 @@ onMounted(() => {
                 class="flex-1 py-2.5 rounded-xl bg-surface hover:bg-background/20 text-text-muted font-bold transition-colors"
                 @click="showUninstallConfirm = false"
               >
-                取消
+                {{ t('common.cancel') || 'Cancel' }}
               </button>
               <button
                 class="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/30 transition-colors"
                 @click="executeUninstall"
               >
-                确认卸载
+                {{ t('env.uninstall') || 'Uninstall' }}
               </button>
             </div>
           </div>
@@ -527,7 +527,7 @@ onMounted(() => {
           <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-primary flex items-center gap-2">
-                <AlertTriangle class="w-6 h-6" /> 选择启动工具
+                <AlertTriangle class="w-6 h-6" /> {{ t('env.select_tool') || 'Select Tool' }}
               </h3>
               <button
                 class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
@@ -541,16 +541,16 @@ onMounted(() => {
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-xl bg-primary/10 hover:bg-primary/10 text-white font-bold shadow-lg shadow-indigo-500/30 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-primary text-white hover:brightness-110 font-bold shadow-lg shadow-indigo-500/30 transition-colors"
                 @click="executeLaunch('vcc')"
               >
-                启动 VCC
+                {{ t('env.launch_vcc') || 'Launch VCC' }}
               </button>
               <button
                 class="flex-1 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-white font-bold shadow-lg shadow-slate-900/30 transition-colors"
                 @click="executeLaunch('alcom')"
               >
-                启动 ALCOM
+                {{ t('env.launch_alcom') || 'Launch ALCOM' }}
               </button>
             </div>
           </div>
@@ -572,7 +572,7 @@ onMounted(() => {
           <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
-                <AlertTriangle class="w-6 h-6" /> 选择卸载工具
+                <AlertTriangle class="w-6 h-6" /> {{ t('env.select_uninstall') || 'Select Tool' }}
               </h3>
               <button
                 class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
@@ -589,13 +589,13 @@ onMounted(() => {
                 class="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/30 transition-colors"
                 @click="handleUninstallSelection('vcc')"
               >
-                卸载 VCC
+                {{ t('env.uninstall_vcc') || 'Uninstall VCC' }}
               </button>
               <button
                 class="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold shadow-lg shadow-orange-500/30 transition-colors"
                 @click="handleUninstallSelection('alcom')"
               >
-                卸载 ALCOM
+                {{ t('env.uninstall_alcom') || 'Uninstall ALCOM' }}
               </button>
             </div>
           </div>

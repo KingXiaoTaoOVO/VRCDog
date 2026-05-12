@@ -198,7 +198,7 @@ const selectFolder = async () => {
             </button>
             <button
               v-else
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary/10 hover:bg-primary/10 text-white shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary text-white hover:brightness-110 shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
               @click="handleConfirm"
             >
               {{ t('install_dialog.install') }}

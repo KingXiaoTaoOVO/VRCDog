@@ -1,10 +1,10 @@
 <template>
-  <div class="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-3 pointer-events-none">
+  <div class="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-2 pointer-events-none">
     <transition-group name="toast">
       <div 
         v-for="toast in toasts" 
         :key="toast.id"
-        class="px-6 py-3 rounded-2xl shadow-xl backdrop-blur-2xl flex items-center gap-3 font-bold text-[14px] pointer-events-auto"
+        class="px-4 py-2 rounded-lg shadow-lg backdrop-blur-md flex items-center gap-2 font-medium text-[13px] border pointer-events-auto min-w-[250px]"
         :class="{
           'bg-surface border-border-soft text-text': toast.type === 'info',
           'bg-green-500/80 border-green-400 text-white': toast.type === 'success',
@@ -24,14 +24,14 @@ const { toasts } = useToast();
 <style scoped>
 .toast-enter-active,
 .toast-leave-active {
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: all 0.4s ease-out;
 }
 .toast-enter-from {
   opacity: 0;
-  transform: translateY(-30px) scale(0.9);
+  transform: translateX(100%);
 }
 .toast-leave-to {
   opacity: 0;
-  transform: translateY(-20px) scale(0.95);
+  transform: translateX(100%);
 }
 </style>

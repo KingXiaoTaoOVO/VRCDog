@@ -3,6 +3,7 @@ import { onMounted, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import i18n from './i18n';
 
 // Stores
 import { useAuthStore } from './stores/authStore';
@@ -58,7 +59,7 @@ import EnvView from './components/EnvView.vue';
 import dogImg from './assets/dog.jpg';
 import { Loader2 } from 'lucide-vue-next';
 
-const { t, locale } = useI18n();
+const { t, locale } = useI18n({ useScope: 'global' });
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
@@ -96,6 +97,9 @@ const handleRoleSelected = async (payload: { role: 'client' | 'server', url?: st
 
 window.addEventListener('settings-updated', (e: any) => {
   if (e.detail?.language) {
+    if (i18n.global) {
+      (i18n.global.locale as any).value = e.detail.language;
+    }
     locale.value = e.detail.language;
   }
 });
@@ -141,7 +145,7 @@ onMounted(async () => {
           if (urlArg.includes('launch/')) {
             const worldId = urlArg.split('launch/')[1];
             if (worldId) {
-              const confirmLaunch = confirm(`检测到外部启动请求！\n是否要立即加入实例：\n${worldId}`);
+              const confirmLaunch = confirm(t('app.external_launch', { worldId }));
               if (confirmLaunch) {
                 const parts = worldId.split(':');
                 await VrcApi.inviteMyself({ worldId: parts[0], instanceId: parts[1] || '0' });
@@ -179,7 +183,7 @@ onMounted(async () => {
     await listen('client_banned', (event: any) => {
       const p = event.payload;
       if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === p.user_id || currentUser.value.displayName === p.user_id)) {
-         authStore.banMessage = `账号已被封禁！原因: ${p.reason}${p.duration_hours ? t('auto_edf6fe7c') + p.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`;
+         authStore.banMessage = t('app.banned_message', { reason: p.reason, duration: p.duration_hours ? t('auto_edf6fe7c') + p.duration_hours + t('auto_2de0d491') : t('auto_6280ae83') });
          authStore.handleLogout(true);
       }
     });
@@ -187,7 +191,7 @@ onMounted(async () => {
     await listen('client_frozen', (event: any) => {
       const p = event.payload;
       if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === p.user_id || currentUser.value.displayName === p.user_id)) {
-         authStore.banMessage = `账号已被冻结！原因: ${p.reason}`;
+         authStore.banMessage = t('app.ban_message_prefix', { reason: p.reason }) || `Account Frozen: ${p.reason}`;
          authStore.handleLogout(true);
       }
     });
@@ -263,21 +267,21 @@ if (typeof window !== 'undefined') {
       v-if="banMessage"
       class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999]"
     >
-      <div class="bg-surface border border-red-500/50 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
+      <div class="bg-black/90 border border-red-500 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
         <div class="text-4xl mb-3">
           🚫
         </div>
         <h2 class="text-xl font-bold text-red-400 mb-3">
-          访问受限
+          {{ t('app.access_restricted') || 'Access Restricted' }}
         </h2>
-        <p class="text-text-muted text-sm whitespace-pre-line mb-4">
+        <p class="text-gray-300 text-sm whitespace-pre-line mb-4">
           {{ banMessage }}
         </p>
         <button
           class="px-6 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
           @click="authStore.banMessage = ''"
         >
-          我知道了
+          {{ t('app.i_know') || 'I Know' }}
         </button>
       </div>
     </div>
@@ -345,17 +349,16 @@ if (typeof window !== 'undefined') {
           /></svg>
         </div>
         <h2 class="text-lg font-bold text-red-400 mb-2">
-          服务端连接已断开
+          {{ t('app.server_disconnected') || 'Server Disconnected' }}
         </h2>
-        <p class="text-border-strong text-sm mb-4">
-          无法连接到 VrcDog 服务端，软件功能已暂停。<br>{{ $t('auto_7072b137') }}<span class="text-white font-bold">{{ reconnectCountdown }}</span> 秒后自动尝试重连...
+        <p class="text-border-strong text-sm mb-4" v-html="$t('app.server_disconnected_desc', { auto_text: $t('auto_7072b137'), countdown: reconnectCountdown })">
         </p>
         <div class="flex gap-2 justify-center">
           <button
             class="px-5 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
             @click="() => authStore.handleLogout(false)"
           >
-            退出登录
+            {{ t('app.logout') || 'Logout' }}
           </button>
         </div>
       </div>

@@ -36,15 +36,14 @@ const getStatusColor = (status: string) => {
   }
 }
 
-
-const vrTabs = [
-  { key: 'ovr', icon: Glasses, label: 'OVR 翻译设置' },
-  { key: 'translator', icon: Languages, label: '桌面翻译器' },
-  { key: 'social', icon: Users, label: '社交大厅' },
-  { key: 'settings', icon: Settings, label: '基础设置' }
-];
-
 import { Languages } from 'lucide-vue-next';
+
+const vrTabs = computed(() => [
+  { key: 'ovr', icon: Glasses, label: t('layout.ovr_settings') },
+  { key: 'translator', icon: Languages, label: t('layout.desktop_translator') },
+  { key: 'social', icon: Users, label: t('layout.social_lobby') },
+  { key: 'settings', icon: Settings, label: t('layout.settings') }
+]);
 </script>
 
 <template>
@@ -81,10 +80,10 @@ import { Languages } from 'lucide-vue-next';
         </div>
       </div>
 
-      <!-- VR 设备状态面板 -->
+      <!-- {{ t('layout.vr_status') || 'VR Status' }}面板 -->
       <div class="mb-4 p-3 bg-surface rounded-2xl border border-white/10 space-y-2">
         <h3 class="text-[10px] font-bold text-text-muted/60 uppercase tracking-wider mb-1">
-          VR 设备状态
+          {{ t('layout.vr_status') || 'VR Status' }}
         </h3>
         <div class="flex items-center gap-2 text-[11px] text-white/80 font-medium">
           <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
@@ -95,7 +94,7 @@ import { Languages } from 'lucide-vue-next';
             class="w-2 h-2 rounded-full"
             :class="currentUser ? 'bg-green-400' : 'bg-surface-hover'"
           />
-          <span>{{ currentUser?.displayName || '未登录' }}</span>
+          <span>{{ currentUser?.displayName || t('layout.not_logged_in') }}</span>
         </div>
       </div>
 
@@ -148,7 +147,6 @@ import { Languages } from 'lucide-vue-next';
           </div>
         </div>
 
-        <!-- VrcDog 服务端连接状态 -->
         <div
           v-if="clientServerUrl"
           class="mt-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1"
@@ -158,7 +156,7 @@ import { Languages } from 'lucide-vue-next';
             class="w-1.5 h-1.5 rounded-full"
             :class="serverConnected ? 'bg-emerald-400' : 'bg-red-400'"
           />
-          <span>{{ serverConnected ? '服务端已连接' : '服务端断开' }}</span>
+          <span>{{ serverConnected ? t('layout.server_connected') : t('layout.server_disconnected') }}</span>
         </div>
 
         <div class="flex gap-2 mt-1">
@@ -166,7 +164,7 @@ import { Languages } from 'lucide-vue-next';
             class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-text-muted hover:bg-surface font-bold text-xs transition-colors border border-transparent hover:border-primary/30"
             @click="uiStore.appMode = null"
           >
-            <Monitor :size="14" /> 重选模式
+            <Monitor :size="14" /> {{ t('layout.reselect_mode') || 'Reselect Mode' }}
           </button>
           <button
             class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-red-400 hover:bg-red-500/10 font-bold text-xs transition-colors border border-transparent hover:border-red-400/20"

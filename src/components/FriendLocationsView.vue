@@ -73,7 +73,7 @@ const fetchLocations = async () => {
               if (!(window as any).__WORLD_NAME_CACHE__) (window as any).__WORLD_NAME_CACHE__ = new Map();
               (window as any).__WORLD_NAME_CACHE__.set(loc.worldId, w.name);
             } else {
-              loc.worldName = loc.worldId; // 失败后降级显示 ID
+              loc.worldName = loc.worldId; 
             }
           } catch (e) {
             console.warn(t('auto_00ef9b81'), e);
@@ -95,7 +95,7 @@ const fetchLocations = async () => {
 
 onMounted(() => {
   fetchLocations();
-  timer = setInterval(fetchLocations, 30000) as unknown as number;
+  timer = setInterval(fetchLocations, 60000) as unknown as number;
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
@@ -104,13 +104,13 @@ const totalOnline = computed(() => {
 });
 
 const getStatusDot = (status: string) => {
-  switch (status) {
-    case 'join me': return 'bg-blue-400';
-    case 'active': return 'bg-green-400';
-    case 'ask me': return 'bg-amber-400';
-    case 'busy': return 'bg-red-400';
-    default: return 'bg-surface';
-  }
+  const s = status?.toLowerCase() || '';
+  if (s === 'active' || s === 'online') return 'bg-green-500';
+  if (s === 'join me') return 'bg-blue-500';
+  if (s === 'ask me' || s === 'busy') return 'bg-orange-500';
+  if (s === 'do not disturb' || s === 'dnd') return 'bg-red-500';
+  if (s === 'offline') return 'bg-slate-400';
+  return 'bg-green-500';
 };
 
 const launchInstance = async (fullLocation: string) => {
@@ -145,7 +145,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-700">{{ t('locations.online_count', { count: totalOnline }) }}</span>
+        <span class="text-xs font-bold px-3 py-1 rounded-full bg-green-500/10 text-green-400">{{ t('locations.online_count', { count: totalOnline }) }}</span>
         <span class="text-xs font-bold px-3 py-1 rounded-full bg-surface text-text-muted">{{ t('locations.offline_count', { count: offlineFriends.length }) }}</span>
         <button
           class="p-2 rounded-full bg-surface hover:bg-primary/10 text-primary shadow-sm border-primary transition-colors"
@@ -176,7 +176,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
         :key="loc.fullLocation"
         class="bg-surface backdrop-blur rounded-2xl border-primary hover:border-primary transition-all overflow-hidden"
       >
-        <div class="px-4 py-3 bg-gradient-to-r from-indigo-50 to-blue-50 flex items-center justify-between border-primary">
+        <div class="px-4 py-3 bg-primary/10 flex items-center justify-between border-primary">
           <div class="flex items-center gap-2 min-w-0">
             <MapPin
               class="text-primary flex-shrink-0"
@@ -196,7 +196,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
               Join
             </button>
             <button
-              class="px-3 py-1 bg-primary/10 hover:bg-primary/10 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
+              class="px-3 py-1 bg-primary text-white hover:brightness-110 rounded-lg text-xs font-bold shadow-sm transition-all"
               title="Drop Portal (Invite Myself)"
               @click="inviteMyself(loc.worldId, loc.instanceId)"
             >
@@ -227,12 +227,11 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
         </div>
       </div>
 
-      <!-- 私密房间 -->
       <div
         v-if="privateFriends.length > 0"
         class="bg-surface backdrop-blur rounded-2xl border-border-soft overflow-hidden"
       >
-        <div class="px-4 py-3 bg-gradient-to-r from-slate-50 to-slate-50 flex items-center justify-between border-border-soft">
+        <div class="px-4 py-3 bg-surface-hover flex items-center justify-between border-border-soft">
           <div class="flex items-center gap-2">
             <Lock
               class="text-border-strong"
@@ -287,8 +286,4 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 5px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: rgba(207,250,254,0.3); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34,211,238,0.3); border-radius: 10px; }
-</style>
+

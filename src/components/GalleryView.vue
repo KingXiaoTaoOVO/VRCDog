@@ -323,7 +323,7 @@ const uploadToVrcPlus = async () => {
           
           <div class="flex items-center justify-end gap-3 flex-wrap">
             <button
-              class="px-5 py-2.5 bg-primary/10 hover:bg-primary/10 text-white font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
+              class="px-5 py-2.5 bg-primary text-white hover:brightness-110 font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
               :disabled="uploadingToVrcPlus"
               @click="uploadToVrcPlus"
             >
@@ -341,7 +341,7 @@ const uploadToVrcPlus = async () => {
               class="px-5 py-2.5 bg-surface hover:bg-background/20 text-text-muted font-bold rounded-xl transition-colors flex items-center gap-2"
               @click="openInExplorer(previewImage.path)"
             >
-              <FolderOpen :size="16" /> {{ t('gallery.open_in_explorer') || '在资源管理器中打开' }}
+              <FolderOpen :size="16" /> {{ t('gallery.open_in_explorer') }}
             </button>
             <button
               class="px-5 py-2.5 bg-surface hover:bg-background/20 text-text-muted font-bold rounded-xl transition-colors flex items-center gap-2"
@@ -353,7 +353,7 @@ const uploadToVrcPlus = async () => {
               class="px-5 py-2.5 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-xl transition-colors flex items-center gap-2 ml-auto"
               @click="deleteImage(previewImage)"
             >
-              <Trash2 :size="16" /> {{ t('gallery.delete') || '删除 (Delete)' }}
+              <Trash2 :size="16" /> {{ t('gallery.delete') }}
             </button>
           </div>
         </div>
@@ -362,9 +362,4 @@ const uploadToVrcPlus = async () => {
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+

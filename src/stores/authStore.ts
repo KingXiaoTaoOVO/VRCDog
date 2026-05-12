@@ -280,10 +280,8 @@ export const useAuthStore = defineStore('auth', () => {
         syncInitialNotifications();
       } else if (res.error) {
         const errMsg = res.error || '';
-        if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
-          await DbApi.clearAuth();
-          return;
-        }
+        
+        // Attempt to use cache first if cookie is invalid
         const cachedUserStr = await DbApi.getSetting({ key: 'cached_vrc_user' });
         if (cachedUserStr) {
           try {
@@ -298,10 +296,19 @@ export const useAuthStore = defineStore('auth', () => {
               initGamelogWatcher();
               syncInitialFriends();
               syncInitialNotifications();
+              
+              if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
+                // Keep the cached login, but notify? Optional.
+              }
+              return;
             } else {
-              await DbApi.clearAuth();
+              if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
+                await DbApi.clearAuth();
+              }
             }
           } catch {}
+        } else if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
+          await DbApi.clearAuth();
         }
       }
     } catch (err) {

@@ -67,7 +67,7 @@ onMounted(() => {
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error', event.error);
       if (event.error !== 'no-speech') {
-        errorMsg.value = `语音识别错误: ${event.error}`;
+        errorMsg.value = `Speech Recognition Error: ${event.error}`;
       }
       isRecording.value = false;
     };
@@ -87,11 +87,11 @@ onMounted(() => {
   listen('audio-capture-event', async (event: any) => {
     const payload = event.payload;
     if (payload.type === 'error') {
-      errorMsg.value = `音频截获错误: ${payload.message}`;
+      errorMsg.value = `Audio Capture Error: ${payload.message}`;
     } else if (payload.type === 'status') {
       console.log('Audio Status:', payload.message, payload.device || '');
       if (payload.message === 'starting') {
-         errorMsg.value = `监听已就绪: ${payload.device}`;
+         errorMsg.value = `Listening Ready: ${payload.device}`;
          setTimeout(() => errorMsg.value = '', 3000);
       }
     } else if (payload.type === 'result') {
@@ -174,7 +174,7 @@ const toggleOtherRecording = async () => {
       if (errMsg.includes('WASAPI') || errMsg.includes('loopback')) {
         errorMsg.value = t('translator.capture_error_wasapi') || t('auto_67019728');
       } else {
-        errorMsg.value = t('translator.capture_error_local', { err: errMsg }) || `本地引擎启动失败: ${errMsg}`;
+        errorMsg.value = t('translator.capture_error_local', { err: errMsg });
       }
       isOtherRecording.value = false;
     }
@@ -188,7 +188,7 @@ const toggleOtherRecording = async () => {
       if (errMsg.includes('WASAPI') || errMsg.includes('loopback')) {
         errorMsg.value = t('translator.capture_error_wasapi') || t('auto_67019728');
       } else {
-        errorMsg.value = t('translator.capture_error_cloud', { err: errMsg }) || `启动云端引擎失败: ${errMsg}`;
+        errorMsg.value = t('translator.capture_error_cloud', { err: errMsg });
       }
       isOtherRecording.value = false;
     }
@@ -212,7 +212,7 @@ const playTts = async (text: string) => {
       const audio = new Audio(url);
       await audio.play();
     } catch (e: any) {
-      errorMsg.value = t('translator.tts_error', { err: e.message }) || `GPT-SoVITS 语音播放失败: ${e.message}`;
+      errorMsg.value = t('translator.tts_error', { err: e.message });
     }
   }
 };
@@ -222,7 +222,7 @@ const sendToChatbox = async (text: string) => {
     await SysApi.sendOscChatbox({ text, complete: true });
   } catch (e: any) {
     console.error('OSC Error:', e);
-    errorMsg.value = t('translator.osc_error', { err: e.message }) || `无法发送到 VRChat: ${e.message}`;
+    errorMsg.value = t('translator.osc_error', { err: e.message });
   }
 };
 
@@ -243,7 +243,7 @@ const translateText = async (text: string) => {
       }
     } else {
       // Placeholder for DeepL or other engines
-      result = `[${translateEngine.value} 模拟] ` + text;
+      result = `[${translateEngine.value} Mock] ` + text;
     }
 
     if (result) {
@@ -315,7 +315,7 @@ const toggleOverlay = async () => {
       
       overlayWebview.once('tauri://error', function (e: any) {
         console.warn('Webview creation error or already exists:', e);
-        errorMsg.value = `悬浮窗创建失败: ${JSON.stringify(e)}`;
+        errorMsg.value = t('translator.overlay_fail', { error: JSON.stringify(e) });
         isOverlayOpen.value = false;
         overlayWebview = null;
       });
@@ -326,7 +326,7 @@ const toggleOverlay = async () => {
       });
     } catch (e: any) {
       console.warn(e);
-      errorMsg.value = `出现异常: ${e.message || JSON.stringify(e)}`;
+      errorMsg.value = t('translator.exception', { error: e.message || JSON.stringify(e) });
       isOverlayOpen.value = false;
     }
   }
@@ -457,21 +457,21 @@ const manualPlay = () => {
               /> {{ t('translator.my_voice') }}
             </h3>
             <div class="mb-4">
-              <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.engine') || '翻译引擎' }}</label>
+              <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.engine') }}</label>
               <CustomSelect v-model="translateEngine" :options="[
-                  { label: 'Google 翻译', value: 'google' },
-                  { label: 'DeepL 翻译', value: 'deepl' },
-                  { label: '百度翻译', value: 'baidu' }
+                  { label: 'Google Translate', value: 'google' },
+                  { label: 'DeepL Translate', value: 'deepl' },
+                  { label: 'Baidu Translate', value: 'baidu' }
                 ]" />
             </div>
             <div class="flex items-center gap-4">
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.source_lang') }}</label>
                 <CustomSelect v-model="sourceLang" :options="[
-                  { label: '🇨🇳 中文', value: 'zh-CN' },
-                  { label: '🇺🇸 英文', value: 'en-US' },
-                  { label: '🇯🇵 日文', value: 'ja-JP' },
-                  { label: '🇰🇷 韩文', value: 'ko-KR' }
+                  { label: '🇨🇳 zh-CN', value: 'zh-CN' },
+                  { label: '🇺🇸 en-US', value: 'en-US' },
+                  { label: '🇯🇵 ja-JP', value: 'ja-JP' },
+                  { label: '🇰🇷 ko-KR', value: 'ko-KR' }
                 ]" />
               </div>
               <div class="pt-5 text-text-muted">
@@ -480,10 +480,10 @@ const manualPlay = () => {
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.target_lang') }}</label>
                 <CustomSelect v-model="targetLang" :options="[
-                  { label: '🇺🇸 英文', value: 'en' },
-                  { label: '🇨🇳 中文', value: 'zh-CN' },
-                  { label: '🇯🇵 日文', value: 'ja' },
-                  { label: '🇰🇷 韩文', value: 'ko' }
+                  { label: '🇺🇸 en-US', value: 'en' },
+                  { label: '🇨🇳 zh-CN', value: 'zh-CN' },
+                  { label: '🇯🇵 ja-JP', value: 'ja' },
+                  { label: '🇰🇷 ko-KR', value: 'ko' }
                 ]" />
               </div>
             </div>
@@ -578,10 +578,10 @@ const manualPlay = () => {
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.source_lang') }}</label>
                 <CustomSelect v-model="otherSourceLang" :options="[
-                  { label: '🇺🇸 英文', value: 'en-US' },
-                  { label: '🇯🇵 日文', value: 'ja-JP' },
-                  { label: '🇰🇷 韩文', value: 'ko-KR' },
-                  { label: '🇨🇳 中文', value: 'zh-CN' }
+                  { label: '🇺🇸 en-US', value: 'en-US' },
+                  { label: '🇯🇵 ja-JP', value: 'ja-JP' },
+                  { label: '🇰🇷 ko-KR', value: 'ko-KR' },
+                  { label: '🇨🇳 zh-CN', value: 'zh-CN' }
                 ]" />
               </div>
               <div class="pt-5 text-text-muted">
@@ -590,10 +590,10 @@ const manualPlay = () => {
               <div class="flex-1">
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.target_lang') }}</label>
                 <CustomSelect v-model="otherTargetLang" :options="[
-                  { label: '🇨🇳 中文', value: 'zh-CN' },
-                  { label: '🇺🇸 英文', value: 'en' },
-                  { label: '🇯🇵 日文', value: 'ja' },
-                  { label: '🇰🇷 韩文', value: 'ko' }
+                  { label: '🇨🇳 zh-CN', value: 'zh-CN' },
+                  { label: '🇺🇸 en-US', value: 'en' },
+                  { label: '🇯🇵 ja-JP', value: 'ja' },
+                  { label: '🇰🇷 ko-KR', value: 'ko' }
                 ]" />
               </div>
             </div>

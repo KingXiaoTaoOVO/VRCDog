@@ -1,7 +1,7 @@
 [package]
 name = "VrcDog"
 version = "5.0.0"
-description = "VRC狗狗加速"
+description = "VRCDog"
 authors = ["you"]
 edition = "2021"
 

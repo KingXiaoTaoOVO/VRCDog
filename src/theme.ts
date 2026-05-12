@@ -35,7 +35,7 @@ export type ThemeId = 'dog' | 'cat' | 'helmet' | 'mono';
 export const themes: Record<ThemeId, Theme> = {
   dog: {
     id: 'dog',
-    name: '小狗',
+    name: 'theme.dog',
     logo: new URL('./assets/dog.jpg', import.meta.url).href,
     appTitle: 'VrcDog',
     colors: {
@@ -46,20 +46,20 @@ export const themes: Record<ThemeId, Theme> = {
       blob2: 'rgba(251, 191, 36, 0.35)',
       borderSoft: 'rgba(120, 53, 15, 0.1)',
       borderStrong: 'rgba(120, 53, 15, 0.2)',
-      text: '#5d4037',      // 柔和棕黑
-      textStrong: '#451a03', // 深焦糖
-      textSoft: '#8d6e63',   // 浅褐
+      text: '#5d4037',
+      textStrong: '#451a03',
+      textSoft: '#451a03',
       textMuted: '#a1887f',  // 灰褐
       activeBg: 'rgba(251, 191, 36, 0.25)',
       primaryBtnBg: '#d97706',
       primaryBtnHover: '#b45309',
-      terminalBg: 'rgba(20, 10, 0, 0.9)',
+      terminalBg: 'rgba(10, 10, 10, 0.95)',
       glassEffect: 'blur(24px) saturate(180%)',
     }
   },
   cat: {
     id: 'cat',
-    name: '小猫',
+    name: 'theme.cat',
     logo: new URL('./assets/main.png', import.meta.url).href,
     appTitle: 'VrcCat',
     colors: {
@@ -70,20 +70,20 @@ export const themes: Record<ThemeId, Theme> = {
       blob2: 'rgba(20, 184, 166, 0.3)',
       borderSoft: 'rgba(6, 78, 59, 0.1)',
       borderStrong: 'rgba(6, 78, 59, 0.2)',
-      text: '#2d4a3e',      // 柔和森绿
-      textStrong: '#064e3b', // 深林绿
-      textSoft: '#4d7c6b',   // 浅绿
+      text: '#2d4a3e',
+      textStrong: '#064e3b',
+      textSoft: '#064e3b',
       textMuted: '#709d8d',  // 灰绿
       activeBg: 'rgba(20, 184, 166, 0.2)',
       primaryBtnBg: '#059669',
       primaryBtnHover: '#047857',
-      terminalBg: 'rgba(0, 20, 10, 0.9)',
+      terminalBg: 'rgba(10, 10, 10, 0.95)',
       glassEffect: 'blur(24px) saturate(180%)',
     }
   },
   helmet: {
     id: 'helmet',
-    name: '头盔',
+    name: 'theme.helmet',
     logo: new URL('./assets/helmet.jpeg', import.meta.url).href,
     appTitle: 'VrcArai',
     colors: {
@@ -94,20 +94,20 @@ export const themes: Record<ThemeId, Theme> = {
       blob2: 'rgba(217, 70, 239, 0.3)',
       borderSoft: 'rgba(136, 19, 55, 0.1)',
       borderStrong: 'rgba(136, 19, 55, 0.2)',
-      text: '#6b3e4a',      // 柔和暗玫
-      textStrong: '#4c0519', // 深玫瑰
-      textSoft: '#a67b86',   // 浅玫
+      text: '#6b3e4a',
+      textStrong: '#4c0519',
+      textSoft: '#4c0519',
       textMuted: '#c5aeb4',  // 灰玫
       activeBg: 'rgba(244, 114, 182, 0.2)',
       primaryBtnBg: '#e11d48',
       primaryBtnHover: '#be123c',
-      terminalBg: 'rgba(20, 0, 5, 0.9)',
+      terminalBg: 'rgba(10, 10, 10, 0.95)',
       glassEffect: 'blur(24px) saturate(180%)',
     }
   },
   mono: {
     id: 'mono',
-    name: '黑白',
+    name: 'theme.mono',
     logo: new URL('./assets/mono.jpeg', import.meta.url).href,
     appTitle: 'VrcMono',
     colors: {
@@ -118,9 +118,9 @@ export const themes: Record<ThemeId, Theme> = {
       blob2: 'rgba(148, 163, 184, 0.3)',
       borderSoft: 'rgba(15, 23, 42, 0.1)',
       borderStrong: 'rgba(15, 23, 42, 0.2)',
-      text: '#475569',      // 柔和板岩灰
-      textStrong: '#0f172a', // 深岩黑
-      textSoft: '#64748b',   // 板岩中灰
+      text: '#475569',
+      textStrong: '#0f172a',
+      textSoft: '#0f172a',
       textMuted: '#94a3b8',  // 板岩浅灰
       activeBg: 'rgba(148, 163, 184, 0.2)',
       primaryBtnBg: '#475569',
@@ -146,3 +146,5 @@ export const setTheme = (id: ThemeId) => {
     currentThemeId.value = id;
   }
 };
+
+

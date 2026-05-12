@@ -70,7 +70,7 @@
 
 /* 终端黑色风格 - 强制纯黑亚克力 */
 .terminal-black {
-  background: var(--theme-terminal-bg, rgba(0, 0, 0, 0.9)) !important;
+  background: rgba(10, 10, 10, 0.95) !important;
   backdrop-filter: blur(20px) saturate(150%);
   color: #e2e8f0 !important;
   font-family: 'Fira Code', 'JetBrains Mono', monospace;

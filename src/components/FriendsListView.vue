@@ -3,10 +3,12 @@ import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { VrcApi, DbApi } from "../api";
 import { Search, RefreshCcw, Bell, Settings, ChevronDown, ChevronRight } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '../stores/authStore';
 import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
+const authStore = useAuthStore();
 
 const onlineFriends = ref<any[]>([]);
 const activeFriends = ref<any[]>([]); // 活跃中 (仅登录网页端)
@@ -28,21 +30,21 @@ const toggleSection = (sectionName: string) => {
   }
 };
 
-const currentUser = ref<any>(null);
+const currentUser = computed(() => authStore.currentUser);
+let fetchTimeout: any = null;
 
 const fetchFriends = async () => {
-  loading.value = true;
-  errorMsg.value = '';
-  try {
-    // Current user mock or fetch
-    const current = await VrcApi.getCurrentUser().catch(() => null);
-    if (current) {
-      currentUser.value = current;
-    }
-
-    const cached: any[] = await DbApi.getCachedFriends() || [];
-    
-    onlineFriends.value = cached.filter((f: any) => f.location && f.location !== 'offline');
+  if (fetchTimeout) {
+    clearTimeout(fetchTimeout);
+  }
+  
+  fetchTimeout = setTimeout(async () => {
+    loading.value = true;
+    errorMsg.value = '';
+    try {
+      const cached: any[] = await DbApi.getCachedFriends() || [];
+      
+      onlineFriends.value = cached.filter((f: any) => f.location && f.location !== 'offline');
     
     // In VRChat, active usually means location is 'offline' but status is not 'offline', or similar.
     // For now we mock 'active' users as those with location 'offline' but status != 'offline'
@@ -54,6 +56,7 @@ const fetchFriends = async () => {
   } finally {
     loading.value = false;
   }
+  }, 1000); // 1s debounce
 };
 
 onMounted(() => {
@@ -133,13 +136,13 @@ const openDetail = (friend: any) => {
 
 // Status dot color
 const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'active': return '#22c55e'; // green-500
-    case 'join me': return '#3b82f6'; // blue-500
-    case 'ask me': return '#f97316'; // orange-500
-    case 'busy': return '#ef4444'; // red-500
-    default: return '#94a3b8'; // slate-400
-  }
+  const s = status?.toLowerCase() || '';
+  if (s === 'active' || s === 'online') return '#22c55e'; // green
+  if (s === 'join me') return '#3b82f6'; // blue
+  if (s === 'ask me' || s === 'busy') return '#f97316'; // orange (busy is orange)
+  if (s === 'do not disturb' || s === 'dnd') return '#ef4444'; // red (dnd is red)
+  if (s === 'offline') return '#94a3b8'; // gray
+  return '#22c55e'; // Default to green
 };
 
 const getFlag = (locName: string) => {
@@ -156,63 +159,53 @@ const cleanLocName = (loc: string) => {
   if (loc === 'private') return t('auto_4ad3ada9');
   return loc?.split('~')[0] || t('auto_0fcd7253');
 };
+import FriendItem from './FriendItem.vue';
 </script>
 
 <template>
-  <div class="h-full w-full flex justify-center bg-background/80 backdrop-blur-md text-text-muted overflow-hidden">
-    <!-- Main container mimicking VRCX right sidebar -->
-    <div class="w-full max-w-[340px] h-full flex flex-col bg-surface/80 border-border-soft">
+  <div class="h-full w-full bg-[var(--theme-surface)]/20 text-[var(--theme-text-muted)] overflow-hidden rounded-xl border border-border-soft flex">
+    <div class="w-full h-full flex flex-col bg-[var(--theme-surface)]/60 backdrop-blur-md">
       
-      <!-- Top Bar -->
-      <div class="flex items-center gap-2 p-2 border-border-soft">
-        <div class="flex-1 relative flex items-center bg-surface rounded px-3 py-1.5 focus-within:ring-1 focus-within:ring-slate-500 transition-all">
-          <Search class="w-4 h-4 text-border-strong mr-2 shrink-0" />
-          <input
+      <!-- Top Search & Title Bar -->
+      <div class="p-3 border-b-2 border-border-soft shrink-0">
+        <div class="relative group">
+          <Search class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--theme-text-muted)] group-focus-within:text-primary transition-colors" />
+          <input 
             v-model="searchQuery"
-            type="text"
-            class="w-full bg-transparent text-[13px] text-text-muted placeholder-slate-500 outline-none"
-            :placeholder="$t('auto_e5f71fc3')"
-          >
-          <div class="flex items-center gap-1 shrink-0 ml-2">
-            <kbd class="min-w-[20px] text-center bg-surface/80 text-border-strong border-border-soft rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">Ctrl</kbd>
-            <kbd class="min-w-[20px] text-center bg-surface/80 text-border-strong border-border-soft rounded flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono shadow-[0_1px_0_rgba(0,0,0,0.5)]">K</kbd>
-          </div>
+            type="text" 
+            :placeholder="t('friends.search_placeholder')" 
+            class="w-full bg-[var(--theme-surface)]-hover text-[var(--theme-text)] pl-10 pr-10 py-2.5 rounded-full text-sm outline-none placeholder-[var(--theme-text-muted)] focus:ring-4 focus:ring-primary/20 transition-all border-2 border-border-soft focus:border-primary/50 font-bold"
+          />
+          <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-transform hover:scale-110">
+            <X class="w-4 h-4" />
+          </button>
         </div>
-        <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" @click="fetchFriends" :title="$t('auto_694fc5ef')">
-          <RefreshCcw class="w-4 h-4" :class="{'animate-spin text-primary': loading}" />
-        </button>
-        <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" :title="$t('auto_5660bcd2')">
-          <Bell class="w-4 h-4" />
-        </button>
-        <button class="p-1.5 text-border-strong hover:text-text-muted transition-colors" :title="$t('auto_e366ccf1')">
-          <Settings class="w-4 h-4" />
-        </button>
       </div>
 
       <!-- Tabs -->
-      <div class="flex border-border-soft">
+      <div class="flex border-b border-border-soft shrink-0 bg-[var(--theme-surface)]/40">
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
-          :class="activeTab === 'friends' ? 'text-text' : 'text-text-muted hover:text-text'"
+          :class="activeTab === 'friends' ? 'text-[var(--theme-text)]' : 'text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'"
           @click="activeTab = 'friends'"
         >
-          {{ $t('friends.title') || '好友' }} ({{ onlineCount }}/{{ totalCount }})
-          <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-surface"></div>
+          {{ t('friends.title') }} ({{ onlineCount }})
+          <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary"></div>
         </button>
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
-          :class="activeTab === 'groups' ? 'text-text' : 'text-text-muted hover:text-text'"
+          :class="activeTab === 'groups' ? 'text-[var(--theme-text)]' : 'text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'"
           @click="activeTab = 'groups'"
         >
-          {{ $t('groups.title') || '群组房间' }} (0)
-          <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-surface"></div>
+          {{ t('groups.title') }} (0)
+          <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary"></div>
         </button>
       </div>
 
       <!-- Content Area -->
       <div class="flex-1 overflow-y-auto custom-scrollbar">
         
-        <div v-if="loading && onlineCount === 0" class="flex justify-center items-center h-20 text-text-muted">
+        <div v-if="loading && onlineCount === 0" class="flex justify-center items-center h-20 text-[var(--theme-text-muted)]">
           <RefreshCcw class="w-5 h-5 animate-spin" />
         </div>
 
@@ -221,63 +214,59 @@ const cleanLocName = (loc: string) => {
           <!-- 我 (Me) -->
           <div class="mb-2 mt-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
+              class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5"
               @click="toggleSection('me')"
             >
-              <component :is="collapsedSections.has('me') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              {{ $t('friends.me') || '我' }}
+              <component :is="collapsedSections.has('me') ? ChevronRight : ChevronDown" class="w-4 h-4 text-primary" />
+              {{ t('friends.me') }}
             </div>
-            <div v-show="!collapsedSections.has('me')" class="mt-1 pl-2">
-              <div class="flex items-center gap-3 py-1.5 px-4 rounded-md transition-colors">
-                <div class="relative shrink-0">
-                  <img :src="currentUser?.currentAvatarThumbnailImageUrl || currentUser?.profilePicOverride || 'https://via.placeholder.com/150'" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong bg-green-500"></div>
-                </div>
-                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-                  <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(currentUser?.tags) }">
-                    {{ currentUser?.displayName || 'King小韬' }}
-                  </span>
-                </div>
-              </div>
+            <div v-show="!collapsedSections.has('me')" class="mt-1 pl-1">
+              <FriendItem 
+                v-if="currentUser"
+                :friend="currentUser" 
+                :statusColor="getStatusColor(currentUser.status || 'offline')" 
+                :trustColor="getTrustColor(currentUser.tags || [])" 
+                @click="openDetail(currentUser)"
+              >
+                <template #subtitle>
+                  <span class="text-[12px] font-medium text-text-muted mt-0.5 truncate">{{ currentUser.statusDescription || 'Online' }}</span>
+                </template>
+              </FriendItem>
             </div>
           </div>
 
           <!-- 同一房间 (Same Room) -->
           <div v-if="groupedFriends.sameRoom.length > 0" class="mb-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
+              class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5"
               @click="toggleSection('sameRoom')"
             >
-              <component :is="collapsedSections.has('sameRoom') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              {{ $t('friends.same_room') || '同一房间' }} — {{ groupedFriends.sameRoom.length }}
+              <component :is="collapsedSections.has('sameRoom') ? ChevronRight : ChevronDown" class="w-4 h-4 text-primary" />
+              {{ t('friends.same_room') }}
+              <span class="ml-auto bg-primary text-white px-2.5 py-0.5 rounded-full text-[11px] border-2 border-primary/20">{{ groupedFriends.sameRoom.length }}</span>
             </div>
             
-            <div v-show="!collapsedSections.has('sameRoom')" class="mt-1">
+            <div v-show="!collapsedSections.has('sameRoom')" class="mt-1 pl-1">
               <template v-for="group in groupedFriends.sameRoom" :key="group.location">
                 <!-- Location Header -->
-                <div class="flex items-center gap-2 py-1 px-6 text-[12px] font-medium text-text-muted">
-                  <span class="text-[13px]">{{ group.flag }}</span>
+                <div class="flex items-center gap-2 py-1.5 px-4 text-[13px] font-bold text-[var(--theme-text-muted)] bg-[var(--theme-surface)]-hover rounded-[16px] mx-4 mb-2 mt-2 border-2 border-border-soft shadow-sm hover:scale-[1.01] transition-transform">
+                  <span class="text-[16px] drop-shadow-sm">{{ group.flag }}</span>
                   <span class="truncate max-w-[200px]">{{ group.locationName }}</span>
-                  <span class="ml-1 shrink-0">({{ group.friends.length }})</span>
+                  <span class="ml-auto shrink-0 bg-[var(--theme-surface)] border-2 border-border-soft px-2.5 py-0.5 rounded-full text-[11px] text-[var(--theme-text)]">{{ group.friends.length }}</span>
                 </div>
                 <!-- Friends in Location -->
-                <div 
+                <FriendItem 
                   v-for="friend in group.friends" 
                   :key="friend.id"
-                  class="flex items-center gap-3 py-1.5 px-6 ml-4 mr-2 cursor-pointer hover:bg-surface-hover rounded transition-colors"
+                  :friend="friend" 
+                  :statusColor="getStatusColor(friend.status)" 
+                  :trustColor="getTrustColor(friend.tags)" 
                   @click="openDetail(friend)"
                 >
-                  <div class="relative shrink-0">
-                    <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
-                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
-                  </div>
-                  <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-                    <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
-                      {{ friend.displayName }}
-                    </span>
-                    <span class="text-[11px] text-text-muted mt-0.5">{{ $t('auto_3bdab2c6') }}</span> <!-- Mock time to match design -->
-                  </div>
-                </div>
+                  <template #subtitle>
+                    <span class="text-[12px] font-medium text-text-muted mt-0.5">{{ t('auto_3bdab2c6') }}</span>
+                  </template>
+                </FriendItem>
               </template>
             </div>
           </div>
@@ -285,112 +274,91 @@ const cleanLocName = (loc: string) => {
           <!-- 在线 (Online) -->
           <div v-if="groupedFriends.online.length > 0" class="mb-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
+              class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5"
               @click="toggleSection('online')"
             >
-              <component :is="collapsedSections.has('online') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              {{ $t('friends.online') || '在线' }} — {{ groupedFriends.online.length }}
+              <component :is="collapsedSections.has('online') ? ChevronRight : ChevronDown" class="w-4 h-4 text-primary" />
+              {{ t('friends.online') }}
+              <span class="ml-auto bg-primary text-white px-2.5 py-0.5 rounded-full text-[11px] border-2 border-primary/20">{{ groupedFriends.online.length }}</span>
             </div>
             
-            <div v-show="!collapsedSections.has('online')" class="mt-1 pl-2 pr-2">
-              <div 
+            <div v-show="!collapsedSections.has('online')" class="mt-1 pl-1 pr-1">
+              <FriendItem 
                 v-for="friend in groupedFriends.online" 
                 :key="friend.id"
-                class="flex items-center gap-3 py-2 px-4 cursor-pointer hover:bg-surface-hover rounded transition-colors"
+                :friend="friend" 
+                :statusColor="getStatusColor(friend.status)" 
+                :trustColor="getTrustColor(friend.tags)" 
                 @click="openDetail(friend)"
-              >
-                <div class="relative shrink-0">
-                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
-                </div>
-                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-                  <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
-                    {{ friend.displayName }}
-                  </span>
-                  <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-text-muted truncate">
-                    <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80">🔒</span>
-                    <span v-else class="shrink-0 text-[12px]">{{ getFlag(friend.location) }}</span>
-                    <span class="truncate">{{ cleanLocName(friend.location) }}</span>
-                  </div>
-                </div>
-              </div>
+              />
             </div>
           </div>
 
           <!-- 活跃中 (Active on website) -->
           <div v-if="activeFriends.length > 0 && !searchQuery" class="mb-2">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-text-muted select-none"
+              class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5"
               @click="toggleSection('active')"
             >
-              <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-border-strong" />
-              {{ $t('friends.active_web') || '活跃中 (网页端)' }} — {{ activeFriends.length }}
+              <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-4 h-4 text-primary" />
+              {{ t('friends.active_web') }}
+              <span class="ml-auto bg-primary text-white px-2.5 py-0.5 rounded-full text-[11px] border-2 border-primary/20">{{ activeFriends.length }}</span>
             </div>
-            <div v-show="!collapsedSections.has('active')" class="mt-1 pl-2 pr-2">
-              <div 
+            <div v-show="!collapsedSections.has('active')" class="mt-1 pl-1 pr-1">
+              <FriendItem 
                 v-for="friend in activeFriends" 
                 :key="friend.id"
-                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-surface-hover rounded transition-colors"
+                :friend="friend" 
+                :statusColor="getStatusColor(friend.status)" 
+                :trustColor="getTrustColor(friend.tags)" 
                 @click="openDetail(friend)"
-              >
-                <div class="relative shrink-0">
-                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong" :style="{ backgroundColor: getStatusColor(friend.status) }"></div>
-                </div>
-                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-                  <span class="text-[13px] font-bold truncate" :style="{ color: getTrustColor(friend.tags) }">
-                    {{ friend.displayName }}
-                  </span>
-                  <span class="text-[11px] text-text-muted mt-0.5 truncate">{{ $t('auto_7cdc4c2a') }}</span>
-                </div>
-              </div>
+              />
             </div>
           </div>
 
           <!-- 离线 (Offline) -->
           <div v-if="offlineFriends.length > 0 && !searchQuery" class="mb-4">
             <div 
-              class="flex items-center gap-2 py-1 px-3 cursor-pointer hover:bg-surface transition-colors text-[13px] font-bold text-border-strong select-none"
+              class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text-muted)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 opacity-80"
               @click="toggleSection('offline')"
             >
-              <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-3.5 h-3.5 text-text-muted" />
-              {{ $t('friends.offline') || '离线' }} — {{ offlineFriends.length }}
+              <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-4 h-4" />
+              {{ t('friends.offline') }}
+              <span class="ml-auto bg-[var(--theme-surface)]-hover px-2.5 py-0.5 rounded-full text-[11px] border-2 border-border-soft">{{ offlineFriends.length }}</span>
             </div>
-            <div v-show="!collapsedSections.has('offline')" class="mt-1 pl-2 pr-2 opacity-60 hover:opacity-100 transition-opacity">
-              <div 
+            <div v-show="!collapsedSections.has('offline')" class="mt-1 pl-1 pr-1 opacity-80 hover:opacity-100 transition-opacity">
+              <FriendItem 
                 v-for="friend in offlineFriends" 
                 :key="friend.id"
-                class="flex items-center gap-3 py-1.5 px-4 cursor-pointer hover:bg-surface-hover rounded transition-colors"
+                :friend="friend" 
+                :statusColor="''" 
+                :trustColor="''" 
+                :isOffline="true"
                 @click="openDetail(friend)"
-              >
-                <div class="relative shrink-0">
-                  <img :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl" class="w-8 h-8 rounded-full object-cover bg-surface-hover grayscale" />
-                  <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-border-strong bg-surface"></div>
-                </div>
-                <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-                  <span class="text-[13px] font-bold truncate text-text-muted">
-                    {{ friend.displayName }}
-                  </span>
-                  <span class="text-[11px] text-text-muted/70 mt-0.5 truncate">{{ $t('auto_50d4a850') }}</span>
-                </div>
-              </div>
+              />
             </div>
           </div>
 
         </template>
-        
-        <div v-else class="h-full flex flex-col items-center justify-center text-text-muted text-sm font-medium">
-          {{ $t('groups.no_groups') || '暂无群组房间' }}
-        </div>
 
+        <!-- Groups Tab placeholder -->
+        <div v-else-if="activeTab === 'groups'" class="p-4 text-center text-[var(--theme-text-muted)] text-sm mt-10">
+          {{ t('auto_bbd61dc2') }}
+        </div>
       </div>
+      
+      <!-- Footer Settings / Refresh -->
+      <div class="h-10 border-t border-border-soft shrink-0 flex items-center justify-between px-3 bg-[var(--theme-surface)]/50">
+        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors">
+          <Settings class="w-4 h-4" />
+        </button>
+        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" @click="fetchFriends" :disabled="loading">
+          <RefreshCcw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
+        </button>
+      </div>
+
     </div>
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 8px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--color-surface-hover); border-radius: 4px; border: 2px solid var(--color-border-soft); }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
-</style>
+

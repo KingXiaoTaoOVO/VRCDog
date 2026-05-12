@@ -254,8 +254,8 @@ onMounted(() => fetchPresets());
                 v-else
                 :size="16"
               />
-              <span v-if="appliedId === preset.id">{{ t('status_presets.applied') === 'status_presets.applied' ? '已应用' : t('status_presets.applied') }}</span>
-              <span v-else>{{ t('status_presets.apply') === 'status_presets.apply' ? '应用预设' : t('status_presets.apply') }}</span>
+              <span v-if="appliedId === preset.id">{{ t('status_presets.applied') === 'status_presets.applied' ? t('status_presets.applied_fallback') : t('status_presets.applied') }}</span>
+              <span v-else>{{ t('status_presets.apply') === 'status_presets.apply' ? t('status_presets.apply_fallback') : t('status_presets.apply') }}</span>
             </button>
             <button
               class="p-2 rounded-xl hover:bg-red-50 text-border-strong hover:text-red-500 transition-colors"
@@ -271,9 +271,4 @@ onMounted(() => fetchPresets());
   </div>
 </template>
 
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>
+
