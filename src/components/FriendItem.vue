@@ -15,6 +15,46 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+// Map VRChat language tags to country flag emojis (same as VRCX)
+const LANGUAGE_FLAGS: Record<string, string> = {
+  language_eng: '🇺🇸',
+  language_kor: '🇰🇷',
+  language_rus: '🇷🇺',
+  language_spa: '🇪🇸',
+  language_por: '🇧🇷',
+  language_zho: '🇨🇳',
+  language_deu: '🇩🇪',
+  language_jpn: '🇯🇵',
+  language_fra: '🇫🇷',
+  language_swe: '🇸🇪',
+  language_nld: '🇳🇱',
+  language_pol: '🇵🇱',
+  language_dan: '🇩🇰',
+  language_nor: '🇳🇴',
+  language_ita: '🇮🇹',
+  language_tha: '🇹🇭',
+  language_fin: '🇫🇮',
+  language_hun: '🇭🇺',
+  language_ces: '🇨🇿',
+  language_tur: '🇹🇷',
+  language_ara: '🇸🇦',
+  language_ron: '🇷🇴',
+  language_vie: '🇻🇳',
+  language_ukr: '🇺🇦',
+  language_ind: '🇮🇩',
+  language_msa: '🇲🇾',
+};
+
+// Get country flags from user's language tags
+const countryFlags = computed(() => {
+  const tags: string[] = props.friend?.tags || [];
+  return tags
+    .filter(tag => tag.startsWith('language_'))
+    .map(tag => LANGUAGE_FLAGS[tag])
+    .filter(Boolean)
+    .slice(0, 3); // max 3 flags like VRCX
+});
+
 const getFlag = (location: string) => {
   if (location === 'private') return '🔒';
   if (location === 'traveling') return '✈️';
@@ -27,6 +67,11 @@ const cleanLocName = (location: string) => {
   if (location === 'private') return t('friends.loc_private');
   if (location === 'traveling') return t('friends.loc_traveling');
   if (location === 'offline') return t('friends.loc_offline');
+  // 对于 wrld_ 开头的，显示世界 ID 的简短形式（完整名称由父组件通过 slot 提供）
+  if (location.startsWith('wrld_')) {
+    const worldId = location.split(':')[0];
+    return worldId.substring(0, 20) + '...';
+  }
   const colonIdx = location.indexOf(':');
   return colonIdx > -1 ? location.substring(0, colonIdx) : location;
 };
@@ -52,21 +97,25 @@ const cleanLocName = (location: string) => {
       ></div>
     </div>
     <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
-      <span 
-        class="text-[15px] font-black truncate transition-colors" 
-        :style="{ color: trustColor }"
-        :class="{ 'text-[var(--theme-text-muted)]': isOffline && !trustColor }"
-      >
-        {{ friend.displayName || 'Unknown' }}
-      </span>
+      <div class="flex items-center gap-1 min-w-0">
+        <!-- Country flags from language tags (like VRCX) -->
+        <span v-for="flag in countryFlags" :key="flag" class="text-[13px] leading-none shrink-0">{{ flag }}</span>
+        <span 
+          class="text-[15px] font-black truncate transition-colors" 
+          :style="{ color: trustColor || undefined }"
+          :class="{ 'text-[var(--theme-text-muted)]': isOffline && !trustColor }"
+        >
+          {{ friend.displayName || 'Unknown' }}
+        </span>
+      </div>
       <!-- slots for subtitle -->
       <slot name="subtitle">
-        <div v-if="friend.location && !isOffline" class="flex items-center gap-1.5 mt-1 text-[12px] font-bold text-[var(--theme-text-muted)] truncate bg-black/10 dark:bg-white/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
+         <div v-if="friend.location && !isOffline" class="flex items-center gap-1.5 mt-1 text-[12px] font-bold text-[var(--theme-text-muted)] truncate bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
           <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80 text-[10px]">🔒</span>
           <span v-else class="shrink-0 text-[10px]">{{ getFlag(friend.location) }}</span>
           <span class="truncate">{{ cleanLocName(friend.location) }}</span>
         </div>
-        <div v-else class="text-[12px] font-bold text-[var(--theme-text-muted)] mt-1 truncate bg-black/5 dark:bg-white/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
+         <div v-else class="text-[12px] font-bold text-[var(--theme-text-muted)] mt-1 truncate bg-[var(--theme-bg-main)]/5 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
           {{ isOffline ? t('auto_50d4a850') : t('auto_7cdc4c2a') }}
         </div>
       </slot>

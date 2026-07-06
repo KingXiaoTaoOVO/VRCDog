@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, markRaw } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -8,7 +8,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { wsState } from '../../api/websocket';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
 import VrcAvatar from '../VrcAvatar.vue';
-import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight } from 'lucide-vue-next';
+import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert } from 'lucide-vue-next';
 import CustomNavModal from '../CustomNavModal.vue';
 
 const { t } = useI18n();
@@ -46,6 +46,48 @@ const getStatusColor = (status: string) => {
   }
 }
 
+// ── VRCX 风格折叠子菜单 ──────────────────────────────────────────
+// 定义哪些 tab 有子菜单
+const subMenuGroups: Record<string, { key: string; label: string; icon: any }[]> = {
+  social: [
+    { key: 'feed', label: 'sidebar.feed', icon: markRaw(ScrollText) },
+    { key: 'friendslist', label: 'sidebar.friendslist', icon: markRaw(List) },
+    { key: 'moderation', label: 'sidebar.moderation', icon: markRaw(ShieldAlert) },
+  ],
+};
+
+// 展开状态
+const expandedGroups = ref<Record<string, boolean>>({ social: false });
+
+// 判断某个 tab 是否是子菜单的父级
+const isGroupParent = (key: string) => key in subMenuGroups;
+
+// 判断某个 tab 是否是子菜单项（被某个父级包含）
+const isSubItem = (key: string) => {
+  return Object.values(subMenuGroups).some(children => children.some(c => c.key === key));
+};
+
+// 点击父级 tab：展开/折叠子菜单，同时激活父级
+const handleTabClick = (key: string) => {
+  if (isGroupParent(key)) {
+    expandedGroups.value[key] = !expandedGroups.value[key];
+    uiStore.activeTab = key;
+  } else {
+    uiStore.activeTab = key;
+  }
+};
+
+// 过滤掉被子菜单组管理的独立 tab（避免重复显示）
+const managedSubKeys = computed(() => {
+  const keys = new Set<string>();
+  Object.values(subMenuGroups).forEach(children => children.forEach(c => keys.add(c.key)));
+  return keys;
+});
+
+const visibleSidebarTabs = computed(() => {
+  return activeSidebarTabs.value.filter(tab => !managedSubKeys.value.has(tab.key));
+});
+
 // 动态注入 CSS 变量
 const themeStyles = computed(() => {
   const colors = currentTheme.value.colors;
@@ -81,7 +123,7 @@ const themeStyles = computed(() => {
 
     <!-- 侧边栏 -->
     <aside
-      class="w-[240px] shadow-lg border-r border-white/10 flex flex-col z-10 p-3 relative flex-shrink-0 transition-all duration-300" :style="{ backgroundColor: 'var(--theme-terminal-bg)' }"
+      class="w-[240px] shadow-lg flex flex-col z-10 p-3 relative flex-shrink-0 transition-all duration-300" :style="{ backgroundColor: 'var(--theme-surface)', borderRight: '1px solid var(--theme-border-soft)' }"
     >
       <div class="flex items-center gap-2.5 mb-2">
         <div
@@ -109,37 +151,74 @@ const themeStyles = computed(() => {
         </div>
       </div>
       
-      <!-- 主题切换 -->
-      <div
-        class="flex justify-between items-center bg-surface rounded-xl p-1 mb-4"
-        :style="{ border: `1px solid ${currentTheme.colors.borderSoft}` }"
-      >
-        <button
-          v-for="tTheme in Object.values(filteredThemes)"
-          :key="tTheme.id"
-          class="flex-1 py-1 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-          :style="currentTheme.id === tTheme.id ? { backgroundColor: tTheme.colors.activeBg, color: tTheme.colors.textStrong } : { color: currentTheme.colors.textSoft, opacity: 0.7 }"
-          :title="tTheme.name"
-          @click="setTheme(tTheme.id as ThemeId)"
+        <!-- 主题切换 -->
+        <div
+          class="flex justify-between items-center bg-surface rounded-xl p-1 mb-4"
+          :style="{ border: `1px solid ${currentTheme.colors.borderSoft}` }"
         >
-          {{ tTheme.name.slice(0,2) }}
-        </button>
-      </div>
+          <button
+            v-for="tTheme in Object.values(filteredThemes)"
+            :key="tTheme.id"
+            class="flex-1 py-1 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+            :style="currentTheme.id === tTheme.id ? { backgroundColor: tTheme.colors.activeBg, color: tTheme.colors.textStrong } : { color: currentTheme.colors.textSoft, opacity: 0.7 }"
+            :title="t(tTheme.name)"
+            @click="setTheme(tTheme.id as ThemeId)"
+          >
+            {{ t(tTheme.name).slice(0,2) }}
+          </button>
+        </div>
 
-      <div class="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
-        <button
-          v-for="tab in activeSidebarTabs"
-          :key="tab.key"
-          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg font-bold transition-all text-left text-[13px] mb-1"
-          :style="activeTab === tab.key ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong, borderColor: currentTheme.colors.borderStrong } : { color: currentTheme.colors.textSoft, borderColor: 'transparent' }"
-          @click="uiStore.activeTab = tab.key as any"
-        >
-          <component
-            :is="tab.icon"
-            :size="18"
-          />
-          {{ $t(tab.label) }}
-        </button>
+      <div class="flex-1 space-y-0.5 overflow-y-auto custom-scrollbar">
+        <template v-for="tab in visibleSidebarTabs" :key="tab.key">
+          <!-- 父级 tab（带子菜单） -->
+          <div v-if="isGroupParent(tab.key)">
+            <button
+              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg font-bold transition-all text-left text-[13px]"
+              :style="activeTab === tab.key || subMenuGroups[tab.key]?.some(c => c.key === activeTab)
+                ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
+                : { color: currentTheme.colors.textSoft }"
+              @click="handleTabClick(tab.key)"
+            >
+              <component :is="tab.icon" :size="18" />
+              <span class="flex-1">{{ $t(tab.label) }}</span>
+              <ChevronDown
+                :size="14"
+                class="transition-transform duration-200 opacity-60"
+                :class="expandedGroups[tab.key] ? 'rotate-180' : ''"
+              />
+            </button>
+            <!-- 子菜单 -->
+            <transition name="submenu">
+              <div v-if="expandedGroups[tab.key]" class="ml-3 mt-0.5 space-y-0.5 pl-3" :style="{ borderLeft: `2px solid ${currentTheme.colors.borderStrong}` }">
+                <button
+                  v-for="child in subMenuGroups[tab.key]"
+                  :key="child.key"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg font-medium transition-all text-left text-[12px]"
+                  :style="activeTab === child.key
+                    ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
+                    : { color: currentTheme.colors.textSoft }"
+                  @click="uiStore.activeTab = child.key"
+                >
+                  <component :is="child.icon" :size="15" />
+                  {{ $t(child.label) }}
+                </button>
+              </div>
+            </transition>
+          </div>
+
+          <!-- 普通 tab -->
+          <button
+            v-else
+            class="w-full flex items-center gap-3 px-3 py-2 rounded-lg font-bold transition-all text-left text-[13px]"
+            :style="activeTab === tab.key
+              ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
+              : { color: currentTheme.colors.textSoft }"
+            @click="handleTabClick(tab.key)"
+          >
+            <component :is="tab.icon" :size="18" />
+            {{ $t(tab.label) }}
+          </button>
+        </template>
       </div>
 
       <!-- 用户信息 + 退出 -->
@@ -297,3 +376,22 @@ const themeStyles = computed(() => {
     />
   </div>
 </template>
+
+<style scoped>
+.submenu-enter-active,
+.submenu-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.submenu-enter-from,
+.submenu-leave-to {
+  opacity: 0;
+  max-height: 0;
+  transform: translateY(-4px);
+}
+.submenu-enter-to,
+.submenu-leave-from {
+  opacity: 1;
+  max-height: 200px;
+}
+</style>

@@ -81,7 +81,7 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
     <div class="flex items-center gap-2 z-10 relative mt-auto flex-shrink-0">
       <button 
         v-if="status === 'not_installed' || status === 'error'"
-        class="btn-cute flex-1 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white py-2 px-3 rounded-[20px] font-bold shadow-lg shadow-indigo-500/30 border-border-soft text-sm flex-shrink-0"
+        class="btn-cute flex-1 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white py-2 px-3 rounded-[20px] font-bold shadow-lg shadow-primary/30 border-border-soft text-sm flex-shrink-0"
         @click="emit('install')"
       >
         <Download class="w-4 h-4" />

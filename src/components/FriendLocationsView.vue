@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { VrcApi, SysApi } from '../api';
+import { VrcApi, DbApi } from '../api';
 import VrcAvatar from './VrcAvatar.vue';
-import { MapPin, Users, Globe2, RefreshCcw, Lock, Eye } from 'lucide-vue-next';
+import { MapPin, Users, Globe2, RefreshCcw, Lock } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
+const profileStore = useUserProfileStore();
 
 interface FriendLocation {
   worldId: string;
@@ -13,6 +15,7 @@ interface FriendLocation {
   fullLocation: string;
   friends: any[];
   worldName?: string;
+  worldImageUrl?: string;
 }
 
 const locations = ref<FriendLocation[]>([]);
@@ -21,8 +24,71 @@ const privateFriends = ref<any[]>([]);
 const offlineFriends = ref<any[]>([]);
 let timer: number | null = null;
 
-const fetchLocations = async () => {
+// ── 持久化世界名缓存（DB + 内存两级）──────────────────────────────
+const memWorldCache = new Map<string, string>();
+
+async function getCachedWorldName(worldId: string): Promise<string | null> {
+  if (memWorldCache.has(worldId)) return memWorldCache.get(worldId)!;
   try {
+    const cached = await DbApi.getApiCache({ key: `world_name:${worldId}` });
+    if (cached) {
+      memWorldCache.set(worldId, cached);
+      return cached;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function setCachedWorldName(worldId: string, name: string) {
+  memWorldCache.set(worldId, name);
+  try {
+    await DbApi.saveApiCache({ key: `world_name:${worldId}`, data: name });
+  } catch { /* ignore */ }
+}
+
+// ── 并发拉取世界名（VRCX 风格：立即渲染，后台补全名称）────────────
+async function fetchWorldNamesConcurrent(locs: FriendLocation[]) {
+  const CONCURRENCY = 5; // 同 VRCX bulkRefreshFriends 并发数
+  const queue = locs.filter(l => !l.worldName || l.worldName === l.worldId);
+
+  // 先用缓存填充，避免任何网络请求
+  for (const loc of queue) {
+    const cached = await getCachedWorldName(loc.worldId);
+    if (cached) loc.worldName = cached;
+  }
+
+  // 只请求真正没有缓存的
+  const needFetch = queue.filter(l => !l.worldName || l.worldName === l.worldId);
+  if (needFetch.length === 0) return;
+
+  let idx = 0;
+  async function worker() {
+    while (idx < needFetch.length) {
+      const loc = needFetch[idx++];
+      try {
+        const w = await VrcApi.getWorld({ worldId: loc.worldId });
+        if (w?.name) {
+          loc.worldName = w.name;
+          if (w.imageUrl) loc.worldImageUrl = w.imageUrl;
+          await setCachedWorldName(loc.worldId, w.name);
+        } else {
+          loc.worldName = loc.worldId;
+        }
+      } catch {
+        loc.worldName = loc.worldId;
+      }
+      // 触发响应式更新
+      locations.value = [...locations.value];
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, needFetch.length) }, worker));
+}
+
+const fetchLocations = async () => {
+  loading.value = true;
+  try {
+    // 一次性拉取全部在线好友（n=100 足够，VRCX 也是分页但首屏用 100）
     const friends = await VrcApi.getFriends({ n: 100, offset: 0 });
     const locMap = new Map<string, FriendLocation>();
     const privates: any[] = [];
@@ -40,55 +106,31 @@ const fetchLocations = async () => {
         const instanceId = parts.slice(1).join(':') || '';
 
         if (!locMap.has(loc)) {
+          // 先用缓存填充世界名，立即可见
+          const cachedName = memWorldCache.get(worldId) || undefined;
           locMap.set(loc, {
             worldId,
             instanceId,
             fullLocation: loc,
             friends: [],
-            worldName: undefined,
+            worldName: cachedName,
           });
         }
         locMap.get(loc)!.friends.push(f);
       }
     }
 
-    // 按好友数降序排列
     locations.value = Array.from(locMap.values()).sort((a, b) => b.friends.length - a.friends.length);
     privateFriends.value = privates;
     offlineFriends.value = offlines;
 
-    // 异步获取世界名（不阻塞渲染，加入延迟防封禁）
-    const fetchWorldNames = async () => {
-      for (const loc of locations.value) {
-        if (!loc.worldName) {
-          // 检查本地全局缓存
-          if ((window as any).__WORLD_NAME_CACHE__ && (window as any).__WORLD_NAME_CACHE__.has(loc.worldId)) {
-            loc.worldName = (window as any).__WORLD_NAME_CACHE__.get(loc.worldId);
-            continue;
-          }
-          try {
-            const w = await VrcApi.getWorld({ worldId: loc.worldId });
-            if (w && w.name) {
-              loc.worldName = w.name;
-              if (!(window as any).__WORLD_NAME_CACHE__) (window as any).__WORLD_NAME_CACHE__ = new Map();
-              (window as any).__WORLD_NAME_CACHE__.set(loc.worldId, w.name);
-            } else {
-              loc.worldName = loc.worldId; 
-            }
-          } catch (e) {
-            console.warn(t('auto_00ef9b81'), e);
-          }
-          // 延迟 500ms，防止触发 VRChat API 429 限制
-          await new Promise(r => setTimeout(r, 500));
-        }
-      }
-    };
-    
-    // 不 await，让它在后台慢慢跑
-    fetchWorldNames();
+    // 立即结束 loading，让好友列表先显示出来
+    loading.value = false;
+
+    // 后台并发补全世界名（不阻塞 UI）
+    fetchWorldNamesConcurrent(locations.value);
   } catch (err) {
-    console.warn(t('auto_79d6305c'), err);
-  } finally {
+    console.warn('fetchLocations error', err);
     loading.value = false;
   }
 };
@@ -99,9 +141,9 @@ onMounted(() => {
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
-const totalOnline = computed(() => {
-  return locations.value.reduce((s, l) => s + l.friends.length, 0) + privateFriends.value.length;
-});
+const totalOnline = computed(() =>
+  locations.value.reduce((s, l) => s + l.friends.length, 0) + privateFriends.value.length
+);
 
 const getStatusDot = (status: string) => {
   const s = status?.toLowerCase() || '';
@@ -112,6 +154,32 @@ const getStatusDot = (status: string) => {
   if (s === 'offline') return 'bg-slate-400';
   return 'bg-green-500';
 };
+
+// Trust rank color — aligned with VRCX
+const getTrustColor = (tags: string[]) => {
+  if (!tags || !tags.length) return undefined;
+  if (tags.includes('system_trust_legend')) return '#ff69b4';
+  if (tags.includes('system_trust_veteran')) return '#8b5cf6';
+  if (tags.includes('system_trust_trusted')) return '#ff7b42';
+  if (tags.includes('system_trust_known')) return '#2bcf5c';
+  if (tags.includes('system_trust_basic')) return '#1778ff';
+  return undefined;
+};
+
+// Country flags from language tags (like VRCX)
+const LANGUAGE_FLAGS: Record<string, string> = {
+  language_eng: '🇺🇸', language_kor: '🇰🇷', language_rus: '🇷🇺',
+  language_spa: '🇪🇸', language_por: '🇧🇷', language_zho: '🇨🇳',
+  language_deu: '🇩🇪', language_jpn: '🇯🇵', language_fra: '🇫🇷',
+  language_swe: '🇸🇪', language_nld: '🇳🇱', language_pol: '🇵🇱',
+  language_tha: '🇹🇭', language_ita: '🇮🇹', language_tur: '🇹🇷',
+  language_ara: '🇸🇦', language_vie: '🇻🇳', language_ukr: '🇺🇦',
+  language_ind: '🇮🇩', language_msa: '🇲🇾',
+};
+const getFlags = (tags: string[]) =>
+  (tags || []).filter(tag => tag.startsWith('language_')).map(tag => LANGUAGE_FLAGS[tag]).filter(Boolean).slice(0, 2);
+
+import { SysApi } from '../api';
 
 const launchInstance = async (fullLocation: string) => {
   try {
@@ -182,7 +250,10 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
               class="text-primary flex-shrink-0"
               :size="16"
             />
-            <span class="font-bold text-primary text-sm truncate">{{ loc.worldName || loc.worldId }}</span>
+          <span class="font-bold text-primary text-sm truncate">
+            {{ loc.worldName || loc.worldId }}
+            <span v-if="!loc.worldName" class="text-primary/40 text-xs font-normal animate-pulse">...</span>
+          </span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0 flex items-center gap-1 mr-2">
@@ -208,7 +279,8 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
           <div
             v-for="friend in loc.friends"
             :key="friend.id"
-            class="flex items-center gap-2 p-2 rounded-xl bg-primary/10 hover:bg-primary/10 transition-colors"
+            class="flex items-center gap-2 p-2 rounded-xl bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer"
+            @click="profileStore.openProfile(friend.id, friend)"
           >
             <div class="relative flex-shrink-0">
               <div class="w-8 h-8 rounded-full overflow-hidden border-border-soft shadow-sm">
@@ -222,7 +294,10 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
                 :class="getStatusDot(friend.status)"
               />
             </div>
-            <span class="text-xs font-bold text-primary truncate">{{ friend.displayName }}</span>
+            <div class="flex items-center gap-0.5 min-w-0">
+              <span v-for="flag in getFlags(friend.tags || [])" :key="flag" class="text-[11px] leading-none shrink-0">{{ flag }}</span>
+              <span class="text-xs font-bold truncate" :style="{ color: getTrustColor(friend.tags || []) || 'var(--theme-primary)' }">{{ friend.displayName }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -247,7 +322,8 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
           <div
             v-for="friend in privateFriends"
             :key="friend.id"
-            class="flex flex-col items-center gap-1 p-2 rounded-xl bg-surface-hover hover:bg-surface transition-colors"
+            class="flex flex-col items-center gap-1 p-2 rounded-xl bg-surface-hover hover:bg-surface transition-colors cursor-pointer"
+            @click="profileStore.openProfile(friend.id, friend)"
           >
             <div class="relative">
               <div class="w-8 h-8 rounded-full overflow-hidden border-border-soft shadow-sm">
@@ -261,7 +337,10 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
                 :class="getStatusDot(friend.status)"
               />
             </div>
-            <span class="text-[10px] font-bold text-text-muted truncate max-w-full">{{ friend.displayName }}</span>
+            <div class="flex items-center gap-0.5 max-w-full">
+              <span v-for="flag in getFlags(friend.tags || [])" :key="flag" class="text-[9px] leading-none shrink-0">{{ flag }}</span>
+              <span class="text-[10px] font-bold truncate" :style="{ color: getTrustColor(friend.tags || []) || 'var(--theme-text-muted)' }">{{ friend.displayName }}</span>
+            </div>
           </div>
         </div>
       </div>

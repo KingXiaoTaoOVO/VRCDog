@@ -5,12 +5,13 @@ import { initWebsocket, closeWebSocket } from '../api/websocket';
 import { initGamelogWatcher, stopGamelogWatcher } from '../api/gamelogWatcher';
 import { isTauri } from '@tauri-apps/api/core';
 import type { VrcUser } from '../types/vrc';
-import i18n from '../i18n';
+import { setAppLocale, translate } from '../i18n';
 import { useUiStore } from './uiStore';
+import { mergeCookiesAndSave } from '../api/cookies';
 
 export const useAuthStore = defineStore('auth', () => {
   const uiStore = useUiStore();
-  const t = i18n.global.t;
+  const t = translate;
 
   const appRole = ref<'client' | 'server' | null>(null);
   const isLoggedIn = ref(false);
@@ -42,16 +43,35 @@ export const useAuthStore = defineStore('auth', () => {
   const handleLogout = async (keepVrcAuth: boolean = false) => {
     await disconnectFromServer();
     if (!keepVrcAuth) {
+      // 检查是否有已保存的账号，如果有则不调用 VRChat logout API
+      // 因为 logout 会让服务器端 cookie 失效，导致保存的账号无法一键登录
+      let hasSavedAccounts = false;
       try {
-        await VrcApi.logout();
-        await DbApi.clearAuth();
+        const raw = await DbApi.getSetting({ key: 'savedAccounts' });
+        if (raw) {
+          const accounts = JSON.parse(raw);
+          hasSavedAccounts = Array.isArray(accounts) && accounts.length > 0;
+        }
       } catch {}
+
+      if (!hasSavedAccounts) {
+        // 没有保存的账号，正常调用 logout 使 cookie 失效
+        try { await VrcApi.logout(); } catch {}
+      }
+      // 只清除本地 auth 存储，不影响 savedAccounts 中保存的 cookie
+      try { await DbApi.clearAuth(); } catch {}
     }
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     serverConnected.value = true; // reset
     consecutiveFailures = 0;
     currentUser.value = null;
     isLoggedIn.value = false;
+    // ⚠️ 关键修复：只有用户主动完全退出（keepVrcAuth=false）才回到角色选择页
+    // auth 过期/被踢/被封（keepVrcAuth=true）只回到登录页，保留模式选择
+    if (!keepVrcAuth) {
+      appRole.value = null;
+      clientServerUrl.value = '';
+    }
     uiStore.activeTab = 'social';
     closeWebSocket();
     stopGamelogWatcher();
@@ -232,7 +252,7 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         const allSettings = await DbApi.getAllSettings() as Record<string, unknown>;
         if (allSettings && typeof allSettings === 'object' && allSettings.language) {
-          i18n.global.locale.value = allSettings.language as any;
+          setAppLocale(String(allSettings.language));
         }
       } catch {}
 
@@ -247,32 +267,24 @@ export const useAuthStore = defineStore('auth', () => {
         authCookie: savedCookie
       });
 
-      if (res.current_user) {
-        currentUser.value = res.current_user;
+      // Normalize: VRChat API may return user as current_user, currentUser, or directly as res (with res.id)
+      const autoLoginUser = res.current_user || res.currentUser || (res.id ? res : null);
+      if (autoLoginUser) {
+        currentUser.value = autoLoginUser;
         
         DbApi.saveSetting({
           key: 'cached_vrc_user',
-          value: JSON.stringify({ user: res.current_user, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
+          value: JSON.stringify({ user: autoLoginUser, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
         }).catch(() => {});
 
-        const allowed = await registerWithServer(res.current_user);
+        const allowed = await registerWithServer(autoLoginUser);
         if (allowed === false) { currentUser.value = null; autoLoginLoading.value = false; return; }
         isLoggedIn.value = true;
         startHeartbeat();
-        await uiStore.fetchServerFeatures(getBaseUrl(), res.current_user);
+        await uiStore.fetchServerFeatures(getBaseUrl(), autoLoginUser);
         
         if (res.auth_cookie) {
-          try {
-            const nc: string[] = JSON.parse(res.auth_cookie);
-            let ex: string[] = [];
-            try { const s = await DbApi.getAuth(); if (s) { const p = JSON.parse(s); if (Array.isArray(p)) ex = p; } } catch {}
-            const m = new Map<string, string>();
-            for (const c of ex) { const n = c.split('=')[0]; if (n) m.set(n, c); }
-            for (const c of nc) { const n = c.split('=')[0]; if (n) m.set(n, c); }
-            await DbApi.saveAuth({ cookie: JSON.stringify(Array.from(m.values())) });
-          } catch {
-            await DbApi.saveAuth({ cookie: res.auth_cookie });
-          }
+          await mergeCookiesAndSave(res.auth_cookie);
         }
         await initWebsocket();
         initGamelogWatcher();

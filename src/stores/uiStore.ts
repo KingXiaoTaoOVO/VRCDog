@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, markRaw } from 'vue';
 import { VrcApi, DbApi } from '../api';
 import { currentTheme, setTheme, themes, type ThemeId } from '../theme';
-import { Settings, RefreshCcw, Bone, X, Heart, Users, Wrench, Flame, StickyNote, Sparkles, Download, LogOut, Loader2, Search, Globe, Bell, UserCircle, ScrollText, UsersRound, LayoutDashboard, Rss, Image, ShieldAlert, Activity, Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette } from "lucide-vue-next";
+import { Settings, RefreshCcw, Bone, X, Heart, Users, Wrench, Flame, StickyNote, Sparkles, Download, LogOut, Loader2, Search, Globe, Bell, UserCircle, ScrollText, UsersRound, LayoutDashboard, Rss, Image, ShieldAlert, Activity, Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette, Radio } from "lucide-vue-next";
 
 export const useUiStore = defineStore('ui', () => {
   const appMode = ref<'pc' | 'vr' | null>(null);
@@ -28,19 +28,22 @@ export const useUiStore = defineStore('ui', () => {
     { key: 'playerlist', label: 'sidebar.playerlist', icon: markRaw(Network) },
     { key: 'gallery', label: 'sidebar.gallery', icon: markRaw(Image) },
     { key: 'social', label: 'sidebar.social', icon: markRaw(Users) },
+    { key: 'friendslist', label: 'sidebar.friendslist', icon: markRaw(ScrollText) },
+    { key: 'moderation', label: 'sidebar.moderation', icon: markRaw(ShieldAlert) },
     { key: 'search', label: 'sidebar.search', icon: markRaw(Search) },
     { key: 'notifications', label: 'sidebar.notifications', icon: markRaw(Bell) },
     { key: 'groups', label: 'sidebar.groups', icon: markRaw(UsersRound) },
     { key: 'avatars', label: 'sidebar.avatars', icon: markRaw(UserCircle) },
     { key: 'favorites', label: 'sidebar.favorites', icon: markRaw(Heart) },
-    { key: 'moderation', label: 'sidebar.moderation', icon: markRaw(ShieldAlert) },
     { key: 'heatmap', label: 'sidebar.heatmap', icon: markRaw(Flame) },
     { key: 'notes', label: 'sidebar.notes', icon: markRaw(StickyNote) },
     { key: 'presets', label: 'sidebar.presets', icon: markRaw(Sparkles) },
     { key: 'tools', label: 'sidebar.tools', icon: markRaw(Wrench) },
     { key: 'bilidown', label: 'sidebar.bilidown', icon: markRaw(Download) },
+    { key: 'danmaku', label: 'sidebar.danmaku', icon: markRaw(Radio) },
     { key: 'translator', label: 'sidebar.translator', icon: markRaw(Languages) },
     { key: 'ovr', label: 'sidebar.ovr', icon: markRaw(ScanEye) },
+    { key: 'remote', label: 'sidebar.remote', icon: markRaw(Radio) },
     { key: 'env', label: 'sidebar.env', icon: markRaw(Wrench) },
     { key: 'export', label: 'sidebar.export', icon: markRaw(Download) },
     { key: 'settings', label: 'sidebar.settings', icon: markRaw(Settings) },

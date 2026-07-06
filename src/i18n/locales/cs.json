@@ -1,0 +1,74 @@
+{
+  "login": {
+    "error_require_credentials": "Zadejte uzivatelske jmeno a heslo nebo cookie",
+    "error_network": "Chyba site: {err}",
+    "error_verify_failed": "Overeni proslo, ale nepodarilo se nacist uzivatele",
+    "error_code_wrong": "Neplatny kod",
+    "title": "VRC Dog Manager",
+    "subtitle": "Vase univerzalni VRChat socialni centrum",
+    "username": "VRChat uzivatelske jmeno nebo e-mail",
+    "password": "Heslo",
+    "or": "Nebo",
+    "use_cookie": "Pouzit Auth Cookie (bez hesla)",
+    "cookie_ph": "napr.: auth=xxxxxxx...",
+    "btn_login": "Prihlasit",
+    "btn_logging_in": "Overuji...",
+    "2fa_title": "Je vyzadovano dvoufaktorove overeni (2FA)",
+    "2fa_desc": "Vas ucet ma zapnute overeni {method}",
+    "2fa_method_totp": "autentizacni aplikaci",
+    "2fa_method_email": "e-mailem",
+    "2fa_placeholder": "Zadejte 6mistny kod",
+    "btn_submit_code": "Odeslat kod",
+    "btn_submitting": "Overuji kod...",
+    "btn_cancel": "Zrusit",
+    "save_credentials": "Ulozit prihlasovaci data",
+    "saved_accounts": "Ulozene ucty",
+    "delete_account": "Smazat tento ucet",
+    "no_saved_accounts": "Po prihlaseni se zapnutym ukladanim se ucty zobrazi zde",
+    "saved_cookie_missing": "Tomuto ulozenemu uctu chybi platna cookie. Uzivatelske jmeno bylo vyplneno; zadejte heslo a obnovte ulozena data.",
+    "saved_cookie_expired": "Prihlasovaci cookie tohoto uctu vyprsela. Uzivatelske jmeno bylo vyplneno; zadejte heslo a obnovte ulozena data.",
+    "toolbar": {
+      "settings": "Nastaveni",
+      "check_update": "Zkontrolovat aktualizace",
+      "language": "Jazyk"
+    },
+    "settings": {
+      "title": "Nastaveni",
+      "proxy_label": "Proxy",
+      "proxy_placeholder": "Zadejte adresu a port proxy (Socks)",
+      "custom_api_label": "Vlastni API endpoint",
+      "save_restart": "Ulozit a restartovat",
+      "close": "Zavrit"
+    },
+    "update": {
+      "title": "Aktualizace VRCDog",
+      "tab_stable": "Stabilni",
+      "tab_beta": "Beta",
+      "beta_warning_title": "Beta sestaveni",
+      "beta_warning_desc": "Beta sestaveni slouzi k testovani novych funkci. Pro stabilitu pouzijte stabilni verzi.",
+      "version": "Verze",
+      "no_releases": "Nebyly nalezeny zadne verze",
+      "up_to_date": "VRCDog je aktualni",
+      "has_new": "Je dostupna nova verze: {version}",
+      "download": "Stahnout"
+    }
+  },
+  "user_profile": {
+    "status": {
+      "online": "Online",
+      "offline": "Offline",
+      "active": "Aktivni",
+      "join_me": "Pripoj se",
+      "ask_me": "Zeptej se",
+      "busy": "Zaneprázdnen",
+      "active_join_me": "Aktivni (pripoj se)",
+      "busy_do_not_disturb": "Zaneprázdnen / nerusit"
+    }
+  },
+  "common": {
+    "yes": "Ano",
+    "no": "Ne",
+    "confirm": "Potvrdit",
+    "cancel": "Zrusit"
+  }
+}

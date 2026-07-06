@@ -1,4 +1,4 @@
-import i18n from '../i18n';
+import { translate } from '../i18n';
 import { reactive } from 'vue';
 import { VrcApi, DbApi } from './index';
 
@@ -160,7 +160,7 @@ async function handlePipeline(json: any) {
     }
 
   } catch (err) {
-    console.warn(i18n.global.t('debug.log_write_fail'), err);
+    console.warn(translate('debug.log_write_fail'), err);
   }
 
   for (const handler of handlers) {

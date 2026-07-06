@@ -143,7 +143,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -162,7 +162,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -181,7 +181,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -197,7 +197,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -213,11 +213,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
-      <!-- 摄像头设置 -->
+      <!-- 摄像头设置-->
       <h3 class="font-bold text-primary mt-4">
         {{ t('ovr.steamvr_camera') }}
       </h3>
@@ -237,7 +237,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
     </div>
@@ -261,7 +261,7 @@ onUnmounted(() => {
             min="30"
             max="100"
             step="1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
         <div>
@@ -272,7 +272,7 @@ onUnmounted(() => {
             min="0"
             max="2"
             step="0.1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
         <div>
@@ -283,7 +283,7 @@ onUnmounted(() => {
             min="0"
             max="4"
             step="0.1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
       </div>
@@ -303,7 +303,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -322,11 +322,11 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
-      <!-- 接近警告与进阶颜色设置 -->
+      <!-- 接近警告与进阶颜色设置-->
       <h3 class="font-bold text-primary mt-4">
         {{ t('ovr.chap_advanced') }}
       </h3>
@@ -372,7 +372,7 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- 空间与运动 -->
+  <!-- 空间与运动-->
   <div
     v-else-if="activeSubTab === 'playspace'"
     class="space-y-5 animate-fade-in"
@@ -398,7 +398,7 @@ onUnmounted(() => {
             min="-10"
             max="10"
             step="0.1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
         <div>
@@ -409,7 +409,7 @@ onUnmounted(() => {
             min="-10"
             max="10"
             step="0.1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
         <div>
@@ -420,7 +420,7 @@ onUnmounted(() => {
             min="-10"
             max="10"
             step="0.1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
       </div>
@@ -440,7 +440,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -461,7 +461,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -477,28 +477,28 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
-      <!-- 空间修复与旋转 (Space Fix & Rotation) -->
+      <!-- 空间修复与旋转(Space Fix & Rotation) -->
       <h3 class="font-bold text-primary mt-4">
         {{ t('ovr.space_fix_section') }}
       </h3>
       
       <div class="grid grid-cols-2 gap-4">
         <button
-          class="p-4 bg-primary/10 hover:bg-primary/10 active:bg-primary/10 rounded-2xl border-primary shadow-sm transition-colors text-center text-primary font-bold flex flex-col items-center justify-center gap-2"
+          class="p-4 bg-primary text-white hover:bg-primary-hover active:bg-primary-hover rounded-2xl border border-primary shadow-sm transition-colors text-center font-bold flex flex-col items-center justify-center gap-2"
           @click="fixFloor"
         >
-          <Ruler class="w-6 h-6 text-primary" />
+          <Ruler class="w-6 h-6 text-white" />
           <span>{{ t('ovr.space_fix_floor') }}</span>
         </button>
         <button
-          class="p-4 bg-primary/10 hover:bg-primary/10 active:bg-primary/10 rounded-2xl border-primary shadow-sm transition-colors text-center text-primary font-bold flex flex-col items-center justify-center gap-2"
+          class="p-4 bg-primary text-white hover:bg-primary-hover active:bg-primary-hover rounded-2xl border border-primary shadow-sm transition-colors text-center font-bold flex flex-col items-center justify-center gap-2"
           @click="resetPlayspace"
         >
-          <Target class="w-6 h-6 text-primary" />
+          <Target class="w-6 h-6 text-white" />
           <span>{{ t('ovr.space_fix_center') }}</span>
         </button>
       </div>
@@ -514,7 +514,7 @@ onUnmounted(() => {
           </p>
         </div>
         <button
-          :class="['px-4 py-2 font-bold rounded-lg transition-all text-sm', heightToggled ? 'bg-primary text-white shadow-md' : 'bg-primary/10 hover:bg-primary/10 text-primary']"
+          :class="['px-4 py-2 font-bold rounded-lg transition-all text-sm', heightToggled ? 'bg-primary text-white shadow-md' : 'bg-primary text-white hover:bg-primary-hover']"
           @click="toggleHeight"
         >
           {{ heightToggled ? t('ovr.space_height_toggled') : t('ovr.space_height_toggle_btn') }}
@@ -530,24 +530,24 @@ onUnmounted(() => {
             min="-180"
             max="180"
             step="1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
         <div class="flex justify-between">
           <button
-            class="px-3 py-1 bg-surface hover:bg-background/20 text-text-muted text-xs font-bold rounded"
+            class="px-3 py-1 bg-surface-hover hover:bg-primary hover:text-white text-text-muted text-xs font-bold rounded border border-border-soft shadow-sm"
             @click="config.playspace.rotation = -90"
           >
             -90°
           </button>
           <button
-            class="px-3 py-1 bg-surface hover:bg-background/20 text-text-muted text-xs font-bold rounded"
+            class="px-3 py-1 bg-surface-hover hover:bg-primary hover:text-white text-text-muted text-xs font-bold rounded border border-border-soft shadow-sm"
             @click="config.playspace.rotation = 0"
           >
             {{ t('ovr.stats_reset') }}
           </button>
           <button
-            class="px-3 py-1 bg-surface hover:bg-background/20 text-text-muted text-xs font-bold rounded"
+            class="px-3 py-1 bg-surface-hover hover:bg-primary hover:text-white text-text-muted text-xs font-bold rounded border border-border-soft shadow-sm"
             @click="config.playspace.rotation = 90"
           >
             +90°
@@ -635,7 +635,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
       
@@ -654,7 +654,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
     </div>
@@ -684,7 +684,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -700,7 +700,7 @@ onUnmounted(() => {
             min="0"
             max="150"
             step="1"
-            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            class="w-full h-2 bg-primary/10 rounded-lg appearance-none cursor-pointer accent-primary"
           >
         </div>
       </div>
@@ -720,7 +720,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -782,7 +782,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
       
@@ -815,7 +815,7 @@ onUnmounted(() => {
             type="checkbox"
             class="sr-only peer"
           >
-          <div class="w-11 h-6 bg-background/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-border-strong after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-soft after:after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary/10" />
+          <div class="w-11 h-6 bg-border-strong/35 border border-border-strong peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:border-primary shadow-inner" />
         </label>
       </div>
 
@@ -844,7 +844,7 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- 性能统计 -->
+  <!-- 鎬ц兘缁熻 -->
   <div
     v-else-if="activeSubTab === 'statistics'"
     class="space-y-5 animate-fade-in"
@@ -899,7 +899,7 @@ onUnmounted(() => {
         </div>
         
         <div class="pt-4 border-primary flex justify-end">
-          <button class="px-4 py-2 bg-primary/10 hover:bg-primary/10 text-primary font-bold rounded-lg transition-colors text-sm">
+          <button class="px-4 py-2 bg-primary text-white hover:bg-primary-hover font-bold rounded-lg transition-colors text-sm">
             {{ t('ovr.stats_reset') }}
           </button>
         </div>
@@ -907,3 +907,4 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+

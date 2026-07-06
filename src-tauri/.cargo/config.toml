@@ -1,6 +1,7 @@
 # Build configuration for VrcDog
-# LIBCLANG_PATH is needed by openvr_sys's bindgen dependency (build-time only)
-# This is NOT a runtime dependency - end users do not need LLVM installed
-
-[env]
-LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"
+#
+# openvr_sys is patched to ../vendor/openvr_sys, which uses pre-generated
+# bindings by default and does not require libclang.
+#
+# If you intentionally enable buildtime_bindgen on that crate, set
+# LIBCLANG_PATH in your shell to the directory that contains libclang.dll.

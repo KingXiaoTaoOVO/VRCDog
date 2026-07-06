@@ -1,10 +1,10 @@
-use std::fs;
-use std::path::PathBuf;
-use std::io::{BufReader, BufRead, Seek, SeekFrom};
-use std::sync::Mutex;
-use serde::Serialize;
-use tauri::State;
 use crate::AppResult;
+use serde::Serialize;
+use std::fs;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::State;
 
 pub struct LogReaderState {
     pub current_file: Mutex<Option<PathBuf>>,
@@ -76,7 +76,7 @@ fn get_latest_log_file() -> Option<PathBuf> {
 #[tauri::command]
 pub async fn vrc_get_latest_gamelogs(
     state: State<'_, LogReaderState>,
-    max_lines: Option<usize>
+    max_lines: Option<usize>,
 ) -> AppResult<Vec<GameLogEvent>> {
     let file_path = match get_latest_log_file() {
         Some(p) => p,
@@ -92,7 +92,7 @@ pub async fn vrc_get_latest_gamelogs(
     }
 
     let mut file = fs::File::open(&file_path).map_err(|e| e.to_string())?;
-    
+
     // Check if file shrank (e.g. truncated)
     if let Ok(metadata) = file.metadata() {
         if metadata.len() < *last_pos_guard {
@@ -100,11 +100,13 @@ pub async fn vrc_get_latest_gamelogs(
         }
     }
 
-    file.seek(SeekFrom::Start(*last_pos_guard)).map_err(|e| e.to_string())?;
-    
+    file.seek(SeekFrom::Start(*last_pos_guard))
+        .map_err(|e| e.to_string())?;
+
     let reader = BufReader::new(file);
     let limit = max_lines.unwrap_or(2000);
-    let mut all_lines: std::collections::VecDeque<String> = std::collections::VecDeque::with_capacity(limit);
+    let mut all_lines: std::collections::VecDeque<String> =
+        std::collections::VecDeque::with_capacity(limit);
 
     for line in reader.lines().map_while(Result::ok) {
         if all_lines.len() == limit {
@@ -114,15 +116,17 @@ pub async fn vrc_get_latest_gamelogs(
     }
 
     let mut events = Vec::new();
-    
+
     for line in all_lines {
-        if line.len() < 20 { continue; }
+        if line.len() < 20 {
+            continue;
+        }
         let time_str = if line.is_char_boundary(19) {
             &line[0..19]
         } else {
             ""
         };
-        
+
         if let Some(idx) = line.find("OnPlayerJoined ") {
             let name = line[idx + 15..].trim();
             events.push(GameLogEvent {
@@ -174,7 +178,7 @@ pub async fn vrc_get_latest_gamelogs(
             });
         }
     }
-    
+
     if let Ok(metadata) = fs::metadata(&file_path) {
         *last_pos_guard = metadata.len();
     }

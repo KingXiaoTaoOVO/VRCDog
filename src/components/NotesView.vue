@@ -135,7 +135,7 @@ onMounted(() => fetchNotes());
                 <X :size="14" /> {{ t('notes.cancel') }}
               </button>
               <button
-                class="text-xs bg-primary text-white font-bold px-4 py-2 rounded-lg hover:bg-primary/10 shadow-sm shadow-indigo-500/30 transition-colors flex items-center gap-1.5"
+                class="text-xs bg-primary text-white font-bold px-4 py-2 rounded-lg hover:bg-primary-hover shadow-sm shadow-primary/30 transition-colors flex items-center gap-1.5"
                 @click="saveEdit(note)"
               >
                 <Save :size="14" /> {{ t('notes.save') }}

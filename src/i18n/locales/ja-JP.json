@@ -125,7 +125,36 @@
     "2fa_placeholder": "6桁のコードを入力",
     "btn_submit_code": "コードを送信",
     "btn_submitting": "確認中...",
-    "btn_cancel": "キャンセル"
+    "btn_cancel": "キャンセル",
+    "save_credentials": "ログインデータを保存",
+    "saved_accounts": "保存済みアカウント",
+    "delete_account": "このアカウントを削除",
+    "no_saved_accounts": "「ログインデータを保存」にチェックを入れてログインすると、ここにアカウントが表示されます",
+    "toolbar": {
+      "settings": "設定",
+      "check_update": "更新を確認",
+      "language": "言語"
+    },
+    "settings": {
+      "title": "設定",
+      "proxy_label": "プロキシ設定",
+      "proxy_placeholder": "プロキシアドレスとポートを入力 (Socks)",
+      "custom_api_label": "カスタム API エンドポイント",
+      "save_restart": "保存して再起動",
+      "close": "閉じる"
+    },
+    "update": {
+      "title": "VRCDog アップデート",
+      "tab_stable": "安定版",
+      "tab_beta": "ベータ版",
+      "beta_warning_title": "ベータビルド",
+      "beta_warning_desc": "ベータビルドは新機能のテスト用です。安定性が必要な場合は安定版を使用してください。",
+      "version": "バージョン",
+      "no_releases": "リリースが見つかりません",
+      "up_to_date": "VRCDog は最新です",
+      "has_new": "新しいバージョン: {version}",
+      "download": "ダウンロード"
+    }
   },
   "tools": {
     "title": "ツールボックス (VRCX Tools)",
@@ -308,6 +337,7 @@
     "tools": "ツールボックス",
     "translator": "翻訳機能",
     "ovr": "OVR 空間翻訳",
+    "remote": "リモートアシスト",
     "env": "環境マネージャー",
     "export": "データエクスポート",
     "settings": "詳細設定"
@@ -1119,8 +1149,16 @@
     "tab_avatars": "Avatars",
     "local_note": "Local Note",
     "local_note_placeholder": "Click here to add note... (Auto-saves on blur)",
-    "bio": "Bio",
-    "status": "Status",
+    "bio": "自己紹介",
+    "status_label": "ステータス",
+    "status": {
+      "online": "オンライン",
+      "offline": "オフライン",
+      "active": "アクティブ",
+      "join_me": "Join Me",
+      "ask_me": "Ask Me",
+      "busy": "取り込み中"
+    },
     "last_login": "Last Login",
     "date_joined": "Date Joined",
     "dev_type": "Developer Type",
@@ -1146,7 +1184,31 @@
     "invite_sent": "Invite sent!",
     "req_invite_sent": "Request Invite sent!",
     "send_failed": "Failed: ",
-    "friend_badge": "Friend"
+    "friend_badge": "Friend",
+    "menu": {
+      "refresh": "更新",
+      "share": "共有",
+      "show_avatar_info": "アバター情報を表示",
+      "show_fallback_avatar_info": "フォールバックアバター情報を表示",
+      "social_status": "ソーシャルステータス",
+      "language": "言語",
+      "bio": "自己紹介",
+      "pronouns": "代名詞",
+      "request_invite": "招待をリクエスト",
+      "invite": "招待",
+      "copy_id": "ID をコピー",
+      "view_vrc": "VRChat で表示",
+      "show_avatar": "アバターを表示",
+      "hide_avatar": "アバターを非表示",
+      "mute": "ミュート",
+      "block": "ブロック",
+      "unfriend": "フレンド解除"
+    },
+    "badges": {
+      "assigned": "獲得日",
+      "hidden": "非表示",
+      "showcased": "プロフィールに表示"
+    }
   },
   "entity_modal": {
     "upload_avatar_success": "Avatar image uploaded successfully!",
@@ -1414,5 +1476,50 @@
     "cat": "子猫",
     "helmet": "ヘルメット",
     "mono": "モノ"
+  },
+  "remote_assist": {
+    "title": "リモートアシスト",
+    "subtitle": "安全なP2Pリモートデスクトップ接続",
+    "service_online": "サービスオンライン",
+    "service_offline": "サービスオフライン",
+    "tab_connect": "接続",
+    "tab_sessions": "セッション",
+    "tab_chat": "チャット",
+    "tab_files": "ファイル",
+    "tab_settings": "設定",
+    "your_device": "このデバイス",
+    "your_id": "あなたのID",
+    "your_password": "一時パスワード",
+    "copy_id": "IDをコピー",
+    "refresh_password": "パスワード更新",
+    "start_service": "サービス開始",
+    "stop_service": "サービス停止",
+    "connect_remote": "リモート接続",
+    "connect_desc": "相手のIDとパスワードを入力して接続",
+    "peer_id": "リモートID",
+    "peer_id_placeholder": "相手のデバイスIDを入力",
+    "peer_password": "パスワード",
+    "peer_password_placeholder": "一時パスワードを入力",
+    "connecting": "接続中...",
+    "connect_btn": "接続する",
+    "no_sessions": "アクティブなセッションなし",
+    "no_sessions_desc": "接続後にセッションが表示されます",
+    "no_messages": "メッセージなし",
+    "chat_placeholder": "メッセージを入力...",
+    "file_transfer": "ファイル転送",
+    "file_transfer_desc": "リモートデバイスに接続後、ファイルを転送できます",
+    "select_files": "ファイルを選択",
+    "server_config": "サーバー設定",
+    "server_config_desc": "リレー/シグナリングサーバーを選択",
+    "no_server": "サーバー未選択",
+    "add_custom_server": "カスタムサーバーを追加",
+    "server_host_placeholder": "サーバーアドレス",
+    "server_key_placeholder": "公開鍵（任意）",
+    "server_label_placeholder": "表示名（任意）",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "preferences": "接続設定",
+    "accept_connections": "リモート接続を受け入れる",
+    "auto_start": "起動時にサービスを開始"
   }
 }

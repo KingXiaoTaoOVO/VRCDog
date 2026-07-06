@@ -82,7 +82,8 @@ watch(activeGroup, () => {
 });
 
 const getGroupsByType = (type: string) => {
-  return favGroups.value.filter(g => g.type === type);
+  const aliases = type === 'world' ? ['world', 'worlds'] : ['avatar', 'avatars'];
+  return favGroups.value.filter(g => aliases.includes(String(g.type || '').toLowerCase()));
 };
 
 onMounted(() => {
@@ -92,11 +93,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
-    <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
-
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-xl relative overflow-hidden">
     <!-- 顶部控制栏 -->
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
       <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
@@ -105,16 +102,16 @@ onMounted(() => {
         </span>
         {{ t('favorites.title') }}
       </h1>
-      <div class="flex rounded-xl border-border-soft overflow-hidden bg-surface text-sm font-bold shadow-sm p-1">
+      <div class="flex rounded-lg border border-border-soft overflow-hidden bg-surface text-sm font-bold shadow-sm p-1">
         <button
-          :class="activeTab === 'worlds' ? 'bg-primary text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
+          :class="activeTab === 'worlds' ? 'bg-primary text-white rounded-md shadow-sm' : 'text-text-muted hover:bg-surface-hover rounded-md'"
           class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'worlds'"
         >
           <Globe :size="16" /> {{ t('favorites.worlds') }}
         </button>
         <button
-          :class="activeTab === 'avatars' ? 'bg-primary text-white rounded-lg shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface rounded-lg'"
+          :class="activeTab === 'avatars' ? 'bg-primary text-white rounded-md shadow-sm' : 'text-text-muted hover:bg-surface-hover rounded-md'"
           class="px-5 py-2 flex items-center gap-2 transition-all"
           @click="activeTab = 'avatars'"
         >
@@ -125,7 +122,7 @@ onMounted(() => {
 
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-3 rounded-xl border-red-200 text-sm font-bold mb-4 z-10"
+      class="bg-red-50 text-red-600 p-3 rounded-lg border border-red-200 text-sm font-bold mb-4 z-10"
     >
       {{ errorMsg }}
     </div>
@@ -133,10 +130,10 @@ onMounted(() => {
     <!-- 主体：侧边栏 + 内容区 -->
     <div class="flex-1 flex gap-6 overflow-hidden z-10">
       <!-- 左侧收藏夹列表 -->
-      <div class="w-56 flex-shrink-0 bg-surface backdrop-blur-xl rounded-2xl border-border-strong shadow-lg shadow-slate-200/40 p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
+      <div class="w-56 flex-shrink-0 bg-surface/90 backdrop-blur-xl rounded-lg border border-border-soft shadow-sm p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
         <button
-          class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between"
-          :class="activeGroup === 'all' ? 'bg-primary text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
+          class="px-4 py-3 rounded-md text-left text-sm font-bold transition-all w-full flex items-center justify-between"
+          :class="activeGroup === 'all' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-hover'"
           @click="activeGroup = 'all'"
         >
           <span>{{ t('favorites.all_groups') === 'favorites.all_groups' ? t('favorites.all_groups_fallback') : t('favorites.all_groups') }}</span>
@@ -156,8 +153,8 @@ onMounted(() => {
           <button
             v-for="group in getGroupsByType(activeTab === 'worlds' ? 'world' : 'avatar')"
             :key="group.id"
-            class="px-4 py-3 rounded-xl text-left text-sm font-bold transition-all w-full flex items-center justify-between group/btn"
-            :class="activeGroup === group.name ? 'bg-primary text-white shadow-md shadow-indigo-500/20' : 'text-text-muted hover:bg-surface'"
+            class="px-4 py-3 rounded-md text-left text-sm font-bold transition-all w-full flex items-center justify-between group/btn"
+            :class="activeGroup === group.name ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-hover'"
             @click="activeGroup = group.name"
           >
             <span

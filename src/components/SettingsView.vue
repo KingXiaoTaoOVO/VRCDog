@@ -12,6 +12,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import CustomSelect from './CustomSelect.vue';
+import { localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 
 const { t, locale } = useI18n();
 
@@ -208,6 +209,8 @@ const loadSettings = async () => {
             target[key] = val === true || val === 'true';
           } else if (typeof target[key] === 'number') {
             target[key] = Number(val) || target[key];
+          } else if (key === 'language') {
+            target[key] = normalizeLocale(String(val));
           } else {
             target[key] = val;
           }
@@ -234,8 +237,9 @@ const saveSettings = async () => {
 
     // 更新多语言引擎并持久化
     if (config.value.language) {
-      localStorage.setItem('vrcdog-locale', config.value.language);
-      locale.value = config.value.language;
+      const nextLocale = setAppLocale(config.value.language, { notify: true });
+      config.value.language = nextLocale;
+      locale.value = nextLocale;
     }
 
     // 更新 URL Scheme
@@ -413,7 +417,7 @@ const testNotification = () => {
           <Save v-else class="w-5 h-5 transition-transform group-hover:rotate-12" />
           {{ saved ? t('settings.saved') : t('settings.save') }}
          </button>
-         <div class="mt-4 px-2 py-3 bg-black/5 rounded-xl border border-[var(--theme-border-soft)] flex flex-col gap-1">
+          <div class="mt-4 px-2 py-3 bg-[var(--theme-bg-main)]/5 rounded-xl border border-[var(--theme-border-soft)] flex flex-col gap-1">
            <div class="text-[10px] uppercase tracking-tighter text-[var(--theme-text-muted)]">Core Engine</div>
            <div class="text-xs font-mono font-bold text-[var(--theme-text-soft)] flex items-center justify-between">
              <span>VrcDog v1.2.0</span>
@@ -423,7 +427,7 @@ const testNotification = () => {
       </div>
     </div>
 
-    <div class="flex-1 p-10 overflow-y-auto custom-scrollbar relative z-10 bg-black/5">
+    <div class="flex-1 p-10 overflow-y-auto custom-scrollbar relative z-10 bg-[var(--theme-bg-main)]/5">
       <div class="max-w-4xl mx-auto mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
         <h1 class="text-4xl font-black text-[var(--theme-text-strong)] mb-2 tracking-tight">{{ t(tabs.find((t: any) => t.id === activeTab)?.label || '') }}</h1>
         <p class="text-[var(--theme-text-soft)] text-sm opacity-60">{{ t('settings.subtitle') || 'Configure your personal experience' }}</p>
@@ -441,12 +445,7 @@ const testNotification = () => {
             <div class="space-y-1">
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-xl transition-all glass-panel-hover">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('app.ui_language') }}</div>
-                <CustomSelect v-model="config.language" :options="[
-                  { label: t('settings.lang_zh'), value: 'zh-CN' },
-                  { label: 'Cat (English)', value: 'en-US' },
-                  { label: t('settings.lang_ja'), value: 'ja-JP' },
-                  { label: 'Mono (한국어)', value: 'ko' }
-                ]" />
+                <CustomSelect v-model="config.language" :options="localeOptions" />
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-xl transition-all glass-panel-hover">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('settings.theme') }}</div>
@@ -803,7 +802,7 @@ const testNotification = () => {
                   min="10"
                   max="120"
                   step="5"
-                  class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-primary"
                 >
               </div>
             </div>
@@ -861,7 +860,7 @@ const testNotification = () => {
                     min="0"
                     max="100"
                     step="1"
-                    class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-primary"
                   >
                 </div>
 
@@ -949,7 +948,7 @@ const testNotification = () => {
                     type="range"
                     min="1"
                     max="20"
-                    class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-primary"
                   >
                 </div>
               </div>
@@ -1221,7 +1220,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.hardwareAcceleration ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
+                   :class="config.hardwareAcceleration ? 'bg-primary' : 'bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1246,7 +1245,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.oscAutomation ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
+                   :class="config.oscAutomation ? 'bg-primary' : 'bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1301,7 +1300,7 @@ const testNotification = () => {
                 <textarea
                   v-model="vrcConfigText"
                   spellcheck="false"
-                  class="relative w-full h-80 p-6 bg-black/40 text-emerald-400 font-mono text-[13px] rounded-2xl border border-white/10 outline-none focus:border-emerald-500/50 custom-scrollbar resize-none transition-all"
+                   class="relative w-full h-80 p-6 bg-[var(--theme-bg-main)]/40 text-emerald-400 font-mono text-[13px] rounded-2xl border border-white/10 outline-none focus:border-emerald-500/50 custom-scrollbar resize-none transition-all"
                   placeholder="{}"
                 />
               </div>
@@ -1408,7 +1407,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.vrOverlayEnabled ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
+                   :class="config.vrOverlayEnabled ? 'bg-primary' : 'bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1452,7 +1451,7 @@ const testNotification = () => {
                 </div>
                 <div 
                   class="w-12 h-6 rounded-full relative transition-all duration-300"
-                  :class="config.wristMode ? 'bg-primary' : 'bg-black/10 dark:bg-white/10'"
+                   :class="config.wristMode ? 'bg-primary' : 'bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/10'"
                 >
                   <div 
                     class="absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all duration-300"
@@ -1484,7 +1483,7 @@ const testNotification = () => {
                  <div class="text-primary/60 group-hover:text-white/60 text-[10px]">Setup auto-start and manifest</div>
                </button>
                <button 
-                class="p-4 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 border border-black/10 dark:border-white/10 rounded-2xl text-left transition-all group active:scale-95"
+                 class="p-4 bg-[var(--theme-bg-main)]/5 dark:bg-[var(--theme-text)]/5 hover:bg-[var(--theme-bg-main)]/10 dark:hover:bg-[var(--theme-text)]/10 border border-[var(--theme-border-soft)] dark:border-[var(--theme-text)]/10 rounded-2xl text-left transition-all group active:scale-95"
                 @click="openBindings"
                >
                  <div class="text-text group-hover:text-primary font-bold text-sm mb-1">Input Bindings</div>

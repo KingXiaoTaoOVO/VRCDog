@@ -42,8 +42,8 @@ pub struct BanInfo {
     pub user_id: String,
     pub reason: String,
     pub banned_at: String,
-    pub duration_hours: Option<f64>,  // None = permanent
-    pub expires_at: Option<String>,   // calculated
+    pub duration_hours: Option<f64>, // None = permanent
+    pub expires_at: Option<String>,  // calculated
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -56,22 +56,41 @@ pub struct FreezeInfo {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FeatureConfig {
     #[serde(default)]
-    pub menus: HashMap<String, bool>,   // key -> enabled
+    pub menus: HashMap<String, bool>, // key -> enabled
     #[serde(default)]
-    pub themes: HashMap<String, bool>,  // key -> enabled
+    pub themes: HashMap<String, bool>, // key -> enabled
     #[serde(default)]
-    pub modes: HashMap<String, bool>,   // key -> enabled (pc, vr)
+    pub modes: HashMap<String, bool>, // key -> enabled (pc, vr)
 }
 
 impl Default for FeatureConfig {
     fn default() -> Self {
         let mut menus = HashMap::new();
         let menu_keys = [
-            "dashboard", "feed", "friendlog", "locations", "charts",
-            "playerlist", "gallery", "social", "search", "notifications",
-            "groups", "avatars", "favorites", "moderation", "heatmap",
-            "gamelog", "notes", "presets", "tools", "translator",
-            "ovr", "env", "export", "settings",
+            "dashboard",
+            "feed",
+            "friendlog",
+            "locations",
+            "charts",
+            "playerlist",
+            "gallery",
+            "social",
+            "search",
+            "notifications",
+            "groups",
+            "avatars",
+            "favorites",
+            "moderation",
+            "heatmap",
+            "gamelog",
+            "notes",
+            "presets",
+            "tools",
+            "translator",
+            "ovr",
+            "env",
+            "export",
+            "settings",
         ];
         for key in menu_keys {
             menus.insert(key.to_string(), true);
@@ -86,7 +105,11 @@ impl Default for FeatureConfig {
         modes.insert("pc".to_string(), true);
         modes.insert("vr".to_string(), true);
 
-        FeatureConfig { menus, themes, modes }
+        FeatureConfig {
+            menus,
+            themes,
+            modes,
+        }
     }
 }
 
@@ -126,7 +149,7 @@ struct RegisterRequest {
 
 #[derive(Serialize)]
 struct StatusCheckResponse {
-    status: String,       // "ok" | "banned" | "frozen"
+    status: String, // "ok" | "banned" | "frozen"
     reason: Option<String>,
     duration_hours: Option<f64>,
     expires_at: Option<String>,
@@ -143,7 +166,7 @@ struct FeatureResponse {
 struct BanRequest {
     user_id: String,
     reason: String,
-    duration_hours: Option<f64>,  // None = permanent
+    duration_hours: Option<f64>, // None = permanent
 }
 
 #[derive(Deserialize)]
@@ -198,7 +221,9 @@ fn now_str() -> String {
 
 fn is_ban_expired(ban: &BanInfo) -> bool {
     if let Some(hours) = ban.duration_hours {
-        if let Ok(banned_at) = chrono::NaiveDateTime::parse_from_str(&ban.banned_at, "%Y-%m-%d %H:%M:%S") {
+        if let Ok(banned_at) =
+            chrono::NaiveDateTime::parse_from_str(&ban.banned_at, "%Y-%m-%d %H:%M:%S")
+        {
             let expire_at = banned_at + chrono::Duration::seconds((hours * 3600.0) as i64);
             let now = chrono::Local::now().naive_local();
             return now > expire_at;
@@ -238,12 +263,15 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
     }
 
     let mut initial_roles = HashMap::new();
-    initial_roles.insert("default".to_string(), Role {
-        role_id: "default".to_string(),
-        role_name: "默认用户".to_string(),
-        is_default: true,
-        features: FeatureConfig::default(),
-    });
+    initial_roles.insert(
+        "default".to_string(),
+        Role {
+            role_id: "default".to_string(),
+            role_name: "默认用户".to_string(),
+            is_default: true,
+            features: FeatureConfig::default(),
+        },
+    );
 
     let state = SharedState {
         app_handle: app_handle.clone(),
@@ -267,8 +295,14 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         .route("/api/client/register", post(handle_client_register))
         .route("/api/client/heartbeat", post(handle_client_heartbeat))
         .route("/api/client/disconnect", post(handle_client_disconnect))
-        .route("/api/client/check-status/{user_id}", get(handle_check_status))
-        .route("/api/client/features/{user_id}", get(handle_get_features_public))
+        .route(
+            "/api/client/check-status/{user_id}",
+            get(handle_check_status),
+        )
+        .route(
+            "/api/client/features/{user_id}",
+            get(handle_get_features_public),
+        )
         // Admin endpoints (dashboard uses these)
         .route("/api/admin/clients", get(handle_admin_clients))
         .route("/api/admin/users", get(handle_admin_users))
@@ -281,8 +315,14 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         .route("/api/admin/roles", get(handle_admin_get_roles))
         .route("/api/admin/roles", post(handle_admin_save_role))
         .route("/api/admin/roles/delete", post(handle_admin_delete_role))
-        .route("/api/admin/roles/set_default", post(handle_admin_set_default_role))
-        .route("/api/admin/users/set_role", post(handle_admin_set_user_role))
+        .route(
+            "/api/admin/roles/set_default",
+            post(handle_admin_set_default_role),
+        )
+        .route(
+            "/api/admin/users/set_role",
+            post(handle_admin_set_user_role),
+        )
         .layer(cors)
         .with_state(state.clone());
 
@@ -296,7 +336,10 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         }
     };
 
-    let _ = app_handle.emit("server_log", format!("[INFO] 服务端已成功启动，正在监听 {}", addr));
+    let _ = app_handle.emit(
+        "server_log",
+        format!("[INFO] 服务端已成功启动，正在监听 {}", addr),
+    );
 
     // Heartbeat cleanup task with shutdown support
     let cleanup_state = state.clone();
@@ -315,7 +358,10 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
             let stale_ids: Vec<String> = clients
                 .iter()
                 .filter_map(|(id, info)| {
-                    if let Ok(hb) = chrono::NaiveDateTime::parse_from_str(&info.last_heartbeat, "%Y-%m-%d %H:%M:%S") {
+                    if let Ok(hb) = chrono::NaiveDateTime::parse_from_str(
+                        &info.last_heartbeat,
+                        "%Y-%m-%d %H:%M:%S",
+                    ) {
                         if (now - hb).num_seconds() > 45 {
                             return Some(id.clone());
                         }
@@ -359,7 +405,10 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
     let server_shutdown = shutdown.clone();
     let server_app_handle = app_handle.clone();
     tokio::spawn(async move {
-        let serve = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>());
+        let serve = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        );
         tokio::select! {
             res = serve => {
                 if let Err(e) = res {
@@ -405,7 +454,10 @@ async fn handle_client_register(
             if !is_ban_expired(ban) {
                 let _ = state.app_handle.emit(
                     "server_log",
-                    format!("[WARN] 被封禁用户 {} ({}) 尝试注册，已拒绝", req.display_name, req.user_id),
+                    format!(
+                        "[WARN] 被封禁用户 {} ({}) 尝试注册，已拒绝",
+                        req.display_name, req.user_id
+                    ),
                 );
                 return Json(serde_json::json!({
                     "status": "banned",
@@ -423,7 +475,10 @@ async fn handle_client_register(
         if let Some(freeze) = frozen.get(&req.user_id) {
             let _ = state.app_handle.emit(
                 "server_log",
-                format!("[WARN] 被冻结用户 {} ({}) 尝试注册，已拒绝", req.display_name, req.user_id),
+                format!(
+                    "[WARN] 被冻结用户 {} ({}) 尝试注册，已拒绝",
+                    req.display_name, req.user_id
+                ),
             );
             return Json(serde_json::json!({
                 "status": "frozen",
@@ -435,14 +490,17 @@ async fn handle_client_register(
     // Add to online clients
     {
         let mut clients = state.clients.lock().await;
-        clients.insert(req.user_id.clone(), ClientInfo {
-            user_id: req.user_id.clone(),
-            display_name: req.display_name.clone(),
-            avatar_url: req.avatar_url.clone(),
-            ip_address: client_ip.0.to_string(),
-            connected_at: now.clone(),
-            last_heartbeat: now.clone(),
-        });
+        clients.insert(
+            req.user_id.clone(),
+            ClientInfo {
+                user_id: req.user_id.clone(),
+                display_name: req.display_name.clone(),
+                avatar_url: req.avatar_url.clone(),
+                ip_address: client_ip.0.to_string(),
+                connected_at: now.clone(),
+                last_heartbeat: now.clone(),
+            },
+        );
     }
 
     // Update user records
@@ -455,23 +513,29 @@ async fn handle_client_register(
             user.login_count += 1;
             user.is_online = true;
         } else {
-            users.insert(req.user_id.clone(), UserRecord {
-                user_id: req.user_id.clone(),
-                display_name: req.display_name.clone(),
-                avatar_url: req.avatar_url.clone(),
-                first_seen: now.clone(),
-                last_seen: now.clone(),
-                login_count: 1,
-                is_online: true,
-                role_id: None,
-            });
+            users.insert(
+                req.user_id.clone(),
+                UserRecord {
+                    user_id: req.user_id.clone(),
+                    display_name: req.display_name.clone(),
+                    avatar_url: req.avatar_url.clone(),
+                    first_seen: now.clone(),
+                    last_seen: now.clone(),
+                    login_count: 1,
+                    is_online: true,
+                    role_id: None,
+                },
+            );
         }
     }
 
     // Emit to dashboard
     let _ = state.app_handle.emit(
         "server_log",
-        format!("[INFO] 客户端注册成功: {} ({}) IP: {}", req.display_name, req.user_id, client_ip.0),
+        format!(
+            "[INFO] 客户端注册成功: {} ({}) IP: {}",
+            req.display_name, req.user_id, client_ip.0
+        ),
     );
     let _ = state.app_handle.emit("clients_updated", "");
 
@@ -593,15 +657,15 @@ async fn handle_get_features_public(
 ) -> impl IntoResponse {
     let users = state.users.lock().await;
     let roles = state.roles.lock().await;
-    
+
     // Default config fallback
     let mut current_config = FeatureConfig::default();
-    
+
     // Find default role first
     if let Some(default_role) = roles.values().find(|r| r.is_default) {
         current_config = default_role.features.clone();
     }
-    
+
     // If user has a specific role, override
     if let Some(user) = users.get(&user_id) {
         if let Some(role_id) = &user.role_id {
@@ -620,18 +684,14 @@ async fn handle_get_features_public(
 
 // ===== Handlers: Admin =====
 
-async fn handle_admin_clients(
-    State(state): State<SharedState>,
-) -> impl IntoResponse {
+async fn handle_admin_clients(State(state): State<SharedState>) -> impl IntoResponse {
     let clients = state.clients.lock().await;
     Json(ClientListResponse {
         clients: clients.values().cloned().collect(),
     })
 }
 
-async fn handle_admin_users(
-    State(state): State<SharedState>,
-) -> impl IntoResponse {
+async fn handle_admin_users(State(state): State<SharedState>) -> impl IntoResponse {
     let users = state.users.lock().await;
     let bans = state.bans.lock().await;
     let frozen = state.frozen.lock().await;
@@ -662,9 +722,15 @@ async fn handle_admin_kick(
         );
         let _ = state.app_handle.emit("clients_updated", "");
         let _ = state.app_handle.emit("client_kicked", req.user_id.clone());
-        Json(AdminResponse { success: true, message: "已踢出".to_string() })
+        Json(AdminResponse {
+            success: true,
+            message: "已踢出".to_string(),
+        })
     } else {
-        Json(AdminResponse { success: false, message: "用户不在线".to_string() })
+        Json(AdminResponse {
+            success: false,
+            message: "用户不在线".to_string(),
+        })
     }
 }
 
@@ -707,16 +773,25 @@ async fn handle_admin_ban(
     };
     let _ = state.app_handle.emit(
         "server_log",
-        format!("[WARN] 管理员封禁用户 {}, 原因: {}, 时长: {}", req.user_id, req.reason, dur_str),
+        format!(
+            "[WARN] 管理员封禁用户 {}, 原因: {}, 时长: {}",
+            req.user_id, req.reason, dur_str
+        ),
     );
     let _ = state.app_handle.emit("clients_updated", "");
-    let _ = state.app_handle.emit("client_banned", serde_json::json!({
-        "user_id": req.user_id.clone(),
-        "reason": req.reason.clone(),
-        "duration_hours": req.duration_hours,
-    }));
-    
-    Json(AdminResponse { success: true, message: format!("已封禁 ({})", dur_str) })
+    let _ = state.app_handle.emit(
+        "client_banned",
+        serde_json::json!({
+            "user_id": req.user_id.clone(),
+            "reason": req.reason.clone(),
+            "duration_hours": req.duration_hours,
+        }),
+    );
+
+    Json(AdminResponse {
+        success: true,
+        message: format!("已封禁 ({})", dur_str),
+    })
 }
 
 async fn handle_admin_unban(
@@ -735,9 +810,15 @@ async fn handle_admin_unban(
             "server_log",
             format!("[INFO] 管理员解封用户: {}", req.user_id),
         );
-        Json(AdminResponse { success: true, message: "已解封".to_string() })
+        Json(AdminResponse {
+            success: true,
+            message: "已解封".to_string(),
+        })
     } else {
-        Json(AdminResponse { success: false, message: "用户未被封禁".to_string() })
+        Json(AdminResponse {
+            success: false,
+            message: "用户未被封禁".to_string(),
+        })
     }
 }
 
@@ -769,15 +850,24 @@ async fn handle_admin_freeze(
 
     let _ = state.app_handle.emit(
         "server_log",
-        format!("[WARN] 管理员冻结用户 {}, 原因: {}", req.user_id, req.reason),
+        format!(
+            "[WARN] 管理员冻结用户 {}, 原因: {}",
+            req.user_id, req.reason
+        ),
     );
     let _ = state.app_handle.emit("clients_updated", "");
-    let _ = state.app_handle.emit("client_frozen", serde_json::json!({
-        "user_id": req.user_id.clone(),
-        "reason": req.reason.clone(),
-    }));
-    
-    Json(AdminResponse { success: true, message: "已冻结".to_string() })
+    let _ = state.app_handle.emit(
+        "client_frozen",
+        serde_json::json!({
+            "user_id": req.user_id.clone(),
+            "reason": req.reason.clone(),
+        }),
+    );
+
+    Json(AdminResponse {
+        success: true,
+        message: "已冻结".to_string(),
+    })
 }
 
 async fn handle_admin_unfreeze(
@@ -796,9 +886,15 @@ async fn handle_admin_unfreeze(
             "server_log",
             format!("[INFO] 管理员解冻用户: {}", req.user_id),
         );
-        Json(AdminResponse { success: true, message: "已解冻".to_string() })
+        Json(AdminResponse {
+            success: true,
+            message: "已解冻".to_string(),
+        })
     } else {
-        Json(AdminResponse { success: false, message: "用户未被冻结".to_string() })
+        Json(AdminResponse {
+            success: false,
+            message: "用户未被冻结".to_string(),
+        })
     }
 }
 
@@ -826,17 +922,21 @@ async fn handle_admin_remove(
 
     let _ = state.app_handle.emit(
         "server_log",
-        format!("[WARN] 管理员移除用户记录: {} (用户重新登录后将自动重新注册)", req.user_id),
+        format!(
+            "[WARN] 管理员移除用户记录: {} (用户重新登录后将自动重新注册)",
+            req.user_id
+        ),
     );
     let _ = state.app_handle.emit("clients_updated", "");
     let _ = state.app_handle.emit("client_kicked", req.user_id.clone()); // remove acts like kick for active client
-    
-    Json(AdminResponse { success: true, message: "已移除用户记录".to_string() })
+
+    Json(AdminResponse {
+        success: true,
+        message: "已移除用户记录".to_string(),
+    })
 }
 
-async fn handle_admin_get_roles(
-    State(state): State<SharedState>,
-) -> impl IntoResponse {
+async fn handle_admin_get_roles(State(state): State<SharedState>) -> impl IntoResponse {
     let roles = state.roles.lock().await;
     let mut role_list: Vec<Role> = roles.values().cloned().collect();
     role_list.sort_by(|a, b| a.role_name.cmp(&b.role_name)); // sort by name
@@ -858,8 +958,13 @@ async fn handle_admin_save_role(
         }
     }
     roles.insert(role.role_id.clone(), role);
-    let _ = state.app_handle.emit("server_log", "[INFO] 管理员保存了角色配置".to_string());
-    Json(AdminResponse { success: true, message: "角色配置已保存".to_string() })
+    let _ = state
+        .app_handle
+        .emit("server_log", "[INFO] 管理员保存了角色配置".to_string());
+    Json(AdminResponse {
+        success: true,
+        message: "角色配置已保存".to_string(),
+    })
 }
 
 async fn handle_admin_delete_role(
@@ -869,7 +974,10 @@ async fn handle_admin_delete_role(
     let mut roles = state.roles.lock().await;
     if let Some(role) = roles.get(&req.role_id) {
         if role.is_default {
-            return Json(AdminResponse { success: false, message: "默认角色无法删除".to_string() });
+            return Json(AdminResponse {
+                success: false,
+                message: "默认角色无法删除".to_string(),
+            });
         }
     }
     if roles.remove(&req.role_id).is_some() {
@@ -880,10 +988,18 @@ async fn handle_admin_delete_role(
                 u.role_id = None;
             }
         }
-        let _ = state.app_handle.emit("server_log", "[INFO] 管理员删除了角色".to_string());
-        Json(AdminResponse { success: true, message: "角色已删除".to_string() })
+        let _ = state
+            .app_handle
+            .emit("server_log", "[INFO] 管理员删除了角色".to_string());
+        Json(AdminResponse {
+            success: true,
+            message: "角色已删除".to_string(),
+        })
     } else {
-        Json(AdminResponse { success: false, message: "角色不存在".to_string() })
+        Json(AdminResponse {
+            success: false,
+            message: "角色不存在".to_string(),
+        })
     }
 }
 
@@ -893,13 +1009,21 @@ async fn handle_admin_set_default_role(
 ) -> impl IntoResponse {
     let mut roles = state.roles.lock().await;
     if !roles.contains_key(&req.role_id) {
-        return Json(AdminResponse { success: false, message: "角色不存在".to_string() });
+        return Json(AdminResponse {
+            success: false,
+            message: "角色不存在".to_string(),
+        });
     }
     for r in roles.values_mut() {
         r.is_default = r.role_id == req.role_id;
     }
-    let _ = state.app_handle.emit("server_log", "[INFO] 管理员设置了新的默认角色".to_string());
-    Json(AdminResponse { success: true, message: "默认角色已更新".to_string() })
+    let _ = state
+        .app_handle
+        .emit("server_log", "[INFO] 管理员设置了新的默认角色".to_string());
+    Json(AdminResponse {
+        success: true,
+        message: "默认角色已更新".to_string(),
+    })
 }
 
 async fn handle_admin_set_user_role(
@@ -909,9 +1033,18 @@ async fn handle_admin_set_user_role(
     let mut users = state.users.lock().await;
     if let Some(u) = users.get_mut(&req.user_id) {
         u.role_id = req.role_id;
-        let _ = state.app_handle.emit("server_log", format!("[INFO] 管理员更新了用户角色: {}", req.user_id));
-        Json(AdminResponse { success: true, message: "用户角色已更新".to_string() })
+        let _ = state.app_handle.emit(
+            "server_log",
+            format!("[INFO] 管理员更新了用户角色: {}", req.user_id),
+        );
+        Json(AdminResponse {
+            success: true,
+            message: "用户角色已更新".to_string(),
+        })
     } else {
-        Json(AdminResponse { success: false, message: "用户不存在".to_string() })
+        Json(AdminResponse {
+            success: false,
+            message: "用户不存在".to_string(),
+        })
     }
 }

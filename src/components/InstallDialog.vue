@@ -76,7 +76,7 @@ const selectFolder = async () => {
               {{ title }}
             </h2>
             <button
-              class="btn-cute p-2 rounded-full hover:bg-primary/10 text-text-muted transition-colors"
+              class="btn-cute p-2 rounded-full hover:bg-primary-hover text-text-muted transition-colors"
               @click="emit('close')"
             >
               <X class="w-6 h-6" />
@@ -154,7 +154,7 @@ const selectFolder = async () => {
                   class="flex-1 bg-surface-hover border-2 border-border-soft rounded-[20px] px-4 py-3 text-text font-medium focus:outline-none  focus:bg-surface transition-colors"
                 >
                 <button 
-                  class="btn-cute px-5 py-3 bg-surface hover:bg-primary/10 rounded-[20px] border-2 border-border-soft text-primary font-bold shadow-sm transition-colors flex items-center justify-center"
+                  class="btn-cute px-5 py-3 bg-surface hover:bg-primary-hover rounded-[20px] border-2 border-border-soft text-primary font-bold shadow-sm transition-colors flex items-center justify-center"
                   @click="selectFolder"
                 >
                   <FolderOpen class="w-5 h-5" />
@@ -171,7 +171,7 @@ const selectFolder = async () => {
                     type="checkbox"
                     class="peer sr-only"
                   >
-                  <div class="peer-checked:bg-primary/10 absolute inset-0 rounded-[6px] opacity-0 peer-checked:opacity-100 transition-opacity flex items-center justify-center m-[2px]">
+                  <div class="peer-checked:bg-primary absolute inset-0 rounded-[6px] opacity-0 peer-checked:opacity-100 transition-opacity flex items-center justify-center m-[2px]">
                     <CheckCircle2 class="w-4 h-4 text-white" />
                   </div>
                 </div>
@@ -183,7 +183,7 @@ const selectFolder = async () => {
           <!-- Actions -->
           <div class="flex gap-4 mt-8">
             <button
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-surface-hover hover:bg-primary/10 text-text-muted transition-colors"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-surface-hover hover:bg-primary-hover text-text-muted transition-colors"
               @click="emit('close')"
             >
               {{ t('install_dialog.cancel') }}
@@ -198,7 +198,7 @@ const selectFolder = async () => {
             </button>
             <button
               v-else
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary text-white hover:brightness-110 shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary text-white hover:brightness-110 shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
               @click="handleConfirm"
             >
               {{ t('install_dialog.install') }}

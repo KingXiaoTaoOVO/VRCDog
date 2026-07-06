@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { DbApi, VrcApi } from "../api";
-import { Globe2, Rocket, ArrowRightCircle, ArrowLeftCircle, Home, UserPlus, Image as ImageIcon, MapPin, Search, Trash2 } from 'lucide-vue-next';
+import { Globe2, Rocket, ArrowRightCircle, ArrowLeftCircle, Home, UserPlus, Image as ImageIcon, MapPin, Search, Trash2, Lock } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import VrcResourceCard from './VrcResourceCard.vue';
 import { useUserProfileStore } from '../stores/userProfile';
@@ -103,13 +103,13 @@ const resolvePlayerData = async (evt: LogEvent) => {
     }
 
     if (userId) {
-       const res = await VrcApi.request(`/api/1/users/${userId}`, { method: 'GET' });
+       const res = await VrcApi.getUser({ userId });
        if (res && res.id === userId) {
           evt.userData = res;
           resolvedNames.set(evt.content, res);
        }
     } else {
-       const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(searchName)}&n=1`, { method: 'GET' });
+       const res = await VrcApi.searchUsers({ search: searchName, n: 1 });
        if (res && res.length > 0) {
           evt.userData = res[0];
           resolvedNames.set(evt.content, res[0]);
@@ -406,7 +406,8 @@ const getEventMeta = (type: string) => {
                   v-else-if="evt.detail === 'private'"
                   class="text-text-muted font-bold bg-surface px-3 py-1 rounded-lg border-border-soft shadow-sm text-xs truncate max-w-[200px]"
                 >
-                  🔒 Private
+                  <Lock class="w-3 h-3 inline-block mr-1 text-border-strong" />
+                  {{ t('feed.private_location') }}
                 </span>
               </div>
             </div>

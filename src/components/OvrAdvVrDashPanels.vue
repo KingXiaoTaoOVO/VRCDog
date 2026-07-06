@@ -325,14 +325,15 @@ const updateConfig = (key: string, value: any) => {
 }
 .vr-dash-switch {
   width: 32px; height: 18px;
-  background: rgba(0, 0, 0, 0.1);
+  background: v-bind('currentTheme.colors.borderStrong');
+  border: 1px solid v-bind('currentTheme.colors.borderStrong');
   border-radius: 10px;
   position: relative;
   cursor: pointer;
   transition: background 0.3s;
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
 }
-.vr-dash-switch.on { background: v-bind('currentTheme.colors.primaryBtnBg'); }
+.vr-dash-switch.on { background: v-bind('currentTheme.colors.primaryBtnBg'); border-color: v-bind('currentTheme.colors.primaryBtnBg'); }
 .vr-dash-switch-knob {
   width: 14px; height: 14px;
   background: white;

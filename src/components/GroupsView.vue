@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
-import { Users, Loader2, Shield, Search, Check, UsersRound, Settings, ScrollText, Megaphone, ShieldAlert, FileText, Lock, Globe } from 'lucide-vue-next';
+import { VrcApi, SysApi } from "../api";
+import { Users, Loader2, Shield, Search, Check, UsersRound, Settings, ScrollText, Megaphone, ShieldAlert, FileText, UserX, Ban } from 'lucide-vue-next';
 import VrcAvatar from './VrcAvatar.vue';
 import VrcResourceCard from './VrcResourceCard.vue';
 import BaseModal from './BaseModal.vue';
@@ -23,15 +23,39 @@ const groupMembers = ref<any[]>([]);
 const groupRoles = ref<any[]>([]);
 const groupPosts = ref<any[]>([]);
 const groupLogs = ref<any[]>([]);
+const groupJoinRequests = ref<any[]>([]);
+const groupPermissions = ref<string[]>([]);
 const loadingTab = ref(false);
+const actionBusy = ref('');
+
+const hasGroupPermission = (permission: string) =>
+  groupPermissions.value.includes('*') || groupPermissions.value.includes(permission);
 
 const tabs = computed(() => [
   { id: 'info', name: t('groups.tabs.info'), icon: Shield },
   { id: 'members', name: t('groups.tabs.members'), icon: UsersRound },
   { id: 'roles', name: t('groups.tabs.roles'), icon: Settings },
   { id: 'posts', name: t('groups.tabs.posts'), icon: Megaphone },
-  { id: 'logs', name: t('groups.tabs.logs'), icon: ScrollText }
+  { id: 'logs', name: t('groups.tabs.logs'), icon: ScrollText },
+  ...(hasGroupPermission('group-join-requests-manage')
+    ? [{ id: 'requests', name: t('entity_modal.requests'), icon: UserX }]
+    : [])
 ]);
+
+const fetchGroupPermissions = async (groupId: string) => {
+  groupPermissions.value = [];
+  try {
+    const res: any = await VrcApi.getUserGroupPermissions({ userId: 'me' });
+    if (Array.isArray(res)) {
+      const current = res.find((entry: any) => entry.groupId === groupId || entry.id === groupId);
+      groupPermissions.value = current?.permissions || [];
+    } else if (res && Array.isArray(res[groupId])) {
+      groupPermissions.value = res[groupId];
+    }
+  } catch (err) {
+    console.warn('Failed to load group permissions', err);
+  }
+};
 
 const fetchGroups = async () => {
   loading.value = true;
@@ -58,10 +82,13 @@ const openGroupDetail = async (group: any) => {
   groupRoles.value = [];
   groupPosts.value = [];
   groupLogs.value = [];
+  groupJoinRequests.value = [];
+  groupPermissions.value = [];
   
   try {
     const fetchedGroup: any = await VrcApi.getGroup({ groupId: groupId, includeRoles: true });
     selectedGroup.value = fetchedGroup;
+    await fetchGroupPermissions(groupId);
   } catch (err: any) {
     errorMsg.value = err.message || err;
   } finally {
@@ -86,11 +113,57 @@ const fetchTabContent = async () => {
     } else if (activeTab.value === 'logs' && groupLogs.value.length === 0) {
       const res: any = await VrcApi.getGroupLogs({ groupId });
       groupLogs.value = Array.isArray(res) ? res : [];
+    } else if (activeTab.value === 'requests' && groupJoinRequests.value.length === 0) {
+      const res: any = await VrcApi.getGroupJoinRequests({ groupId });
+      groupJoinRequests.value = Array.isArray(res) ? res : [];
     }
   } catch (err) {
     console.error("Failed to load tab content:", err);
   } finally {
     loadingTab.value = false;
+  }
+};
+
+const respondJoinRequest = async (requestId: string, action: 'accept' | 'reject') => {
+  if (!selectedGroup.value) return;
+  actionBusy.value = `${action}:${requestId}`;
+  try {
+    await VrcApi.respondGroupJoinRequest({ groupId: selectedGroup.value.id, requestId, action });
+    groupJoinRequests.value = groupJoinRequests.value.filter((req) => req.id !== requestId && req.userId !== requestId);
+  } catch (err: any) {
+    errorMsg.value = err.message || String(err);
+  } finally {
+    actionBusy.value = '';
+  }
+};
+
+const kickMember = async (member: any) => {
+  if (!selectedGroup.value) return;
+  const userId = member.userId || member.user?.id || member.id;
+  if (!userId) return;
+  actionBusy.value = `kick:${userId}`;
+  try {
+    await VrcApi.kickGroupMember({ groupId: selectedGroup.value.id, userId });
+    groupMembers.value = groupMembers.value.filter((entry) => (entry.userId || entry.user?.id || entry.id) !== userId);
+  } catch (err: any) {
+    errorMsg.value = err.message || String(err);
+  } finally {
+    actionBusy.value = '';
+  }
+};
+
+const banMember = async (member: any) => {
+  if (!selectedGroup.value) return;
+  const userId = member.userId || member.user?.id || member.id;
+  if (!userId) return;
+  actionBusy.value = `ban:${userId}`;
+  try {
+    await VrcApi.banGroupMember({ groupId: selectedGroup.value.id, userId });
+    groupMembers.value = groupMembers.value.filter((entry) => (entry.userId || entry.user?.id || entry.id) !== userId);
+  } catch (err: any) {
+    errorMsg.value = err.message || String(err);
+  } finally {
+    actionBusy.value = '';
   }
 };
 
@@ -264,6 +337,12 @@ onMounted(() => {
             >
               <component :is="tab.icon" :size="16" />
               {{ tab.name }}
+              <span
+                v-if="tab.id === 'requests' && groupJoinRequests.length > 0"
+                class="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] leading-none"
+              >
+                {{ groupJoinRequests.length }}
+              </span>
             </button>
           </div>
           
@@ -318,11 +397,31 @@ onMounted(() => {
                 <p class="font-bold text-text-muted">{{ t('groups.members.no_members') }}</p>
               </div>
               <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div v-for="member in groupMembers" :key="member.id" class="flex items-center gap-3 p-3 bg-surface-hover rounded-xl border border-border-soft hover:border-primary/50 transition-colors cursor-pointer">
+                <div v-for="member in groupMembers" :key="member.id || member.userId || member.user?.id" class="flex items-center gap-3 p-3 bg-surface-hover rounded-xl border border-border-soft hover:border-primary/50 transition-colors">
                   <VrcAvatar :user="member.user" custom-class="w-10 h-10 rounded-full object-cover shadow-sm border border-border-soft shrink-0" />
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-bold text-text truncate">{{ member.user?.displayName || member.userId }}</p>
-                    <p class="text-xs text-text-muted truncate">{{ member.roleId ? t('groups.tabs.roles') + ': ' + member.roleId : 'Member' }}</p>
+                    <p class="text-xs text-text-muted truncate">{{ (member.roleIds || [member.roleId]).filter(Boolean).join(', ') || 'Member' }}</p>
+                  </div>
+                  <div v-if="hasGroupPermission('group-members-remove') || hasGroupPermission('group-bans-manage')" class="flex items-center gap-1 shrink-0">
+                    <button
+                      v-if="hasGroupPermission('group-members-remove')"
+                      :disabled="actionBusy === `kick:${member.userId || member.user?.id || member.id}`"
+                      class="p-1.5 rounded-lg bg-surface border border-border-soft text-text-muted hover:text-red-600 hover:border-red-300 disabled:opacity-50"
+                      title="Kick member"
+                      @click="kickMember(member)"
+                    >
+                      <UserX :size="14" />
+                    </button>
+                    <button
+                      v-if="hasGroupPermission('group-bans-manage')"
+                      :disabled="actionBusy === `ban:${member.userId || member.user?.id || member.id}`"
+                      class="p-1.5 rounded-lg bg-surface border border-border-soft text-text-muted hover:text-red-700 hover:border-red-300 disabled:opacity-50"
+                      title="Ban member"
+                      @click="banMember(member)"
+                    >
+                      <Ban :size="14" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -368,6 +467,47 @@ onMounted(() => {
                   <div class="mt-3 flex items-center gap-2" v-if="post.authorId">
                     <VrcAvatar :user="{ id: post.authorId }" custom-class="w-6 h-6 rounded-full shrink-0" />
                     <span class="text-xs text-text-muted truncate">{{ post.authorId }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Requests -->
+            <div v-else-if="activeTab === 'requests'" class="h-full">
+              <div v-if="groupJoinRequests.length === 0" class="h-full flex flex-col items-center justify-center text-border-strong">
+                <UserX class="mb-4 opacity-30" :size="48" />
+                <p class="font-bold text-text-muted">{{ t('entity_modal.no_pending_requests') }}</p>
+              </div>
+              <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div
+                  v-for="req in groupJoinRequests"
+                  :key="req.id || req.userId || req.user?.id"
+                  class="flex items-center justify-between gap-3 p-3 bg-surface-hover rounded-xl border border-border-soft hover:border-primary/50 transition-colors"
+                >
+                  <div class="flex items-center gap-3 min-w-0">
+                    <VrcAvatar :user="req.user" custom-class="w-10 h-10 rounded-full object-cover shadow-sm border border-border-soft shrink-0" />
+                    <div class="min-w-0">
+                      <p class="text-sm font-bold text-text truncate">{{ req.user?.displayName || req.userId || req.id }}</p>
+                      <p class="text-xs text-text-muted truncate">{{ req.createdAt ? new Date(req.createdAt).toLocaleString() : req.userId }}</p>
+                    </div>
+                  </div>
+                  <div class="flex gap-2 shrink-0">
+                    <button
+                      :disabled="actionBusy === `accept:${req.id || req.userId || req.user?.id}`"
+                      class="p-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors disabled:opacity-50"
+                      title="Accept request"
+                      @click="respondJoinRequest(req.id || req.userId || req.user?.id, 'accept')"
+                    >
+                      <Check :size="16" />
+                    </button>
+                    <button
+                      :disabled="actionBusy === `reject:${req.id || req.userId || req.user?.id}`"
+                      class="p-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors disabled:opacity-50"
+                      title="Reject request"
+                      @click="respondJoinRequest(req.id || req.userId || req.user?.id, 'reject')"
+                    >
+                      <Shield :size="16" />
+                    </button>
                   </div>
                 </div>
               </div>

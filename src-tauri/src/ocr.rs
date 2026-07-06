@@ -31,7 +31,8 @@ $tmpFile = $enhancedFile
             ""
         };
 
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -90,15 +91,25 @@ try {{
 }} catch {{
     "OCR_ERROR: $($_.Exception.Message)"
 }}
-"#, enhance = enhance_block, lang = ocr_lang);
+"#,
+            enhance = enhance_block,
+            lang = ocr_lang
+        );
 
         let output = tokio::task::spawn_blocking(move || {
             let child = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script])
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &ps_script,
+                ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
-            
+
             let child_id = child.id();
             let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
             let watchdog = std::thread::spawn(move || {
@@ -106,24 +117,37 @@ try {{
                     Ok(_) => {}
                     Err(_) => {
                         #[cfg(windows)]
-                        let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &child_id.to_string()]).output();
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/PID", &child_id.to_string()])
+                            .output();
                     }
                 }
             });
-            
+
             let output = child.wait_with_output()?;
             let _ = done_tx.send(());
             let _ = watchdog.join();
-            
+
             Ok::<std::process::Output, std::io::Error>(output)
-        }).await
-            .map_err(|e| format!("spawn error: {}", e))?
-            .map_err(|e| format!("PowerShell error: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("spawn error: {}", e))?
+        .map_err(|e| format!("PowerShell error: {}", e))?;
 
         let ocr_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-        if ocr_text.is_empty() || ocr_text.starts_with("OCR_ERROR") || ocr_text == "OCR_ENGINE_NOT_AVAILABLE" {
-            Err(format!("OCR 失败: {}", if ocr_text.is_empty() { "未识别到文字" } else { &ocr_text }))
+        if ocr_text.is_empty()
+            || ocr_text.starts_with("OCR_ERROR")
+            || ocr_text == "OCR_ENGINE_NOT_AVAILABLE"
+        {
+            Err(format!(
+                "OCR 失败: {}",
+                if ocr_text.is_empty() {
+                    "未识别到文字"
+                } else {
+                    &ocr_text
+                }
+            ))
         } else {
             Ok(ocr_text)
         }

@@ -5,7 +5,7 @@
   >
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
-    <div class="absolute inset-0 bg-black/10 pointer-events-none" />
+     <div class="absolute inset-0 bg-[var(--theme-bg-main)]/10 pointer-events-none" />
 
     <!-- Animated background grid -->
     <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTAgNjBMMjAgNjBMMjAgMEwwIDBaIiBmaWxsPSIjMThBMEZCIi8+PHBhdGggZD0iTTYwIDBMMCAwTDAgMjBMNjAgMjBaIiBmaWxsPSIjMThBMEZCIi8+PC9nPjwvc3ZnPg==')] opacity-10 pointer-events-none" />
@@ -44,26 +44,26 @@
           </p>
         </div>
       </div>
-      <div class="flex gap-3 items-center">
-        <!-- Theme Switcher -->
-        <div class="relative group">
-          <button class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border-border-soft rounded-2xl text-text hover:text-primary text-xs transition-all font-bold shadow-sm">
-            <Palette class="w-4 h-4" />
-            <span class="capitalize">{{ themes[currentThemeId]?.name || currentThemeId }}</span>
-          </button>
-          <div class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-2xl border-border-soft rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 flex flex-col p-2 gap-1">
-            <button
-              v-for="themeItem in Object.values(themes)"
-              :key="themeItem.id"
-              class="w-full text-left px-3 py-2 text-xs transition-all rounded-xl flex items-center justify-between"
-              :class="currentThemeId === themeItem.id ? 'bg-primary text-white font-bold shadow-md shadow-primary/30' : 'text-text-muted hover:bg-surface-hover hover:text-primary'"
-              @click="setTheme(themeItem.id as ThemeId)"
-            >
-              {{ themeItem.name }}
-              <Check v-if="currentThemeId === themeItem.id" class="w-3 h-3" />
-            </button>
-          </div>
-        </div>
+       <div class="flex gap-3 items-center">
+         <!-- Theme Switcher -->
+         <div class="relative group">
+           <button class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border-border-soft rounded-2xl text-text hover:text-primary text-xs transition-all font-bold shadow-sm">
+             <Palette class="w-4 h-4" />
+             <span class="capitalize">{{ t(themes[currentThemeId]?.name || currentThemeId) }}</span>
+           </button>
+           <div class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-2xl border-border-soft rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 flex flex-col p-2 gap-1">
+             <button
+               v-for="themeItem in Object.values(themes)"
+               :key="themeItem.id"
+               class="w-full text-left px-3 py-2 text-xs transition-all rounded-xl flex items-center justify-between"
+               :class="currentThemeId === themeItem.id ? 'bg-primary text-white font-bold shadow-md shadow-primary/30' : 'text-text-muted hover:bg-surface-hover hover:text-primary'"
+               @click="setTheme(themeItem.id as ThemeId)"
+             >
+               {{ t(themeItem.name) }}
+               <Check v-if="currentThemeId === themeItem.id" class="w-3 h-3" />
+             </button>
+           </div>
+         </div>
 
         <button
           class="flex items-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-hover border-border-soft rounded-2xl text-text hover:text-primary text-xs font-bold transition-all shadow-sm"
@@ -295,7 +295,7 @@
                   <td class="p-4">
                     <div class="flex flex-col gap-1">
                        <span :class="u.is_online ? 'text-emerald-400' : 'text-text-muted'" class="text-[10px] font-bold uppercase tracking-wider">
-                         {{ u.is_online ? 'Online' : 'Offline' }}
+                         {{ u.is_online ? t('status.online') : t('status.offline') }}
                        </span>
                        <span v-if="banMap[u.user_id]" class="text-[9px] text-red-500 font-bold uppercase">{{ t('role.banned') }}</span>
                        <span v-if="freezeMap[u.user_id]" class="text-[9px] text-blue-400 font-bold uppercase">{{ t('role.frozen') }}</span>
@@ -356,7 +356,7 @@
                 <Shield class="w-3 h-3" /> {{ t('role.dashboard_roles_list') || 'ROLES LIST' }}
               </h3>
               <button
-                class="px-2 py-1 bg-primary/20 text-primary hover:bg-primary/40 border-primary/30 rounded text-[10px] font-bold transition-colors"
+                class="px-2 py-1 bg-primary text-white hover:bg-primary-hover border border-primary rounded text-[10px] font-bold transition-colors shadow-sm shadow-primary/20"
                 @click="createNewRole"
               >
                 +
@@ -581,12 +581,12 @@
       </div>
     </div>
 
-    <!-- Freeze Dialog -->
-    <div
-      v-if="showFreezeDialog"
-      class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999]"
-      @click.self="showFreezeDialog=false"
-    >
+     <!-- Freeze Dialog -->
+     <div
+       v-if="showFreezeDialog"
+       class="fixed inset-0 bg-[var(--theme-bg-main)]/50 backdrop-blur-sm flex items-center justify-center z-[999]"
+       @click.self="showFreezeDialog=false"
+     >
       <div class="bg-surface rounded-2xl p-6 w-96 border border-border-soft shadow-xl">
         <h3 class="text-sm font-black mb-4 text-primary uppercase tracking-widest flex items-center gap-2">
           <Snowflake class="w-4 h-4" /> {{ t('role.freeze_user') }}
@@ -611,7 +611,7 @@
               {{ t('role.cancel') }}
             </button>
             <button
-              class="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-content font-bold rounded-lg text-xs uppercase tracking-widest transition-colors"
+              class="px-4 py-2 bg-primary hover:bg-primary-hover text-white font-bold rounded-lg text-xs uppercase tracking-widest transition-colors"
               @click="confirmFreeze"
             >
               {{ t('role.confirm_freeze') }}
@@ -644,6 +644,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from 'vue-i18n';
 import { SysApi, DbApi, VrcApi } from '../api';
 import { useStorage } from '@vueuse/core';
+import { getLocaleLabel, getNextLocale, setAppLocale } from '../i18n';
 
 // 动态注入 CSS 变量
 const themeStyles = computed(() => {
@@ -669,13 +670,11 @@ const themeStyles = computed(() => {
 });
 
 const { t, locale } = useI18n();
-const langMap: Record<string, string> = { 'zh-CN': 'Chinese', 'en-US': 'English', 'ja-JP': 'Japanese' };
-const currentLangLabel = computed(() => langMap[locale.value] || 'Language');
+const currentLangLabel = computed(() => getLocaleLabel(locale.value));
 const cycleLanguage = () => {
-  const keys = Object.keys(langMap);
-  locale.value = keys[(keys.indexOf(locale.value) + 1) % keys.length];
-  localStorage.setItem('vrcdog-locale', locale.value);
-  DbApi.saveSetting({ key: 'language', value: JSON.stringify(locale.value) }).catch(() => {});
+  const nextLang = setAppLocale(getNextLocale(locale.value), { notify: true });
+  locale.value = nextLang;
+  DbApi.saveSetting({ key: 'language', value: JSON.stringify(nextLang) }).catch(() => {});
 };
 
 const emit = defineEmits(['exit']);

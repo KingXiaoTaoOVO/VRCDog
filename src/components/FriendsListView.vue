@@ -55,6 +55,8 @@ const fetchFriends = async () => {
     errorMsg.value = err.message || err;
   } finally {
     loading.value = false;
+    // 后台解析世界名称
+    resolveWorldNames();
   }
   }, 1000); // 1s debounce
 };
@@ -73,14 +75,15 @@ onUnmounted(() => {
 const onlineCount = computed(() => onlineFriends.value.length);
 const totalCount = computed(() => onlineFriends.value.length + activeFriends.value.length + offlineFriends.value.length);
 
-// Extract Trust Color
+// Extract Trust Color — aligned with VRCX color scheme
 const getTrustColor = (tags: string[]) => {
-  if (!tags) return '#CCCCCC'; // Visitor
-  if (tags.includes('system_trust_legend') || tags.includes('system_trust_veteran')) return 'var(--color-primary)'; // Trusted (Primary)
-  if (tags.includes('system_trust_trusted')) return '#ff7b42'; // Known (Orange)
-  if (tags.includes('system_trust_known')) return '#2bcf5c'; // User (Green)
-  if (tags.includes('system_trust_basic')) return '#1778ff'; // New User (Blue)
-  return '#CCCCCC'; // Visitor
+  if (!tags || !tags.length) return '#9e9e9e'; // Visitor - gray
+  if (tags.includes('system_trust_legend')) return '#ff69b4';   // Legend - pink (VRCX)
+  if (tags.includes('system_trust_veteran')) return '#8b5cf6';  // Trusted User - purple (VRCX)
+  if (tags.includes('system_trust_trusted')) return '#ff7b42';  // Known User - orange
+  if (tags.includes('system_trust_known')) return '#2bcf5c';    // User - green
+  if (tags.includes('system_trust_basic')) return '#1778ff';    // New User - blue
+  return '#9e9e9e'; // Visitor - gray
 };
 
 // Grouping Logic matching VRCX
@@ -111,8 +114,14 @@ const groupedFriends = computed(() => {
       else if (locName.includes('EU')) flag = '🇪🇺';
       else if (locName.includes('KR')) flag = '🇰🇷';
       
-      // Clean up location name for display
+      // Clean up location name for display - resolve world name from cache
       let displayLoc = locName.split('~')[0];
+      const worldId = displayLoc.split(':')[0];
+      if (worldId.startsWith('wrld_') && worldNameCache.value.has(worldId)) {
+        displayLoc = worldNameCache.value.get(worldId)!;
+      } else if (worldId.startsWith('wrld_')) {
+        displayLoc = worldId; // 暂时显示 ID，后台会异步更新
+      }
       
       sameRoomGroups.push({ location: loc, locationName: displayLoc, flag, friends: friendsInLoc });
     } else {
@@ -157,8 +166,47 @@ const getFlag = (locName: string) => {
 
 const cleanLocName = (loc: string) => {
   if (loc === 'private') return t('auto_4ad3ada9');
+  // 如果是 wrld_ 开头，尝试从缓存获取世界名
+  if (loc.startsWith('wrld_')) {
+    const worldId = loc.split(':')[0];
+    return worldNameCache.value.get(worldId) || loc.split('~')[0];
+  }
   return loc?.split('~')[0] || t('auto_0fcd7253');
 };
+
+// 世界名缓存 (响应式)
+const worldNameCache = ref(new Map<string, string>());
+
+// 解析世界名称 (后台异步)
+const resolveWorldNames = async () => {
+  const worldIds = new Set<string>();
+  onlineFriends.value.forEach(f => {
+    if (f.location && f.location.startsWith('wrld_')) {
+      worldIds.add(f.location.split(':')[0]);
+    }
+  });
+
+  for (const worldId of worldIds) {
+    if (worldNameCache.value.has(worldId)) continue;
+    try {
+      // 先查 DB 缓存
+      const cached = await DbApi.getApiCache({ key: `world_name:${worldId}` });
+      if (cached) {
+        worldNameCache.value.set(worldId, cached);
+        worldNameCache.value = new Map(worldNameCache.value); // 触发响应式
+        continue;
+      }
+      // 请求 API
+      const w: any = await VrcApi.getWorld({ worldId });
+      if (w?.name) {
+        worldNameCache.value.set(worldId, w.name);
+        worldNameCache.value = new Map(worldNameCache.value);
+        await DbApi.saveApiCache({ key: `world_name:${worldId}`, data: w.name });
+      }
+    } catch { /* ignore */ }
+  }
+};
+
 import FriendItem from './FriendItem.vue';
 </script>
 
@@ -229,7 +277,7 @@ import FriendItem from './FriendItem.vue';
                 @click="openDetail(currentUser)"
               >
                 <template #subtitle>
-                  <span class="text-[12px] font-medium text-text-muted mt-0.5 truncate">{{ currentUser.statusDescription || 'Online' }}</span>
+                  <span class="text-[12px] font-medium text-text-muted mt-0.5 truncate">{{ currentUser.statusDescription || t('status.online') }}</span>
                 </template>
               </FriendItem>
             </div>

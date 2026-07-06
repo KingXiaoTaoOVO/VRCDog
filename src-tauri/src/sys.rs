@@ -5,16 +5,16 @@ use tauri::Manager;
 
 #[tauri::command]
 pub async fn sys_clear_vrchat_cache() -> AppResult<u64> {
-    let mut cache_dir = dirs::data_local_dir()
-        .ok_or_else(|| "Could not find LocalAppData".to_string())?;
-    
+    let mut cache_dir =
+        dirs::data_local_dir().ok_or_else(|| "Could not find LocalAppData".to_string())?;
+
     cache_dir.pop(); // Up from Local to AppData
     cache_dir.push("LocalLow");
     cache_dir.push("VRChat");
     cache_dir.push("vrchat");
-    
+
     let mut total_deleted: u64 = 0;
-    
+
     // HTTPCache
     let mut http_cache = cache_dir.clone();
     http_cache.push("HTTPCache");
@@ -25,7 +25,7 @@ pub async fn sys_clear_vrchat_cache() -> AppResult<u64> {
             }
         }
     }
-    
+
     // Cache-WindowsPlayer
     let mut win_cache = cache_dir.clone();
     win_cache.push("Cache-WindowsPlayer");
@@ -69,18 +69,30 @@ pub async fn sys_check_steamvr() -> crate::AppResult<bool> {
     // SteamVR, Meta/Oculus Link, Pico Streaming, HTC Vive, Virtual Desktop, ALVR
     let vr_processes: &[&str] = &[
         // SteamVR
-        "vrserver.exe", "vrmonitor.exe", "vrdashboard.exe", "vrcompositor.exe",
+        "vrserver.exe",
+        "vrmonitor.exe",
+        "vrdashboard.exe",
+        "vrcompositor.exe",
         // Meta / Oculus (Quest Link / Air Link)
-        "ovrserver_x64.exe", "oculusclient.exe", "ovrserviceprocess.exe",
-        "oculus_runtime.exe", "oculusdash.exe",
+        "ovrserver_x64.exe",
+        "oculusclient.exe",
+        "ovrserviceprocess.exe",
+        "oculus_runtime.exe",
+        "oculusdash.exe",
         // Pico (Streaming Assistant / Business Streaming)
-        "pico_streaming_assistant.exe", "pico connect.exe", "picolink.exe",
+        "pico_streaming_assistant.exe",
+        "pico connect.exe",
+        "picolink.exe",
         // HTC Vive (Vive Console / VIVEPORT)
-        "htcvrs.exe", "viveport.exe", "viveconsole.exe",
+        "htcvrs.exe",
+        "viveport.exe",
+        "viveconsole.exe",
         // Virtual Desktop (cross-device)
-        "virtual desktop.server.exe", "virtualdesktop.server.exe",
+        "virtual desktop.server.exe",
+        "virtualdesktop.server.exe",
         // ALVR (open source VR streaming)
-        "alvr_dashboard.exe", "alvr_server.exe",
+        "alvr_dashboard.exe",
+        "alvr_server.exe",
     ];
     for process in sys.processes().values() {
         let name = process.name().to_string_lossy().to_lowercase();
@@ -100,27 +112,25 @@ pub async fn sys_set_autostart(enable: bool) -> crate::AppResult<()> {
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        
-        let (key, _) = hkcu.create_subkey(path)
-            .map_err(|e| e.to_string())?;
-            
+
+        let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
+
         let app_name = "VrcDog";
-        
+
         if enable {
-            let exe_path = std::env::current_exe()
-                .map_err(|e| e.to_string())?;
-                
+            let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+
             let mut exe_str = exe_path.to_string_lossy().to_string();
             if !exe_str.starts_with('"') {
                 exe_str = format!("\"{}\"", exe_str);
             }
-            
+
             key.set_value(app_name, &exe_str)
                 .map_err(|e| e.to_string())?;
         } else {
             let _ = key.delete_value(app_name);
         }
-        
+
         Ok(())
     }
 
@@ -142,19 +152,29 @@ pub async fn sys_register_url_scheme(enable: bool) -> crate::AppResult<()> {
 
         if enable {
             let (key, _) = hkcr.create_subkey(scheme).map_err(|e| e.to_string())?;
-            key.set_value("", &format!("URL:{} Protocol", scheme)).map_err(|e| e.to_string())?;
-            key.set_value("URL Protocol", &"").map_err(|e| e.to_string())?;
+            key.set_value("", &format!("URL:{} Protocol", scheme))
+                .map_err(|e| e.to_string())?;
+            key.set_value("URL Protocol", &"")
+                .map_err(|e| e.to_string())?;
 
-            let (icon_key, _) = key.create_subkey("DefaultIcon").map_err(|e| e.to_string())?;
+            let (icon_key, _) = key
+                .create_subkey("DefaultIcon")
+                .map_err(|e| e.to_string())?;
             let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-            icon_key.set_value("", &format!("{},1", exe_path.to_string_lossy())).map_err(|e| e.to_string())?;
+            icon_key
+                .set_value("", &format!("{},1", exe_path.to_string_lossy()))
+                .map_err(|e| e.to_string())?;
 
-            let (cmd_key, _) = key.create_subkey("shell\\open\\command").map_err(|e| e.to_string())?;
-            cmd_key.set_value("", &format!("\"{}\" \"%1\"", exe_path.to_string_lossy())).map_err(|e| e.to_string())?;
+            let (cmd_key, _) = key
+                .create_subkey("shell\\open\\command")
+                .map_err(|e| e.to_string())?;
+            cmd_key
+                .set_value("", &format!("\"{}\" \"%1\"", exe_path.to_string_lossy()))
+                .map_err(|e| e.to_string())?;
         } else {
             let _ = hkcr.delete_subkey_all(scheme);
         }
-        
+
         Ok(())
     }
 
@@ -172,7 +192,7 @@ pub async fn sys_get_launch_args() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn sys_open_dir(target: String) -> Result<(), String> {
     let mut path = PathBuf::new();
-    
+
     match target.as_str() {
         "logs" => {
             if let Some(mut local_low) = dirs::data_local_dir() {
@@ -182,7 +202,7 @@ pub async fn sys_open_dir(target: String) -> Result<(), String> {
                 local_low.push("vrchat");
                 path = local_low;
             }
-        },
+        }
         "cache" => {
             if let Some(mut local_low) = dirs::data_local_dir() {
                 local_low.pop();
@@ -192,7 +212,7 @@ pub async fn sys_open_dir(target: String) -> Result<(), String> {
                 local_low.push("HTTPCache");
                 path = local_low;
             }
-        },
+        }
         "screenshots" => {
             let mut custom_path = None;
             if let Some(mut config_path) = dirs::data_local_dir() {
@@ -204,7 +224,9 @@ pub async fn sys_open_dir(target: String) -> Result<(), String> {
                 if config_path.exists() {
                     if let Ok(content) = std::fs::read_to_string(&config_path) {
                         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-                            if let Some(p) = parsed.get("pictureOutputFolder").and_then(|v| v.as_str()) {
+                            if let Some(p) =
+                                parsed.get("pictureOutputFolder").and_then(|v| v.as_str())
+                            {
                                 let cp = std::path::PathBuf::from(p);
                                 if cp.exists() {
                                     custom_path = Some(cp);
@@ -220,17 +242,17 @@ pub async fn sys_open_dir(target: String) -> Result<(), String> {
                 pic_dir.push("VRChat");
                 path = pic_dir;
             }
-        },
+        }
         "crash_reports" => {
             if let Some(mut local) = dirs::data_local_dir() {
                 local.push("Temp");
                 local.push("VRChat");
                 path = local;
             }
-        },
+        }
         _ => return Err("未知的目录目标".to_string()),
     }
-    
+
     if path.exists() {
         #[cfg(target_os = "windows")]
         {
@@ -265,7 +287,7 @@ pub async fn sys_register_steamvr_autostart() -> Result<(), String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe_path.parent().unwrap();
     let manifest_path = dir.join("vrcdog_manifest.vrmanifest");
-    
+
     let manifest_content = serde_json::json!({
         "source": "VrcDog",
         "applications": [{
@@ -280,11 +302,16 @@ pub async fn sys_register_steamvr_autostart() -> Result<(), String> {
             }
         }]
     });
-    
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest_content).unwrap()).map_err(|e| e.to_string())?;
-    
+
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest_content).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+
     // Call vrpathreg to add the manifest
-    let vrpathreg = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SteamVR\\bin\\win64\\vrpathreg.exe";
+    let vrpathreg =
+        "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SteamVR\\bin\\win64\\vrpathreg.exe";
     if std::path::Path::new(vrpathreg).exists() {
         std::process::Command::new(vrpathreg)
             .args(["addapp", manifest_path.to_str().unwrap()])
@@ -322,7 +349,12 @@ pub async fn sys_open_url(url: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(&url)
             .spawn()
-            .unwrap_or_else(|_| std::process::Command::new("open").arg(&url).spawn().unwrap());
+            .unwrap_or_else(|_| {
+                std::process::Command::new("open")
+                    .arg(&url)
+                    .spawn()
+                    .unwrap()
+            });
     }
     Ok(())
 }
@@ -345,12 +377,12 @@ pub async fn sys_get_vrc_screenshot_dir() -> Result<String, String> {
             }
         }
     }
-    
+
     if let Some(mut pic_dir) = dirs::picture_dir() {
         pic_dir.push("VRChat");
         return Ok(pic_dir.to_string_lossy().to_string());
     }
-    
+
     Ok("".to_string())
 }
 
@@ -361,30 +393,35 @@ pub async fn sys_set_vrc_screenshot_dir(path: String) -> Result<(), String> {
         config_path.push("LocalLow");
         config_path.push("VRChat");
         config_path.push("VRChat");
-        
+
         if !config_path.exists() {
-            std::fs::create_dir_all(&config_path).map_err(|e| format!("无法创建VRChat配置目录: {}", e))?;
+            std::fs::create_dir_all(&config_path)
+                .map_err(|e| format!("无法创建VRChat配置目录: {}", e))?;
         }
-        
+
         config_path.push("config.json");
-        
+
         let mut config_json = serde_json::json!({});
         if config_path.exists() {
-            let content = std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string());
+            let content =
+                std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string());
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
                 if parsed.is_object() {
                     config_json = parsed;
                 }
             }
         }
-        
+
         if let Some(obj) = config_json.as_object_mut() {
             obj.insert("pictureOutputFolder".to_string(), serde_json::json!(path));
         }
-        
-        std::fs::write(&config_path, serde_json::to_string_pretty(&config_json).unwrap())
-            .map_err(|e| format!("无法写入 config.json: {}", e))?;
-            
+
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&config_json).unwrap(),
+        )
+        .map_err(|e| format!("无法写入 config.json: {}", e))?;
+
         Ok(())
     } else {
         Err("找不到 Local AppData 目录".to_string())
@@ -399,7 +436,7 @@ pub async fn sys_get_vrc_config() -> Result<String, String> {
         config_path.push("VRChat");
         config_path.push("VRChat");
         config_path.push("config.json");
-        
+
         if config_path.exists() {
             let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
             return Ok(content);
@@ -417,14 +454,16 @@ pub async fn sys_save_vrc_config(content: String) -> Result<(), String> {
         config_path.push("LocalLow");
         config_path.push("VRChat");
         config_path.push("VRChat");
-        
+
         if !config_path.exists() {
-            std::fs::create_dir_all(&config_path).map_err(|e| format!("Cannot create VRC directory: {}", e))?;
+            std::fs::create_dir_all(&config_path)
+                .map_err(|e| format!("Cannot create VRC directory: {}", e))?;
         }
-        
+
         config_path.push("config.json");
-        
-        std::fs::write(&config_path, content).map_err(|e| format!("Cannot write config.json: {}", e))?;
+
+        std::fs::write(&config_path, content)
+            .map_err(|e| format!("Cannot write config.json: {}", e))?;
         Ok(())
     } else {
         Err("Cannot find AppData directory".to_string())

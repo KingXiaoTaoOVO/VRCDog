@@ -124,33 +124,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-surface-hover p-2">
+  <div class="h-full flex flex-col bg-surface-hover p-4 rounded-xl">
     <!-- 顶部导航 Tab -->
-    <div class="flex items-center gap-2 border-border-soft mb-6 px-4 pt-2">
+    <div class="flex items-center gap-1 border border-border-soft bg-surface/80 rounded-lg p-1 mb-5 w-fit shadow-sm">
       <button
-        :class="searchType === 'users' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
-        class="py-3 px-4 transition-all text-sm"
+        :class="searchType === 'users' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover'"
+        class="py-2 px-3 rounded-md transition-all text-sm font-bold"
         @click="searchType = 'users'"
       >
         {{ t('search.type_users') }}
       </button>
       <button
-        :class="searchType === 'worlds' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
-        class="py-3 px-4 transition-all text-sm"
+        :class="searchType === 'worlds' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover'"
+        class="py-2 px-3 rounded-md transition-all text-sm font-bold"
         @click="searchType = 'worlds'"
       >
         {{ t('search.type_worlds') }}
       </button>
       <button
-        :class="searchType === 'avatars' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
-        class="py-3 px-4 transition-all text-sm"
+        :class="searchType === 'avatars' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover'"
+        class="py-2 px-3 rounded-md transition-all text-sm font-bold"
         @click="searchType = 'avatars'"
       >
         {{ t('search.type_avatars') }}
       </button>
       <button
-        :class="searchType === 'groups' ? 'border-b-2 border-primary text-primary font-extrabold' : 'text-text-muted hover:text-text-muted font-bold hover:bg-surface rounded-t-lg border-b-2 border-transparent'"
-        class="py-3 px-4 transition-all text-sm"
+        :class="searchType === 'groups' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover'"
+        class="py-2 px-3 rounded-md transition-all text-sm font-bold"
         @click="searchType = 'groups'"
       >
         {{ t('search.type_groups') }}
@@ -158,7 +158,7 @@ onUnmounted(() => {
     </div>
 
     <!-- {{ t('search.placeholder') || 'Search' }}栏 -->
-    <div class="flex gap-3 mb-6 px-2">
+    <div class="flex gap-3 mb-5">
       <div class="flex-1 relative">
         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
           <Search class="h-5 w-5 text-border-strong" />
@@ -166,14 +166,14 @@ onUnmounted(() => {
         <input
           v-model="searchQuery"
           type="text"
-          class="block w-full pl-12 pr-4 py-3.5 bg-surface border-border-soft shadow-sm rounded-xl text-text placeholder-slate-400 focus:outline-none  focus:ring-4 focus:ring-indigo-500/10 text-sm font-bold transition-all"
+          class="block w-full pl-12 pr-4 py-3.5 bg-surface border border-border-soft shadow-sm rounded-lg text-text placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-primary/10 text-sm font-bold transition-all"
           :placeholder="t('search.placeholder')"
           @keyup.enter="doSearch"
         >
       </div>
       <button
         :disabled="loading || !searchQuery.trim()"
-        class="px-8 py-3 bg-surface hover:bg-background/80 backdrop-blur-md text-white font-bold rounded-xl shadow-sm transition-colors disabled:opacity-50 text-sm flex items-center gap-2"
+        class="px-7 py-3 bg-primary hover:brightness-110 text-white font-bold rounded-lg shadow-sm transition-colors disabled:opacity-50 text-sm flex items-center gap-2"
         @click="doSearch"
       >
         <Loader2
@@ -192,13 +192,13 @@ onUnmounted(() => {
     <!-- 错误 -->
     <div
       v-if="errorMsg"
-      class="bg-red-50 text-red-600 p-4 rounded-xl border-red-200 text-sm font-bold mb-4 mx-2"
+      class="bg-red-50 text-red-600 p-4 rounded-lg border border-red-200 text-sm font-bold mb-4"
     >
       {{ errorMsg }}
     </div>
 
     <!-- 结果列表 -->
-    <div class="flex-1 overflow-y-auto px-4 custom-scrollbar relative">
+    <div class="flex-1 overflow-y-auto custom-scrollbar relative">
       <div
         v-if="loading"
         class="absolute inset-0 flex flex-col items-center justify-center text-primary bg-surface-hover backdrop-blur-sm z-10"

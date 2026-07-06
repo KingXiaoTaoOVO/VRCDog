@@ -1,11 +1,11 @@
 use chrono::Local;
-use rusqlite::{params, Connection, Result, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tauri::State;
-use std::path::PathBuf;
-use std::fs;
 
 pub struct DbState {
     pub conn: Arc<StdMutex<Connection>>,
@@ -17,7 +17,8 @@ impl DbState {
         app_dir.push("vrcdog.db");
 
         let conn = Connection::open(app_dir).expect("Failed to open SQLite database");
-        conn.busy_timeout(std::time::Duration::from_secs(5)).expect("Failed to set busy timeout");
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .expect("Failed to set busy timeout");
 
         // Apply SQLite Performance Optimizations
         conn.execute_batch(
@@ -25,8 +26,9 @@ impl DbState {
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA cache_size = -64000;
-            "
-        ).expect("Failed to apply SQLite pragmas");
+            ",
+        )
+        .expect("Failed to apply SQLite pragmas");
 
         conn.execute_batch(
             "
@@ -141,11 +143,17 @@ impl DbState {
         .expect("无法初始化数据库表");
 
         // Apply schema migrations gracefully for existing users
-        let _ = conn.execute("ALTER TABLE friend_activity ADD COLUMN date_key TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute(
+            "ALTER TABLE friend_activity ADD COLUMN date_key TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         let _ = conn.execute("ALTER TABLE favorite_worlds ADD COLUMN image_url TEXT", []);
         // Rename column label to name for status_presets if old version existed
         let _ = conn.execute("ALTER TABLE status_presets RENAME COLUMN label TO name", []);
-        let _ = conn.execute("ALTER TABLE status_presets ADD COLUMN name TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute(
+            "ALTER TABLE status_presets ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+            [],
+        );
 
         Self {
             conn: Arc::new(StdMutex::new(conn)),
@@ -179,31 +187,37 @@ pub fn db_add_favorite_world(
 }
 
 #[tauri::command]
-pub fn db_get_favorite_worlds(state: State<'_, DbState>) -> Result<Vec<FavoriteWorldRecord>, String> {
+pub fn db_get_favorite_worlds(
+    state: State<'_, DbState>,
+) -> Result<Vec<FavoriteWorldRecord>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare("SELECT world_id, name, image_url, added_at FROM favorite_worlds ORDER BY added_at DESC")
         .map_err(|e| e.to_string())?;
-    let results = stmt.query_map([], |row| {
-        Ok(FavoriteWorldRecord {
-            world_id: row.get(0)?,
-            name: row.get(1)?,
-            image_url: row.get(2)?,
-            added_at: row.get(3)?,
+    let results = stmt
+        .query_map([], |row| {
+            Ok(FavoriteWorldRecord {
+                world_id: row.get(0)?,
+                name: row.get(1)?,
+                image_url: row.get(2)?,
+                added_at: row.get(3)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(results)
 }
 
 #[tauri::command]
 pub fn db_remove_favorite_world(state: State<'_, DbState>, world_id: String) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM favorite_worlds WHERE world_id = ?1", params![world_id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM favorite_worlds WHERE world_id = ?1",
+        params![world_id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
-
 
 // ========== Auth ==========
 #[tauri::command]
@@ -268,7 +282,8 @@ pub fn db_batch_record_friends(
     state: State<'_, DbState>,
     friends_json: String,
 ) -> Result<u32, String> {
-    let friends: Vec<OnlineFriendRecord> = serde_json::from_str(&friends_json).map_err(|e| e.to_string())?;
+    let friends: Vec<OnlineFriendRecord> =
+        serde_json::from_str(&friends_json).map_err(|e| e.to_string())?;
     let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let date_key = Local::now().format("%Y-%m-%d").to_string();
@@ -279,7 +294,9 @@ pub fn db_batch_record_friends(
         ).map_err(|e| e.to_string())?;
         for f in &friends {
             let res = stmt.execute(params![f.id, f.displayName, f.status, f.location, date_key]);
-            if res.is_ok() { count += 1; }
+            if res.is_ok() {
+                count += 1;
+            }
         }
     }
     tx.commit().map_err(|e| e.to_string())?;
@@ -289,27 +306,35 @@ pub fn db_batch_record_friends(
 #[tauri::command]
 pub fn db_get_heatmap(state: State<'_, DbState>) -> Result<Vec<serde_json::Value>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    
+
     // SQLite strftime('%w', recorded_at) returns '0' (Sun) to '6' (Sat)
     // strftime('%H', recorded_at) returns '00' to '23'
     let mut stmt = conn
         .prepare("SELECT CAST(strftime('%w', recorded_at) AS INTEGER) as day_of_week, CAST(strftime('%H', recorded_at) AS INTEGER) as hour_of_day, COUNT(*) as activity_count FROM friend_activity GROUP BY day_of_week, hour_of_day")
         .map_err(|e| e.to_string())?;
-    
-    let rows = stmt.query_map([], |row| {
-        let mut map = serde_json::Map::new();
-        // Shift day so Monday = 0, Sunday = 6
-        let raw_day: i64 = row.get(0)?;
-        let mut day = raw_day - 1;
-        if day < 0 {
-            day = 6;
-        }
-        
-        map.insert("day".to_string(), serde_json::Value::Number(day.into()));
-        map.insert("hour".to_string(), serde_json::Value::Number(row.get::<_, i64>(1)?.into()));
-        map.insert("count".to_string(), serde_json::Value::Number(row.get::<_, i64>(2)?.into()));
-        Ok(serde_json::Value::Object(map))
-    }).map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let mut map = serde_json::Map::new();
+            // Shift day so Monday = 0, Sunday = 6
+            let raw_day: i64 = row.get(0)?;
+            let mut day = raw_day - 1;
+            if day < 0 {
+                day = 6;
+            }
+
+            map.insert("day".to_string(), serde_json::Value::Number(day.into()));
+            map.insert(
+                "hour".to_string(),
+                serde_json::Value::Number(row.get::<_, i64>(1)?.into()),
+            );
+            map.insert(
+                "count".to_string(),
+                serde_json::Value::Number(row.get::<_, i64>(2)?.into()),
+            );
+            Ok(serde_json::Value::Object(map))
+        })
+        .map_err(|e| e.to_string())?;
 
     let mut results = Vec::new();
     for val in rows.flatten() {
@@ -319,24 +344,36 @@ pub fn db_get_heatmap(state: State<'_, DbState>) -> Result<Vec<serde_json::Value
 }
 
 #[tauri::command]
-pub fn db_get_heatmap_details(state: State<'_, DbState>, day: i64, hour: i64) -> Result<Vec<serde_json::Value>, String> {
+pub fn db_get_heatmap_details(
+    state: State<'_, DbState>,
+    day: i64,
+    hour: i64,
+) -> Result<Vec<serde_json::Value>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    
+
     // Reverse the day shift: if day is 6 (Sun), raw_day is 0. Else raw_day is day + 1.
     let raw_day = if day == 6 { 0 } else { day + 1 };
     let raw_day_str = raw_day.to_string();
     let hour_str = format!("{:02}", hour);
-    
+
     let mut stmt = conn
         .prepare("SELECT display_name, COUNT(*) as c FROM friend_activity WHERE strftime('%w', recorded_at) = ?1 AND strftime('%H', recorded_at) = ?2 GROUP BY display_name ORDER BY c DESC LIMIT 10")
         .map_err(|e| e.to_string())?;
-        
-    let rows = stmt.query_map(params![raw_day_str, hour_str], |row| {
-        let mut map = serde_json::Map::new();
-        map.insert("displayName".to_string(), serde_json::Value::String(row.get(0)?));
-        map.insert("count".to_string(), serde_json::Value::Number(row.get::<_, i64>(1)?.into()));
-        Ok(serde_json::Value::Object(map))
-    }).map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![raw_day_str, hour_str], |row| {
+            let mut map = serde_json::Map::new();
+            map.insert(
+                "displayName".to_string(),
+                serde_json::Value::String(row.get(0)?),
+            );
+            map.insert(
+                "count".to_string(),
+                serde_json::Value::Number(row.get::<_, i64>(1)?.into()),
+            );
+            Ok(serde_json::Value::Object(map))
+        })
+        .map_err(|e| e.to_string())?;
 
     let mut results = Vec::new();
     for val in rows.flatten() {
@@ -355,15 +392,18 @@ pub fn db_add_friend_log(
     detail: Option<String>,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    
+
     let mut final_display_name = display_name;
     if let Some(uid) = &user_id {
         if final_display_name.is_none() || final_display_name.as_deref() == Some("Unknown") {
-            if let Ok(Some(cached_name)) = conn.query_row(
-                "SELECT display_name FROM friends WHERE user_id = ?1",
-                params![uid],
-                |row| row.get::<_, String>(0),
-            ).optional() {
+            if let Ok(Some(cached_name)) = conn
+                .query_row(
+                    "SELECT display_name FROM friends WHERE user_id = ?1",
+                    params![uid],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+            {
                 final_display_name = Some(cached_name);
             }
         }
@@ -399,20 +439,22 @@ pub fn db_get_friend_logs(
         .map_err(|e| e.to_string())?;
     let lim = limit.unwrap_or(200);
     let off = offset.unwrap_or(0);
-    
-    let logs = stmt.query_map(params![lim, off], |row| {
-        Ok(FriendLogRecord {
-            id: row.get(0)?,
-            event_type: row.get(1)?,
-            user_id: row.get(2)?,
-            display_name: row.get(3)?,
-            detail: row.get(4)?,
-            created_at: row.get(5)?,
+
+    let logs = stmt
+        .query_map(params![lim, off], |row| {
+            Ok(FriendLogRecord {
+                id: row.get(0)?,
+                event_type: row.get(1)?,
+                user_id: row.get(2)?,
+                display_name: row.get(3)?,
+                detail: row.get(4)?,
+                created_at: row.get(5)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
-    
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
     Ok(logs)
 }
 
@@ -428,18 +470,23 @@ pub struct NoteRecord {
 #[tauri::command]
 pub fn db_get_all_notes(state: State<'_, DbState>) -> Result<Vec<NoteRecord>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT user_id, display_name, note, updated_at FROM notes ORDER BY updated_at DESC")
+    let mut stmt = conn
+        .prepare(
+            "SELECT user_id, display_name, note, updated_at FROM notes ORDER BY updated_at DESC",
+        )
         .map_err(|e| e.to_string())?;
-    let notes = stmt.query_map([], |row| {
-        Ok(NoteRecord {
-            user_id: row.get(0)?,
-            display_name: row.get(1)?,
-            note: row.get(2)?,
-            updated_at: row.get(3)?,
+    let notes = stmt
+        .query_map([], |row| {
+            Ok(NoteRecord {
+                user_id: row.get(0)?,
+                display_name: row.get(1)?,
+                note: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(notes)
 }
 
@@ -460,18 +507,24 @@ pub fn db_save_note(
 }
 
 #[tauri::command]
-pub fn db_get_note(state: State<'_, DbState>, user_id: String) -> Result<Option<NoteRecord>, String> {
+pub fn db_get_note(
+    state: State<'_, DbState>,
+    user_id: String,
+) -> Result<Option<NoteRecord>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT user_id, display_name, note, updated_at FROM notes WHERE user_id = ?1")
+    let mut stmt = conn
+        .prepare("SELECT user_id, display_name, note, updated_at FROM notes WHERE user_id = ?1")
         .map_err(|e| e.to_string())?;
-    let res = stmt.query_row(params![user_id], |row| {
-        Ok(NoteRecord {
-            user_id: row.get(0)?,
-            display_name: row.get(1)?,
-            note: row.get(2)?,
-            updated_at: row.get(3)?,
+    let res = stmt
+        .query_row(params![user_id], |row| {
+            Ok(NoteRecord {
+                user_id: row.get(0)?,
+                display_name: row.get(1)?,
+                note: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
         })
-    }).ok();
+        .ok();
     Ok(res)
 }
 
@@ -487,18 +540,21 @@ pub struct StatusPreset {
 #[tauri::command]
 pub fn db_get_status_presets(state: State<'_, DbState>) -> Result<Vec<StatusPreset>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT id, name, status, status_description FROM status_presets")
+    let mut stmt = conn
+        .prepare("SELECT id, name, status, status_description FROM status_presets")
         .map_err(|e| e.to_string())?;
-    let presets = stmt.query_map([], |row| {
-        Ok(StatusPreset {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            status: row.get(2)?,
-            status_description: row.get(3)?,
+    let presets = stmt
+        .query_map([], |row| {
+            Ok(StatusPreset {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                status: row.get(2)?,
+                status_description: row.get(3)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(presets)
 }
 
@@ -530,23 +586,33 @@ pub fn db_delete_status_preset(state: State<'_, DbState>, id: i64) -> Result<(),
 #[tauri::command]
 pub fn db_export_all(state: State<'_, DbState>) -> Result<serde_json::Value, String> {
     let mut result = serde_json::Map::new();
-    
+
     if let Ok(notes) = db_get_all_notes(state.clone()) {
-        if let Ok(v) = serde_json::to_value(notes) { result.insert("notes".to_string(), v); }
+        if let Ok(v) = serde_json::to_value(notes) {
+            result.insert("notes".to_string(), v);
+        }
     }
     if let Ok(logs) = db_get_friend_logs(state.clone(), Some(10000), Some(0)) {
-        if let Ok(v) = serde_json::to_value(logs) { result.insert("friend_logs".to_string(), v); }
+        if let Ok(v) = serde_json::to_value(logs) {
+            result.insert("friend_logs".to_string(), v);
+        }
     }
     if let Ok(presets) = db_get_status_presets(state.clone()) {
-        if let Ok(v) = serde_json::to_value(presets) { result.insert("status_presets".to_string(), v); }
+        if let Ok(v) = serde_json::to_value(presets) {
+            result.insert("status_presets".to_string(), v);
+        }
     }
-    
+
     Ok(serde_json::Value::Object(result))
 }
 
 // ========== App Settings ==========
 #[tauri::command]
-pub fn db_save_setting(state: State<'_, DbState>, key: String, value: String) -> Result<(), String> {
+pub fn db_save_setting(
+    state: State<'_, DbState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, datetime('now','localtime'))",
@@ -559,25 +625,27 @@ pub fn db_save_setting(state: State<'_, DbState>, key: String, value: String) ->
 #[tauri::command]
 pub fn db_get_setting(state: State<'_, DbState>, key: String) -> Result<Option<String>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT value FROM app_settings WHERE key = ?1")
+    let mut stmt = conn
+        .prepare("SELECT value FROM app_settings WHERE key = ?1")
         .map_err(|e| e.to_string())?;
     let result: Option<String> = stmt.query_row(params![key], |row| row.get(0)).ok();
     Ok(result)
 }
 
 #[tauri::command]
-pub fn db_get_all_settings(
-    state: State<'_, DbState>,
-) -> Result<serde_json::Value, String> {
+pub fn db_get_all_settings(state: State<'_, DbState>) -> Result<serde_json::Value, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT key, value FROM app_settings")
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM app_settings")
         .map_err(|e| e.to_string())?;
     let mut map = serde_json::Map::new();
-    let rows = stmt.query_map([], |row| {
-        let k: String = row.get(0)?;
-        let v: String = row.get(1)?;
-        Ok((k, v))
-    }).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let k: String = row.get(0)?;
+            let v: String = row.get(1)?;
+            Ok((k, v))
+        })
+        .map_err(|e| e.to_string())?;
     for (k, v) in rows.flatten() {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&v) {
             map.insert(k, parsed);
@@ -613,7 +681,8 @@ pub fn db_batch_save_friends(
     state: State<'_, DbState>,
     friends_json: String,
 ) -> Result<u32, String> {
-    let friends: Vec<serde_json::Value> = serde_json::from_str(&friends_json).map_err(|e| e.to_string())?;
+    let friends: Vec<serde_json::Value> =
+        serde_json::from_str(&friends_json).map_err(|e| e.to_string())?;
     let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut count = 0u32;
@@ -629,10 +698,18 @@ pub fn db_batch_save_friends(
             let status = f["status"].as_str().unwrap_or("offline");
             let location = f["location"].as_str();
             let friend_data = serde_json::to_string(f).unwrap_or_default();
-            
+
             if !user_id.is_empty() {
-                let res = stmt.execute(params![user_id, display_name, status, location, friend_data]);
-                if res.is_ok() { count += 1; }
+                let res = stmt.execute(params![
+                    user_id,
+                    display_name,
+                    status,
+                    location,
+                    friend_data
+                ]);
+                if res.is_ok() {
+                    count += 1;
+                }
             }
         }
     }
@@ -643,17 +720,20 @@ pub fn db_batch_save_friends(
 #[tauri::command]
 pub fn db_get_friends(state: State<'_, DbState>) -> Result<Vec<serde_json::Value>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT friend_data FROM friends ORDER BY display_name COLLATE NOCASE ASC")
+    let mut stmt = conn
+        .prepare("SELECT friend_data FROM friends ORDER BY display_name COLLATE NOCASE ASC")
         .map_err(|e| e.to_string())?;
-    
-    let results = stmt.query_map([], |row| {
-        let json_str: String = row.get(0)?;
-        Ok(json_str)
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .filter_map(|s| serde_json::from_str(&s).ok())
-    .collect();
-    
+
+    let results = stmt
+        .query_map([], |row| {
+            let json_str: String = row.get(0)?;
+            Ok(json_str)
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .filter_map(|s| serde_json::from_str(&s).ok())
+        .collect();
+
     Ok(results)
 }
 
@@ -674,26 +754,27 @@ pub struct GameLogRecord {
 }
 
 #[tauri::command]
-pub fn db_save_game_logs(
-    state: State<'_, DbState>,
-    logs_json: String,
-) -> Result<u32, String> {
+pub fn db_save_game_logs(state: State<'_, DbState>, logs_json: String) -> Result<u32, String> {
     let logs: Vec<GameLogRecord> = serde_json::from_str(&logs_json).map_err(|e| e.to_string())?;
     let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut count = 0u32;
     {
-        let mut stmt = tx.prepare(
-            "INSERT INTO game_log (time, event_type, content) 
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO game_log (time, event_type, content) 
              SELECT ?1, ?2, ?3
              WHERE NOT EXISTS (
                  SELECT 1 FROM game_log WHERE time = ?1 AND event_type = ?2 AND content = ?3
-             )"
-        ).map_err(|e| e.to_string())?;
+             )",
+            )
+            .map_err(|e| e.to_string())?;
         for log in &logs {
             let res = stmt.execute(params![log.time, log.event_type, log.content]);
             if let Ok(affected) = res {
-                if affected > 0 { count += 1; }
+                if affected > 0 {
+                    count += 1;
+                }
             }
         }
     }
@@ -710,20 +791,25 @@ pub fn db_get_game_logs(
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let lim = limit.unwrap_or(200);
     let off = offset.unwrap_or(0);
-    
-    let mut stmt = conn.prepare("SELECT time, event_type, content FROM game_log ORDER BY time DESC LIMIT ?1 OFFSET ?2")
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT time, event_type, content FROM game_log ORDER BY time DESC LIMIT ?1 OFFSET ?2",
+        )
         .map_err(|e| e.to_string())?;
-        
-    let results = stmt.query_map(params![lim, off], |row| {
-        Ok(GameLogRecord {
-            time: row.get(0)?,
-            event_type: row.get(1)?,
-            content: row.get(2)?,
+
+    let results = stmt
+        .query_map(params![lim, off], |row| {
+            Ok(GameLogRecord {
+                time: row.get(0)?,
+                event_type: row.get(1)?,
+                content: row.get(2)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
-    
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
     Ok(results)
 }
 
@@ -746,7 +832,8 @@ pub fn db_batch_save_notifications(
     state: State<'_, DbState>,
     notifications_json: String,
 ) -> Result<u32, String> {
-    let notifications: Vec<NotificationRecord> = serde_json::from_str(&notifications_json).map_err(|e| e.to_string())?;
+    let notifications: Vec<NotificationRecord> =
+        serde_json::from_str(&notifications_json).map_err(|e| e.to_string())?;
     let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut count = 0u32;
@@ -757,9 +844,18 @@ pub fn db_batch_save_notifications(
         ).map_err(|e| e.to_string())?;
         for n in &notifications {
             let res = stmt.execute(params![
-                n.id, n.r#type, n.senderUserId, n.senderUsername, n.receiverUserId, n.message, n.details, n.created_at
+                n.id,
+                n.r#type,
+                n.senderUserId,
+                n.senderUsername,
+                n.receiverUserId,
+                n.message,
+                n.details,
+                n.created_at
             ]);
-            if res.is_ok() { count += 1; }
+            if res.is_ok() {
+                count += 1;
+            }
         }
     }
     tx.commit().map_err(|e| e.to_string())?;
@@ -771,7 +867,8 @@ pub fn db_save_notification(
     state: State<'_, DbState>,
     notification_json: String,
 ) -> Result<(), String> {
-    let n: NotificationRecord = serde_json::from_str(&notification_json).map_err(|e| e.to_string())?;
+    let n: NotificationRecord =
+        serde_json::from_str(&notification_json).map_err(|e| e.to_string())?;
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT OR REPLACE INTO notifications (id, type, sender_user_id, sender_username, receiver_user_id, message, details, created_at)
@@ -792,37 +889,53 @@ pub fn db_get_notifications(
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let lim = limit.unwrap_or(200);
     let off = offset.unwrap_or(0);
-    
+
     let mut stmt = conn.prepare("SELECT id, type, sender_user_id, sender_username, receiver_user_id, message, details, created_at FROM notifications ORDER BY created_at DESC LIMIT ?1 OFFSET ?2")
         .map_err(|e| e.to_string())?;
-        
-    let results = stmt.query_map(params![lim, off], |row| {
-        let mut map = serde_json::Map::new();
-        map.insert("id".to_string(), serde_json::Value::String(row.get(0)?));
-        map.insert("type".to_string(), serde_json::Value::String(row.get(1)?));
-        if let Ok(Some(s)) = row.get::<_, Option<String>>(2) { map.insert("senderUserId".to_string(), serde_json::Value::String(s)); }
-        if let Ok(Some(s)) = row.get::<_, Option<String>>(3) { map.insert("senderUsername".to_string(), serde_json::Value::String(s)); }
-        if let Ok(Some(s)) = row.get::<_, Option<String>>(4) { map.insert("receiverUserId".to_string(), serde_json::Value::String(s)); }
-        map.insert("message".to_string(), serde_json::Value::String(row.get(5)?));
-        if let Ok(details) = serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(6)?) {
-            map.insert("details".to_string(), details);
-        } else {
-            map.insert("details".to_string(), serde_json::Value::String(row.get(6)?));
-        }
-        map.insert("created_at".to_string(), serde_json::Value::String(row.get(7)?));
-        Ok(serde_json::Value::Object(map))
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
-    
+
+    let results = stmt
+        .query_map(params![lim, off], |row| {
+            let mut map = serde_json::Map::new();
+            map.insert("id".to_string(), serde_json::Value::String(row.get(0)?));
+            map.insert("type".to_string(), serde_json::Value::String(row.get(1)?));
+            if let Ok(Some(s)) = row.get::<_, Option<String>>(2) {
+                map.insert("senderUserId".to_string(), serde_json::Value::String(s));
+            }
+            if let Ok(Some(s)) = row.get::<_, Option<String>>(3) {
+                map.insert("senderUsername".to_string(), serde_json::Value::String(s));
+            }
+            if let Ok(Some(s)) = row.get::<_, Option<String>>(4) {
+                map.insert("receiverUserId".to_string(), serde_json::Value::String(s));
+            }
+            map.insert(
+                "message".to_string(),
+                serde_json::Value::String(row.get(5)?),
+            );
+            if let Ok(details) =
+                serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(6)?)
+            {
+                map.insert("details".to_string(), details);
+            } else {
+                map.insert(
+                    "details".to_string(),
+                    serde_json::Value::String(row.get(6)?),
+                );
+            }
+            map.insert(
+                "created_at".to_string(),
+                serde_json::Value::String(row.get(7)?),
+            );
+            Ok(serde_json::Value::Object(map))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
     Ok(results)
 }
 
 #[tauri::command]
-pub fn db_delete_notification(
-    state: State<'_, DbState>,
-    id: String,
-) -> Result<(), String> {
+pub fn db_delete_notification(state: State<'_, DbState>, id: String) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM notifications WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -849,29 +962,54 @@ pub fn db_add_favorite_avatar(
 }
 
 #[tauri::command]
-pub fn db_remove_favorite_avatar(state: State<'_, DbState>, avatar_id: String) -> Result<(), String> {
+pub fn db_remove_favorite_avatar(
+    state: State<'_, DbState>,
+    avatar_id: String,
+) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM favorite_avatars WHERE avatar_id = ?1", params![avatar_id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM favorite_avatars WHERE avatar_id = ?1",
+        params![avatar_id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn db_get_favorite_avatars(state: State<'_, DbState>) -> Result<Vec<serde_json::Value>, String> {
+pub fn db_get_favorite_avatars(
+    state: State<'_, DbState>,
+) -> Result<Vec<serde_json::Value>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT avatar_id, name, image_url, author_id, author_name, added_at FROM favorite_avatars ORDER BY added_at DESC")
         .map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |row| {
-        let mut map = serde_json::Map::new();
-        map.insert("avatar_id".to_string(), serde_json::Value::String(row.get(0)?));
-        map.insert("name".to_string(), serde_json::Value::String(row.get(1)?));
-        map.insert("image_url".to_string(), serde_json::Value::String(row.get(2)?));
-        map.insert("author_id".to_string(), serde_json::Value::String(row.get(3)?));
-        map.insert("author_name".to_string(), serde_json::Value::String(row.get(4)?));
-        map.insert("added_at".to_string(), serde_json::Value::String(row.get(5)?));
-        Ok(serde_json::Value::Object(map))
-    }).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let mut map = serde_json::Map::new();
+            map.insert(
+                "avatar_id".to_string(),
+                serde_json::Value::String(row.get(0)?),
+            );
+            map.insert("name".to_string(), serde_json::Value::String(row.get(1)?));
+            map.insert(
+                "image_url".to_string(),
+                serde_json::Value::String(row.get(2)?),
+            );
+            map.insert(
+                "author_id".to_string(),
+                serde_json::Value::String(row.get(3)?),
+            );
+            map.insert(
+                "author_name".to_string(),
+                serde_json::Value::String(row.get(4)?),
+            );
+            map.insert(
+                "added_at".to_string(),
+                serde_json::Value::String(row.get(5)?),
+            );
+            Ok(serde_json::Value::Object(map))
+        })
+        .map_err(|e| e.to_string())?;
 
     let mut result = Vec::new();
     for val in rows.flatten() {
@@ -917,7 +1055,7 @@ pub fn db_bili_add_task(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![bvid, cid, format, title, owner, cover, status, folder, duration, download_type],
     ).map_err(|e| e.to_string())?;
-    
+
     let id = conn.last_insert_rowid();
     Ok(id)
 }
@@ -927,48 +1065,64 @@ pub fn db_bili_get_tasks(state: tauri::State<'_, DbState>) -> Result<Vec<BiliTas
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare("SELECT id, bvid, cid, format, title, owner, cover, status, folder, duration, download_type, create_at FROM bili_tasks ORDER BY id DESC")
         .map_err(|e| e.to_string())?;
-        
-    let tasks = stmt.query_map([], |row| {
-        Ok(BiliTaskRecord {
-            id: row.get(0)?,
-            bvid: row.get(1)?,
-            cid: row.get(2)?,
-            format: row.get(3)?,
-            title: row.get(4)?,
-            owner: row.get(5)?,
-            cover: row.get(6)?,
-            status: row.get(7)?,
-            folder: row.get(8)?,
-            duration: row.get(9)?,
-            download_type: row.get(10)?,
-            create_at: row.get(11)?,
+
+    let tasks = stmt
+        .query_map([], |row| {
+            Ok(BiliTaskRecord {
+                id: row.get(0)?,
+                bvid: row.get(1)?,
+                cid: row.get(2)?,
+                format: row.get(3)?,
+                title: row.get(4)?,
+                owner: row.get(5)?,
+                cover: row.get(6)?,
+                status: row.get(7)?,
+                folder: row.get(8)?,
+                duration: row.get(9)?,
+                download_type: row.get(10)?,
+                create_at: row.get(11)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
-    
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
     Ok(tasks)
 }
 
 #[tauri::command]
-pub fn db_bili_update_task_status(state: tauri::State<'_, DbState>, id: i64, status: String) -> Result<(), String> {
+pub fn db_bili_update_task_status(
+    state: tauri::State<'_, DbState>,
+    id: i64,
+    status: String,
+) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("UPDATE bili_tasks SET status = ?1 WHERE id = ?2", rusqlite::params![status, id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE bili_tasks SET status = ?1 WHERE id = ?2",
+        rusqlite::params![status, id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn db_bili_delete_task(state: tauri::State<'_, DbState>, id: i64) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM bili_tasks WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM bili_tasks WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 // ========== API Cache ==========
 #[tauri::command]
-pub fn db_save_api_cache(state: tauri::State<'_, DbState>, key: String, data: String) -> Result<(), String> {
+pub fn db_save_api_cache(
+    state: tauri::State<'_, DbState>,
+    key: String,
+    data: String,
+) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT OR REPLACE INTO api_cache (key, data, updated_at) VALUES (?1, ?2, datetime('now','localtime'))",
@@ -979,7 +1133,10 @@ pub fn db_save_api_cache(state: tauri::State<'_, DbState>, key: String, data: St
 }
 
 #[tauri::command]
-pub fn db_get_api_cache(state: tauri::State<'_, DbState>, key: String) -> Result<Option<String>, String> {
+pub fn db_get_api_cache(
+    state: tauri::State<'_, DbState>,
+    key: String,
+) -> Result<Option<String>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT data FROM api_cache WHERE key = ?1")
@@ -991,14 +1148,15 @@ pub fn db_get_api_cache(state: tauri::State<'_, DbState>, key: String) -> Result
 #[tauri::command]
 pub fn db_clear_game_logs(state: tauri::State<'_, DbState>) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM game_log", []).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM game_log", [])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn db_clear_friend_logs(state: tauri::State<'_, DbState>) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM friend_log", []).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM friend_log", [])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
-

@@ -3,10 +3,10 @@ import { ref } from 'vue';
 import { SysApi } from '../api';
 import { isTauri } from '@tauri-apps/api/core';
 import type { ComponentStatus } from '../components/StatusCard.vue';
-import i18n from '../i18n';
+import { translate } from '../i18n';
 
 export const useEnvStore = defineStore('env', () => {
-  const t = i18n.global.t;
+  const t = translate;
   
   const hubStatus = ref<ComponentStatus>('checking');
   const hubProgress = ref(0);

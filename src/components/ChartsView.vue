@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick, watch, onUnmounted } from 'vue';
 import { VrcApi, DbApi } from '../api';
-import { BarChart3, TrendingUp, Users, Clock, Globe2, Activity, Network, Trophy, LayoutDashboard } from 'lucide-vue-next';
+import { TrendingUp, Users, Clock, Globe2, Network, Trophy, LayoutDashboard } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser, FriendLog } from '../types/vrc';
 import * as echarts from 'echarts';
@@ -108,12 +108,73 @@ onMounted(() => fetchAll());
 
 const maxWeekly = computed(() => Math.max(1, ...weeklyActivity.value));
 
-const onlinePercent = computed(() => {
-  if (friendStats.value.total === 0) return 0;
-  return Math.round((friendStats.value.online / friendStats.value.total) * 100);
-});
-
 // --- 共同好友拓扑图逻辑 (参考 VRCX) ---
+const cssVar = (name: string, fallback: string) => {
+  if (typeof window === 'undefined') return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+};
+
+const toRgba = (color: string, alpha: number) => {
+  if (color.startsWith('#')) {
+    const hex = color.slice(1);
+    const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    const num = Number.parseInt(full, 16);
+    if (!Number.isNaN(num)) {
+      return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+    }
+  }
+
+  const rgbMatch = color.match(/rgba?\(([^)]+)\)/);
+  if (rgbMatch) {
+    const [r, g, b] = rgbMatch[1].split(',').map((part) => part.trim());
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  return color;
+};
+
+const themeColors = () => {
+  const primary = cssVar('--theme-primary', '#d97706');
+  const primaryHover = cssVar('--theme-primary-hover', '#b45309');
+  const text = cssVar('--theme-text-strong', '#451a03');
+  const muted = cssVar('--theme-text-muted', '#a1887f');
+  const surface = cssVar('--theme-surface', 'rgba(255,255,255,0.72)');
+  const surfaceHover = cssVar('--theme-surface-hover', 'rgba(255,255,255,0.82)');
+  const border = cssVar('--theme-border-soft', 'rgba(120,53,15,0.12)');
+
+  return {
+    primary,
+    primaryHover,
+    text,
+    muted,
+    surface,
+    surfaceHover,
+    border,
+    primarySoft: toRgba(primary, 0.18),
+    primaryFaint: toRgba(primary, 0.08),
+  };
+};
+
+const graphPalette = () => {
+  const c = themeColors();
+  return [
+    c.primary,
+    c.primaryHover,
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#14b8a6',
+    '#8b5cf6',
+    '#64748b',
+  ];
+};
+
+const eventDotClass = (type: string) => {
+  if (type === 'online') return 'bg-emerald-500 shadow-emerald-500/30';
+  if (type === 'offline') return 'bg-border-strong shadow-slate-400/20';
+  return 'bg-primary shadow-primary/30';
+};
+
 const networkChartRef = ref<HTMLElement | null>(null);
 let chartInstance: echarts.ECharts | null = null;
 
@@ -152,8 +213,6 @@ const fetchMutualFriends = async () => {
     }
   };
 
-  const PALETTE = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
-
   for (let i = 0; i < friends.length; i++) {
     const friend = friends[i];
     ensureNode(friend.id, friend.displayName);
@@ -185,13 +244,11 @@ const fetchMutualFriends = async () => {
   // 简单分配颜色 (用节点 ID hash 或者 连通度分类)
   mutualGraphNodes.value = Array.from(nodesMap.values()).map((n, idx) => {
     const degree = nodeDegree.get(n.id) || 0;
-    const color = PALETTE[degree % PALETTE.length];
     return {
       id: n.id,
       name: n.name,
       symbolSize: Math.max(8, Math.min(40, 8 + degree * 0.8)),
-      itemStyle: { color: color },
-      category: degree % PALETTE.length
+      category: degree % graphPalette().length
     };
   });
   mutualGraphLinks.value = Array.from(linksMap.values());
@@ -205,27 +262,54 @@ const fetchMutualFriends = async () => {
 const renderNetworkChart = () => {
   if (!networkChartRef.value) return;
   if (!chartInstance) {
-    chartInstance = echarts.init(networkChartRef.value);
+    chartInstance = echarts.init(networkChartRef.value, undefined, { renderer: 'canvas' });
   }
 
   // 渲染 VRCX 风格的相互图
+  const c = themeColors();
+  const palette = graphPalette();
+  const graphNodes = mutualGraphNodes.value.map((node) => ({
+    ...node,
+    itemStyle: {
+      color: palette[node.category % palette.length],
+      borderColor: c.surfaceHover,
+      borderWidth: 1,
+      shadowBlur: 12,
+      shadowColor: toRgba(palette[node.category % palette.length], 0.28),
+    },
+  }));
+
   const option = {
+    backgroundColor: 'transparent',
+    color: palette,
     tooltip: {
-      formatter: '{b}'
+      formatter: '{b}',
+      backgroundColor: c.surfaceHover,
+      borderColor: c.border,
+      textStyle: { color: c.text, fontWeight: 700 },
+      extraCssText: 'backdrop-filter: blur(16px); border-radius: 10px; box-shadow: 0 12px 30px rgba(15,23,42,0.10);'
     },
     series: [
       {
         type: 'graph',
         layout: 'force',
-        data: mutualGraphNodes.value,
+        data: graphNodes,
         links: mutualGraphLinks.value,
         roam: true,
+        draggable: true,
+        focusNodeAdjacency: true,
         label: {
           show: true,
           position: 'right',
           formatter: '{b}',
           fontSize: 10,
-          color: 'auto'
+          color: c.text,
+          fontWeight: 700,
+          backgroundColor: toRgba(c.surfaceHover, 0.75),
+          borderColor: c.border,
+          borderWidth: 1,
+          borderRadius: 5,
+          padding: [2, 5],
         },
         force: {
           repulsion: 150,
@@ -236,7 +320,15 @@ const renderNetworkChart = () => {
         lineStyle: {
           color: 'source',
           curveness: 0.1,
-          opacity: 0.3
+          opacity: 0.28,
+          width: 1.2
+        },
+        emphasis: {
+          focus: 'adjacency',
+          lineStyle: {
+            opacity: 0.7,
+            width: 2,
+          }
         }
       }
     ]
@@ -270,30 +362,27 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
-    <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
-
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-xl relative overflow-hidden">
+    <div class="absolute inset-0 pointer-events-none opacity-80" style="background: radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--theme-primary) 14%, transparent), transparent 32%), radial-gradient(circle at 96% 10%, color-mix(in srgb, var(--theme-primary-hover) 10%, transparent), transparent 28%);" />
     <!-- 顶部导航 Tab -->
-    <div class="flex items-center gap-6 border-border-soft/60 mb-6 shrink-0 z-10">
+    <div class="flex items-center gap-1 mb-6 shrink-0 z-10 bg-surface/75 backdrop-blur-xl border border-border-soft rounded-xl p-1 w-fit shadow-sm">
       <button
-        :class="currentTab === 'overview' ? 'border-b-2 border-primary text-primary font-bold' : 'border-b-2 border-transparent text-text-muted hover:text-text hover:border-border-soft font-medium'"
-        class="py-3 px-2 transition-all text-sm flex items-center gap-2"
+        :class="currentTab === 'overview' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover/70'"
+        class="py-2 px-3 rounded-lg transition-all text-sm flex items-center gap-2 font-bold"
         @click="currentTab = 'overview'"
       >
         <LayoutDashboard :size="16" /> {{ t('charts.overview') }}
       </button>
       <button
-        :class="currentTab === 'network' ? 'border-b-2 border-primary text-primary font-bold' : 'border-b-2 border-transparent text-text-muted hover:text-text hover:border-border-soft font-medium'"
-        class="py-3 px-2 transition-all text-sm flex items-center gap-2"
+        :class="currentTab === 'network' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover/70'"
+        class="py-2 px-3 rounded-lg transition-all text-sm flex items-center gap-2 font-bold"
         @click="currentTab = 'network'"
       >
         <Network :size="16" /> {{ t('charts.network') }}
       </button>
       <button
-        :class="currentTab === 'worlds' ? 'border-b-2 border-primary text-primary font-bold' : 'border-b-2 border-transparent text-text-muted hover:text-text hover:border-border-soft font-medium'"
-        class="py-3 px-2 transition-all text-sm flex items-center gap-2"
+        :class="currentTab === 'worlds' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover/70'"
+        class="py-2 px-3 rounded-lg transition-all text-sm flex items-center gap-2 font-bold"
         @click="currentTab = 'worlds'"
       >
         <Trophy :size="16" /> {{ t('charts.top_worlds') }}
@@ -305,7 +394,7 @@ onUnmounted(() => {
         v-if="loading"
         class="flex flex-col items-center justify-center py-20 text-primary h-full"
       >
-        <div class="w-10 h-10 border-4 border-primary border-t-indigo-600 rounded-full animate-spin mb-4" />
+        <div class="w-10 h-10 border-4 border-primary/25 border-t-primary rounded-full animate-spin mb-4" />
         <span class="font-extrabold text-lg tracking-wide">{{ t('charts.analyzing') }}</span>
       </div>
 
@@ -315,78 +404,14 @@ onUnmounted(() => {
           v-show="currentTab === 'overview'"
           class="space-y-6"
         >
-          <!-- 统计卡片 -->
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm text-center transform transition-all  hover:shadow-lg hover:border-primary">
-              <Users
-                class="mx-auto mb-3 text-primary"
-                :size="24"
-              />
-              <div class="text-3xl font-black text-text mb-1 tracking-tight">
-                {{ friendStats.total }}
-              </div>
-              <div class="text-xs text-text-muted font-bold">
-                {{ t('charts.total_friends') }}
-              </div>
-            </div>
-            <div class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm text-center transform transition-all  hover:shadow-lg hover:border-emerald-300">
-              <Activity
-                class="mx-auto mb-3 text-emerald-500"
-                :size="24"
-              />
-              <div class="text-3xl font-black text-text mb-1 tracking-tight">
-                {{ friendStats.online }}
-              </div>
-              <div class="text-xs text-text-muted font-bold">
-                {{ t('charts.online') }} <span class="text-emerald-600">({{ onlinePercent }}%)</span>
-              </div>
-            </div>
-            <div class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm text-center transform transition-all  hover:shadow-lg hover:border-blue-300">
-              <div class="w-6 h-6 rounded-full bg-blue-500 shadow-md shadow-blue-500/20 mx-auto mb-3" />
-              <div class="text-3xl font-black text-text mb-1 tracking-tight">
-                {{ friendStats.joinMe }}
-              </div>
-              <div class="text-xs text-text-muted font-bold">
-                {{ t('charts.join_me') }}
-              </div>
-            </div>
-            <div class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm text-center transform transition-all  hover:shadow-lg hover:border-orange-300">
-              <div class="w-6 h-6 rounded-full bg-orange-500 shadow-md shadow-orange-500/20 mx-auto mb-3" />
-              <div class="text-3xl font-black text-text mb-1 tracking-tight">
-                {{ friendStats.askMe }}
-              </div>
-              <div class="text-xs text-text-muted font-bold">
-                {{ t('charts.ask_me') }}
-              </div>
-            </div>
-            <div class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm text-center transform transition-all  hover:shadow-lg hover:border-red-300">
-              <div class="w-6 h-6 rounded-full bg-red-500 shadow-md shadow-red-500/20 mx-auto mb-3" />
-              <div class="text-3xl font-black text-text mb-1 tracking-tight">
-                {{ friendStats.busy }}
-              </div>
-              <div class="text-xs text-text-muted font-bold">
-                {{ t('charts.busy') }}
-              </div>
-            </div>
-            <div class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm text-center transform transition-all  hover:shadow-lg hover:border-border-soft">
-              <div class="w-6 h-6 rounded-full bg-surface shadow-md shadow-slate-400/20 mx-auto mb-3" />
-              <div class="text-3xl font-black text-text mb-1 tracking-tight">
-                {{ friendStats.offline }}
-              </div>
-              <div class="text-xs text-text-muted font-bold">
-                {{ t('charts.offline') }}
-              </div>
-            </div>
-          </div>
-
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- 周活跃图表 -->
-            <div class="bg-surface backdrop-blur-xl rounded-3xl p-6 border-border-strong shadow-lg shadow-slate-200/40 flex flex-col min-h-0">
+            <div class="bg-surface/78 backdrop-blur-xl rounded-xl p-5 border border-border-soft shadow-sm flex flex-col min-h-0 overflow-hidden">
               <h2 class="font-extrabold text-text mb-6 flex items-center gap-3 text-lg shrink-0">
-                <span class="p-1.5 bg-sky-50 rounded-lg text-sky-500"><TrendingUp :size="20" /></span>
+                <span class="p-1.5 bg-primary/10 rounded-lg text-primary border border-primary/20"><TrendingUp :size="20" /></span>
                 {{ t('charts.weekly_trend') }}
               </h2>
-              <div class="flex-1 flex items-end justify-between gap-3 h-48 px-2 relative border-border-soft rounded-2xl bg-gradient-to-b from-white to-slate-50/50 shadow-inner overflow-hidden pt-8 pb-4">
+              <div class="flex-1 flex items-end justify-between gap-3 h-56 px-4 relative border border-border-soft rounded-xl bg-surface-hover/35 shadow-inner overflow-hidden pt-8 pb-4">
                 
                 <!-- Horizontal Grid Lines -->
                 <div class="absolute inset-0 z-0 flex flex-col justify-between pt-12 pb-10 px-6 pointer-events-none">
@@ -402,24 +427,25 @@ onUnmounted(() => {
                   class="flex-1 flex flex-col items-center group z-10 w-full h-full justify-end relative"
                 >
                   <!-- Background Track -->
-                  <div class="absolute bottom-[28px] top-0 w-full max-w-[32px] rounded-xl bg-surface/50 transition-colors"></div>
+                  <div class="absolute bottom-[28px] top-0 w-full max-w-[34px] rounded-lg bg-surface/55 border border-border-soft/50 transition-colors"></div>
 
                   <!-- Chart Bar Wrapper -->
-                  <div class="w-full max-w-[32px] flex flex-col justify-end relative mb-3"
+                  <div class="w-full max-w-[34px] flex flex-col justify-end relative mb-3"
                        :style="{ height: 'calc(100% - 28px)' }">
                        
                     <!-- The Active Bar -->
                     <div
-                      class="w-full rounded-xl transition-all duration-700 ease-out relative shadow-sm cursor-pointer hover:brightness-110" 
+                      class="w-full rounded-lg transition-all duration-700 ease-out relative shadow-sm cursor-pointer hover:brightness-110 border border-white/20" 
                       :style="{ 
-                        height: `${Math.max((count / maxWeekly) * 100, 2)}%`,
-                        background: `linear-gradient(to top, #38bdf8, #bae6fd)`,
-                        opacity: count === 0 ? 0.3 : 1
+                        height: count === 0 ? '10px' : `${Math.max((count / maxWeekly) * 100, 8)}%`,
+                        background: `linear-gradient(to top, var(--theme-primary), color-mix(in srgb, var(--theme-primary-hover) 62%, white))`,
+                        boxShadow: count === 0 ? 'none' : '0 10px 24px color-mix(in srgb, var(--theme-primary) 22%, transparent)',
+                        opacity: count === 0 ? 0.35 : 1
                       }"
                     >
                       <!-- Tooltip -->
-                      <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-surface text-text-inverse text-xs font-bold py-1.5 px-3 rounded-lg transition-all transform group- whitespace-nowrap shadow-xl pointer-events-none z-20">
-                        {{ count }} <span class="text-border-strong font-normal">Events</span>
+                      <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-surface/95 backdrop-blur-xl text-text text-xs font-bold py-1.5 px-3 rounded-lg transition-all whitespace-nowrap shadow-xl pointer-events-none z-20 border border-border-soft">
+                        {{ count }} <span class="text-text-muted font-normal">{{ t('charts.events') }}</span>
                         <!-- little arrow -->
                         <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-surface rotate-45" />
                       </div>
@@ -435,7 +461,7 @@ onUnmounted(() => {
             </div>
 
             <!-- 最近事件摘要 -->
-            <div class="bg-surface backdrop-blur-xl rounded-3xl p-6 border-border-strong shadow-lg shadow-slate-200/40 flex flex-col">
+            <div class="bg-surface/78 backdrop-blur-xl rounded-xl p-5 border border-border-soft shadow-sm flex flex-col overflow-hidden">
               <h3 class="font-extrabold text-text mb-4 flex items-center gap-3 text-lg">
                 <span class="p-1.5 bg-primary/10 rounded-lg text-primary"><Clock :size="20" /></span>
                 {{ t('charts.recent_events') }}
@@ -453,14 +479,14 @@ onUnmounted(() => {
                 <div
                   v-for="log in recentLogs.slice(0, 10)"
                   :key="log.id"
-                  class="flex items-center gap-3 p-3 bg-surface hover:bg-surface-hover rounded-xl border-border-soft transition-colors shadow-sm"
+                  class="flex items-center gap-3 p-3 bg-surface/55 hover:bg-surface-hover/70 rounded-xl border border-border-soft transition-colors shadow-sm"
                 >
                   <span
                     class="w-3 h-3 rounded-full flex-shrink-0 shadow-sm"
-                    :class="log.event_type === 'online' ? 'bg-emerald-500' : log.event_type === 'offline' ? 'bg-surface' : 'bg-primary/10'"
+                    :class="eventDotClass(log.event_type)"
                   />
                   <span class="text-text font-bold truncate flex-1 text-sm">{{ log.display_name || t('charts.system') }}</span>
-                  <span class="text-text-muted text-xs font-bold bg-surface px-2.5 py-1 rounded-lg">{{ log.created_at?.slice(11, 16) }}</span>
+                  <span class="text-text-muted text-xs font-bold bg-surface-hover/70 border border-border-soft px-2.5 py-1 rounded-lg">{{ log.created_at?.slice(11, 16) }}</span>
                 </div>
               </div>
             </div>
@@ -470,7 +496,7 @@ onUnmounted(() => {
         <!-- 关系网拓扑图面板 (共同好友) -->
         <div
           v-show="currentTab === 'network'"
-          class="h-full min-h-[500px] bg-surface backdrop-blur-xl rounded-3xl border-border-strong shadow-lg shadow-slate-200/40 p-6 flex flex-col"
+          class="h-full min-h-[500px] bg-surface/78 backdrop-blur-xl rounded-xl border border-border-soft shadow-sm p-5 flex flex-col overflow-hidden"
         >
           <div class="mb-4 flex justify-between items-start">
             <div>
@@ -491,16 +517,16 @@ onUnmounted(() => {
                 <span class="text-xs font-bold text-primary mb-1.5">
                   {{ t('charts.scanning') }} {{ mutualFetchProgress.current }} / {{ mutualFetchProgress.total }}
                 </span>
-                <div class="w-40 h-2.5 bg-surface rounded-full overflow-hidden shadow-inner border-border-soft/50">
+                <div class="w-40 h-2.5 bg-surface-hover/70 rounded-full overflow-hidden shadow-inner border border-border-soft/50">
                   <div
-                    class="h-full bg-primary/10 transition-all duration-300"
+                    class="h-full bg-primary transition-all duration-300"
                     :style="{ width: `${mutualFetchProgress.total ? (mutualFetchProgress.current / mutualFetchProgress.total) * 100 : 0}%` }"
                   />
                 </div>
               </div>
               <button 
                 v-else-if="!mutualGraphReady"
-                class="px-5 py-2.5 bg-primary text-white hover:brightness-110 text-sm font-bold rounded-xl shadow-sm shadow-indigo-500/30 transition-all active:scale-95 flex items-center gap-2"
+                class="px-5 py-2.5 bg-primary text-white hover:brightness-110 text-sm font-bold rounded-xl shadow-sm shadow-primary/20 transition-all active:scale-95 flex items-center gap-2"
                 @click="fetchMutualFriends"
               >
                 <Network :size="18" />
@@ -508,7 +534,7 @@ onUnmounted(() => {
               </button>
               <button 
                 v-else
-                class="px-5 py-2.5 bg-surface border-border-soft text-text-muted hover:text-primary hover:border-primary text-sm font-bold rounded-xl shadow-sm transition-all flex items-center gap-2"
+                class="px-5 py-2.5 bg-surface/80 border border-border-soft text-text-muted hover:text-primary hover:border-primary/50 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center gap-2"
                 @click="fetchMutualFriends"
               >
                 {{ t('charts.regenerate') }}
@@ -518,7 +544,7 @@ onUnmounted(() => {
 
           <div
             v-if="!mutualGraphReady && !isFetchingMutuals"
-            class="flex-1 flex flex-col items-center justify-center text-border-strong mt-2 border-2 border-dashed border-border-soft rounded-2xl bg-surface"
+            class="flex-1 flex flex-col items-center justify-center text-border-strong mt-2 border border-dashed border-border-soft rounded-2xl bg-surface/50"
           >
             <Network
               :size="64"
@@ -534,9 +560,9 @@ onUnmounted(() => {
           
           <div
             v-else-if="isFetchingMutuals && mutualGraphNodes.length === 0"
-            class="flex-1 flex flex-col items-center justify-center text-primary mt-2 border-2 border-dashed border-primary rounded-2xl bg-primary/10"
+            class="flex-1 flex flex-col items-center justify-center text-primary mt-2 border border-dashed border-primary/50 rounded-2xl bg-primary/10"
           >
-            <div class="w-12 h-12 border-4 border-primary border-t-indigo-600 rounded-full animate-spin mb-6" />
+            <div class="w-12 h-12 border-4 border-primary/25 border-t-primary rounded-full animate-spin mb-6" />
             <p class="font-extrabold text-xl tracking-wide animate-pulse">
               {{ t('charts.traversing_network') }}
             </p>
@@ -548,13 +574,13 @@ onUnmounted(() => {
           <div
             v-show="mutualGraphReady"
             ref="networkChartRef"
-            class="flex-1 w-full rounded-2xl bg-surface mt-2 border-border-soft shadow-inner overflow-hidden relative"
+            class="flex-1 w-full rounded-2xl bg-surface/50 mt-2 border border-border-soft shadow-inner overflow-hidden relative"
           >
             <div
               v-if="isFetchingMutuals"
-              class="absolute top-4 right-4 z-10 bg-surface backdrop-blur px-4 py-2 rounded-xl text-xs font-bold text-primary shadow-sm border-primary flex items-center gap-2"
+              class="absolute top-4 right-4 z-10 bg-surface/85 backdrop-blur-xl px-4 py-2 rounded-xl text-xs font-bold text-primary shadow-sm border border-primary/30 flex items-center gap-2"
             >
-              <div class="w-2.5 h-2.5 bg-primary/10 rounded-full animate-ping" />
+              <div class="w-2.5 h-2.5 bg-primary rounded-full animate-ping" />
               {{ t('charts.updating_realtime') }}
             </div>
           </div>
@@ -565,7 +591,7 @@ onUnmounted(() => {
           v-show="currentTab === 'worlds'"
           class="space-y-4"
         >
-          <div class="bg-surface backdrop-blur-xl rounded-3xl border-border-strong shadow-lg shadow-slate-200/40 p-6">
+            <div class="bg-surface/78 backdrop-blur-xl rounded-xl border border-border-soft shadow-sm p-5 overflow-hidden">
             <h2 class="font-extrabold text-text mb-6 flex items-center gap-3 text-lg">
               <span class="p-1.5 bg-primary/10 rounded-lg text-primary"><Globe2 :size="20" /></span>
               {{ t('charts.top_worlds_title') }}
@@ -589,12 +615,12 @@ onUnmounted(() => {
 
             <div
               v-else
-              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+                class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
             >
               <div
                 v-for="(world, index) in topWorlds"
                 :key="world.id"
-                class="flex items-center gap-4 p-4 rounded-2xl border-border-soft hover:border-primary bg-surface hover:shadow-md transition-all group"
+                class="flex items-center gap-4 p-4 rounded-xl border border-border-soft hover:border-primary/60 bg-surface/60 hover:bg-surface-hover/70 backdrop-blur transition-all group shadow-sm hover:shadow-md"
               >
                 <div class="w-8 flex justify-center">
                   <span
@@ -604,7 +630,7 @@ onUnmounted(() => {
                     #{{ index + 1 }}
                   </span>
                 </div>
-                <div class="w-16 h-16 rounded-xl bg-surface overflow-hidden flex-shrink-0 relative shadow-inner">
+                <div class="w-16 h-16 rounded-xl bg-surface-hover/70 overflow-hidden flex-shrink-0 relative shadow-inner border border-border-soft">
                   <img
                     v-if="world.thumbnail"
                     :src="world.thumbnail"

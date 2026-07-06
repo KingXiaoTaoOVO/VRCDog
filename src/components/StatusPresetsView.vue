@@ -128,7 +128,7 @@ onMounted(() => fetchPresets());
         {{ t('status_presets.title') }}
       </h2>
       <button
-        class="bg-primary hover:bg-primary text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+        class="bg-primary hover:bg-primary text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-primary/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
         @click="showForm = !showForm"
       >
         <Plus :size="16" /> {{ t('status_presets.add_preset') }}
@@ -172,7 +172,7 @@ onMounted(() => fetchPresets());
           {{ t('status_presets.cancel') }}
         </button>
         <button
-          class="text-sm bg-primary text-white font-bold px-5 py-2 rounded-xl hover:bg-primary/10 shadow-sm shadow-indigo-500/30 flex items-center gap-2 transition-colors"
+          class="text-sm bg-primary text-white font-bold px-5 py-2 rounded-xl hover:bg-primary-hover shadow-sm shadow-primary/30 flex items-center gap-2 transition-colors"
           @click="addPreset"
         >
           <Zap :size="16" /> {{ t('status_presets.save') }}
@@ -238,7 +238,7 @@ onMounted(() => fetchPresets());
               v-if="props.userId"
               :disabled="applyingId === preset.id"
               class="flex-1 flex justify-center items-center gap-1.5 py-2 rounded-xl text-sm font-bold transition-all"
-              :class="appliedId === preset.id ? 'bg-green-100 text-green-700' : 'bg-primary/10 hover:bg-primary/10 text-primary hover:text-primary'"
+              :class="appliedId === preset.id ? 'bg-green-100 text-green-700' : 'bg-primary hover:bg-primary-hover text-white hover:text-white shadow-sm shadow-primary/20'"
               @click="applyPreset(preset)"
             >
               <Check

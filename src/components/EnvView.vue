@@ -342,7 +342,7 @@ onMounted(() => {
               placeholder="https://vpm.domain.com/index.json"
             >
             <button 
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-border-strong hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-border-strong hover:text-primary hover:bg-primary-hover rounded-lg transition-colors"
               :title="t('env.copy_url')"
               @click="copyVpmUrl"
             >
@@ -361,7 +361,7 @@ onMounted(() => {
               /> {{ t('env.scan_local') }}
             </button>
             <button 
-              class="flex-1 xl:flex-none px-4 py-2.5 bg-primary text-white hover:brightness-110 rounded-xl font-bold shadow-sm shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              class="flex-1 xl:flex-none px-4 py-2.5 bg-primary text-white hover:brightness-110 rounded-xl font-bold shadow-sm shadow-primary/30 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
               @click="loadVpmRepo"
             >
               <RefreshCcw
@@ -405,7 +405,7 @@ onMounted(() => {
               <tr
                 v-for="pkg in filteredVpmPackages"
                 :key="pkg.name"
-                class="hover:bg-primary/10 transition-colors"
+                class="hover:bg-primary-hover transition-colors"
               >
                 <td class="px-5 py-3.5">
                   <div class="font-extrabold text-text">
@@ -430,7 +430,7 @@ onMounted(() => {
                       VCC Add
                     </button>
                     <button 
-                      class="text-[11px] font-extrabold text-white bg-primary/10 hover:bg-primary/10 px-3 py-1.5 rounded-lg shadow-sm shadow-indigo-500/20 transition-colors"
+                      class="text-[11px] font-extrabold text-white bg-primary hover:bg-primary-hover px-3 py-1.5 rounded-lg shadow-sm shadow-primary/20 transition-colors"
                       @click="addToAlcom(vpmRepoUrl)"
                     >
                       ALCOM Add
@@ -541,7 +541,7 @@ onMounted(() => {
             </p>
             <div class="flex gap-3">
               <button
-                class="flex-1 py-2.5 rounded-xl bg-primary text-white hover:brightness-110 font-bold shadow-lg shadow-indigo-500/30 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-primary text-white hover:brightness-110 font-bold shadow-lg shadow-primary/30 transition-colors"
                 @click="executeLaunch('vcc')"
               >
                 {{ t('env.launch_vcc') || 'Launch VCC' }}

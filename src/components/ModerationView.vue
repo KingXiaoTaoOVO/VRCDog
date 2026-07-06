@@ -26,6 +26,7 @@ const fetchModerations = async () => {
       id: m.id,
       targetUserId: m.targetUserId,
       name: m.targetDisplayName,
+      apiType: m.type,
       type: m.type === 'block' ? 'blocked' : m.type === 'mute' ? 'muted' : m.type === 'hideAvatar' ? 'hidden' : m.type,
       date: new Date(m.created).toLocaleDateString(),
       reason: '', // VRChat API doesn't usually return reasons unless locally stored
@@ -52,7 +53,7 @@ const resolveModeratedUser = async (m: any) => {
   
   m.loadingData = true;
   try {
-     const res = await VrcApi.request(`/api/1/users/${m.targetUserId}`, { method: 'GET' });
+     const res = await VrcApi.getUser({ userId: m.targetUserId });
      m.userData = res;
      resolvedUsers.set(m.targetUserId, res);
   } catch (e) {
@@ -70,10 +71,10 @@ const filteredModerations = computed(() => {
   return moderations.value.filter((m: any) => m.type === activeTab.value && (m.name || '').toLowerCase().includes(searchQuery.value.toLowerCase()));
 });
 
-const unblock = async (id: string) => {
+const unblock = async (item: any) => {
   try {
-    await VrcApi.request('/auth/user/unplayermoderate', { method: 'PUT', params: { moderated: id } });
-    moderations.value = moderations.value.filter((m: any) => m.id !== id);
+    await VrcApi.unmoderateUser({ moderated: item.targetUserId, type: item.apiType });
+    moderations.value = moderations.value.filter((m: any) => m.id !== item.id);
   } catch (err: any) {
     errorMsg.value = err.message || err;
   }
@@ -171,7 +172,7 @@ const openPlayerProfile = (m: any) => {
             >
               <VrcResourceCard
                 v-if="item.userData"
-                type="avatar"
+                type="user"
                 :data="item.userData"
                 :is-user="true"
                 :minimal="true"
@@ -230,8 +231,8 @@ const openPlayerProfile = (m: any) => {
                 
               <button
                 class="px-4 py-2 bg-surface border-border-soft hover:bg-red-500 hover:border-red-500 hover:text-white hover:shadow-md text-text-muted rounded-xl font-bold transition-all flex items-center gap-2 text-xs shadow-sm active:scale-95"
-                title="Remove Moderation"
-                @click="unblock(item.id)"
+                :title="t('moderation.remove_title')"
+                @click="unblock(item)"
               >
                 <Unlock :size="14" /> {{ t('moderation.unblock') }}
               </button>

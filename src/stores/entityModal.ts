@@ -129,10 +129,14 @@ export const useEntityModalStore = defineStore('entityModal', () => {
   const fetchGroupAdminData = async (groupId: string) => {
     loadingGroupData.value = true;
     try {
-      const permsRes = await VrcApi.getUserGroupPermissions({ userId: 'me' }) as Array<{groupId: string, permissions: string[]}>;
-      const currentGroupPerms = permsRes.find((p) => p.groupId === groupId);
-      if (currentGroupPerms) {
-        groupPermissions.value = currentGroupPerms.permissions || [];
+      const permsRes = await VrcApi.getUserGroupPermissions({ userId: 'me' }) as any;
+      if (Array.isArray(permsRes)) {
+        const currentGroupPerms = permsRes.find((p) => p.groupId === groupId || p.id === groupId);
+        groupPermissions.value = currentGroupPerms?.permissions || [];
+      } else if (permsRes && Array.isArray(permsRes[groupId])) {
+        groupPermissions.value = permsRes[groupId];
+      } else if (permsRes?.[groupId]?.permissions) {
+        groupPermissions.value = permsRes[groupId].permissions || [];
       }
 
       const [membersRes, rolesRes] = await Promise.allSettled([

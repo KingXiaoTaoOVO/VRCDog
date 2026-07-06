@@ -116,6 +116,9 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   const createdWorlds = ref<VrcWorld[]>([]);
   const isLoadingWorlds = ref(false);
   
+  const favoriteWorlds = ref<VrcWorld[]>([]);
+  const isLoadingFavWorlds = ref(false);
+
   const createdAvatars = ref<VrcAvatar[]>([]);
   const isLoadingAvatars = ref(false);
 
@@ -129,8 +132,38 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   const localNote = ref('');
   const isSavingNote = ref(false);
 
+  // ── Navigation History (breadcrumb) ──────────────────────────────
+  interface NavEntry { userId: string; displayName: string; }
+  const navHistory = ref<NavEntry[]>([]);
+
+  const goBack = () => {
+    if (navHistory.value.length > 1) {
+      navHistory.value.pop(); // Remove current
+      const prev = navHistory.value[navHistory.value.length - 1];
+      if (prev) {
+        // Re-open previous profile without adding to history
+        targetUserId.value = prev.userId;
+        _loadProfile(prev.userId, null, false);
+      }
+    } else {
+      closeProfile();
+    }
+  };
+
   // Open the profile for a specific user
   const openProfile = async (userId: string, prefillData: VrcUser | null = null) => {
+    targetUserId.value = userId;
+    isOpen.value = true;
+
+    // Add to navigation history
+    const displayName = prefillData?.displayName || userId;
+    navHistory.value.push({ userId, displayName });
+
+    _loadProfile(userId, prefillData, true);
+  };
+
+  // Internal load function (shared by openProfile and goBack)
+  const _loadProfile = async (userId: string, prefillData: VrcUser | null, resetState: boolean) => {
     targetUserId.value = userId;
     isOpen.value = true;
     
@@ -145,9 +178,11 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     mutualGroups.value = [];
     groups.value = [];
     createdWorlds.value = [];
+    favoriteWorlds.value = [];
     createdAvatars.value = [];
     activityLogs.value = [];
     localNote.value = '';
+    favoriteId.value = null;
     
     // Parallel Fetch core info & local data
     isLoadingBase.value = true;
@@ -210,6 +245,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   const closeProfile = () => {
     isOpen.value = false;
     targetUserId.value = null;
+    navHistory.value = [];
   };
 
   const fetchGroups = async (userId: string) => {
@@ -269,6 +305,52 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       console.warn("Failed to fetch created worlds", err);
     } finally {
       isLoadingWorlds.value = false;
+    }
+  };
+
+  const fetchFavoriteWorlds = async (userId: string) => {
+    isLoadingFavWorlds.value = true;
+    const cacheKey = `fav_worlds_${userId}`;
+    try {
+      let currentUserId = myId.value;
+      if (!currentUserId) {
+        try {
+          const currentUser = await VrcApi.getCurrentUser();
+          currentUserId = currentUser?.id || null;
+          myId.value = currentUserId;
+        } catch {
+          currentUserId = null;
+        }
+      }
+
+      if (!currentUserId || userId !== currentUserId) {
+        favoriteWorlds.value = [];
+        return;
+      }
+
+      // Optimistic load 缓存
+      const cachedStr = await DbApi.getApiCache({ key: cacheKey });
+      if (cachedStr) {
+        try {
+          const cachedData = JSON.parse(cachedStr);
+          if (Array.isArray(cachedData) && cachedData.length > 0) {
+            favoriteWorlds.value = cachedData;
+            isLoadingFavWorlds.value = false;
+          }
+        } catch(e) {}
+      }
+      // 真实拉取（VRChat 收藏世界 API 只能查自己的，看他人时会 404，这里 catch 掉）
+      try {
+        const res = await VrcApi.getFavoriteWorlds({ n: 100, offset: 0 });
+        if (Array.isArray(res)) {
+          favoriteWorlds.value = res;
+          DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
+        }
+      } catch (e) {
+        // 看他人收藏夹通常 403/404，保持本地缓存即可
+      }
+    } finally {
+      isLoadingFavWorlds.value = false;
     }
   };
   
@@ -412,6 +494,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     mutualGroups,
     groups,
     createdWorlds,
+    favoriteWorlds,
     createdAvatars,
     localNote,
     isSavingNote,
@@ -420,6 +503,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingGroups,
     isLoadingMutualGroups,
     isLoadingWorlds,
+    isLoadingFavWorlds,
     isLoadingAvatars,
     isLoadingActivity,
     activityLogs,
@@ -431,6 +515,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     fetchMutualGroups,
     fetchGroups,
     fetchCreatedWorlds,
+    fetchFavoriteWorlds,
     fetchCreatedAvatars,
     fetchActivityLogs,
     saveLocalNote,

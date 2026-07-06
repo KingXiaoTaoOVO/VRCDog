@@ -8,49 +8,115 @@ import { GroupApi } from './group';
 import { NotificationApi } from './notification';
 import { FavoriteApi } from './favorite';
 import { FileApi } from './file';
+import { PlayerModerationApi } from './playerModeration';
+import { AvatarModerationApi } from './avatarModeration';
+import { InventoryApi } from './inventory';
+import { PropApi } from './prop';
+import { InviteMessagesApi } from './inviteMessages';
+import { MiscApi } from './misc';
+import { VrcPlusIconApi } from './vrcPlusIcon';
+import { VrcPlusImageApi } from './vrcPlusImage';
 import { request as baseRequest } from './request';
-
-// [VRCX 对齐] Cookie 合并工具 — VRCX 的 CookieContainer 自动合并同名 cookie
-async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Promise<void> {
-  if (!newCookieJson) return;
-  try {
-    const newCookies: string[] = JSON.parse(newCookieJson);
-    if (!Array.isArray(newCookies) || newCookies.length === 0) return;
-
-    let existing: string[] = [];
-    try {
-      const stored = await invoke<string | null>('db_get_auth');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) existing = parsed;
-      }
-    } catch { /* no existing cookies */ }
-
-    const cookieMap = new Map<string, string>();
-    for (const c of existing) {
-      const name = c.split('=')[0];
-      if (name) cookieMap.set(name, c);
-    }
-    for (const c of newCookies) {
-      const name = c.split('=')[0];
-      if (name) cookieMap.set(name, c);
-    }
-
-    const merged = Array.from(cookieMap.values());
-    await invoke('db_save_auth', { cookie: JSON.stringify(merged) });
-  } catch { /* ignore merge errors */ }
-}
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
     console.warn(`[Browser Mock] API Command: ${cmd}`, args);
+    const mockDanmakuStatus = (overrides: Record<string, unknown> = {}) => ({
+      running: false,
+      bili_connected: false,
+      osc_input_running: false,
+      vr_initialized: false,
+      overlay_visible: true,
+      room_id: 0,
+      online: 0,
+      message_count: 0,
+      last_error: '',
+      last_event: 'browser_preview',
+      ...overrides,
+    });
+    const mockDanmakuConfig = {
+      enable_bilibili: true,
+      room_id: 0,
+      bili_sessdata: '',
+      enable_osc_input: true,
+      osc_input_host: '127.0.0.1',
+      osc_input_port: 9011,
+      osc_input_address: '/vrcdog/danmaku',
+      enable_osc_output: false,
+      osc_output_host: '127.0.0.1',
+      osc_output_port: 9000,
+      osc_output_address: '/vrcdog/danmaku',
+      enable_vrc_chatbox: false,
+      vrc_chatbox_port: 9000,
+      chatbox_interval_ms: 1600,
+      enable_vr_overlay: true,
+      overlay_visible: true,
+      attach_mode: 'hmd',
+      toggle_hand: 'left',
+      x: -0.4,
+      y: 0.1,
+      z: -0.8,
+      pitch: 0,
+      yaw: 15,
+      roll: 0,
+      overlay_width_m: 0.4,
+      overlay_alpha: 0.92,
+      bg_alpha: 0.85,
+      font_size: 14,
+      text_color: '#FFFFFF',
+      bg_color: '#10141F',
+      max_messages: 50,
+      show_danmaku: true,
+      show_gift: true,
+      show_enter: true,
+      show_follow: true,
+      show_guard: true,
+      show_sc: true,
+    };
     if (cmd === 'vrc_execute') return Promise.resolve({ status: 200, data: '{}' }) as any;
     if (cmd === 'vrc_get_server_status') return Promise.resolve({ status: { description: 'All Systems Operational' } }) as any;
     if (cmd === 'db_get_auth') return Promise.resolve('mock_auth_cookie_abc123') as any;
+    if (cmd === 'db_get_setting') return Promise.resolve(null) as any;
     if (cmd === 'check_system_status') return Promise.resolve({ hub_installed: true, unity_installed: true, tool_installed: true, vcc_installed: true, alcom_installed: false }) as any;
     if (cmd === 'vrc_fetch_config' || cmd === 'db_getAllSettings' || cmd === 'db_get_all_settings') return Promise.resolve({}) as any;
     if (cmd === 'vrc_get_friends' || cmd === 'vrc_search_users' || cmd === 'vrc_search_worlds' || cmd === 'vrc_get_notifications' || cmd === 'vrc_get_avatars' || cmd === 'db_get_status_presets' || cmd === 'vrc_get_latest_gamelogs' || cmd === 'db_get_all_notes') {
       return Promise.resolve([]) as any;
+    }
+    if (cmd === 'danmaku_get_config') return Promise.resolve(mockDanmakuConfig) as any;
+    if (cmd === 'danmaku_get_status') return Promise.resolve(mockDanmakuStatus()) as any;
+    if (cmd === 'danmaku_get_messages') return Promise.resolve([]) as any;
+    if (cmd === 'danmaku_set_config') {
+      const config = (args?.config || mockDanmakuConfig) as any;
+      return Promise.resolve(mockDanmakuStatus({ overlay_visible: config.overlay_visible, room_id: config.room_id })) as any;
+    }
+    if (cmd === 'danmaku_start') {
+      const config = (args?.config || mockDanmakuConfig) as any;
+      return Promise.resolve(mockDanmakuStatus({
+        running: true,
+        osc_input_running: Boolean(config.enable_osc_input),
+        vr_initialized: Boolean(config.enable_vr_overlay),
+        overlay_visible: config.overlay_visible !== false,
+        room_id: config.room_id || 0,
+        last_event: 'browser_preview_started',
+      })) as any;
+    }
+    if (cmd === 'danmaku_stop') return Promise.resolve(mockDanmakuStatus({ last_event: 'browser_preview_stopped' })) as any;
+    if (cmd === 'danmaku_clear_messages') return Promise.resolve(undefined) as any;
+    if (cmd === 'danmaku_set_overlay_visible') return Promise.resolve(mockDanmakuStatus({ overlay_visible: Boolean(args?.visible) })) as any;
+    if (cmd === 'danmaku_send_test') {
+      return Promise.resolve({
+        id: Date.now(),
+        source: 'browser',
+        message_type: String(args?.messageType || 'danmaku'),
+        user: 'PreviewUser',
+        text: String(args?.text || 'VRDanmaku browser preview message.'),
+        price: null,
+        gift_count: null,
+        medal_name: null,
+        medal_level: null,
+        guard_level: null,
+        timestamp_ms: Date.now(),
+      }) as any;
     }
     return Promise.resolve({}) as any;
   }
@@ -95,6 +161,7 @@ export const VrcApi = {
   
   // Tauri 命令
   setProxy: (params: { proxyUrl: string | null, authCookie?: string | null }) => safeInvoke<void>('vrc_set_proxy', params),
+  applyAuthCookie: (params: { authCookie: string }) => safeInvoke<void>('vrc_apply_auth_cookie', params),
   getImageBytes: (params: any) => safeInvoke<string>('vrc_get_image_bytes', params),
   clearCookies: () => safeInvoke('vrc_clear_cookies'),
 
@@ -127,6 +194,12 @@ export const VrcApi = {
   getUserFeedback: UserApi.getUserFeedback,
   saveCurrentUser: UserApi.saveCurrentUser,
   getUserNotes: UserApi.getUserNotes,
+  saveUserNote: MiscApi.saveNote,
+  reportUser: MiscApi.reportUser,
+  getVRChatCredits: MiscApi.getVRChatCredits,
+  updateBadge: MiscApi.updateBadge,
+  getVisits: MiscApi.getVisits,
+  sendBoop: MiscApi.sendBoop,
 
   // 好友模块
   getFriends: FriendApi.getFriends,
@@ -166,9 +239,23 @@ export const VrcApi = {
   createInstance: (params: any) => baseRequest('/instances', { method: 'POST', params }),
   getInstance: (params: any) => baseRequest(`/instances/${params.worldId}:${params.instanceId}`),
   inviteMyself: (params: any) => baseRequest(`/invite/myself/to/${params.worldId}:${params.instanceId}`, { method: 'POST' }),
-  inviteUser: (params: any) => baseRequest(`/invite/${params.userId}`, { method: 'POST', params: { instanceId: params.instanceId } }),
-  requestInvite: (params: any) => baseRequest(`/requestInvite/${params.userId}`, { method: 'POST' }),
-  closeInstance: (params: any) => baseRequest(`/instances/${params.location}`, { method: 'DELETE' }),
+  inviteUser: (params: any) => {
+    const body: any = {};
+    for (const key of ['instanceId', 'worldId', 'worldName', 'messageSlot', 'rsvp', 'platform', 'details', 'message']) {
+      if (params[key] !== undefined && params[key] !== null && params[key] !== '') body[key] = params[key];
+    }
+    return baseRequest(`/invite/${params.userId}`, { method: 'POST', params: body });
+  },
+  requestInvite: (params: any) => {
+    const body: any = {};
+    for (const key of ['platform', 'requestSlot', 'messageSlot', 'details', 'message']) {
+      if (params[key] !== undefined && params[key] !== null && params[key] !== '') body[key] = params[key];
+    }
+    return baseRequest(`/requestInvite/${params.userId}`, { method: 'POST', params: body });
+  },
+  closeInstance: MiscApi.closeInstance,
+  deleteWorldPersistData: MiscApi.deleteWorldPersistData,
+  hasWorldPersistData: MiscApi.hasWorldPersistData,
 
   // 组模块
   getGroup: GroupApi.getGroup,
@@ -197,6 +284,8 @@ export const VrcApi = {
   acceptNotification: NotificationApi.acceptNotification,
   hideNotification: NotificationApi.hideNotification,
   getNotificationsV2: NotificationApi.getNotificationsV2,
+  seeNotificationV2: NotificationApi.seeNotificationV2,
+  deleteNotificationV2: NotificationApi.deleteNotificationV2,
 
   // 收藏模块
   getFavorites: FavoriteApi.getFavorites,
@@ -212,9 +301,36 @@ export const VrcApi = {
   getFileAnalysis: FileApi.getFileAnalysis,
 
   // 播放器操作
-  getModerations: () => baseRequest('/auth/user/playermoderations'),
-  moderateUser: (params: any) => baseRequest('/auth/user/playermoderations', { method: 'POST', params }),
-  unmoderateUser: (params: any) => baseRequest('/auth/user/unplayermoderate', { method: 'PUT', params }),
+  getModerations: PlayerModerationApi.getPlayerModerations,
+  getPlayerModerations: PlayerModerationApi.getPlayerModerations,
+  moderateUser: PlayerModerationApi.sendPlayerModeration,
+  unmoderateUser: PlayerModerationApi.deletePlayerModeration,
+  getAvatarModerations: AvatarModerationApi.getAvatarModerations,
+  sendAvatarModeration: AvatarModerationApi.sendAvatarModeration,
+  deleteAvatarModeration: AvatarModerationApi.deleteAvatarModeration,
+  getInventoryItem: InventoryApi.getInventoryItem,
+  getUserInventoryItem: InventoryApi.getUserInventoryItem,
+  getInventoryItems: InventoryApi.getInventoryItems,
+  consumeInventoryBundle: InventoryApi.consumeInventoryBundle,
+  getInventoryTemplate: InventoryApi.getInventoryTemplate,
+  redeemReward: InventoryApi.redeemReward,
+  getGlobalInventory: InventoryApi.getGlobalInventory,
+  getEquipSlot: InventoryApi.getEquipSlot,
+  equipItem: InventoryApi.equipItem,
+  archiveInventoryItem: InventoryApi.archiveItem,
+  unarchiveInventoryItem: InventoryApi.unarchiveItem,
+  getProp: PropApi.getProp,
+  getInviteMessages: InviteMessagesApi.getInviteMessages,
+  editInviteMessage: InviteMessagesApi.editInviteMessage,
+  getVrcPlusFiles: VrcPlusIconApi.getFileList,
+  uploadVrcPlusIcon: VrcPlusIconApi.uploadVrcPlusIcon,
+  uploadGalleryImage: VrcPlusImageApi.uploadGalleryImage,
+  uploadSticker: VrcPlusImageApi.uploadSticker,
+  uploadEmoji: VrcPlusImageApi.uploadEmoji,
+  getPrints: VrcPlusImageApi.getPrints,
+  getPrint: VrcPlusImageApi.getPrint,
+  deletePrint: VrcPlusImageApi.deletePrint,
+  uploadPrint: VrcPlusImageApi.uploadPrint,
   
   // 图片上传
   uploadVrcPlusImage: async (base64Data: string, tag: string = 'gallery', entityId?: string) => {
@@ -338,4 +454,107 @@ export const OvrApi = {
   stopAutoScan: () => safeInvoke<void>('ovr_stop_auto_scan'),
 };
 
-export { AuthApi, UserApi, FriendApi, WorldApi, AvatarApi, GroupApi, NotificationApi, FavoriteApi, FileApi };
+export interface DanmakuConfig {
+  enable_bilibili: boolean;
+  room_id: number;
+  bili_sessdata?: string;
+  enable_osc_input: boolean;
+  osc_input_host: string;
+  osc_input_port: number;
+  osc_input_address: string;
+  enable_osc_output: boolean;
+  osc_output_host: string;
+  osc_output_port: number;
+  osc_output_address: string;
+  enable_vrc_chatbox: boolean;
+  vrc_chatbox_port: number;
+  chatbox_interval_ms: number;
+  enable_vr_overlay: boolean;
+  overlay_visible: boolean;
+  attach_mode: string;
+  toggle_hand: string;
+  x: number;
+  y: number;
+  z: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+  overlay_width_m: number;
+  overlay_alpha: number;
+  bg_alpha: number;
+  font_size: number;
+  text_color: string;
+  bg_color: string;
+  max_messages: number;
+  show_danmaku: boolean;
+  show_gift: boolean;
+  show_enter: boolean;
+  show_follow: boolean;
+  show_guard: boolean;
+  show_sc: boolean;
+}
+
+export interface DanmakuStatus {
+  running: boolean;
+  bili_connected: boolean;
+  osc_input_running: boolean;
+  vr_initialized: boolean;
+  overlay_visible: boolean;
+  room_id: number;
+  online: number;
+  message_count: number;
+  last_error: string;
+  last_event: string;
+}
+
+export interface DanmakuMessage {
+  id: number;
+  source: string;
+  message_type: string;
+  user: string;
+  text: string;
+  price?: number | null;
+  gift_count?: number | null;
+  medal_name?: string | null;
+  medal_level?: number | null;
+  guard_level?: number | null;
+  timestamp_ms: number;
+}
+
+export const DanmakuApi = {
+  getConfig: () => safeInvoke<DanmakuConfig>('danmaku_get_config'),
+  getStatus: () => safeInvoke<DanmakuStatus>('danmaku_get_status'),
+  getMessages: () => safeInvoke<DanmakuMessage[]>('danmaku_get_messages'),
+  setConfig: (params: { config: DanmakuConfig }) => safeInvoke<DanmakuStatus>('danmaku_set_config', params),
+  start: (params: { config: DanmakuConfig }) => safeInvoke<DanmakuStatus>('danmaku_start', params),
+  stop: () => safeInvoke<DanmakuStatus>('danmaku_stop'),
+  clearMessages: () => safeInvoke<void>('danmaku_clear_messages'),
+  setOverlayVisible: (params: { visible: boolean }) => safeInvoke<DanmakuStatus>('danmaku_set_overlay_visible', params),
+  sendTest: (params: { messageType: string; text?: string }) => safeInvoke<DanmakuMessage>('danmaku_send_test', params),
+};
+
+export const VrctApi = {
+  processMessage: (params: { req: any }) => safeInvoke<any>('vrct_process_message', params),
+  getHistory: () => safeInvoke<any[]>('vrct_get_history'),
+  clearHistory: () => safeInvoke<void>('vrct_clear_history'),
+};
+
+export {
+  AuthApi,
+  UserApi,
+  FriendApi,
+  WorldApi,
+  AvatarApi,
+  GroupApi,
+  NotificationApi,
+  FavoriteApi,
+  FileApi,
+  PlayerModerationApi,
+  AvatarModerationApi,
+  InventoryApi,
+  PropApi,
+  InviteMessagesApi,
+  MiscApi,
+  VrcPlusIconApi,
+  VrcPlusImageApi,
+};

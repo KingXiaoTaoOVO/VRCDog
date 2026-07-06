@@ -218,25 +218,15 @@ import { currentTheme as themeConfig } from '../theme';
 import { SysApi, DbApi } from '../api';
 import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
+import { getLocaleLabel, getNextLocale, setAppLocale } from '../i18n';
 
 const { t, locale } = useI18n();
 
-const langMap: Record<string, string> = {
-  'zh-CN': t('auto_d688a3a4'),
-  'en-US': 'English',
-  'ja-JP': t('auto_00110af8')
-};
-
-const currentLangLabel = computed(() => langMap[locale.value] || 'Language');
+const currentLangLabel = computed(() => getLocaleLabel(locale.value));
 
 const cycleLanguage = () => {
-  const keys = Object.keys(langMap);
-  const idx = keys.indexOf(locale.value);
-  const nextIdx = (idx + 1) % keys.length;
-  const nextLang = keys[nextIdx];
+  const nextLang = setAppLocale(getNextLocale(locale.value), { notify: true });
   locale.value = nextLang;
-  localStorage.setItem('vrcdog-locale', nextLang);
-  // Optional: save to DbApi if needed
   DbApi.saveSetting({ key: 'language', value: JSON.stringify(nextLang) }).catch(() => {});
 };
 

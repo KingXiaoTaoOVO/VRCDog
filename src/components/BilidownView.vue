@@ -10,6 +10,9 @@ const { t } = useI18n();
 
 const bvidUrl = ref('');
 const videoInfo = ref<any>(null);
+const parsedCollection = ref<any>(null);
+const parsedItems = ref<any[]>([]);
+const selectedParsedIndex = ref(0);
 const isLoading = ref(false);
 const errorMsg = ref('');
 
@@ -211,28 +214,82 @@ const handleLogout = async () => {
     await DbApi.saveSetting({ key: 'bili_sessdata', value: '' });
 };
 
-const extractBvid = (input: string) => {
-    const match = input.match(/(BV[1-9A-HJ-NP-Za-km-z]+)/);
-    return match ? match[1] : input.trim();
-};
-
 const searchVideo = async () => {
     if (!bvidUrl.value) return;
-    const bvid = extractBvid(bvidUrl.value);
     isLoading.value = true;
     errorMsg.value = '';
     videoInfo.value = null;
+    parsedCollection.value = null;
+    parsedItems.value = [];
     try {
-        const res: any = await invoke('bili_get_video_info', { bvid, sessdata: sessdata.value });
-        if (res.code === 0 && res.data) {
-            videoInfo.value = res.data;
-        } else {
-            errorMsg.value = res.message || t('bilidown.fetch_fail');
+        const parsed: any = await invoke('bili_parse_url', { url: bvidUrl.value, sessdata: sessdata.value });
+        parsedCollection.value = parsed;
+        parsedItems.value = Array.isArray(parsed?.items) ? parsed.items : [];
+        if (parsedItems.value.length === 0) {
+            errorMsg.value = t('bilidown.fetch_fail');
+            return;
         }
+
+        await selectParsedItem(parsedItems.value[0], 0);
     } catch (e: any) {
         errorMsg.value = e.toString();
     } finally {
         isLoading.value = false;
+    }
+};
+
+const selectParsedItem = async (item: any, index: number) => {
+    selectedParsedIndex.value = index;
+    const fallbackInfo = {
+        bvid: item.bvid,
+        cid: item.cid || 0,
+        title: item.title || item.bvid,
+        pic: item.cover || '',
+        duration: item.duration || 0,
+        owner: { name: item.owner || '', face: '' },
+        stat: { view: 0, like: 0, coin: 0, favorite: 0 }
+    };
+    videoInfo.value = fallbackInfo;
+
+    try {
+        const res: any = await invoke('bili_get_video_info', { bvid: item.bvid, sessdata: sessdata.value });
+        if (res.code === 0 && res.data) {
+            videoInfo.value = res.data;
+            videoInfo.value.cid = item.cid || videoInfo.value.cid;
+            videoInfo.value.title = item.title || videoInfo.value.title;
+        }
+    } catch (e: any) {
+        console.warn('Failed to enrich Bilibili item', e);
+    }
+};
+
+const downloadParsedItem = async (item: any) => {
+    await invoke('bili_download_video', {
+        bvid: item.bvid,
+        cid: item.cid || 0,
+        title: item.title,
+        owner: item.owner || '',
+        cover: item.cover || '',
+        sessdata: sessdata.value
+    });
+};
+
+const downloadAllParsed = async () => {
+    if (parsedItems.value.length === 0) return;
+    isDownloading.value = true;
+    downloadProgress.value = 0;
+    downloadDetail.value = t('bilidown.prepare_download');
+
+    try {
+        for (const item of parsedItems.value) {
+            await downloadParsedItem(item);
+        }
+        await loadTasks();
+        showToast(`${parsedItems.value.length} task(s) added`, 'success');
+    } catch (e: any) {
+        errorMsg.value = t('bilidown.download_error') + e.toString();
+    } finally {
+        isDownloading.value = false;
     }
 };
 
@@ -267,14 +324,17 @@ const downloadVideo = async () => {
     downloadDetail.value = t('bilidown.prepare_download');
     
     try {
-        await invoke('bili_download_video', { 
-            bvid: videoInfo.value.bvid, 
-            cid: videoInfo.value.cid, 
+        const selectedItem = parsedItems.value[selectedParsedIndex.value];
+        const item = (selectedItem?.bvid === videoInfo.value.bvid ? selectedItem : null)
+            || parsedItems.value.find((entry) => entry.bvid === videoInfo.value.bvid && entry.cid === videoInfo.value.cid)
+            || {
+            bvid: videoInfo.value.bvid,
+            cid: videoInfo.value.cid,
             title: videoInfo.value.title,
-            owner: videoInfo.value.owner.name,
-            cover: videoInfo.value.pic,
-            sessdata: sessdata.value 
-        });
+            owner: videoInfo.value.owner?.name || '',
+            cover: videoInfo.value.pic
+        };
+        await downloadParsedItem(item);
         await loadTasks();
     } catch (e: any) {
         errorMsg.value = t('bilidown.download_error') + e.toString();
@@ -287,7 +347,7 @@ const downloadVideo = async () => {
   <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
     <header class="mb-8 flex justify-between items-end shrink-0 z-10">
       <div>
@@ -299,14 +359,14 @@ const downloadVideo = async () => {
         </h1>
         <div class="mt-4 flex items-center gap-2 bg-surface p-1.5 rounded-xl w-max border-border-soft/50 shadow-sm">
           <button
-            :class="activeTab === 'bilibili' ? 'bg-surface shadow-sm text-primary border-border-soft' : 'text-text-muted hover:text-text-muted'"
+            :class="activeTab === 'bilibili' ? 'bg-primary text-white shadow-sm border-primary' : 'text-text-muted hover:text-primary'"
             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
             @click="activeTab = 'bilibili'"
           >
             Bilibili
           </button>
           <button
-            :class="activeTab === 'xhs' ? 'bg-surface shadow-sm text-rose-600 border-border-soft' : 'text-text-muted hover:text-text-muted'"
+            :class="activeTab === 'xhs' ? 'bg-primary text-white shadow-sm border-primary' : 'text-text-muted hover:text-primary'"
             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
             @click="activeTab = 'xhs'"
           >
@@ -334,7 +394,7 @@ const downloadVideo = async () => {
             @click="openLogin"
           >
             <QrCode class="w-5 h-5" />
-            {{ t('bili.scan_login') || 'Scan to Login' }}
+            {{ t('bilidown.scan_login') }}
           </button>
         </template>
       </div>
@@ -342,11 +402,10 @@ const downloadVideo = async () => {
 
     <div class="flex-1 overflow-y-auto pr-2 pb-8">
       <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border-border-soft shadow-sm mb-8 transition-all relative overflow-hidden group">
-        <div class="absolute -right-4 -top-4 w-32 h-32 bg-primary/10 rounded-full blur-3xl opacity-50 group-hover:bg-primary/10 transition-colors pointer-events-none" />
+        <div class="absolute -right-4 -top-4 w-32 h-32 bg-primary/10 rounded-full blur-3xl opacity-50 group-hover:bg-primary-hover transition-colors pointer-events-none" />
         <h2 class="text-lg font-bold text-text mb-4 flex items-center gap-2">
           <Search
-            :class="activeTab === 'xhs' ? 'text-red-500' : 'text-primary'"
-            class="w-5 h-5"
+            class="text-primary w-5 h-5"
           />
           {{ activeTab === 'xhs' ? t('bilidown.parse_xhs') : t('bilidown.parse_bili') }}
         </h2>
@@ -358,13 +417,13 @@ const downloadVideo = async () => {
           <input 
             v-model="bvidUrl"
             type="text"
-            class="flex-1 bg-surface-hover border-border-soft rounded-xl px-6 py-4 text-text font-bold focus:outline-none  focus:ring-4 focus:ring-indigo-500/10 transition-all text-lg shadow-sm" 
+            class="flex-1 bg-surface-hover border-border-soft rounded-xl px-6 py-4 text-text font-bold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all text-lg shadow-sm" 
             :placeholder="t('bilidown.placeholder_bili')"
             @keyup.enter="searchVideo"
           >
           <button 
             :disabled="isLoading || !bvidUrl"
-            class="bg-primary/10 hover:bg-primary/10 disabled:bg-surface disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
+            class="bg-primary hover:bg-primary-hover disabled:bg-surface disabled:text-text-muted disabled:border disabled:border-border-soft disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:shadow-none active:scale-95 min-w-[140px]"
             @click="searchVideo"
           >
             <Loader2
@@ -372,7 +431,7 @@ const downloadVideo = async () => {
               class="w-6 h-6 animate-spin"
             />
             <template v-else>
-              {{ t('bili.fetch_info') || 'Fetch' }}
+              {{ t('bilidown.parse_btn') }}
             </template>
           </button>
         </div>
@@ -384,13 +443,13 @@ const downloadVideo = async () => {
           <input 
             v-model="xhsUrl"
             type="text"
-            class="flex-1 bg-surface-hover border-border-soft rounded-xl px-6 py-4 text-text font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10 transition-all text-lg shadow-sm" 
+            class="flex-1 bg-surface-hover border-border-soft rounded-xl px-6 py-4 text-text font-bold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all text-lg shadow-sm" 
             :placeholder="t('bilidown.placeholder_xhs')"
             @keyup.enter="searchXhs"
           >
           <button 
             :disabled="isLoading || !xhsUrl"
-            class="bg-red-500 hover:bg-red-600 disabled:bg-surface disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
+            class="bg-primary hover:bg-primary-hover disabled:bg-surface disabled:text-text-muted disabled:border disabled:border-border-soft disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:shadow-none active:scale-95 min-w-[140px]"
             @click="searchXhs"
           >
             <Loader2
@@ -398,7 +457,7 @@ const downloadVideo = async () => {
               class="w-6 h-6 animate-spin"
             />
             <template v-else>
-              {{ t('bili.fetch_info') || 'Fetch' }}
+              {{ t('bilidown.parse_btn') }}
             </template>
           </button>
         </div>
@@ -476,7 +535,55 @@ const downloadVideo = async () => {
                 {{ isDownloading ? t('bilidown.downloading') : t('bilidown.download_best') }}
               </button>
             </div>
-                  
+
+            <div
+              v-if="parsedItems.length > 1"
+              class="mt-4 rounded-2xl border-border-soft bg-surface-hover p-3"
+            >
+              <div class="flex items-center justify-between gap-3 mb-2">
+                <div class="min-w-0">
+                  <p class="text-xs font-bold text-text-muted uppercase">
+                    {{ parsedCollection?.collection_name || 'Bilibili list' }}
+                  </p>
+                  <p class="text-[11px] text-border-strong">
+                    {{ parsedItems.length }} items
+                  </p>
+                </div>
+                <button
+                  :disabled="isDownloading"
+                  class="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-bold flex items-center gap-1.5 disabled:bg-surface disabled:cursor-not-allowed"
+                  @click="downloadAllParsed"
+                >
+                  <Download class="w-3.5 h-3.5" />
+                  Download all
+                </button>
+              </div>
+
+              <div class="max-h-48 overflow-y-auto custom-scrollbar space-y-1">
+                <div
+                  v-for="(item, index) in parsedItems"
+                  :key="`${item.bvid}-${item.cid || index}`"
+                  class="flex items-center gap-2"
+                >
+                  <button
+                    class="flex-1 min-w-0 text-left px-3 py-2 rounded-xl border transition-all"
+                    :class="selectedParsedIndex === index ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-surface border-border-soft text-text-muted hover:text-text hover:border-primary/30'"
+                    @click="selectParsedItem(item, index)"
+                  >
+                    <span class="block text-xs font-bold truncate">{{ item.title || item.bvid }}</span>
+                    <span class="block text-[10px] opacity-70 truncate">{{ item.bvid }}{{ item.cid ? ` - cid ${item.cid}` : '' }}</span>
+                  </button>
+                  <button
+                    :disabled="isDownloading"
+                    class="p-2 rounded-lg bg-surface border-border-soft text-text-muted hover:text-primary disabled:opacity-50"
+                    @click="downloadParsedItem(item).then(loadTasks)"
+                  >
+                    <Download class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="mt-4 flex flex-wrap items-center gap-3">
               <button
                 class="flex-1 py-2.5 bg-surface-hover hover:bg-surface text-text-muted border-border-soft rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
@@ -485,7 +592,7 @@ const downloadVideo = async () => {
                 <Image class="w-4 h-4" /> {{ t('bilidown.copy_cover') }}
               </button>
               <button
-                class="flex-1 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+                class="flex-1 py-2.5 bg-primary/10 hover:bg-primary/15 text-primary border-primary/20 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
                 @click="copyStreamUrl"
               >
                 <Link class="w-4 h-4" /> {{ t('bilidown.copy_video') }}
@@ -636,7 +743,7 @@ const downloadVideo = async () => {
             <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 v-if="task.status === 'done'"
-                class="p-2 text-primary hover:bg-primary/10 rounded-xl"
+                class="p-2 text-primary hover:bg-primary-hover rounded-xl"
                 :title="t('bilidown.open_folder')"
                 @click="openFolder(task.folder)"
               >
@@ -777,7 +884,7 @@ const downloadVideo = async () => {
       :class="{
         'bg-emerald-500 text-white shadow-emerald-500/20': toastType === 'success',
         'bg-red-500 text-white shadow-red-500/20': toastType === 'error',
-        'bg-blue-500 text-white shadow-blue-500/20': toastType === 'info'
+        'bg-primary text-white shadow-primary/20': toastType === 'info'
       }"
     >
       <CheckCircle

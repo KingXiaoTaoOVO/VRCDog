@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use reqwest::Client;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use chrono::Utc;
+use hmac::{Hmac, Mac};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -36,20 +36,69 @@ pub async fn translate(req: &TranslateRequest) -> Result<TranslateResult, String
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
     let translated = match req.service.as_str() {
-        "deepseek" => translate_openai_compat(&client, req, "https://api.deepseek.com/v1/chat/completions").await?,
-        "openai" => translate_openai_compat(&client, req, "https://api.openai.com/v1/chat/completions").await?,
-        "siliconflow" => translate_openai_compat(&client, req, "https://api.siliconflow.cn/v1/chat/completions").await?,
-        "moonshot" => translate_openai_compat(&client, req, "https://api.moonshot.cn/v1/chat/completions").await?,
-        "zhipu" => translate_openai_compat(&client, req, "https://open.bigmodel.cn/api/paas/v4/chat/completions").await?,
+        "deepseek" => {
+            translate_openai_compat(&client, req, "https://api.deepseek.com/v1/chat/completions")
+                .await?
+        }
+        "openai" => {
+            translate_openai_compat(&client, req, "https://api.openai.com/v1/chat/completions")
+                .await?
+        }
+        "siliconflow" => {
+            translate_openai_compat(
+                &client,
+                req,
+                "https://api.siliconflow.cn/v1/chat/completions",
+            )
+            .await?
+        }
+        "moonshot" => {
+            translate_openai_compat(&client, req, "https://api.moonshot.cn/v1/chat/completions")
+                .await?
+        }
+        "zhipu" => {
+            translate_openai_compat(
+                &client,
+                req,
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            )
+            .await?
+        }
+        "groq" => {
+            translate_openai_compat(
+                &client,
+                req,
+                "https://api.groq.com/openai/v1/chat/completions",
+            )
+            .await?
+        }
+        "openrouter" => {
+            translate_openai_compat(
+                &client,
+                req,
+                "https://openrouter.ai/api/v1/chat/completions",
+            )
+            .await?
+        }
+        "ollama" => {
+            translate_openai_compat(&client, req, "http://127.0.0.1:11434/v1/chat/completions")
+                .await?
+        }
+        "lmstudio" | "lm_studio" => {
+            translate_openai_compat(&client, req, "http://127.0.0.1:1234/v1/chat/completions")
+                .await?
+        }
         "custom_llm" => {
             if req.custom_api_url.is_empty() {
                 return Err("自定义 LLM API URL 未配置".into());
             }
             translate_openai_compat(&client, req, &req.custom_api_url).await?
-        },
+        }
+        "gemini" => translate_gemini(&client, req).await?,
+        "papago" => translate_papago(&client, req).await?,
         "tencent" => translate_tencent(&client, req).await?,
         "baidu" => translate_baidu(&client, req).await?,
-        "microsoft" => translate_microsoft(&client, req).await?,
+        "microsoft" | "bing" => translate_microsoft(&client, req).await?,
         "deepl" => translate_deepl(&client, req).await?,
         "deepl_free" => translate_deepl_free(&client, req).await?,
         "google_free" | _ => translate_google_free(&client, req).await?,
@@ -62,7 +111,11 @@ pub async fn translate(req: &TranslateRequest) -> Result<TranslateResult, String
 }
 
 /// OpenAI-compatible API (DeepSeek, OpenAI, SiliconFlow, Moonshot, ZhiPu, etc.)
-async fn translate_openai_compat(client: &Client, req: &TranslateRequest, url: &str) -> Result<String, String> {
+async fn translate_openai_compat(
+    client: &Client,
+    req: &TranslateRequest,
+    url: &str,
+) -> Result<String, String> {
     let model = if req.model.is_empty() {
         match req.service.as_str() {
             "deepseek" => "deepseek-chat",
@@ -70,6 +123,10 @@ async fn translate_openai_compat(client: &Client, req: &TranslateRequest, url: &
             "siliconflow" => "Qwen/Qwen2.5-7B-Instruct",
             "moonshot" => "moonshot-v1-8k",
             "zhipu" => "glm-4-flash",
+            "groq" => "llama-3.1-8b-instant",
+            "openrouter" => "openai/gpt-4o-mini",
+            "ollama" => "qwen2.5",
+            "lmstudio" | "lm_studio" => "local-model",
             _ => "deepseek-chat",
         }
     } else {
@@ -80,10 +137,16 @@ async fn translate_openai_compat(client: &Client, req: &TranslateRequest, url: &
         format!(
             "You are a professional translator. Translate the following text from {} to {}. \
              Return ONLY the translated text, nothing else.",
-            lang_name(&req.source_lang), lang_name(&req.target_lang)
+            lang_name(&req.source_lang),
+            lang_name(&req.target_lang)
         )
     } else {
-        format!("{}\nSource language: {}\nTarget language: {}", req.prompt, lang_name(&req.source_lang), lang_name(&req.target_lang))
+        format!(
+            "{}\nSource language: {}\nTarget language: {}",
+            req.prompt,
+            lang_name(&req.source_lang),
+            lang_name(&req.target_lang)
+        )
     };
 
     let body = serde_json::json!({
@@ -96,11 +159,15 @@ async fn translate_openai_compat(client: &Client, req: &TranslateRequest, url: &
         "max_tokens": 2048
     });
 
-    let resp = client.post(url)
-        .header("Authorization", format!("Bearer {}", req.api_key))
-        .header("Content-Type", "application/json")
+    let mut request = client.post(url).header("Content-Type", "application/json");
+    if !req.api_key.trim().is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", req.api_key));
+    }
+
+    let resp = request
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("HTTP error: {}", e))?;
 
     if !resp.status().is_success() {
@@ -109,7 +176,10 @@ async fn translate_openai_compat(client: &Client, req: &TranslateRequest, url: &
         return Err(format!("API error {}: {}", status, text));
     }
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON parse error: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON parse error: {}", e))?;
     let content = json["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")
@@ -146,7 +216,8 @@ async fn translate_tencent(client: &Client, req: &TranslateRequest) -> Result<St
         "Source": source,
         "Target": target,
         "ProjectId": 0
-    }).to_string();
+    })
+    .to_string();
 
     // TC3-HMAC-SHA256 signing
     let date = Utc::now().format("%Y-%m-%d").to_string();
@@ -175,7 +246,8 @@ async fn translate_tencent(client: &Client, req: &TranslateRequest) -> Result<St
         secret_id, credential_scope, signature
     );
 
-    let resp = client.post(format!("https://{}", host))
+    let resp = client
+        .post(format!("https://{}", host))
         .header("Authorization", &authorization)
         .header("Content-Type", "application/json")
         .header("Host", host)
@@ -183,10 +255,14 @@ async fn translate_tencent(client: &Client, req: &TranslateRequest) -> Result<St
         .header("X-TC-Timestamp", timestamp.to_string())
         .header("X-TC-Version", version)
         .body(payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("HTTP error: {}", e))?;
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON error: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
 
     if let Some(err) = json["Response"]["Error"]["Message"].as_str() {
         return Err(format!("Tencent API error: {}", err));
@@ -224,12 +300,17 @@ async fn translate_baidu(client: &Client, req: &TranslateRequest) -> Result<Stri
         ("sign", &sign),
     ];
 
-    let resp = client.post("https://fanyi-api.baidu.com/api/trans/vip/translate")
+    let resp = client
+        .post("https://fanyi-api.baidu.com/api/trans/vip/translate")
         .form(&params)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("HTTP error: {}", e))?;
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON error: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
 
     if let Some(code) = json["error_code"].as_str() {
         let msg = json["error_msg"].as_str().unwrap_or("unknown");
@@ -240,7 +321,9 @@ async fn translate_baidu(client: &Client, req: &TranslateRequest) -> Result<Stri
         let mut translated = String::new();
         for r in results {
             if let Some(dst) = r["dst"].as_str() {
-                if !translated.is_empty() { translated.push('\n'); }
+                if !translated.is_empty() {
+                    translated.push('\n');
+                }
                 translated.push_str(dst);
             }
         }
@@ -255,8 +338,11 @@ async fn translate_baidu(client: &Client, req: &TranslateRequest) -> Result<Stri
 /// Microsoft Translator API (微软翻译)
 /// API key = subscription key
 async fn translate_microsoft(client: &Client, req: &TranslateRequest) -> Result<String, String> {
-    let from_param = if req.source_lang == "auto" { String::new() }
-                     else { format!("&from={}", ms_lang_code(&req.source_lang)) };
+    let from_param = if req.source_lang == "auto" {
+        String::new()
+    } else {
+        format!("&from={}", ms_lang_code(&req.source_lang))
+    };
     let to = ms_lang_code(&req.target_lang);
 
     let url = format!(
@@ -266,11 +352,13 @@ async fn translate_microsoft(client: &Client, req: &TranslateRequest) -> Result<
 
     let body = serde_json::json!([{ "Text": &req.text }]);
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .header("Ocp-Apim-Subscription-Key", &req.api_key)
         .header("Content-Type", "application/json")
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("HTTP error: {}", e))?;
 
     if !resp.status().is_success() {
@@ -278,7 +366,10 @@ async fn translate_microsoft(client: &Client, req: &TranslateRequest) -> Result<
         return Err(format!("Microsoft API error: {}", text));
     }
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON error: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
     json[0]["translations"][0]["text"]
         .as_str()
         .map(|s| s.to_string())
@@ -296,23 +387,26 @@ async fn translate_deepl_free(client: &Client, req: &TranslateRequest) -> Result
     translate_deepl_impl(client, req, "https://api-free.deepl.com/v2/translate").await
 }
 
-async fn translate_deepl_impl(client: &Client, req: &TranslateRequest, url: &str) -> Result<String, String> {
+async fn translate_deepl_impl(
+    client: &Client,
+    req: &TranslateRequest,
+    url: &str,
+) -> Result<String, String> {
     let target = deepl_lang_code(&req.target_lang);
 
-    let mut params = vec![
-        ("text", req.text.as_str()),
-        ("target_lang", target),
-    ];
+    let mut params = vec![("text", req.text.as_str()), ("target_lang", target)];
     let source_code;
     if req.source_lang != "auto" {
         source_code = deepl_lang_code(&req.source_lang).to_string();
         params.push(("source_lang", &source_code));
     }
 
-    let resp = client.post(url)
+    let resp = client
+        .post(url)
         .header("Authorization", format!("DeepL-Auth-Key {}", req.api_key))
         .form(&params)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("HTTP error: {}", e))?;
 
     if !resp.status().is_success() {
@@ -320,26 +414,137 @@ async fn translate_deepl_impl(client: &Client, req: &TranslateRequest, url: &str
         return Err(format!("DeepL API error: {}", text));
     }
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON error: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
     json["translations"][0]["text"]
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| "DeepL: No translation in response".into())
 }
 
+/// Google Gemini API
+async fn translate_gemini(client: &Client, req: &TranslateRequest) -> Result<String, String> {
+    if req.api_key.trim().is_empty() {
+        return Err("Gemini API key is required".into());
+    }
+    let model = if req.model.trim().is_empty() {
+        "gemini-1.5-flash"
+    } else {
+        req.model.as_str()
+    };
+    let prompt = if req.prompt.trim().is_empty() {
+        format!(
+            "Translate from {} to {}. Return only the translated text.\n\n{}",
+            lang_name(&req.source_lang),
+            lang_name(&req.target_lang),
+            req.text
+        )
+    } else {
+        format!(
+            "{}\nSource language: {}\nTarget language: {}\n\n{}",
+            req.prompt,
+            lang_name(&req.source_lang),
+            lang_name(&req.target_lang),
+            req.text
+        )
+    };
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model,
+        urlencoding::encode(&req.api_key)
+    );
+    let body = serde_json::json!({
+        "contents": [{ "parts": [{ "text": prompt }] }],
+        "generationConfig": { "temperature": 0.2 }
+    });
+    let resp = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP error: {}", e))?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Gemini API error: {}", text));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
+    json["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Gemini: No translation in response".into())
+}
+
+/// Naver Papago API. API key format: "ClientId:ClientSecret".
+async fn translate_papago(client: &Client, req: &TranslateRequest) -> Result<String, String> {
+    let parts: Vec<&str> = req.api_key.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return Err("Papago API key format: ClientId:ClientSecret".into());
+    }
+    let source = papago_lang_code(&req.source_lang);
+    if source == "auto" {
+        return Err("Papago does not support auto source language".into());
+    }
+    let target = papago_lang_code(&req.target_lang);
+    let params = [
+        ("source", source),
+        ("target", target),
+        ("text", req.text.as_str()),
+    ];
+    let resp = client
+        .post("https://papago.apigw.ntruss.com/nmt/v1/translation")
+        .header("X-NCP-APIGW-API-KEY-ID", parts[0])
+        .header("X-NCP-APIGW-API-KEY", parts[1])
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP error: {}", e))?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Papago API error: {}", text));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
+    json["message"]["result"]["translatedText"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Papago: No translation in response".into())
+}
+
 /// Google Translate Free API (gtx)
 async fn translate_google_free(client: &Client, req: &TranslateRequest) -> Result<String, String> {
-    let sl = if req.source_lang == "auto" { "auto" } else { &req.source_lang.split('-').next().unwrap_or("auto") };
+    let sl = if req.source_lang == "auto" {
+        "auto"
+    } else {
+        &req.source_lang.split('-').next().unwrap_or("auto")
+    };
     let tl = &req.target_lang;
-    
+
     let url = format!(
         "https://translate.googleapis.com/translate_a/single?client=gtx&sl={}&tl={}&dt=t&q={}",
-        sl, tl, urlencoding::encode(&req.text)
+        sl,
+        tl,
+        urlencoding::encode(&req.text)
     );
-    
-    let resp = client.get(&url).send().await.map_err(|e| format!("HTTP error: {}", e))?;
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON error: {}", e))?;
-    
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP error: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON error: {}", e))?;
+
     if let Some(arr) = json[0].as_array() {
         let mut result = String::new();
         for item in arr {
@@ -351,7 +556,7 @@ async fn translate_google_free(client: &Client, req: &TranslateRequest) -> Resul
             return Ok(result);
         }
     }
-    
+
     Err("Failed to parse Google Translate response".into())
 }
 
@@ -378,24 +583,30 @@ fn md5_hash(data: &[u8]) -> u128 {
     let len = data.len();
     let mut msg = data.to_vec();
     msg.push(0x80);
-    while msg.len() % 64 != 56 { msg.push(0); }
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
     let bit_len = (len as u64).wrapping_mul(8);
     msg.extend_from_slice(&bit_len.to_le_bytes());
 
-    let (mut a, mut b, mut c, mut d): (u32, u32, u32, u32) = (0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476);
-    let s: [u32; 64] = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
-                         5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
-                         4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
-                         6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+    let (mut a, mut b, mut c, mut d): (u32, u32, u32, u32) =
+        (0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476);
+    let s: [u32; 64] = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5,
+        9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10,
+        15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    ];
     let k: [u32; 64] = [
-        0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
-        0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
-        0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
-        0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
-        0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
-        0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
-        0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
-        0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391,
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613,
+        0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193,
+        0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d,
+        0x02441453, 0xd8a1e681, 0xe7d3fbc8, 0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+        0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122,
+        0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa,
+        0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665, 0xf4292244,
+        0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb,
+        0xeb86d391,
     ];
     for chunk in msg.chunks(64) {
         let mut m = [0u32; 16];
@@ -405,17 +616,16 @@ fn md5_hash(data: &[u8]) -> u128 {
         let (mut aa, mut bb, mut cc, mut dd) = (a, b, c, d);
         for i in 0..64usize {
             let (f, g) = match i {
-                0..=15  => ((bb & cc) | (!bb & dd), i),
-                16..=31 => ((dd & bb) | (!dd & cc), (5*i+1) % 16),
-                32..=47 => (bb ^ cc ^ dd, (3*i+5) % 16),
-                _       => (cc ^ (bb | !dd), (7*i) % 16),
+                0..=15 => ((bb & cc) | (!bb & dd), i),
+                16..=31 => ((dd & bb) | (!dd & cc), (5 * i + 1) % 16),
+                32..=47 => (bb ^ cc ^ dd, (3 * i + 5) % 16),
+                _ => (cc ^ (bb | !dd), (7 * i) % 16),
             };
             let temp = dd;
             dd = cc;
             cc = bb;
             bb = bb.wrapping_add(
-                (aa.wrapping_add(f).wrapping_add(k[i]).wrapping_add(m[g]))
-                .rotate_left(s[i])
+                (aa.wrapping_add(f).wrapping_add(k[i]).wrapping_add(m[g])).rotate_left(s[i]),
             );
             aa = temp;
         }
@@ -424,7 +634,13 @@ fn md5_hash(data: &[u8]) -> u128 {
         c = c.wrapping_add(cc);
         d = d.wrapping_add(dd);
     }
-    let bytes = [a.to_le_bytes(), b.to_le_bytes(), c.to_le_bytes(), d.to_le_bytes()].concat();
+    let bytes = [
+        a.to_le_bytes(),
+        b.to_le_bytes(),
+        c.to_le_bytes(),
+        d.to_le_bytes(),
+    ]
+    .concat();
     u128::from_le_bytes(bytes.try_into().unwrap())
 }
 
@@ -475,11 +691,21 @@ fn tencent_lang_code(code: &str) -> &str {
         "en" | "en-US" => "en",
         "ja" => "jp",
         "ko" => "kr",
-        "fr" => "fr",  "de" => "de",  "es" => "es",  "ru" => "ru",
+        "fr" => "fr",
+        "de" => "de",
+        "es" => "es",
+        "ru" => "ru",
         "pt" | "pt-BR" => "pt",
-        "it" => "it",  "nl" => "nl",  "pl" => "pl",  "ar" => "ar",
-        "th" => "th",  "vi" => "vi",  "id" => "id",  "ms" => "ms",
-        "tr" => "tr",  "hi" => "hi",
+        "it" => "it",
+        "nl" => "nl",
+        "pl" => "pl",
+        "ar" => "ar",
+        "th" => "th",
+        "vi" => "vi",
+        "id" => "id",
+        "ms" => "ms",
+        "tr" => "tr",
+        "hi" => "hi",
         "auto" => "auto",
         _ => code,
     }
@@ -492,11 +718,23 @@ fn baidu_lang_code(code: &str) -> &str {
         "en" | "en-US" => "en",
         "ja" => "jp",
         "ko" => "kor",
-        "fr" => "fra",  "de" => "de",  "es" => "spa",  "ru" => "ru",
+        "fr" => "fra",
+        "de" => "de",
+        "es" => "spa",
+        "ru" => "ru",
         "pt" | "pt-BR" => "pt",
-        "it" => "it",   "nl" => "nl",  "pl" => "pl",   "ar" => "ara",
-        "th" => "th",   "vi" => "vie", "id" => "id",   "ms" => "may",
-        "tr" => "tr",   "hi" => "hi",  "el" => "el",   "hu" => "hu",
+        "it" => "it",
+        "nl" => "nl",
+        "pl" => "pl",
+        "ar" => "ara",
+        "th" => "th",
+        "vi" => "vie",
+        "id" => "id",
+        "ms" => "may",
+        "tr" => "tr",
+        "hi" => "hi",
+        "el" => "el",
+        "hu" => "hu",
         "auto" => "auto",
         _ => code,
     }
@@ -507,14 +745,34 @@ fn ms_lang_code(code: &str) -> &str {
         "zh" | "zh-CN" | "zh-Hans" => "zh-Hans",
         "zh-TW" | "zh-Hant" => "zh-Hant",
         "en" | "en-US" => "en",
-        "ja" => "ja",  "ko" => "ko",  "fr" => "fr",  "de" => "de",
-        "es" => "es",  "ru" => "ru",  "pt" | "pt-BR" => "pt-br",
-        "it" => "it",  "nl" => "nl",  "pl" => "pl",  "ar" => "ar",
-        "th" => "th",  "vi" => "vi",  "id" => "id",  "ms" => "ms",
-        "tr" => "tr",  "uk" => "uk",  "cs" => "cs",  "sv" => "sv",
-        "da" => "da",  "fi" => "fi",  "no" | "nb" => "nb",
-        "hu" => "hu",  "el" => "el",  "ro" => "ro",  "bg" => "bg",
-        "hi" => "hi",  "bn" => "bn",
+        "ja" => "ja",
+        "ko" => "ko",
+        "fr" => "fr",
+        "de" => "de",
+        "es" => "es",
+        "ru" => "ru",
+        "pt" | "pt-BR" => "pt-br",
+        "it" => "it",
+        "nl" => "nl",
+        "pl" => "pl",
+        "ar" => "ar",
+        "th" => "th",
+        "vi" => "vi",
+        "id" => "id",
+        "ms" => "ms",
+        "tr" => "tr",
+        "uk" => "uk",
+        "cs" => "cs",
+        "sv" => "sv",
+        "da" => "da",
+        "fi" => "fi",
+        "no" | "nb" => "nb",
+        "hu" => "hu",
+        "el" => "el",
+        "ro" => "ro",
+        "bg" => "bg",
+        "hi" => "hi",
+        "bn" => "bn",
         "auto" => "auto",
         _ => code,
     }
@@ -524,12 +782,49 @@ fn deepl_lang_code(code: &str) -> &str {
     match code {
         "zh" | "zh-CN" | "zh-Hans" => "ZH",
         "en" | "en-US" => "EN",
-        "ja" => "JA",  "ko" => "KO",  "fr" => "FR",  "de" => "DE",
-        "es" => "ES",  "ru" => "RU",  "pt" | "pt-BR" => "PT-BR",
-        "it" => "IT",  "nl" => "NL",  "pl" => "PL",
-        "sv" => "SV",  "da" => "DA",  "fi" => "FI",  "nb" | "no" => "NB",
-        "hu" => "HU",  "el" => "EL",  "ro" => "RO",  "bg" => "BG",
-        "cs" => "CS",  "tr" => "TR",  "uk" => "UK",  "id" => "ID",
+        "ja" => "JA",
+        "ko" => "KO",
+        "fr" => "FR",
+        "de" => "DE",
+        "es" => "ES",
+        "ru" => "RU",
+        "pt" | "pt-BR" => "PT-BR",
+        "it" => "IT",
+        "nl" => "NL",
+        "pl" => "PL",
+        "sv" => "SV",
+        "da" => "DA",
+        "fi" => "FI",
+        "nb" | "no" => "NB",
+        "hu" => "HU",
+        "el" => "EL",
+        "ro" => "RO",
+        "bg" => "BG",
+        "cs" => "CS",
+        "tr" => "TR",
+        "uk" => "UK",
+        "id" => "ID",
+        _ => code,
+    }
+}
+
+fn papago_lang_code(code: &str) -> &str {
+    match code {
+        "zh" | "zh-CN" | "zh-Hans" => "zh-CN",
+        "zh-TW" | "zh-Hant" => "zh-TW",
+        "en" | "en-US" => "en",
+        "ja" => "ja",
+        "ko" => "ko",
+        "fr" => "fr",
+        "de" => "de",
+        "es" => "es",
+        "ru" => "ru",
+        "pt" | "pt-BR" => "pt",
+        "it" => "it",
+        "vi" => "vi",
+        "id" => "id",
+        "th" => "th",
+        "auto" => "auto",
         _ => code,
     }
 }

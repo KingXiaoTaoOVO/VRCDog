@@ -82,8 +82,8 @@ const handleMouseEnter = () => {
 
 <template>
   <div 
-    class="bg-surface backdrop-blur-md rounded-2xl overflow-hidden shadow-sm relative group hover:shadow-lg transition-all cursor-pointer border"
-    :class="[minimal ? 'border-transparent hover:border-primary flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-primary flex-col ']"
+    class="bg-surface backdrop-blur-md rounded-2xl shadow-sm relative group hover:shadow-lg transition-all cursor-pointer border"
+    :class="[minimal ? 'border-transparent hover:border-primary flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-primary flex-col ', showMenu ? 'overflow-visible z-50' : 'overflow-hidden']"
     @click="emit('click', data)"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
@@ -132,26 +132,27 @@ const handleMouseEnter = () => {
       >
         <div class="flex justify-end relative">
           <!-- Context Menu Button -->
-          <button 
-            class="p-2 bg-black/40 backdrop-blur-md hover:bg-black/60 rounded-xl text-white transition-all hover:scale-105 active:scale-95"
-            @click.stop="toggleMenu"
-          >
+         <button 
+           class="p-2 bg-[var(--theme-bg-main)]/40 backdrop-blur-md hover:bg-[var(--theme-bg-main)]/60 rounded-xl text-white transition-all hover:scale-105 active:scale-95"
+           @click.stop="toggleMenu"
+         >
             <MoreVertical :size="16" />
           </button>
           
           <!-- Dropdown Menu -->
           <div 
             v-if="showMenu"
-            class="absolute top-full right-0 mt-2 w-40 bg-surface backdrop-blur-xl rounded-xl shadow-xl border-border-soft/60 overflow-hidden z-30 py-1.5 animate-fade-in origin-top-right"
+            class="absolute top-10 right-0 w-40 bg-[var(--theme-bg-main)] backdrop-blur-xl rounded-xl shadow-2xl border border-border-soft overflow-hidden z-[999] py-1.5"
+            @click.stop
           >
             <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="copyId"
             >
               <Copy :size="14" /> {{ $t('card.copy_id') }}
             </button>
             <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text-muted hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
               @click.stop="openInBrowser"
             >
               <ExternalLink :size="14" /> {{ $t('card.open_browser') }}
@@ -172,7 +173,7 @@ const handleMouseEnter = () => {
           class="flex justify-start"
         >
           <button
-            class="px-4 py-2 bg-primary/10 hover:bg-primary/10 text-text-inverse text-xs font-extrabold rounded-xl shadow-lg shadow-indigo-500/30 backdrop-blur-md flex items-center gap-2 transition-all transform translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 active:scale-95"
+            class="px-4 py-2 bg-primary hover:bg-primary-hover text-text-inverse text-xs font-extrabold rounded-xl shadow-lg shadow-primary/30 backdrop-blur-md flex items-center gap-2 transition-all transform translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 active:scale-95"
             @click.stop=""
           >
             <Play :size="14" /> {{ $t('card.create_instance') }}
@@ -186,14 +187,14 @@ const handleMouseEnter = () => {
         class="absolute bottom-3 right-3 flex gap-1.5 z-10"
       >
         <span
-          v-if="type === 'world' && (data.capacity || data.occupants)"
-          class="px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
+           v-if="type === 'world' && (data.capacity || data.occupants)"
+           class="px-2 py-1 bg-[var(--theme-bg-main)]/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
         >
           <Users :size="12" /> {{ data.occupants || 0 }} / {{ data.capacity || '?' }}
         </span>
         <span
-          v-if="type === 'group' && data.memberCount"
-          class="px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
+           v-if="type === 'group' && data.memberCount"
+           class="px-2 py-1 bg-[var(--theme-bg-main)]/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
         >
           <Users :size="12" /> {{ data.memberCount }}
         </span>

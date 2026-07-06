@@ -30,6 +30,11 @@
     height: 100vh;
   }
 
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--theme-primary);
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -111,6 +116,70 @@
 
 .btn-primary:hover {
   background: var(--theme-primary-btn-hover);
+}
+
+button.bg-primary\/10,
+button.bg-primary\/15,
+button.hover\:bg-primary\/10:hover,
+button.hover\:bg-primary\/15:hover,
+button.bg-primary\/20,
+button.hover\:bg-primary\/20:hover,
+button.bg-primary\/25,
+button.hover\:bg-primary\/25:hover,
+button.bg-primary\/30,
+button.hover\:bg-primary\/30:hover,
+button.bg-primary\/40,
+button.hover\:bg-primary\/40:hover,
+label.cursor-pointer.bg-primary\/10,
+label.cursor-pointer.bg-primary\/15,
+label.cursor-pointer.bg-primary\/20,
+label.cursor-pointer.hover\:bg-primary\/10:hover {
+  background: var(--theme-primary) !important;
+  color: #fff !important;
+  border-color: var(--theme-primary) !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--theme-primary) 24%, transparent);
+}
+
+button.bg-primary\/10 svg,
+button.bg-primary\/15 svg,
+button.bg-primary\/20 svg,
+button.bg-primary\/25 svg,
+button.bg-primary\/30 svg,
+button.bg-primary\/40 svg,
+label.cursor-pointer.bg-primary\/10 svg {
+  color: #fff !important;
+}
+
+button.bg-primary\/10 *,
+button.bg-primary\/15 *,
+button.bg-primary\/20 *,
+button.bg-primary\/25 *,
+button.bg-primary\/30 *,
+button.bg-primary\/40 *,
+label.cursor-pointer.bg-primary\/10 *,
+label.cursor-pointer.bg-primary\/15 *,
+label.cursor-pointer.bg-primary\/20 * {
+  color: #fff !important;
+}
+
+button.hover\:bg-primary\/10:hover svg,
+button.hover\:bg-primary\/15:hover svg,
+button.hover\:bg-primary\/20:hover svg,
+button.hover\:bg-primary\/25:hover svg,
+button.hover\:bg-primary\/30:hover svg,
+button.hover\:bg-primary\/40:hover svg,
+label.cursor-pointer.hover\:bg-primary\/10:hover svg {
+  color: #fff !important;
+}
+
+button.hover\:bg-primary\/10:hover *,
+button.hover\:bg-primary\/15:hover *,
+button.hover\:bg-primary\/20:hover *,
+button.hover\:bg-primary\/25:hover *,
+button.hover\:bg-primary\/30:hover *,
+button.hover\:bg-primary\/40:hover *,
+label.cursor-pointer.hover\:bg-primary\/10:hover * {
+  color: #fff !important;
 }
 
 /* 背景动态色块 */

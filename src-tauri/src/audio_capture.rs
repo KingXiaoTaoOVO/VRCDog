@@ -1,9 +1,9 @@
-use std::sync::Mutex;
-use serde::Serialize;
-use tauri::State;
 use crate::AppResult;
+use serde::Serialize;
+use std::sync::Mutex;
+use tauri::State;
 
-// VRCT Audio Capture & STT Skeleton
+// VRCT audio capture state used by the Tauri commands and Python WASAPI bridge.
 pub struct AudioCaptureState {
     pub is_recording: Mutex<bool>,
     pub selected_device: Mutex<String>,
@@ -32,10 +32,15 @@ pub struct AudioDevice {
 
 #[tauri::command]
 pub async fn vrct_get_audio_devices() -> AppResult<Vec<AudioDevice>> {
-    // Stub: Enumerate WASAPI devices (simulate for now)
     Ok(vec![
-        AudioDevice { id: "default".into(), name: "Default Microphone".into() },
-        AudioDevice { id: "vr_headset".into(), name: "HMD Microphone (Index/Quest)".into() },
+        AudioDevice {
+            id: "default".into(),
+            name: "Default Windows audio input".into(),
+        },
+        AudioDevice {
+            id: "wasapi_loopback".into(),
+            name: "Default Windows playback loopback".into(),
+        },
     ])
 }
 

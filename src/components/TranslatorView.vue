@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CustomSelect from './CustomSelect.vue';
 import { ref, onMounted, onUnmounted } from 'vue';
-import { SysApi } from "../api";
+import { SysApi, VrctApi } from "../api";
 import { Mic, MicOff, Languages, Send, RefreshCw, Volume2, MonitorUp, Headphones, Ear, Lock, Settings } from 'lucide-vue-next';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit, listen } from '@tauri-apps/api/event';
@@ -97,26 +97,25 @@ onMounted(() => {
     } else if (payload.type === 'result') {
       // 别人说话的结果处理
       const sourceText = payload.text;
-      recognizedText.value = sourceText;
-      
-      try {
-        const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${otherSourceLang.value}&tl=${otherTargetLang.value}&dt=t&q=${encodeURIComponent(sourceText)}`);
-        const data = await res.json();
-        const translated = data[0].map((item: any) => item[0]).join('');
-        translatedText.value = translated;
+      if (!sourceText?.trim()) return;
+      const result = await handleVrctMessage(
+        sourceText,
+        'speaker',
+        otherSourceLang.value,
+        otherTargetLang.value,
+        otherEngine.value,
+        false,
+      );
+      if (isOverlayOpen.value) {
+        emit('cmd-update-translation', {
+          original: result.original,
+          translated: result.translated,
+          isSelf: false
+        });
+      }
         
         // 发送到覆盖层 (Overlay)
-        if (isOverlayOpen.value) {
-          emit('cmd-update-translation', {
-            original: sourceText,
-            translated: translated,
-            isSelf: false
-          });
-        }
         
-      } catch (e: any) {
-        console.error('Translation failed', e);
-      }
     }
   });
 });
@@ -228,40 +227,62 @@ const sendToChatbox = async (text: string) => {
 
 const translateEngine = ref('google'); // 'google', 'deepl', 'baidu'
 
+const backendService = (engine: string) => {
+  if (engine === 'google' || engine === 'cloud') return 'google_free';
+  return engine;
+};
+
+const handleVrctMessage = async (
+  text: string,
+  source: 'chat' | 'mic' | 'speaker',
+  sourceLanguage: string,
+  targetLanguage: string,
+  service: string,
+  sendOsc: boolean,
+) => {
+  const result = await VrctApi.processMessage({
+    req: {
+      text,
+      source,
+      source_lang: sourceLanguage,
+      target_lang: targetLanguage,
+      service: backendService(service),
+      send_osc: sendOsc,
+      complete: true,
+      notification: false,
+      update_overlay: true,
+      show_original_in_osc: showOriginalOsc.value,
+    }
+  });
+  recognizedText.value = result.original || text;
+  translatedText.value = result.translated || '';
+  return result;
+};
+
 const translateText = async (text: string) => {
   if (!text.trim()) return;
   
   isTranslating.value = true;
   try {
-    let result = '';
-    if (translateEngine.value === 'google') {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang.value.split('-')[0]}&tl=${targetLang.value.split('-')[0]}&dt=t&q=${encodeURIComponent(text)}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      if (data && data[0]) {
-        result = data[0].map((item: any) => item[0]).join('');
-      }
-    } else {
-      // Placeholder for DeepL or other engines
-      result = `[${translateEngine.value} Mock] ` + text;
-    }
+    const result = await handleVrctMessage(
+      text,
+      'mic',
+      sourceLang.value,
+      targetLang.value,
+      translateEngine.value,
+      autoSendOsc.value,
+    );
 
-    if (result) {
-      translatedText.value = result;
-      
-      if (autoSendOsc.value) {
-        const oscPayload = showOriginalOsc.value ? `${result} (${text})` : result;
-        await sendToChatbox(oscPayload);
-      }
+    if (result.translated) {
       if (autoPlayTts.value) {
-        playTts(result);
+        playTts(result.translated);
       }
       
       // Emit to overlay
       emit('translation-log', {
         type: 'self',
-        text: text,
-        translation: result
+        text: result.original,
+        translation: result.translated
       });
     }
   } catch (error) {

@@ -1,39 +1,17 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { mergeCookiesAndSave, normalizeAuthCookieJson } from './cookies';
 
-// [VRCX 对齐] Cookie 合并工具 — VRCX 的 CookieContainer 自动合并同名 cookie
-async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Promise<void> {
-  if (!newCookieJson) return;
-  try {
-    const newCookies: string[] = JSON.parse(newCookieJson);
-    if (!Array.isArray(newCookies) || newCookies.length === 0) return;
-
-    let existing: string[] = [];
-    try {
-      const stored = await invoke<string | null>('db_get_auth');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) existing = parsed;
-      }
-    } catch { /* no existing cookies */ }
-
-    const cookieMap = new Map<string, string>();
-    for (const c of existing) {
-      const name = c.split('=')[0];
-      if (name) cookieMap.set(name, c);
-    }
-    for (const c of newCookies) {
-      const name = c.split('=')[0];
-      if (name) cookieMap.set(name, c);
-    }
-
-    const merged = Array.from(cookieMap.values());
-    await invoke('db_save_auth', { cookie: JSON.stringify(merged) });
-  } catch { /* ignore merge errors */ }
+function buildVrchatApiUrl(url: string): string {
+  if (url.startsWith('http')) return url;
+  const endpoint = url.replace(/^\/+/, '').replace(/^api\/1\/?/i, '');
+  return `https://api.vrchat.cloud/api/1/${endpoint}`;
 }
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
     console.warn(`[Browser Mock] API Command: ${cmd}`, args);
+    if (cmd === 'vrc_execute') return Promise.resolve({ status: 200, data: '[]' }) as T;
+    if (cmd === 'db_get_auth') return Promise.resolve(null) as T;
     return Promise.resolve({} as T);
   }
   const startTime = performance.now();
@@ -79,7 +57,7 @@ export interface RequestOptions {
  */
 export async function request<T = any>(url: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method || 'GET';
-  let reqUrl = url.startsWith('http') ? url : `https://api.vrchat.cloud/api/1${url}`;
+  let reqUrl = buildVrchatApiUrl(url);
   let bodyStr = null;
   const headers: any = { ...options.headers };
 
@@ -109,6 +87,9 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
       }
     } catch { /* DB not ready */ }
   }
+  if (effectiveAuthCookie) {
+    effectiveAuthCookie = normalizeAuthCookieJson(effectiveAuthCookie);
+  }
 
   const executeRequest = async (cookie?: string) => {
     const res: any = await safeInvoke('vrc_execute', {
@@ -116,7 +97,10 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
     });
 
     if (res.auth_cookie && reqUrl.includes('api.vrchat.cloud')) {
-      await mergeCookiesAndSave(res.auth_cookie);
+      const mergedCookie = await mergeCookiesAndSave(res.auth_cookie);
+      if (mergedCookie) {
+        res.auth_cookie = mergedCookie;
+      }
     }
 
     return res;
@@ -132,30 +116,41 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
 
     // 处理 401 自动重试 (对齐 VRCX handleAutoLogin 逻辑)
     if (res.status === 401 && reqUrl.includes('api.vrchat.cloud') && !reqUrl.includes('/config')) {
-      const errMsg = parsed?.error?.message || '';
-      if (errMsg.includes('Missing Credentials') || errMsg.includes('missing credentials')) {
-        try {
-          const savedCookie = await invoke<string | null>('db_get_auth');
-          if (savedCookie) {
-            const retryRes: any = await safeInvoke('vrc_execute', {
-              options: { url: reqUrl, method, headers, body: bodyStr, auth_cookie: savedCookie }
-            });
-            if (retryRes.status >= 200 && retryRes.status < 300) {
-              res = retryRes;
-              if (res.data) {
-                try { parsed = JSON.parse(res.data); } catch { parsed = res.data; }
-              }
-            } else {
-              window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
+      try {
+        const savedCookie = await invoke<string | null>('db_get_auth');
+        const retryCookie = savedCookie ? normalizeAuthCookieJson(savedCookie) : null;
+        if (retryCookie) {
+          const retryRes: any = await safeInvoke('vrc_execute', {
+            options: { url: reqUrl, method, headers, body: bodyStr, auth_cookie: retryCookie }
+          });
+          if (retryRes.status >= 200 && retryRes.status < 300) {
+            res = retryRes;
+            if (retryRes.auth_cookie) {
+              await mergeCookiesAndSave(retryRes.auth_cookie);
+            }
+            if (res.data) {
+              try { parsed = JSON.parse(res.data); } catch { parsed = res.data; }
             }
           } else {
             window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
           }
-        } catch { /* ignore */ }
+        } else {
+          window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
+        }
+      } catch {
+        window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
       }
     }
 
     if (res.status >= 200 && res.status < 300) {
+      if (
+        res.auth_cookie &&
+        parsed &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed)
+      ) {
+        (parsed as any).auth_cookie = res.auth_cookie;
+      }
       return parsed;
     } else {
       const err = parsed?.error?.message || `HTTP ${res.status}: ${res.data}`;

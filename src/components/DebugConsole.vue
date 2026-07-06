@@ -127,27 +127,26 @@ const formatArgs = (args: any) => {
 </script>
 
 <template>
-  <!-- 悬浮触发按钮 -->
-  <button
-    v-if="!isVisible && isMasterEnabled"
-    class="fixed bottom-4 right-4 z-[999] bg-[#000000] hover:bg-[#111111] text-primary p-3 rounded-full shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all hover:scale-110 border border-primary/50 flex items-center justify-center group"
-    @click="isVisible = true"
-  >
-    <Terminal :size="20" />
-    <span class="absolute right-full mr-3 whitespace-nowrap bg-[#000000] text-xs text-primary px-2 py-1 rounded border border-primary/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
-  </button>
+   <!-- 悬浮触发按钮 -->
+   <button
+     v-if="!isVisible && isMasterEnabled"
+     class="fixed bottom-4 right-4 z-[999] bg-[var(--theme-bg-main)]/90 hover:bg-[var(--theme-bg-main)]/80 text-primary p-3 rounded-full shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all hover:scale-110 border border-primary/50 flex items-center justify-center group"
+     @click="isVisible = true"
+   >
+     <Terminal :size="20" />
+     <span class="absolute right-full mr-3 whitespace-nowrap bg-[var(--theme-bg-main)]/90 text-xs text-primary px-2 py-1 rounded border border-primary/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{{ t('debug.open_debugger') }}</span>
+   </button>
 
-  <!-- 调试控制台面板 -->
-  <div
-    v-if="isVisible && isMasterEnabled" 
-    class="fixed bottom-0 right-0 z-[1000] bg-[#000000] shadow-[0_0_30px_rgba(var(--theme-primary),0.1)] border-l border-t border-primary/30 flex flex-col transition-all duration-300 ease-in-out"
-    :class="isExpanded ? 'w-full h-[60vh]' : 'w-[450px] h-[400px] rounded-tl-2xl'"
-  >
+   <!-- 调试控制台面板 -->
+   <div
+     v-if="isVisible && isMasterEnabled" 
+     class="fixed bottom-16 right-4 z-[1000] bg-[var(--theme-bg-main)]/95 backdrop-blur-md shadow-2xl border border-primary/30 rounded-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden"
+     :style="isExpanded ? 'width: 600px; height: 70vh;' : 'width: 420px; height: 320px;'"
+   >
     <!-- 头部工具栏 -->
-    <div
-      class="h-10 bg-[#000000] flex items-center justify-between px-3 border-b border-primary/30 shrink-0"
-      :class="{ 'rounded-tl-2xl': !isExpanded }"
-    >
+       <div
+         class="h-10 bg-[var(--theme-bg-main)]/90 flex items-center justify-between px-3 border-b border-primary/30 shrink-0 rounded-t-2xl"
+       >
       <div class="flex items-center gap-2 text-primary font-mono text-xs select-none font-bold">
         <Terminal
           :size="14"
@@ -157,21 +156,21 @@ const formatArgs = (args: any) => {
       </div>
       <div class="flex items-center gap-1.5">
         <button
-          class="p-1 hover:bg-primary/20 text-primary/70 hover:text-primary rounded transition-colors"
+          class="p-1 bg-surface-hover hover:bg-primary text-primary hover:text-white border border-border-soft hover:border-primary rounded transition-colors shadow-sm"
           :title="t('debug.export_logs')"
           @click="exportLogs"
         >
           <Download :size="14" />
         </button>
         <button
-          class="p-1 hover:bg-red-500/20 text-primary/70 hover:text-red-400 rounded transition-colors"
+          class="p-1 bg-surface-hover hover:bg-red-500/20 text-primary hover:text-red-400 border border-border-soft hover:border-red-500/30 rounded transition-colors shadow-sm"
           :title="t('debug.clear_logs')"
           @click="clearLogs"
         >
           <Trash2 :size="14" />
         </button>
         <button
-          class="p-1 hover:bg-primary/20 text-primary/70 hover:text-primary rounded transition-colors"
+          class="p-1 bg-surface-hover hover:bg-primary text-primary hover:text-white border border-border-soft hover:border-primary rounded transition-colors shadow-sm"
           :title="isExpanded ? t('debug.restore') : t('debug.maximize')"
           @click="isExpanded = !isExpanded"
         >
@@ -191,10 +190,10 @@ const formatArgs = (args: any) => {
       </div>
     </div>
 
-    <div
-      ref="logContainer"
-      class="flex-1 overflow-y-auto p-2 space-y-2 bg-[#000000] font-mono text-[11px] custom-scrollbar"
-    >
+     <div
+       ref="logContainer"
+       class="flex-1 overflow-y-auto p-2 space-y-2 bg-[var(--theme-bg-main)]/90 font-mono text-[11px] custom-scrollbar"
+     >
       <div
         v-if="logs.length === 0"
         class="flex h-full items-center justify-center text-primary/50 italic select-none"
@@ -206,7 +205,7 @@ const formatArgs = (args: any) => {
         v-for="(log, idx) in logs"
         :key="idx" 
         class="rounded p-2 relative group"
-        :class="log.type === 'error' ? 'bg-red-950/30 border border-red-900/50 text-red-400' : 'bg-[#000000] border border-primary/20 text-primary'"
+        :class="log.type === 'error' ? 'bg-red-950/30 border border-red-900/50 text-red-400' : 'bg-[var(--theme-bg-main)]/90 border border-primary/20 text-primary'"
       >
         <div class="flex items-center justify-between mb-1 opacity-80">
           <div class="flex items-center gap-1.5">

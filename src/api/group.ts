@@ -52,6 +52,15 @@ export const GroupApi = {
   respondGroupJoinRequest: (params: { groupId: string, requestId: string, action: 'accept' | 'reject' }) =>
     request(`/groups/${params.groupId}/requests/${params.requestId}`, { method: 'PUT', params: { action: params.action } }),
 
-  searchGroups: (params: { query: string, n?: number, offset?: number }) =>
-    request('/groups', { method: 'GET', params: { search: params.query, n: params.n, offset: params.offset } }),
+  searchGroups: (params: { query: string, n?: number, offset?: number, order?: string, sortBy?: string }) =>
+    request('/groups', {
+      method: 'GET',
+      params: {
+        query: params.query,
+        n: params.n,
+        offset: params.offset,
+        order: params.order || 'descending',
+        sortBy: params.sortBy || 'created'
+      }
+    }),
 };

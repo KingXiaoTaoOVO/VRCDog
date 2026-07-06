@@ -49,15 +49,18 @@ import HeatmapView from './components/HeatmapView.vue';
 import NotesView from './components/NotesView.vue';
 import StatusPresetsView from './components/StatusPresetsView.vue';
 import BilidownView from './components/BilidownView.vue';
+import DanmakuView from './components/DanmakuView.vue';
 import ToolsView from './components/ToolsView.vue';
 import TranslatorView from './components/TranslatorView.vue';
 import OvrTranslatorView from './components/OvrTranslatorView.vue';
 import ExportView from './components/ExportView.vue';
 import EnvView from './components/EnvView.vue';
+import RemoteAssistView from './components/RemoteAssistView.vue';
 
 // Assets
 import dogImg from './assets/dog.jpg';
 import { Loader2 } from 'lucide-vue-next';
+import { setAppLocale } from './i18n';
 
 const { t, locale } = useI18n({ useScope: 'global' });
 
@@ -74,33 +77,36 @@ const isOverlayMode = window.location.search.includes('mode=overlay');
 watchEffect(() => {
   const root = document.documentElement;
   const theme = currentTheme.value;
-  root.style.setProperty('--color-primary', theme.colors.primaryBtnBg);
-  root.style.setProperty('--color-primary-hover', theme.colors.primaryBtnHover);
-  root.style.setProperty('--color-background', theme.colors.bgMain);
-  root.style.setProperty('--color-surface', theme.colors.surface);
-  root.style.setProperty('--color-surface-hover', theme.colors.surfaceHover);
-  root.style.setProperty('--color-text', theme.colors.textStrong);
-  root.style.setProperty('--color-text-muted', theme.colors.textSoft);
-  root.style.setProperty('--color-border-strong', theme.colors.borderStrong);
-  root.style.setProperty('--color-border-soft', theme.colors.borderSoft);
-  root.style.setProperty('--color-blob1', theme.colors.blob1 || theme.colors.primaryBtnBg);
-  root.style.setProperty('--color-blob2', theme.colors.blob2 || theme.colors.primaryBtnBg);
+  root.style.setProperty('--theme-bg-main', theme.colors.bgMain);
+  root.style.setProperty('--theme-surface', theme.colors.surface);
+  root.style.setProperty('--theme-surface-hover', theme.colors.surfaceHover);
+  root.style.setProperty('--theme-text', theme.colors.text);
+  root.style.setProperty('--theme-text-strong', theme.colors.textStrong);
+  root.style.setProperty('--theme-text-soft', theme.colors.textSoft);
+  root.style.setProperty('--theme-text-muted', theme.colors.textMuted);
+  root.style.setProperty('--theme-border-strong', theme.colors.borderStrong);
+  root.style.setProperty('--theme-border-soft', theme.colors.borderSoft);
+  root.style.setProperty('--theme-blob1', theme.colors.blob1 || theme.colors.primaryBtnBg);
+  root.style.setProperty('--theme-blob2', theme.colors.blob2 || theme.colors.primaryBtnBg);
+  root.style.setProperty('--theme-primary', theme.colors.primaryBtnBg);
+  root.style.setProperty('--theme-primary-hover', theme.colors.primaryBtnHover);
+  root.style.setProperty('--theme-active-bg', theme.colors.activeBg);
+  root.style.setProperty('--theme-glass-effect', theme.colors.glassEffect);
+  root.style.setProperty('--theme-terminal-bg', theme.colors.terminalBg);
 });
 
 const handleRoleSelected = async (payload: { role: 'client' | 'server', url?: string }) => {
   authStore.appRole = payload.role;
   if (payload.role === 'client') {
     authStore.clientServerUrl = payload.url || '';
-    authStore.tryAutoLogin();
+    // 不调用 tryAutoLogin —— 用户必须手动登录或点击已保存账号
+    // 自动登录仅由 LoginView 里的 loginWithSavedAccount 触发
   }
 };
 
 window.addEventListener('settings-updated', (e: any) => {
   if (e.detail?.language) {
-    if (i18n.global) {
-      (i18n.global.locale as any).value = e.detail.language;
-    }
-    locale.value = e.detail.language;
+    locale.value = setAppLocale(e.detail.language, { persist: false });
   }
 });
 
@@ -265,9 +271,9 @@ if (typeof window !== 'undefined') {
     <LoginView @login-success="authStore.handleLoginSuccess" />
     <div
       v-if="banMessage"
-      class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999]"
+       class="fixed inset-0 bg-[var(--theme-bg-main)]/70 flex items-center justify-center z-[9999]"
     >
-      <div class="bg-black/90 border border-red-500 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
+       <div class="bg-[var(--theme-bg-main)]/90 border border-red-500 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
         <div class="text-4xl mb-3">
           🚫
         </div>
@@ -301,7 +307,7 @@ if (typeof window !== 'undefined') {
       <GalleryView v-else-if="activeTab === 'gallery'" />
       <ModerationView v-else-if="activeTab === 'moderation'" />
       <SettingsView v-else-if="activeTab === 'settings'" />
-      <FriendsListView v-else-if="activeTab === 'social'" />
+      <FriendsListView v-else-if="activeTab === 'social' || activeTab === 'friendslist'" />
       <SearchView v-else-if="activeTab === 'search'" />
       <NotificationsView v-else-if="activeTab === 'notifications'" />
       <MyAvatarsView v-else-if="activeTab === 'avatars'" />
@@ -314,9 +320,11 @@ if (typeof window !== 'undefined') {
         :user-id="currentUser?.id"
       />
       <BilidownView v-else-if="activeTab === 'bilidown'" />
+      <DanmakuView v-else-if="activeTab === 'danmaku'" />
       <ToolsView v-else-if="activeTab === 'tools'" />
       <TranslatorView v-else-if="activeTab === 'translator'" />
       <OvrTranslatorView v-else-if="activeTab === 'ovr'" />
+      <RemoteAssistView v-else-if="activeTab === 'remote'" />
       <ExportView v-else-if="activeTab === 'export'" />
       <EnvView v-else-if="activeTab === 'env'" />
     </KeepAlive>
@@ -332,7 +340,7 @@ if (typeof window !== 'undefined') {
     
     <div
       v-if="clientServerUrl && !serverConnected"
-      class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9998]"
+       class="fixed inset-0 bg-[var(--theme-bg-main)]/80 backdrop-blur-sm flex items-center justify-center z-[9998]"
     >
       <div class="bg-surface border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">

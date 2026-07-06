@@ -207,10 +207,10 @@ const handleWorldUpload = async (e: Event) => {
 
           <button
             class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm" 
-            :class="entityStore.isWorldFavorited ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' : 'bg-primary/10 border-primary text-primary hover:bg-primary/10'"
+            :class="entityStore.isWorldFavorited ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' : 'bg-primary border-primary text-white hover:bg-primary-hover shadow-primary/20'"
             @click="entityStore.toggleFavoriteWorld()"
           >
-            <span>{{ entityStore.isWorldFavorited ? t('search.remove_favorite') : '⭐ ' + t('search.add_favorite') }}</span>
+            <span>{{ entityStore.isWorldFavorited ? t('search.remove_favorite') : t('search.add_favorite') }}</span>
           </button>
         </div>
 
@@ -314,10 +314,10 @@ const handleWorldUpload = async (e: Event) => {
           
           <button
             class="px-6 py-2.5 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm" 
-            :class="entityStore.isAvatarFavorited ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' : 'bg-primary/10 border-primary text-primary hover:bg-primary/10'"
+            :class="entityStore.isAvatarFavorited ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100' : 'bg-primary border-primary text-white hover:bg-primary-hover shadow-primary/20'"
             @click="entityStore.toggleFavoriteAvatar()"
           >
-            <span>{{ entityStore.isAvatarFavorited ? t('search.remove_favorite') : '⭐ ' + t('search.add_favorite') }}</span>
+            <span>{{ entityStore.isAvatarFavorited ? t('search.remove_favorite') : t('search.add_favorite') }}</span>
           </button>
         </div>
       </div>

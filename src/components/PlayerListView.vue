@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { GamelogApi, VrcApi, DbApi } from "../api";
-import { Users, Search, MapPin, Bone, StickyNote } from 'lucide-vue-next';
+import { VrcApi, DbApi } from "../api";
+import { Users, Search, MapPin, Bone, StickyNote, RefreshCcw } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import VrcResourceCard from './VrcResourceCard.vue';
 import { useUserProfileStore } from '../stores/userProfile';
+import { useAuthStore } from '../stores/authStore';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
+const authStore = useAuthStore();
 
 interface Player {
   name: string;
@@ -18,71 +20,178 @@ interface Player {
 }
 
 const currentRoom = ref(t('player_list.unknown_instance'));
+const currentLocation = ref('');
+const instancePlayerCount = ref<number | null>(null);
 const players = ref<Player[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
 const resolvedNames = new Set<string>();
+let refreshTimer: number | null = null;
+
+function parseLocation(location: string): { worldId: string; instanceId: string } | null {
+  if (!location || !location.startsWith('wrld_') || !location.includes(':')) return null;
+  const splitAt = location.indexOf(':');
+  const worldId = location.slice(0, splitAt);
+  const instanceId = location.slice(splitAt + 1);
+  if (!worldId || !instanceId) return null;
+  return { worldId, instanceId };
+}
+
+function readableLocationState(location: string): string {
+  if (location === 'private') return t('player_list.private_location');
+  if (location === 'offline') return t('player_list.offline_location');
+  if (location === 'traveling') return t('player_list.traveling_location');
+  return t('player_list.unknown_instance');
+}
+
+function mapInstanceUser(raw: any): Player | null {
+  const id = raw?.id || raw?.userId || raw?.user_id;
+  const displayName = raw?.displayName || raw?.display_name || raw?.username || raw?.name || id;
+  if (!displayName) return null;
+  return {
+    name: displayName,
+    joinTime: raw?.joinedAt || raw?.joined_at || raw?.last_activity || new Date().toISOString(),
+    userData: {
+      ...raw,
+      id,
+      displayName,
+      currentAvatarThumbnailImageUrl: raw?.currentAvatarThumbnailImageUrl || raw?.profilePicOverride || raw?.userIcon || raw?.avatarUrl,
+    },
+    loadingData: false,
+  };
+}
+
+async function buildApiFallbackPlayers(freshUser: any, location: string): Promise<Player[]> {
+  const sameRoom = new Map<string, Player>();
+
+  if (freshUser?.id || freshUser?.displayName) {
+    sameRoom.set(freshUser.id || freshUser.displayName, {
+      name: freshUser.displayName || freshUser.username || t('charts.me'),
+      joinTime: freshUser.last_login || new Date().toISOString(),
+      userData: freshUser,
+      loadingData: false,
+    });
+  }
+
+  try {
+    const pageSize = 100;
+    for (let offset = 0; offset < 500; offset += pageSize) {
+      const friends: any[] = await VrcApi.getFriends({ n: pageSize, offset, offline: false });
+      if (!Array.isArray(friends) || friends.length === 0) break;
+
+      for (const friend of friends) {
+        if (friend?.location === location) {
+          const player = mapInstanceUser(friend);
+          if (player) sameRoom.set(friend.id || player.name, player);
+        }
+      }
+
+      if (friends.length < pageSize) break;
+    }
+  } catch (e) {
+    console.warn('Failed to load same-location friends', e);
+  }
+
+  return Array.from(sameRoom.values());
+}
 
 const fetchPlayerList = async () => {
+  loading.value = true;
   try {
-    const res = await DbApi.getGameLogs({ limit: 5000 });
-    const chronological = [...res].reverse();
-    
-    let currentPlayers = new Map<string, string>();
-    let roomName = t('player_list.unknown_instance');
-
-    for (const evt of chronological) {
-      if (evt.event_type === 'Instance Joined') {
-        currentPlayers.clear();
-        roomName = evt.content;
-      } else if (evt.event_type === 'Player Joined') {
-        currentPlayers.set(evt.content, evt.time);
-      } else if (evt.event_type === 'Player Left') {
-        currentPlayers.delete(evt.content);
-      }
+    const freshUser: any = await VrcApi.getCurrentUser();
+    if (freshUser?.id) {
+      authStore.currentUser = { ...(authStore.currentUser || {}), ...freshUser } as any;
     }
 
-    currentRoom.value = roomName;
-    
-    // Merge new players into existing list to preserve resolved user data
-    const newPlayerMap = new Map(
-      Array.from(currentPlayers.entries()).map(([name, joinTime]) => [name, joinTime])
-    );
-    
-    const updatedPlayers: Player[] = [];
-    
-    for (const [name, joinTime] of newPlayerMap.entries()) {
-      const existing = players.value.find(p => p.name === name);
+    const location = String(freshUser?.location || authStore.currentUser?.location || '');
+    currentLocation.value = location;
+    const parsed = parseLocation(location);
+
+    if (!parsed) {
+      currentRoom.value = readableLocationState(location);
+      instancePlayerCount.value = null;
+      players.value = [];
+      return;
+    }
+
+    const [world, instance]: any[] = await Promise.all([
+      VrcApi.getWorld({ worldId: parsed.worldId }).catch(() => null),
+      VrcApi.getInstance({ worldId: parsed.worldId, instanceId: parsed.instanceId }).catch(() => null),
+    ]);
+
+    currentRoom.value = world?.name
+      ? `${world.name} · ${parsed.instanceId}`
+      : `${parsed.worldId}:${parsed.instanceId}`;
+
+    instancePlayerCount.value = typeof instance?.n_users === 'number'
+      ? instance.n_users
+      : typeof instance?.userCount === 'number'
+        ? instance.userCount
+        : null;
+
+    const instanceUsers = Array.isArray(instance?.users)
+      ? instance.users
+      : Array.isArray(instance?.players)
+        ? instance.players
+        : [];
+
+    let nextPlayers: Player[] = instanceUsers
+      .map(mapInstanceUser)
+      .filter((player: Player | null): player is Player => Boolean(player));
+
+    if (nextPlayers.length === 0) {
+      nextPlayers = await buildApiFallbackPlayers(freshUser, location);
+    }
+
+    const updatedPlayers: Player[] = nextPlayers.map((player: Player) => {
+      const existing = players.value.find(p => p.userData?.id && p.userData.id === player.userData?.id)
+        || players.value.find(p => p.name === player.name);
       if (existing) {
-        updatedPlayers.push(existing);
-      } else {
-        const newPlayer: Player = { name, joinTime, loadingData: false };
-        updatedPlayers.push(newPlayer);
-        // Async resolve user data
-        resolvePlayerData(newPlayer);
+        return { ...existing, ...player, note: existing.note, loadingData: false };
       }
+      if (!player.userData) resolvePlayerData(player);
+      return player;
+    });
+
+    if (freshUser?.displayName && !updatedPlayers.some(p => p.userData?.id === freshUser.id || p.name === freshUser.displayName)) {
+      updatedPlayers.unshift({
+        name: freshUser.displayName,
+        joinTime: freshUser.last_login || new Date().toISOString(),
+        userData: freshUser,
+        loadingData: false,
+      });
     }
 
     players.value = updatedPlayers.sort((a, b) => b.joinTime.localeCompare(a.joinTime));
-
   } catch (err) {
     console.error(err);
+    players.value = [];
+    instancePlayerCount.value = null;
+    currentRoom.value = currentLocation.value ? readableLocationState(currentLocation.value) : t('player_list.unknown_instance');
   } finally {
     loading.value = false;
   }
+};
+
+const formatJoinTime = (time: string) => {
+  const date = new Date(time);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return time?.slice(11, 16) || time || '--:--';
 };
 
 const resolvePlayerData = async (player: Player) => {
   if (resolvedNames.has(player.name) || player.loadingData) return;
   player.loadingData = true;
   try {
-    const res = await VrcApi.request(`/api/1/users?search=${encodeURIComponent(player.name)}&n=1`, { method: 'GET' });
+    const res = await VrcApi.searchUsers({ query: player.name, n: 1, offset: 0 });
     const p = players.value.find(x => x.name === player.name) || player;
     if (res && res.length > 0 && res[0].displayName === player.name) {
       p.userData = res[0];
       
       try {
-        const noteRes = await DbApi.getNote({ targetId: res[0].id });
+        const noteRes = await DbApi.getNote({ userId: res[0].id });
         if (noteRes && noteRes.note) {
            p.note = noteRes.note;
         }
@@ -100,10 +209,12 @@ const resolvePlayerData = async (player: Player) => {
 
 onMounted(() => {
   fetchPlayerList();
+  refreshTimer = window.setInterval(fetchPlayerList, 30000);
   window.addEventListener('vrc-gamelog-updated', fetchPlayerList);
 });
 
 onUnmounted(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer);
   window.removeEventListener('vrc-gamelog-updated', fetchPlayerList);
 });
 
@@ -121,31 +232,40 @@ const openPlayerProfile = (player: Player) => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-surface-hover p-6 rounded-3xl relative">
-    <header class="mb-6 flex justify-between items-end shrink-0">
+  <div class="h-full flex flex-col bg-surface-hover p-6 rounded-xl relative overflow-hidden">
+    <div class="absolute inset-0 pointer-events-none opacity-70" style="background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--theme-primary) 13%, transparent), transparent 34%), radial-gradient(circle at 95% 8%, color-mix(in srgb, var(--theme-primary-hover) 10%, transparent), transparent 30%);" />
+    <header class="mb-6 flex justify-between items-end shrink-0 relative z-10">
       <div>
         <h1 class="text-2xl font-extrabold text-text tracking-tight flex items-center gap-3">
           {{ t('player_list.title') }}
-          <span class="inline-flex items-center justify-center p-1.5 bg-blue-100 rounded-xl shadow-sm">
-            <Users class="w-5 h-5 text-blue-600" />
+          <span class="inline-flex items-center justify-center p-1.5 rounded-xl shadow-sm border border-primary/20 bg-primary/10">
+            <Users class="w-5 h-5 text-primary" />
           </span>
         </h1>
         <p class="text-text-muted font-medium mt-2 flex items-center gap-1.5 text-sm">
           <MapPin
             :size="14"
             class="text-border-strong"
-          /> {{ t('player_list.current_location') }} 
-          <span class="font-bold text-text bg-surface px-2 py-0.5 rounded-md border-border-soft shadow-sm">{{ currentRoom }}</span>
+          /> {{ t('player_list.current_location') }}
+          <span class="font-bold text-text bg-surface/80 backdrop-blur px-2 py-0.5 rounded-md border border-border-soft shadow-sm max-w-[560px] truncate">{{ currentRoom }}</span>
         </p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-xs font-bold text-blue-800 bg-blue-100/80 px-3 py-1.5 rounded-full border-blue-200 shadow-sm">
-          {{ t('player_list.total_players', { count: players.length }) }}
+        <span class="text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-md border border-primary/20 shadow-sm backdrop-blur">
+          {{ t('player_list.total_players', { count: instancePlayerCount ?? players.length }) }}
         </span>
+        <button
+          class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-md bg-surface/80 border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 transition-all shadow-sm"
+          :disabled="loading"
+          @click="fetchPlayerList"
+        >
+          <RefreshCcw :size="13" :class="{ 'animate-spin': loading }" />
+          {{ t('player_list.refresh') }}
+        </button>
       </div>
     </header>
 
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex flex-col overflow-hidden relative z-10">
       <!-- Search -->
       <div class="relative mb-4 shrink-0">
         <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 text-border-strong w-4 h-4" />
@@ -153,7 +273,7 @@ const openPlayerProfile = (player: Player) => {
           v-model="searchQuery"
           type="text"
           :placeholder="t('player_list.search_placeholder')"
-          class="w-full pl-10 pr-4 py-2.5 bg-surface border-border-soft focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 rounded-xl outline-none transition-all text-text text-sm shadow-sm"
+          class="w-full pl-10 pr-4 py-2.5 bg-surface border border-border-soft focus:border-primary focus:ring-4 focus:ring-primary/10 rounded-lg outline-none transition-all text-text text-sm shadow-sm"
         >
       </div>
 
@@ -190,7 +310,7 @@ const openPlayerProfile = (player: Player) => {
 
         <div
           v-else
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
         >
           <div
             v-for="player in filteredPlayers"
@@ -199,7 +319,7 @@ const openPlayerProfile = (player: Player) => {
           >
             <VrcResourceCard
               v-if="player.userData"
-              type="avatar"
+              type="user"
               :data="player.userData"
               :is-user="true"
               @click="openPlayerProfile(player)"
@@ -207,24 +327,27 @@ const openPlayerProfile = (player: Player) => {
             
             <div
               v-else
-              class="h-32 bg-surface rounded-2xl overflow-hidden border-border-soft shadow-sm flex items-center justify-center relative"
+              class="h-36 bg-surface/85 backdrop-blur rounded-xl overflow-hidden border border-border-soft shadow-sm flex items-center justify-center relative transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
             >
               <div
                 v-if="player.loadingData"
-                class="absolute inset-0 bg-surface-hover flex items-center justify-center"
+                class="absolute inset-0 bg-surface-hover/80 flex items-center justify-center"
               >
-                <div class="animate-pulse w-8 h-8 rounded-full bg-background/20" />
+                <div class="animate-pulse w-10 h-10 rounded-full bg-primary/20" />
               </div>
               <div
                 v-else
                 class="text-center p-4"
               >
-                <div class="w-12 h-12 rounded-full bg-surface flex items-center justify-center text-text-muted font-black text-xl uppercase mx-auto mb-2 border-border-soft shadow-sm">
+                <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-xl uppercase mx-auto mb-3 border border-primary/20 shadow-sm">
                   {{ player.name.charAt(0) }}
                 </div>
-                <h3 class="font-bold text-text-muted text-sm truncate max-w-[150px] mx-auto">
+                <h3 class="font-bold text-text text-sm truncate max-w-[180px] mx-auto">
                   {{ player.name }}
                 </h3>
+                <p class="text-[11px] text-text-muted font-mono mt-1">
+                  {{ formatJoinTime(player.joinTime) }}
+                </p>
               </div>
             </div>
 
@@ -237,8 +360,8 @@ const openPlayerProfile = (player: Player) => {
             </div>
 
             <!-- Join Time Badge -->
-            <div class="absolute top-2 right-2 bg-background/80 backdrop-blur-md/60 backdrop-blur-md text-white text-[9px] px-1.5 py-0.5 rounded uppercase font-mono font-bold border-transparent opacity-80 pointer-events-none z-10 shadow-sm">
-              {{ player.joinTime }}
+            <div class="absolute top-2 right-2 bg-surface/90 backdrop-blur-md text-text text-[10px] px-2 py-0.5 rounded-md uppercase font-mono font-bold border border-border-soft pointer-events-none z-10 shadow-sm">
+              {{ formatJoinTime(player.joinTime) }}
             </div>
           </div>
         </div>

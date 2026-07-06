@@ -259,10 +259,10 @@ const openPlayerProfile = (friend: VrcUser) => {
       <div class="bg-[var(--theme-surface)] backdrop-blur-xl border border-[var(--theme-border-soft)] rounded-3xl p-6 shadow-lg shadow-black/5 flex flex-col min-h-0">
         <div class="flex items-center justify-between mb-6 shrink-0">
           <h3 class="text-xl font-extrabold text-[var(--theme-text-strong)] flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full bg-[var(--theme-primary)] animate-pulse" />
+            <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             {{ t('dashboard.active_friends') }}
           </h3>
-          <span class="text-xs font-bold text-[var(--theme-text-muted)]">{{ onlineFriendsCount }} Online</span>
+          <span class="text-xs font-bold text-[var(--theme-text-muted)]">{{ onlineFriendsCount }} {{ t('dashboard.online') }}</span>
         </div>
         
         <div class="flex-1 overflow-y-auto custom-scrollbar space-y-1.5 pr-2 -mr-2">
@@ -287,7 +287,7 @@ const openPlayerProfile = (friend: VrcUser) => {
                 :user="friend"
                 custom-class="w-11 h-11 rounded-full object-cover shadow-sm bg-[var(--theme-surface)] border border-[var(--theme-border-soft)]"
               />
-              <div class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--theme-primary)] border border-[var(--theme-border-soft)]" />
+              <div class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-green-500 border border-[var(--theme-border-soft)]" />
             </div>
             
             <div class="flex-1 min-w-0">
@@ -299,7 +299,7 @@ const openPlayerProfile = (friend: VrcUser) => {
                   v-if="friend.location && friend.location !== 'private'"
                   class="w-3 h-3 opacity-70"
                 />
-                {{ friend.location === 'private' ? 'Private Instance' : (friend.statusDescription || 'Online') }}
+                {{ friend.location === 'private' ? t('dashboard.private_instance') : (friend.statusDescription || t('dashboard.online')) }}
               </p>
             </div>
             <div class="w-6 h-6 rounded-full bg-[var(--theme-surface-hover)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
