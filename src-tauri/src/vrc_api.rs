@@ -2,15 +2,16 @@ use base64::Engine;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::State;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 const VRC_USER_AGENT: &str = "VRCX";
 
 pub struct VrcState {
-    pub client: Arc<Mutex<Client>>,
-    pub proxy_url: Arc<Mutex<Option<String>>>,
-    pub cookie_jar: Arc<Mutex<Arc<reqwest::cookie::Jar>>>,
+    pub client: RwLock<Client>,
+    pub proxy_url: RwLock<Option<String>>,
+    pub cookie_jar: RwLock<Arc<reqwest::cookie::Jar>>,
 }
 
 impl Default for VrcState {
@@ -23,9 +24,9 @@ impl VrcState {
     pub fn new() -> Self {
         let jar = Arc::new(reqwest::cookie::Jar::default());
         Self {
-            client: Arc::new(Mutex::new(build_vrc_client(None, None, jar.clone()))),
-            proxy_url: Arc::new(Mutex::new(None)),
-            cookie_jar: Arc::new(Mutex::new(jar)),
+            client: RwLock::new(build_vrc_client(None, None, jar.clone())),
+            proxy_url: RwLock::new(None),
+            cookie_jar: RwLock::new(jar),
         }
     }
 }
@@ -55,7 +56,11 @@ fn build_vrc_client(
 
     let mut builder = Client::builder()
         .cookie_provider(jar)
-        .default_headers(headers);
+        .default_headers(headers)
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .tcp_keepalive(Duration::from_secs(30))
+        .pool_max_idle_per_host(10);
 
     if let Some(url) = proxy_url {
         if !url.is_empty() {
@@ -74,27 +79,27 @@ pub async fn vrc_set_proxy(
     proxy_url: Option<String>,
     auth_cookie: Option<String>,
 ) -> Result<(), String> {
-    let mut proxy_lock = state.proxy_url.lock().await;
+    let mut proxy_lock = state.proxy_url.write().await;
     *proxy_lock = proxy_url.clone();
 
     let jar = Arc::new(reqwest::cookie::Jar::default());
-    let mut jar_lock = state.cookie_jar.lock().await;
+    let mut jar_lock = state.cookie_jar.write().await;
     *jar_lock = jar.clone();
 
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     *client = build_vrc_client(proxy_url, auth_cookie, jar);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn vrc_clear_cookies(state: tauri::State<'_, VrcState>) -> Result<(), String> {
-    let proxy_url = state.proxy_url.lock().await.clone();
+    let proxy_url = state.proxy_url.read().await.clone();
 
     let jar = Arc::new(reqwest::cookie::Jar::default());
-    let mut jar_lock = state.cookie_jar.lock().await;
+    let mut jar_lock = state.cookie_jar.write().await;
     *jar_lock = jar.clone();
 
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     *client = build_vrc_client(proxy_url, None, jar);
     Ok(())
 }
@@ -104,7 +109,7 @@ pub async fn vrc_apply_auth_cookie(
     state: tauri::State<'_, VrcState>,
     auth_cookie: String,
 ) -> Result<(), String> {
-    let jar = state.cookie_jar.lock().await.clone();
+    let jar = state.cookie_jar.read().await.clone();
     let url = "https://api.vrchat.cloud"
         .parse::<reqwest::Url>()
         .map_err(|e| e.to_string())?;
@@ -214,7 +219,7 @@ pub async fn vrc_get_image_bytes(
     if url.is_empty() {
         return Err("Empty URL".to_string());
     }
-    let client = state.client.lock().await.clone();
+    let client = state.client.read().await.clone();
 
     let mut req = client.get(&url);
 
@@ -288,7 +293,7 @@ pub async fn vrc_execute(
     options: RequestOptions,
 ) -> Result<ResponsePayload, String> {
     // Use the shared client to preserve session cookies across requests
-    let client = state.client.lock().await.clone();
+    let client = state.client.read().await.clone();
 
     let method = match options.method.to_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
@@ -304,7 +309,7 @@ pub async fn vrc_execute(
     // VRCX �?CookieContainer �?HttpClient 层面管理 Cookie，不会出现遗�?    // 我们使用双重保障：jar + header
     let mut direct_cookies: Vec<String> = Vec::new();
     if let Some(ref cv) = options.auth_cookie {
-        let jar = state.cookie_jar.lock().await.clone();
+        let jar = state.cookie_jar.read().await.clone();
         if let Ok(url) = "https://api.vrchat.cloud".parse::<reqwest::Url>() {
             direct_cookies = parse_auth_cookies(cv);
             for cookie in &direct_cookies {

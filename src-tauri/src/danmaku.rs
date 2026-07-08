@@ -621,9 +621,19 @@ async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<
     while !runtime.stop.load(Ordering::Acquire) {
         match run_bilibili_once(runtime.clone(), tx.clone()).await {
             Ok(()) => {
+                // 连接正常关闭（非错误），但未被要求停止
+                // 需要短暂等待并标记断开，避免立即重连造成空转
+                reconnect_count += 1;
+                set_status(&runtime, |status| {
+                    status.bili_connected = false;
+                    status.last_event = "bilibili_disconnected".to_string();
+                });
+                emit_status(&runtime.app, &runtime.status);
                 if runtime.stop.load(Ordering::Acquire) {
                     break;
                 }
+                let delay = Duration::from_secs((3 * reconnect_count.min(10)) as u64);
+                tokio::time::sleep(delay).await;
             }
             Err(err) => {
                 reconnect_count += 1;
@@ -1544,10 +1554,20 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
     let context = match init_result {
         Ok(Ok(context)) => context,
         Ok(Err(err)) => {
+            let err_str = format!("{err:?}");
+            // 检测 OpenVR 是否已被 OVR 翻译器初始化（同一进程只能 init 一次）
+            let msg = if err_str.to_lowercase().contains("init") && !err_str.to_lowercase().contains("not")
+                || err_str.to_lowercase().contains("already")
+            {
+                "SteamVR overlay is already initialized by OVR Translator; release and retry".to_string()
+            } else {
+                format!("OpenVR init failed: {err_str}")
+            };
             set_status(&runtime, |status| {
                 status.vr_initialized = false;
-                status.last_error = format!("OpenVR init failed: {err:?}");
+                status.last_error = msg;
             });
+            emit_log(&runtime.app, &format!("[VR Overlay] OpenVR init error: {err_str}"));
             emit_status(&runtime.app, &runtime.status);
             return;
         }
@@ -1555,8 +1575,9 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             set_status(&runtime, |status| {
                 status.vr_initialized = false;
                 status.last_error =
-                    "OpenVR is already initialized by another VrcDog overlay".to_string();
+                    "SteamVR overlay is already initialized by OVR Translator; release and retry".to_string();
             });
+            emit_log(&runtime.app, "[VR Overlay] OpenVR already initialized (panic path)");
             emit_status(&runtime.app, &runtime.status);
             return;
         }

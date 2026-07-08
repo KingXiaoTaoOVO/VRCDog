@@ -260,21 +260,21 @@ const themeStyles = computed(() => {
           </div>
         </div>
 
-        <!-- 实时数据流状态 (WebSocket) -->
+        <!-- 实时数据流状态 (WebSocket) — 仅在成功连接时显示 -->
         <div
-          class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between"
-          :class="wsState.connected ? 'bg-primary/5 border-primary/20 text-primary' : 'bg-orange-50 border-orange-200 text-orange-600'"
+          v-if="wsState.connected"
+          class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between bg-emerald-50 border-emerald-200 text-emerald-600"
         >
           <div class="flex items-center gap-1">
             <Activity
               :size="10"
-              :class="wsState.connected ? 'animate-pulse' : ''"
+              class="animate-pulse"
             />
-            <span>{{ wsState.connected ? $t('status.pipeline_online') : $t('status.pipeline_offline') }}</span>
+            <span>{{ $t('status.pipeline_online') }}</span>
           </div>
           <span
-            v-if="wsState.connected && wsState.messageCount > 0"
-            class="text-primary"
+            v-if="wsState.messageCount > 0"
+            class="text-emerald-600"
           >{{ $t('status.frames', { count: wsState.messageCount }) }}</span>
         </div>
 

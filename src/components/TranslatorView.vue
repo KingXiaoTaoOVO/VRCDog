@@ -225,12 +225,30 @@ const sendToChatbox = async (text: string) => {
   }
 };
 
-const translateEngine = ref('google'); // 'google', 'deepl', 'baidu'
+const translateEngine = ref('google_free'); // 'google_free', 'deepl', 'baidu'...
 
-const backendService = (engine: string) => {
-  if (engine === 'google' || engine === 'cloud') return 'google_free';
-  return engine;
-};
+const backendService = (engine: string) => engine; // 直接使用引擎标识，不再做映射
+
+const engineOptions = [
+  { label: '🌐 Google Translate (Free)', value: 'google_free' },
+  { label: '🆓 DeepL Free', value: 'deepl_free' },
+  { label: '💎 DeepL Pro', value: 'deepl' },
+  { label: '📘 Microsoft / Bing', value: 'microsoft' },
+  { label: '🐻 Baidu Translate', value: 'baidu' },
+  { label: '🇰🇷 Papago (Naver)', value: 'papago' },
+  { label: '🧠 Gemini (Google)', value: 'gemini' },
+  { label: '🔵 Tencent Translate', value: 'tencent' },
+  { label: '🤖 DeepSeek', value: 'deepseek' },
+  { label: '🟢 OpenAI (GPT)', value: 'openai' },
+  { label: '💜 SiliconFlow', value: 'siliconflow' },
+  { label: '🌙 Moonshot', value: 'moonshot' },
+  { label: '🟡 ZhiPu (GLM)', value: 'zhipu' },
+  { label: '⚡ Groq', value: 'groq' },
+  { label: '🔗 OpenRouter', value: 'openrouter' },
+  { label: '🖥️ Ollama (Local)', value: 'ollama' },
+  { label: '💻 LM Studio (Local)', value: 'lmstudio' },
+  { label: '🔧 Custom LLM', value: 'custom_llm' },
+];
 
 const handleVrctMessage = async (
   text: string,
@@ -479,11 +497,7 @@ const manualPlay = () => {
             </h3>
             <div class="mb-4">
               <label class="block text-[11px] font-extrabold text-text-muted uppercase tracking-wider mb-1.5">{{ t('translator.engine') }}</label>
-              <CustomSelect v-model="translateEngine" :options="[
-                  { label: 'Google Translate', value: 'google' },
-                  { label: 'DeepL Translate', value: 'deepl' },
-                  { label: 'Baidu Translate', value: 'baidu' }
-                ]" />
+              <CustomSelect v-model="translateEngine" :options="engineOptions" />
             </div>
             <div class="flex items-center gap-4">
               <div class="flex-1">

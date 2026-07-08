@@ -380,18 +380,28 @@ const start = async () => {
     await saveSettings();
     status.value = await DanmakuApi.start({ config: runtimeConfig() });
     if (config.value.enable_vr_overlay) {
-      await sleep(700);
-      const snapshot = await DanmakuApi.getStatus();
-      status.value = snapshot;
-      if (snapshot.last_error.includes('already initialized')) {
+      // 轮询等待 VR overlay 初始化结果（最长 3 秒），比固定 sleep 更可靠
+      for (let i = 0; i < 30; i++) {
+        await sleep(100);
+        const snapshot = await DanmakuApi.getStatus();
+        status.value = snapshot;
+        // VR 初始化已完成（成功或失败）则退出轮询
+        if (snapshot.vr_initialized || snapshot.last_error) break;
+      }
+      if (status.value.last_error.includes('already initialized')) {
         addLog('SteamVR overlay 被 OVR 翻译后端占用，正在释放并重试弹幕窗口');
         await DanmakuApi.stop();
         await OvrApi.shutdown().catch(() => {});
-        await sleep(500);
+        await sleep(800);
         status.value = await DanmakuApi.start({ config: runtimeConfig() });
+      } else if (status.value.last_error) {
+        addLog(`VR overlay 初始化失败: ${status.value.last_error}`, 'error');
       }
     }
-    addLog('弹幕服务已启动');
+    // 只在没有致命错误时显示启动成功
+    if (!status.value.last_error) {
+      addLog('弹幕服务已启动');
+    }
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -772,15 +782,18 @@ onUnmounted(() => {
           <div class="grid grid-cols-3 gap-2">
             <label>
               <span class="text-xs font-bold text-text-muted uppercase">x</span>
-              <input v-model.number="config.x" type="number" step="0.01" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
+              <input v-model.number="config.x" type="range" step="0.01" min="-2.0" max="2.0" class="mt-1 w-full accent-primary">
+              <span class="text-[10px] text-text-muted font-mono text-right block">{{ config.x.toFixed(2) }}</span>
             </label>
             <label>
               <span class="text-xs font-bold text-text-muted uppercase">y</span>
-              <input v-model.number="config.y" type="number" step="0.01" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
+              <input v-model.number="config.y" type="range" step="0.01" min="-2.0" max="2.0" class="mt-1 w-full accent-primary">
+              <span class="text-[10px] text-text-muted font-mono text-right block">{{ config.y.toFixed(2) }}</span>
             </label>
             <label>
               <span class="text-xs font-bold text-text-muted uppercase">z</span>
-              <input v-model.number="config.z" type="number" step="0.01" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
+              <input v-model.number="config.z" type="range" step="0.01" min="-2.0" max="2.0" class="mt-1 w-full accent-primary">
+              <span class="text-[10px] text-text-muted font-mono text-right block">{{ config.z.toFixed(2) }}</span>
             </label>
           </div>
           <div class="grid grid-cols-3 gap-2">

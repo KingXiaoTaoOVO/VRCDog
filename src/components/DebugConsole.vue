@@ -4,6 +4,7 @@ const { t } = useI18n();
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { DbApi } from '../api';
 import { Terminal, X, Trash2, Maximize2, Minimize2, CheckCircle2, AlertCircle, Download } from 'lucide-vue-next';
+import { setDebugLogEnabled } from '../api/debugConfig';
 
 interface DebugLogEntry {
   timestamp: string;
@@ -45,6 +46,7 @@ const handleSettingsUpdate = (event: Event) => {
   const e = event as CustomEvent;
   if (e.detail && typeof e.detail.enableDebugConsole === 'boolean') {
     isMasterEnabled.value = e.detail.enableDebugConsole;
+    setDebugLogEnabled(e.detail.enableDebugConsole);
     if (!isMasterEnabled.value) {
       isVisible.value = false;
       logs.value = [];
@@ -56,7 +58,9 @@ const loadConfig = async () => {
   try {
     const all = await DbApi.getAllSettings();
     if (all && all.enableDebugConsole !== undefined) {
-      isMasterEnabled.value = all.enableDebugConsole === 'true' || all.enableDebugConsole === true;
+      const enabled = all.enableDebugConsole === 'true' || all.enableDebugConsole === true;
+      isMasterEnabled.value = enabled;
+      setDebugLogEnabled(enabled);
     }
   } catch { /* ignore */ }
 };

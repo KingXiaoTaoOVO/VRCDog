@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { mergeCookiesAndSave, normalizeAuthCookieJson } from './cookies';
+import { isDebugLogEnabled } from './debugConfig';
 
 function buildVrchatApiUrl(url: string): string {
   if (url.startsWith('http')) return url;
@@ -30,16 +31,20 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
   try {
     const res = await invoke<T>(cmd, args);
     const duration = performance.now() - startTime;
-    window.dispatchEvent(new CustomEvent('app-debug-log', {
-      detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
-    }));
+    if (isDebugLogEnabled()) {
+      window.dispatchEvent(new CustomEvent('app-debug-log', {
+        detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
+      }));
+    }
     return res;
   } catch (error: any) {
     const duration = performance.now() - startTime;
     const errorMsg = error.message || (typeof error === 'string' ? error : "Unknown backend error");
-    window.dispatchEvent(new CustomEvent('app-debug-log', {
-      detail: { type: 'error', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), error: errorMsg, timestamp: new Date().toLocaleTimeString() }
-    }));
+    if (isDebugLogEnabled()) {
+      window.dispatchEvent(new CustomEvent('app-debug-log', {
+        detail: { type: 'error', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), error: errorMsg, timestamp: new Date().toLocaleTimeString() }
+      }));
+    }
     throw new Error(errorMsg);
   }
 }
@@ -49,6 +54,7 @@ export interface RequestOptions {
     params?: any;
     headers?: any;
     authCookie?: string;
+    suppressAuthExpired?: boolean; // 如果为 true，即使 401 也不 dispatch vrc-auth-expired
     [key: string]: any;
 }
 
@@ -116,6 +122,16 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
 
     // 处理 401 自动重试 (对齐 VRCX handleAutoLogin 逻辑)
     if (res.status === 401 && reqUrl.includes('api.vrchat.cloud') && !reqUrl.includes('/config')) {
+      // suppressAuthExpired=true 时不 dispatch vrc-auth-expired 事件，
+      // 用于 WebSocket 断连重试时的 /auth 调用——/auth 401 不代表用户认证失效
+      const fireAuthExpired = () => {
+        if (!options.suppressAuthExpired) {
+          window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
+        } else {
+          console.warn('[Request] 401 suppressed (suppressAuthExpired=true) — not dispatching vrc-auth-expired');
+        }
+      };
+
       try {
         const savedCookie = await invoke<string | null>('db_get_auth');
         const retryCookie = savedCookie ? normalizeAuthCookieJson(savedCookie) : null;
@@ -132,13 +148,13 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
               try { parsed = JSON.parse(res.data); } catch { parsed = res.data; }
             }
           } else {
-            window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
+            fireAuthExpired();
           }
         } else {
-          window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
+          fireAuthExpired();
         }
       } catch {
-        window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
+        fireAuthExpired();
       }
     }
 

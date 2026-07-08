@@ -111,7 +111,8 @@
     "busy": "Busy",
     "offline": "Offline",
     "pipeline_online": "Pipeline Online",
-    "pipeline_offline": "Pipeline Offline",
+    "pipeline_offline": "Pipeline Not Connected",
+    "pipeline_disconnected": "Pipeline Disconnected",
     "frames": "{count} FPS"
   },
   "settings": {

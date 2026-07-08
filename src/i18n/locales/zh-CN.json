@@ -129,7 +129,8 @@
     "busy": "忙碌",
     "offline": "离线",
     "pipeline_online": "Pipeline 在线",
-    "pipeline_offline": "连接断开",
+    "pipeline_offline": "数据管道未连接",
+    "pipeline_disconnected": "管道已断开",
     "frames": "{count} 帧",
     "active": "活跃"
   },

@@ -218,10 +218,40 @@ if (typeof window !== 'undefined') {
     }
   });
 
+  // 防抖：同一时间窗口内多次 auth-expired 事件只处理一次
+  let authExpiredTimer: ReturnType<typeof setTimeout> | null = null;
+  let authExpiredPending = false;
   window.addEventListener('vrc-auth-expired', async () => {
-    console.warn('[App] Auth expired event received, forcing re-login...');
+    if (authExpiredPending) {
+      console.warn('[App] Auth expired event already queued, skipping duplicate');
+      return;
+    }
+    authExpiredPending = true;
+    console.warn('[App] Auth expired event received, verifying...');
+
+    // 验证：用当前 cookie 再试一次 /auth/user，确认 auth 确实失效
+    // 防止 WebSocket 断开等误触发导致用户被强制登出
+    try {
+      const verifyUser = await VrcApi.getCurrentUser();
+      if (verifyUser && verifyUser.displayName) {
+        // auth 仍然有效，忽略本次事件
+        console.log('[App] Auth still valid, ignoring auth-expired event');
+        authExpiredPending = false;
+        return;
+      }
+    } catch {
+      // verify 也失败了，auth 确实失效
+    }
+
+    console.warn('[App] Auth truly expired, clearing login state...');
     try { await DbApi.clearAuth(); } catch {}
     authStore.handleLogout(true);
+    // 5 秒内不再重复处理 auth-expired 事件
+    if (authExpiredTimer) clearTimeout(authExpiredTimer);
+    authExpiredTimer = setTimeout(() => {
+      authExpiredPending = false;
+      authExpiredTimer = null;
+    }, 5000);
   });
 }
 </script>
@@ -284,7 +314,7 @@ if (typeof window !== 'undefined') {
           {{ banMessage }}
         </p>
         <button
-          class="px-6 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
+          class="px-6 py-2 bg-[var(--theme-primary)] hover:bg-[var(--theme-primary-hover)] text-white rounded-lg text-sm font-bold shadow-md"
           @click="authStore.banMessage = ''"
         >
           {{ t('app.i_know') || 'I Know' }}

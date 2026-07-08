@@ -120,7 +120,7 @@ export const useAuthStore = defineStore('auth', () => {
         reconnectCountdown.value = 0;
       } else {
         normalTick++;
-        if (normalTick < 2) return; // Change to send heartbeat every 2 seconds
+        if (normalTick < 15) return; // 每 15 秒发送一次心跳，减少请求频率
         normalTick = 0;
       }
 
@@ -172,11 +172,11 @@ export const useAuthStore = defineStore('auth', () => {
   const syncInitialFriends = async () => {
     if (!isLoggedIn.value) return;
     try {
-      const onlineFriends = await VrcApi.getFriends({ n: 100, offset: 0, offline: false });
-      const offlineFriends = await VrcApi.getFriends({ n: 100, offset: 0, offline: true });
-      const allFriends = [...onlineFriends, ...offlineFriends];
+      // 合并在线+离线好友为一次请求，减少 API 调用
+      const allFriends = await VrcApi.getFriends({ n: 100, offset: 0, offline: true });
       
       if (allFriends.length > 0 && isTauri()) {
+        const onlineFriends = allFriends.filter((f: VrcUser) => f.location && f.location !== 'offline');
         await DbApi.batchSaveFriends({ friendsJson: JSON.stringify(allFriends) });
         if (onlineFriends.length > 0) {
           await DbApi.batchRecordFriends({ friendsJson: JSON.stringify(onlineFriends) });

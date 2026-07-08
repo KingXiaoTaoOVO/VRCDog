@@ -17,6 +17,7 @@ import { MiscApi } from './misc';
 import { VrcPlusIconApi } from './vrcPlusIcon';
 import { VrcPlusImageApi } from './vrcPlusImage';
 import { request as baseRequest } from './request';
+import { isDebugLogEnabled } from './debugConfig';
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
@@ -138,17 +139,21 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
   try {
     const res = await invoke<T>(cmd, args);
     const duration = performance.now() - startTime;
-    window.dispatchEvent(new CustomEvent('app-debug-log', {
-      detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
-    }));
+    if (isDebugLogEnabled()) {
+      window.dispatchEvent(new CustomEvent('app-debug-log', {
+        detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
+      }));
+    }
     return res;
   } catch (error: any) {
     const duration = performance.now() - startTime;
     const errorMsg = error.message || (typeof error === 'string' ? error : "Unknown backend error");
     console.error(`[Tauri API Error] ${cmd}:`, error);
-    window.dispatchEvent(new CustomEvent('app-debug-log', {
-      detail: { type: 'error', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), error: errorMsg, timestamp: new Date().toLocaleTimeString() }
-    }));
+    if (isDebugLogEnabled()) {
+      window.dispatchEvent(new CustomEvent('app-debug-log', {
+        detail: { type: 'error', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), error: errorMsg, timestamp: new Date().toLocaleTimeString() }
+      }));
+    }
     throw new Error(errorMsg);
   }
 }
@@ -181,7 +186,26 @@ export const VrcApi = {
   logout: () => safeInvoke('vrc_set_proxy', { proxyUrl: null, authCookie: null }),
   getConfig: AuthApi.getConfig,
   fetchConfig: AuthApi.getConfig,
-  getServerStatus: () => baseRequest('https://status.vrchat.com/api/v2/status.json', { method: 'GET', headers: { Referer: 'https://vrcx.app' } }),
+  getServerStatus: async () => {
+    // 直接使用 VRChat API /config 端点检测 API 可用性
+    // status.vrchat.com 域名已不可达（~15s 超时），不再尝试
+    try {
+      const config: any = await baseRequest('/config', { method: 'GET' });
+      return {
+        status: {
+          indicator: 'none',
+          description: 'All Systems Operational'
+        }
+      };
+    } catch {
+      return {
+        status: {
+          indicator: 'critical',
+          description: 'Service Disruption'
+        }
+      };
+    }
+  },
 
   // 用户模块
   getCurrentUser: () => baseRequest('/auth/user'),
@@ -456,6 +480,12 @@ export const OvrApi = {
   desktopScanOnce: () => safeInvoke<void>('ovr_desktop_scan_once'),
   startAutoScan: () => safeInvoke<void>('ovr_start_auto_scan'),
   stopAutoScan: () => safeInvoke<void>('ovr_stop_auto_scan'),
+  // ===== Native Playspace Control (replaces OVRAS dependency) =====
+  setPlayspaceOffset: (params: { x: number; y: number; z: number }) => safeInvoke<void>('ovr_set_playspace_offset', params),
+  setPlayspaceRotation: (params: { degrees: number }) => safeInvoke<void>('ovr_set_playspace_rotation', params),
+  toggleHeight: () => safeInvoke<void>('ovr_toggle_height'),
+  resetPlayspace: () => safeInvoke<void>('ovr_reset_playspace'),
+  fixFloor: () => safeInvoke<void>('ovr_fix_floor'),
 };
 
 export interface DanmakuConfig {

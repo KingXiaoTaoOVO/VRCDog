@@ -13,6 +13,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import CustomSelect from './CustomSelect.vue';
 import { localeOptions, normalizeLocale, setAppLocale } from '../i18n';
+import { setDebugLogEnabled } from '../api/debugConfig';
 
 const { t, locale } = useI18n();
 
@@ -278,6 +279,12 @@ const saveSettings = async () => {
   } finally {
     isSaving.value = false;
   }
+};
+
+// 调试控制台开关：立即同步全局标志，无需等待保存
+const toggleDebugConsole = () => {
+  config.value.enableDebugConsole = !config.value.enableDebugConsole;
+  setDebugLogEnabled(config.value.enableDebugConsole);
 };
 
 const isClearing = ref(false);
@@ -758,7 +765,7 @@ const testNotification = () => {
                   <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.topWindow ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.enableDebugConsole = !config.enableDebugConsole">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="toggleDebugConsole">
                 <div class="flex items-center gap-2">
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_18580f7f') }}</div>
                   <span class="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded font-bold">Dev</span>
