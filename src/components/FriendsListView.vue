@@ -1,21 +1,29 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { VrcApi, DbApi } from "../api";
-import { Search, RefreshCcw, Bell, Settings, ChevronDown, ChevronRight } from 'lucide-vue-next';
+import { Search, RefreshCcw, Settings, ChevronDown, ChevronRight, UsersRound, X } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import { useUserProfileStore } from '../stores/userProfile';
+import { useEntityModalStore } from '../stores/entityModal';
+import FriendItem from './FriendItem.vue';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
 const authStore = useAuthStore();
+const entityStore = useEntityModalStore();
 
 const onlineFriends = ref<any[]>([]);
 const activeFriends = ref<any[]>([]); // 活跃中 (仅登录网页端)
 const offlineFriends = ref<any[]>([]);
+const groups = ref<any[]>([]);
 const loading = ref(true);
+const groupsLoading = ref(false);
+const groupsLoaded = ref(false);
 const errorMsg = ref('');
+const groupsErrorMsg = ref('');
 const searchQuery = ref('');
+const groupSearchQuery = ref('');
 
 const activeTab = ref<'friends' | 'groups'>('friends');
 
@@ -61,6 +69,41 @@ const fetchFriends = async () => {
   }, 1000); // 1s debounce
 };
 
+const normalizeGroup = (entry: any) => {
+  const group = entry?.group || entry;
+  if (!group?.id && !group?.groupId) return null;
+  return {
+    ...group,
+    id: group.id || group.groupId,
+    name: group.name || group.displayName || group.shortCode || group.id || group.groupId,
+    shortCode: group.shortCode || group.discriminator || '',
+    iconUrl: group.iconUrl || group.thumbnailUrl || group.bannerUrl || '',
+    memberCount: group.memberCount ?? group.members ?? group.member_count ?? 0,
+    privacy: group.privacy || group.joinState || group.visibility || '',
+  };
+};
+
+const fetchGroups = async (force = false) => {
+  if (groupsLoading.value) return;
+  if (groupsLoaded.value && !force) return;
+
+  groupsLoading.value = true;
+  groupsErrorMsg.value = '';
+  try {
+    const res: any = await VrcApi.getGroups();
+    const list = Array.isArray(res) ? res : [];
+    groups.value = list
+      .map(normalizeGroup)
+      .filter((group): group is any => Boolean(group))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    groupsLoaded.value = true;
+  } catch (err: any) {
+    groupsErrorMsg.value = err.message || String(err);
+  } finally {
+    groupsLoading.value = false;
+  }
+};
+
 onMounted(() => {
   fetchFriends();
   window.addEventListener('vrc-friends-synced', fetchFriends);
@@ -70,10 +113,27 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('vrc-friends-synced', fetchFriends);
   window.removeEventListener('vrc-pipeline-event', fetchFriends);
+  if (fetchTimeout) clearTimeout(fetchTimeout);
 });
 
 const onlineCount = computed(() => onlineFriends.value.length);
 const totalCount = computed(() => onlineFriends.value.length + activeFriends.value.length + offlineFriends.value.length);
+const groupCount = computed(() => groups.value.length);
+const currentSearchQuery = computed({
+  get: () => activeTab.value === 'groups' ? groupSearchQuery.value : searchQuery.value,
+  set: (value: string) => {
+    if (activeTab.value === 'groups') {
+      groupSearchQuery.value = value;
+      return;
+    }
+
+    searchQuery.value = value;
+  },
+});
+
+const searchPlaceholder = computed(() =>
+  activeTab.value === 'groups' ? t('groups.search_placeholder') : t('friends.search_placeholder')
+);
 
 // Extract Trust Color — aligned with VRCX color scheme
 const getTrustColor = (tags: string[]) => {
@@ -139,9 +199,51 @@ const groupedFriends = computed(() => {
   };
 });
 
+const filteredGroups = computed(() => {
+  const q = groupSearchQuery.value.trim().toLowerCase();
+  if (!q) return groups.value;
+
+  return groups.value.filter((group) => {
+    const fields = [
+      group.name,
+      group.shortCode,
+      group.description,
+      group.privacy,
+    ].filter(Boolean);
+
+    return fields.some((field) => String(field).toLowerCase().includes(q));
+  });
+});
+
 const openDetail = (friend: any) => {
   profileStore.openProfile(friend.id, friend);
 };
+
+const openGroupDetail = async (group: any) => {
+  await entityStore.openGroup(group);
+};
+
+const setActiveTab = (tab: 'friends' | 'groups') => {
+  activeTab.value = tab;
+};
+
+const refreshCurrentTab = () => {
+  if (activeTab.value === 'groups') {
+    fetchGroups(true);
+  } else {
+    fetchFriends();
+  }
+};
+
+const clearCurrentSearch = () => {
+  currentSearchQuery.value = '';
+};
+
+watch(activeTab, (tab) => {
+  if (tab === 'groups') {
+    fetchGroups();
+  }
+});
 
 // Status dot color
 const getStatusColor = (status: string) => {
@@ -206,8 +308,6 @@ const resolveWorldNames = async () => {
     } catch { /* ignore */ }
   }
 };
-
-import FriendItem from './FriendItem.vue';
 </script>
 
 <template>
@@ -219,12 +319,12 @@ import FriendItem from './FriendItem.vue';
         <div class="relative group">
           <Search class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--theme-text-muted)] group-focus-within:text-primary transition-colors" />
           <input 
-            v-model="searchQuery"
+            v-model="currentSearchQuery"
             type="text" 
-            :placeholder="t('friends.search_placeholder')" 
+            :placeholder="searchPlaceholder" 
             class="w-full bg-[var(--theme-surface)]-hover text-[var(--theme-text)] pl-10 pr-10 py-2.5 rounded-full text-sm outline-none placeholder-[var(--theme-text-muted)] focus:ring-4 focus:ring-primary/20 transition-all border-2 border-border-soft focus:border-primary/50 font-bold"
           />
-          <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-transform hover:scale-110">
+          <button v-if="currentSearchQuery" @click="clearCurrentSearch" class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-transform hover:scale-110">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -235,7 +335,7 @@ import FriendItem from './FriendItem.vue';
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
           :class="activeTab === 'friends' ? 'text-[var(--theme-text)]' : 'text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'"
-          @click="activeTab = 'friends'"
+          @click="setActiveTab('friends')"
         >
           {{ t('friends.title') }} ({{ onlineCount }})
           <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary"></div>
@@ -243,9 +343,9 @@ import FriendItem from './FriendItem.vue';
         <button 
           class="flex-1 py-2.5 text-[13px] font-bold transition-colors relative"
           :class="activeTab === 'groups' ? 'text-[var(--theme-text)]' : 'text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'"
-          @click="activeTab = 'groups'"
+          @click="setActiveTab('groups')"
         >
-          {{ t('groups.title') }} (0)
+          {{ t('groups.title') }} ({{ groupCount }})
           <div v-if="activeTab === 'groups'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary"></div>
         </button>
       </div>
@@ -253,7 +353,7 @@ import FriendItem from './FriendItem.vue';
       <!-- Content Area -->
       <div class="flex-1 overflow-y-auto custom-scrollbar">
         
-        <div v-if="loading && onlineCount === 0" class="flex justify-center items-center h-20 text-[var(--theme-text-muted)]">
+        <div v-if="activeTab === 'friends' && loading && onlineCount === 0" class="flex justify-center items-center h-20 text-[var(--theme-text-muted)]">
           <RefreshCcw class="w-5 h-5 animate-spin" />
         </div>
 
@@ -389,10 +489,68 @@ import FriendItem from './FriendItem.vue';
 
         </template>
 
-        <!-- Groups Tab placeholder -->
-        <div v-else-if="activeTab === 'groups'" class="p-4 text-center text-[var(--theme-text-muted)] text-sm mt-10">
-          {{ t('auto_bbd61dc2') }}
-        </div>
+        <template v-else-if="activeTab === 'groups'">
+          <div v-if="groupsLoading" class="flex justify-center items-center h-24 text-primary">
+            <RefreshCcw class="w-5 h-5 animate-spin" />
+          </div>
+
+          <div v-else-if="groupsErrorMsg" class="p-4 text-center text-sm text-red-500">
+            <p class="font-bold mb-3">{{ groupsErrorMsg }}</p>
+            <button
+              class="px-4 py-2 rounded-xl bg-primary text-white font-bold text-xs hover:bg-primary-hover transition-colors"
+              @click="fetchGroups(true)"
+            >
+              {{ t('global.retry') }}
+            </button>
+          </div>
+
+          <div v-else-if="filteredGroups.length === 0" class="p-6 text-center text-[var(--theme-text-muted)] text-sm mt-8">
+            <UsersRound class="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p class="font-bold">
+              {{ groupSearchQuery ? t('search.no_results') : t('groups.no_groups') }}
+            </p>
+          </div>
+
+          <div v-else class="p-2 space-y-2">
+            <button
+              v-for="group in filteredGroups"
+              :key="group.id"
+              class="w-full flex items-center gap-3 p-3 rounded-2xl bg-[var(--theme-surface)] border-2 border-transparent hover:border-primary/30 hover:bg-[var(--theme-surface-hover)] transition-all text-left shadow-sm"
+              @click="openGroupDetail(group)"
+            >
+              <div class="w-11 h-11 rounded-xl overflow-hidden bg-primary/10 border border-border-soft shrink-0 flex items-center justify-center">
+                <img
+                  v-if="group.iconUrl"
+                  :src="group.iconUrl"
+                  class="w-full h-full object-cover"
+                  :alt="group.name"
+                >
+                <UsersRound v-else class="w-5 h-5 text-primary" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 min-w-0">
+                  <p class="text-sm font-black text-[var(--theme-text)] truncate">
+                    {{ group.name }}
+                  </p>
+                  <span v-if="group.shortCode" class="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
+                    {{ group.shortCode }}
+                  </span>
+                </div>
+                <p class="text-xs text-[var(--theme-text-muted)] truncate mt-0.5">
+                  {{ group.description || t('global.groups.no_desc') }}
+                </p>
+              </div>
+              <div class="shrink-0 text-right">
+                <div class="text-xs font-black text-[var(--theme-text)]">
+                  {{ group.memberCount || 0 }}
+                </div>
+                <div class="text-[10px] text-[var(--theme-text-muted)] font-bold">
+                  {{ t('global.groups.members') }}
+                </div>
+              </div>
+            </button>
+          </div>
+        </template>
       </div>
       
       <!-- Footer Settings / Refresh -->
@@ -400,8 +558,8 @@ import FriendItem from './FriendItem.vue';
         <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors">
           <Settings class="w-4 h-4" />
         </button>
-        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" @click="fetchFriends" :disabled="loading">
-          <RefreshCcw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
+        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" @click="refreshCurrentTab" :disabled="loading || groupsLoading">
+          <RefreshCcw class="w-4 h-4" :class="{ 'animate-spin': loading || groupsLoading }" />
         </button>
       </div>
 

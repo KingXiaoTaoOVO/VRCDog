@@ -72,7 +72,8 @@ const submit = async () => {
       detailData = await VrcApi.getAvatar({ avatarId: id });
       type = 'avatar';
     } else if (id.startsWith('grp_')) {
-      throw new Error(t('direct_open.group_not_supported'));
+      detailData = await VrcApi.getGroup({ groupId: id, includeRoles: true });
+      type = 'group';
     }
 
     if (detailData) {

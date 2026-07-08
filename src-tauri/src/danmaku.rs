@@ -797,7 +797,40 @@ async fn get_bili_danmaku_endpoint(
     );
     let body: serde_json::Value = client
         .get(url)
-        .headers(crate::bilibili::make_headers(sessdata))
+        .headers(make_bili_live_headers(sessdata, room_id))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if body["code"].as_i64() != Some(0) {
+        let primary_error = body["message"]
+            .as_str()
+            .unwrap_or("getDanmuInfo failed")
+            .to_string();
+        return get_bili_legacy_danmaku_endpoint(client, room_id, sessdata)
+            .await
+            .map_err(|fallback_error| {
+                format!("getDanmuInfo failed: {primary_error}; getConf fallback failed: {fallback_error}")
+            });
+    }
+
+    extract_bili_endpoint(&body["data"], "host_list")
+}
+
+async fn get_bili_legacy_danmaku_endpoint(
+    client: &reqwest::Client,
+    room_id: u64,
+    sessdata: &str,
+) -> Result<(String, String, u64), String> {
+    let url = format!(
+        "https://api.live.bilibili.com/room/v1/Danmu/getConf?room_id={room_id}&platform=pc&player=web"
+    );
+    let body: serde_json::Value = client
+        .get(url)
+        .headers(make_bili_live_headers(sessdata, room_id))
         .send()
         .await
         .map_err(|e| e.to_string())?
@@ -808,15 +841,52 @@ async fn get_bili_danmaku_endpoint(
     if body["code"].as_i64() != Some(0) {
         return Err(body["message"]
             .as_str()
-            .unwrap_or("getDanmuInfo failed")
+            .unwrap_or("getConf failed")
             .to_string());
     }
 
-    let token = body["data"]["token"].as_str().unwrap_or("").to_string();
+    extract_bili_endpoint(&body["data"], "host_server_list")
+}
+
+fn make_bili_live_headers(sessdata: &str, room_id: u64) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        ),
+    );
+    headers.insert(
+        reqwest::header::ORIGIN,
+        reqwest::header::HeaderValue::from_static("https://live.bilibili.com"),
+    );
+    if let Ok(value) =
+        reqwest::header::HeaderValue::from_str(&format!("https://live.bilibili.com/{room_id}"))
+    {
+        headers.insert(reqwest::header::REFERER, value);
+    }
+    if !sessdata.trim().is_empty() {
+        let cookie = format!("SESSDATA={}", sessdata.trim());
+        if let Ok(value) = reqwest::header::HeaderValue::from_str(&cookie) {
+            headers.insert(reqwest::header::COOKIE, value);
+        }
+    }
+    headers
+}
+
+fn extract_bili_endpoint(
+    data: &serde_json::Value,
+    host_list_key: &str,
+) -> Result<(String, String, u64), String> {
+    let token = data["token"].as_str().unwrap_or("").to_string();
+    if token.is_empty() {
+        return Err("Bilibili danmaku token is empty".to_string());
+    }
+
     let mut host = DEFAULT_BILI_WS_HOST.to_string();
     let mut port = 443u64;
 
-    if let Some(hosts) = body["data"]["host_list"].as_array() {
+    if let Some(hosts) = data[host_list_key].as_array() {
         if let Some(first) = hosts.first() {
             host = first["host"]
                 .as_str()
@@ -827,6 +897,12 @@ async fn get_bili_danmaku_endpoint(
                 .or_else(|| first["ws_port"].as_u64())
                 .unwrap_or(443);
         }
+    } else if let Some(value) = data["host"].as_str() {
+        host = value.to_string();
+        port = data["wss_port"]
+            .as_u64()
+            .or_else(|| data["port"].as_u64())
+            .unwrap_or(443);
     }
 
     Ok((token, host, port))
@@ -1719,7 +1795,10 @@ fn render_danmaku_overlay(
 
     let scale = PxScale::from(cfg.font_size.clamp(12.0, 34.0));
     let small = PxScale::from((cfg.font_size * 0.72).clamp(10.0, 22.0));
-    let header = format!("VrcDog 直播弹幕  房间 #{}  观众 {}", status.room_id, status.online);
+    let header = format!(
+        "VrcDog 直播弹幕  房间 #{}  观众 {}",
+        status.room_id, status.online
+    );
     draw_text_line(
         font,
         &mut pixels,

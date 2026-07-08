@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebSearch",
-      "Read(//c/Users/27457/.claude/**)"
-    ]
-  }
-}

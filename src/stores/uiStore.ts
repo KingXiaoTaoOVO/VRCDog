@@ -50,7 +50,7 @@ export const useUiStore = defineStore('ui', () => {
   ];
 
   const activeSidebarTabs = computed(() => {
-    let baseTabs = sidebarTabs.filter(tab => {
+    const baseTabs = sidebarTabs.filter(tab => {
        if (Object.keys(serverMenuPerms.value).length > 0) {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
@@ -72,7 +72,7 @@ export const useUiStore = defineStore('ui', () => {
   });
 
   const editableNavConfig = computed(() => {
-    let baseTabs = sidebarTabs.filter(tab => {
+    const baseTabs = sidebarTabs.filter(tab => {
        if (Object.keys(serverMenuPerms.value).length > 0) {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }

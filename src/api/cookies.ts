@@ -11,7 +11,7 @@ const COOKIE_ATTR_NAMES = new Set([
 ]);
 
 function cleanCookieSegment(segment: string): string | null {
-  let part = segment.trim().replace(/^(set-cookie|cookie):\s*/i, '');
+  const part = segment.trim().replace(/^(set-cookie|cookie):\s*/i, '');
   if (!part) return null;
 
   const equals = part.indexOf('=');

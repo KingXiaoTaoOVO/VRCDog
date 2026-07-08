@@ -226,6 +226,21 @@ pub async fn bili_get_mp4_play_info(
     Ok(body)
 }
 
+fn extract_mp4_url(play_info: &serde_json::Value) -> Option<String> {
+    play_info["data"]["durl"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| {
+            item["url"].as_str().or_else(|| {
+                item["backup_url"]
+                    .as_array()
+                    .and_then(|urls| urls.first())
+                    .and_then(|url| url.as_str())
+            })
+        })
+        .map(str::to_string)
+}
+
 #[derive(Clone, Serialize)]
 pub struct BiliTaskProgressPayload {
     pub id: i64,
@@ -311,9 +326,51 @@ pub async fn bili_download_video(
             },
         );
 
-        let play_info = match bili_get_play_info(bvid_c.clone(), resolved_cid, sessdata_c).await {
-            Ok(info) => info,
-            Err(e) => {
+        let play_info =
+            match bili_get_play_info(bvid_c.clone(), resolved_cid, sessdata_c.clone()).await {
+                Ok(info) => info,
+                Err(e) => {
+                    update_status("error");
+                    let _ = app_c.emit(
+                        "bili_task_progress",
+                        BiliTaskProgressPayload {
+                            id,
+                            bvid: bvid_c.clone(),
+                            status: "error".into(),
+                            progress: 0.0,
+                            detail: e,
+                        },
+                    );
+                    return;
+                }
+            };
+
+        let dash = play_info["data"]["dash"].clone();
+        if dash.is_null() {
+            let mp4_play_info = if extract_mp4_url(&play_info).is_some() {
+                play_info.clone()
+            } else {
+                match bili_get_mp4_play_info(bvid_c.clone(), resolved_cid, sessdata_c.clone()).await
+                {
+                    Ok(info) => info,
+                    Err(e) => {
+                        update_status("error");
+                        let _ = app_c.emit(
+                            "bili_task_progress",
+                            BiliTaskProgressPayload {
+                                id,
+                                bvid: bvid_c.clone(),
+                                status: "error".into(),
+                                progress: 0.0,
+                                detail: format!("获取 MP4 播放地址失败: {}", e),
+                            },
+                        );
+                        return;
+                    }
+                }
+            };
+
+            let Some(mp4_url) = extract_mp4_url(&mp4_play_info) else {
                 update_status("error");
                 let _ = app_c.emit(
                     "bili_task_progress",
@@ -322,24 +379,61 @@ pub async fn bili_download_video(
                         bvid: bvid_c.clone(),
                         status: "error".into(),
                         progress: 0.0,
-                        detail: e,
+                        detail: "无法提取 MP4 下载地址".into(),
+                    },
+                );
+                return;
+            };
+
+            let referer = format!("https://www.bilibili.com/video/{}", bvid_c);
+            let safe_title = title.replace(
+                |c: char| {
+                    !c.is_alphanumeric()
+                        && !c.is_whitespace()
+                        && c != '-'
+                        && c != '_'
+                        && c != '【'
+                        && c != '】'
+                },
+                "_",
+            );
+            let final_dest = download_dir.join(format!("{} {}.mp4", safe_title, bvid_c));
+            let _permit = get_download_sem().acquire().await.unwrap();
+
+            if let Err(e) = queue::download_stream(
+                app_c.clone(),
+                id,
+                bvid_c.clone(),
+                mp4_url,
+                final_dest,
+                &referer,
+                "MP4",
+            )
+            .await
+            {
+                update_status("error");
+                let _ = app_c.emit(
+                    "bili_task_progress",
+                    BiliTaskProgressPayload {
+                        id,
+                        bvid: bvid_c.clone(),
+                        status: "error".into(),
+                        progress: 0.0,
+                        detail: format!("MP4 下载失败: {}", e),
                     },
                 );
                 return;
             }
-        };
 
-        let dash = play_info["data"]["dash"].clone();
-        if dash.is_null() {
-            update_status("error");
+            update_status("done");
             let _ = app_c.emit(
                 "bili_task_progress",
                 BiliTaskProgressPayload {
                     id,
                     bvid: bvid_c.clone(),
-                    status: "error".into(),
-                    progress: 0.0,
-                    detail: "获取的视频不是 DASH 格式，暂不支持".into(),
+                    status: "done".into(),
+                    progress: 100.0,
+                    detail: "下载完成".into(),
                 },
             );
             return;

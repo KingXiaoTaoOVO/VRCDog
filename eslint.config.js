@@ -4,7 +4,7 @@ import vueParser from 'vue-eslint-parser';
 
 export default [
   {
-    ignores: ["dist/**", "src-tauri/**", "src-python/**", "vpm-listing/**", "node_modules/**", "public/**", "**/*.css"]
+    ignores: ["dist/**", "src-tauri/**", "src-python/**", "vpm-listing/**", "node_modules/**", "public/**", "源码模板/**", "**/*.css"]
   },
   ...pluginVue.configs['flat/recommended'],
   ...tseslint.configs.recommended,

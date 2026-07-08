@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import CustomSelect from './CustomSelect.vue';
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Languages, ScanEye, Settings, Save, Layers, Cpu, Check, PlaySquare, Watch, Eye, EyeOff, GripVertical, RotateCcw, HelpCircle, Info, MessageSquare, Gamepad2, Hand, Globe, User, Loader2, X, Headphones, MonitorSpeaker, Volume2, VolumeX, Mic, MicOff, Sun, Palette, Sliders, Gauge, Move3d, Compass, ArrowUpDown, BarChart3, Timer, Keyboard, Bell, SkipBack, Play, SquareIcon, SkipForward, Power, BatteryCharging, RefreshCw, Shield, Crosshair, Box, Footprints, Rotate3d, Move, Activity, Wind, Monitor } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { DbApi, OvrApi } from '../api';
@@ -14,7 +14,7 @@ const activeSubTab = ref('basic');
 const isSaving = ref(false);
 const saved = ref(false);
 
-const config = ref({
+const createDefaultConfig = () => ({
   general: {
     enabled: true,
     dualDisplay: true,
@@ -44,6 +44,16 @@ const config = ref({
      overlayFontSize: 30,
      overlayStatusColor: '#00FF00',
      overlayLockMode: 'world',
+     menuWidthM: 0.55,
+     menuOffsetX: 0,
+     menuOffsetY: -0.06,
+     menuOffsetZ: -0.75,
+     resultWidthM: 0.72,
+     resultOffsetX: 0,
+     resultOffsetY: -0.42,
+     resultOffsetZ: -1.10,
+     scanFrameWidthM: 0.34,
+     scanFrameDistanceM: 0.72,
     advCpuAccel: true,
     advGpuAccel: false,
     advDebugMode: false,
@@ -171,6 +181,304 @@ const config = ref({
     keyboard: false,
   },
 });
+
+const config = ref(createDefaultConfig());
+
+const legacyConfigKeyMap: Record<string, [string, string]> = {
+  ovrEnabled: ['general', 'enabled'],
+  ovrDualDisplay: ['general', 'dualDisplay'],
+  ovrTheme: ['general', 'theme'],
+  ovrWristMode: ['general', 'wristMode'],
+  ovrTriggerKey: ['general', 'triggerKey'],
+  ovrClearKey: ['general', 'clearKey'],
+  ocrModel: ['ocr', 'model'],
+  ocrSpeedMode: ['ocr', 'speedMode'],
+  ocrEnhanceContrast: ['ocr', 'enhanceContrast'],
+  ocrSharpen: ['general', 'ocrSharpen'],
+  ocrDenoise: ['general', 'ocrDenoise'],
+  ocrMergeHeightTol: ['general', 'ocrMergeHeightTol'],
+  ocrMergeWidthTol: ['general', 'ocrMergeWidthTol'],
+  transMode: ['general', 'transMode'],
+  transService: ['general', 'transService'],
+  transSourceLang: ['general', 'transSourceLang'],
+  transTargetLang: ['general', 'transTargetLang'],
+  transApiKey: ['general', 'transApiKey'],
+  transLlmModel: ['general', 'transLlmModel'],
+  transLlmPrompt: ['general', 'transLlmPrompt'],
+  overlayTextColor: ['general', 'overlayTextColor'],
+  overlayBgColor: ['general', 'overlayBgColor'],
+  overlayBgOpacity: ['general', 'overlayBgOpacity'],
+  overlayGlass: ['general', 'overlayGlass'],
+  overlayBorderOpacity: ['general', 'overlayBorderOpacity'],
+  overlayCornerRadius: ['general', 'overlayCornerRadius'],
+  overlayShadowStrength: ['general', 'overlayShadowStrength'],
+  transPanelMaxWidth: ['general', 'transPanelMaxWidth'],
+  overlayFontSize: ['general', 'overlayFontSize'],
+  overlayStatusColor: ['general', 'overlayStatusColor'],
+  overlayLockMode: ['general', 'overlayLockMode'],
+  menuWidthM: ['general', 'menuWidthM'],
+  menu_width_m: ['general', 'menuWidthM'],
+  menuOffsetX: ['general', 'menuOffsetX'],
+  menu_offset_x: ['general', 'menuOffsetX'],
+  menuOffsetY: ['general', 'menuOffsetY'],
+  menu_offset_y: ['general', 'menuOffsetY'],
+  menuOffsetZ: ['general', 'menuOffsetZ'],
+  menu_offset_z: ['general', 'menuOffsetZ'],
+  resultWidthM: ['general', 'resultWidthM'],
+  result_width_m: ['general', 'resultWidthM'],
+  resultOffsetX: ['general', 'resultOffsetX'],
+  result_offset_x: ['general', 'resultOffsetX'],
+  resultOffsetY: ['general', 'resultOffsetY'],
+  result_offset_y: ['general', 'resultOffsetY'],
+  resultOffsetZ: ['general', 'resultOffsetZ'],
+  result_offset_z: ['general', 'resultOffsetZ'],
+  scanFrameWidthM: ['general', 'scanFrameWidthM'],
+  scan_frame_width_m: ['general', 'scanFrameWidthM'],
+  scanFrameDistanceM: ['general', 'scanFrameDistanceM'],
+  scan_frame_distance_m: ['general', 'scanFrameDistanceM'],
+  advCpuAccel: ['general', 'advCpuAccel'],
+  advGpuAccel: ['general', 'advGpuAccel'],
+  advDebugMode: ['general', 'advDebugMode'],
+  advAutoStart: ['general', 'advAutoStart'],
+  spaceAdjustChap: ['general', 'spaceAdjustChap'],
+  motionGravity: ['general', 'motionGravityOn'],
+  motionGravityOn: ['general', 'motionGravityOn'],
+  motionGravityStrength: ['general', 'motionGravityStrength'],
+  motionGravityFriction: ['general', 'motionGravityFriction'],
+  motionSaveMomentum: ['general', 'motionSaveMomentum'],
+  motionFlingStrength: ['general', 'motionFlingStrength'],
+  rotationAutoTurn: ['general', 'rotationAutoTurn'],
+  rotationActivationDist: ['general', 'rotationActivationDist'],
+  rotationDeactivationDist: ['general', 'rotationDeactivationDist'],
+  rotationUseCornerAngle: ['general', 'rotationUseCornerAngle'],
+  rotationUseSmooth: ['general', 'rotationUseSmooth'],
+  rotationTurnSpeed: ['general', 'rotationTurnSpeed'],
+  rotationRedirectedWalk: ['general', 'rotationRedirectedWalk'],
+  rotationRedirectRadius: ['general', 'rotationRedirectRadius'],
+  rotationViewRatchet: ['general', 'rotationViewRatchet'],
+  rotationSpaceTurnLeft: ['general', 'rotationSpaceTurnLeft'],
+  rotationSpaceTurnRight: ['general', 'rotationSpaceTurnRight'],
+  rotationTurnComfort: ['general', 'rotationTurnComfort'],
+  rotationTurnForceBounds: ['general', 'rotationTurnForceBounds'],
+  rotationSnapTurnAngle: ['general', 'rotationSnapTurnAngle'],
+  rotationSmoothTurnRate: ['general', 'rotationSmoothTurnRate'],
+  settingsUniverseRotation: ['general', 'settingsUniverseRotation'],
+  settingsCrashRecovery: ['general', 'settingsCrashRecovery'],
+  settingsVersionCheck: ['general', 'settingsVersionCheck'],
+  settingsForceSteamvrChap: ['general', 'settingsForceSteamvrChap'],
+  settingsAutoChapProfile: ['general', 'settingsAutoChapProfile'],
+  settingsForceDisableOculus: ['general', 'settingsForceDisableOculus'],
+  settingsExclusiveInput: ['general', 'settingsExclusiveInput'],
+  settingsDisableVsync: ['general', 'settingsDisableVsync'],
+  steamvrTimingOverlay: ['steamvr', 'timingOverlay'],
+  steamvrMultiDriver: ['steamvr', 'multiDriver'],
+  steamvrDisableNotifs: ['steamvr', 'disableNotifs'],
+  steamvrRequireHmd: ['steamvr', 'requireHmd'],
+  steamvrSystemButton: ['steamvr', 'systemButton'],
+  steamvrControllerPower: ['steamvr', 'controllerPower'],
+  steamvrNoFadeGrid: ['steamvr', 'noFadeGrid'],
+  steamvrCameraEnable: ['steamvr', 'cameraEnable'],
+  steamvrCameraBounds: ['steamvr', 'cameraBounds'],
+  steamvrCameraController: ['steamvr', 'cameraController'],
+  steamvrPerAppBinds: ['steamvr', 'perAppBinds'],
+  chapVisibility: ['chaperone', 'visibility'],
+  chapFadeDistance: ['chaperone', 'fadeDistance'],
+  chapHeight: ['chaperone', 'height'],
+  chapCenterMarker: ['chaperone', 'centerMarker'],
+  chapPlayspaceMarker: ['chaperone', 'playspaceMarker'],
+  chapForceBounds: ['chaperone', 'forceBounds'],
+  chapDisable: ['chaperone', 'disable'],
+  chapBeginnerMode: ['chaperone', 'beginnerMode'],
+  chapHapticFeedback: ['chaperone', 'hapticFeedback'],
+  chapAudioWarning: ['chaperone', 'audioWarning'],
+  chapLoopAudio: ['chaperone', 'loopAudio'],
+  chapAudioVolume: ['chaperone', 'audioVolume'],
+  chapOpenDashboard: ['chaperone', 'openDashboard'],
+  chapColorR: ['chaperone', 'colorR'],
+  chapColorG: ['chaperone', 'colorG'],
+  chapColorB: ['chaperone', 'colorB'],
+  chapFloorAlways: ['chaperone', 'floorAlways'],
+  chapActivationDistance: ['chaperone', 'activationDistance'],
+  spaceOffsetX: ['playspace', 'offsetX'],
+  spaceOffsetY: ['playspace', 'offsetY'],
+  spaceOffsetZ: ['playspace', 'offsetZ'],
+  spaceRotation: ['playspace', 'rotation'],
+  motionDragLeft: ['playspace', 'dragLeft'],
+  motionDragRight: ['playspace', 'dragRight'],
+  motionHeightToggle: ['playspace', 'heightToggle'],
+  motionHeightOffset: ['playspace', 'heightOffset'],
+  audioPlaybackOverride: ['audio', 'playbackOverride'],
+  audioMirrorVolume: ['audio', 'mirrorVolume'],
+  audioMirrorMute: ['audio', 'mirrorMute'],
+  audioMicOverride: ['audio', 'micOverride'],
+  audioMicVolume: ['audio', 'micVolume'],
+  audioMicMute: ['audio', 'micMute'],
+  audioProxSensor: ['audio', 'proxSensor'],
+  audioPTT: ['audio', 'pTT'],
+  audioPTTNotif: ['audio', 'pTTNotif'],
+  audioPTM: ['audio', 'pTM'],
+  videoBrightnessOn: ['video', 'brightnessOn'],
+  videoBrightnessValue: ['video', 'brightnessValue'],
+  videoColorR: ['video', 'colorR'],
+  videoColorG: ['video', 'colorG'],
+  videoColorB: ['video', 'colorB'],
+  videoSSOverride: ['video', 'sSOverride'],
+  videoSSValue: ['video', 'superSampling'],
+  videoSuperSampling: ['video', 'superSampling'],
+  videoMotionSmooth: ['video', 'motionSmooth'],
+  videoAdvSSFilter: ['video', 'advSSFilter'],
+  videoOverlayColor: ['video', 'overlayColor'],
+  videoOverlayOpacity: ['video', 'overlayOpacity'],
+  utilMediaKeys: ['utilities', 'mediaKeys'],
+  utilKeyShortcut1: ['utilities', 'keyShortcut1'],
+  utilKeyShortcut2: ['utilities', 'keyShortcut2'],
+  utilKeyShortcut3: ['utilities', 'keyShortcut3'],
+  utilAlarmEnabled: ['utilities', 'alarmEnabled'],
+  utilAlarmTime: ['utilities', 'alarmTime'],
+  utilTrackerBattery: ['utilities', 'trackerBattery'],
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const parseStoredValue = (value: unknown) => {
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
+const setConfigValue = (section: string, key: string, value: unknown) => {
+  const target = (config.value as Record<string, any>)[section];
+  if (isPlainObject(target)) {
+    target[key] = value;
+  }
+};
+
+const applyConfigPatch = (patch: Record<string, unknown>) => {
+  const root = config.value as Record<string, any>;
+
+  for (const [key, rawValue] of Object.entries(patch)) {
+    const value = parseStoredValue(rawValue);
+    const legacyTarget = legacyConfigKeyMap[key];
+
+    if (legacyTarget) {
+      setConfigValue(legacyTarget[0], legacyTarget[1], value);
+      continue;
+    }
+
+    if (!(key in root)) continue;
+
+    if (isPlainObject(root[key]) && isPlainObject(value)) {
+      Object.assign(root[key], value);
+    } else {
+      root[key] = value;
+    }
+  }
+};
+
+const ovrLayoutGroups = [
+  {
+    id: 'menu',
+    title: '内部菜单窗口',
+    description: '推荐在头显前方偏下，不挡视线；VR 内可用右 Grip + 双摇杆/触控板微调。',
+    controls: [
+      { key: 'menuWidthM', label: '宽度', min: 0.25, max: 1.4, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'menuOffsetX', label: '水平', min: -1.5, max: 1.5, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'menuOffsetY', label: '高度', min: -0.9, max: 0.8, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'menuOffsetZ', label: '距离', min: -2.5, max: -0.25, step: 0.01, unit: 'm', digits: 2 },
+    ],
+  },
+  {
+    id: 'result',
+    title: '底部翻译结果',
+    description: '默认落在 VR 视野底部，抬眼能看见但不贴脸；右 Grip 可在结果显示时微调。',
+    controls: [
+      { key: 'resultWidthM', label: '宽度', min: 0.25, max: 1.6, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'resultOffsetX', label: '水平', min: -1.5, max: 1.5, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'resultOffsetY', label: '高度', min: -1.2, max: 0.6, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'resultOffsetZ', label: '距离', min: -2.8, max: -0.3, step: 0.01, unit: 'm', digits: 2 },
+    ],
+  },
+  {
+    id: 'scan',
+    title: '右手截图框',
+    description: '绿色田字格只在右扳机按住时出现，拉动手柄改变框大小，松开后执行 OCR 翻译。',
+    controls: [
+      { key: 'scanFrameWidthM', label: '初始大小', min: 0.12, max: 1.6, step: 0.01, unit: 'm', digits: 2 },
+      { key: 'scanFrameDistanceM', label: '瞄准距离', min: 0.3, max: 2.0, step: 0.01, unit: 'm', digits: 2 },
+    ],
+  },
+] as const;
+
+const ovrLayoutPresets: Record<string, Record<string, number>> = {
+  menu: {
+    menuWidthM: 0.55,
+    menuOffsetX: 0,
+    menuOffsetY: -0.06,
+    menuOffsetZ: -0.75,
+  },
+  result: {
+    resultWidthM: 0.72,
+    resultOffsetX: 0,
+    resultOffsetY: -0.42,
+    resultOffsetZ: -1.10,
+  },
+  scan: {
+    scanFrameWidthM: 0.34,
+    scanFrameDistanceM: 0.72,
+  },
+  all: {
+    menuWidthM: 0.55,
+    menuOffsetX: 0,
+    menuOffsetY: -0.06,
+    menuOffsetZ: -0.75,
+    resultWidthM: 0.72,
+    resultOffsetX: 0,
+    resultOffsetY: -0.42,
+    resultOffsetZ: -1.10,
+    scanFrameWidthM: 0.34,
+    scanFrameDistanceM: 0.72,
+  },
+};
+
+const generalNumber = (key: string) => {
+  const value = (config.value.general as Record<string, unknown>)[key];
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+};
+
+const setGeneralNumber = (key: string, value: unknown) => {
+  const numberValue = Number(value);
+  if (Number.isFinite(numberValue)) {
+    (config.value.general as unknown as Record<string, number>)[key] = numberValue;
+  }
+};
+
+const setGeneralNumberFromEvent = (key: string, event: Event) => {
+  setGeneralNumber(key, (event.target as HTMLInputElement).value);
+};
+
+const applyOvrLayoutPreset = (id: string) => {
+  const preset = ovrLayoutPresets[id];
+  if (!preset) return;
+  Object.assign(config.value.general, preset);
+  void syncConfigToBackend();
+};
+
+const patchOvrLayoutFromBackend = (payload: Record<string, unknown>) => {
+  for (const [snakeKey, rawValue] of Object.entries(payload)) {
+    const target = legacyConfigKeyMap[snakeKey];
+    if (!target || target[0] !== 'general') continue;
+    const numberValue = Number(rawValue);
+    if (Number.isFinite(numberValue)) {
+      setConfigValue('general', target[1], numberValue);
+    }
+  }
+};
 
 // ========== VR Preview Simulator ==========
 const showVrPreview = ref(true);
@@ -317,20 +625,15 @@ const showToast = (message: string, type: 'success'|'error'|'info' = 'info') => 
 };
 
 // Auto-sync configuration to backend with debounce
-import { watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
-
 let configSyncTimeout: ReturnType<typeof setTimeout> | null = null;
-watch(config, (newConfig) => {
+let ovrasSyncChecked = false;
+let ovrasSyncAvailable = true;
+
+watch(config, () => {
   if (configSyncTimeout) clearTimeout(configSyncTimeout);
-  configSyncTimeout = setTimeout(async () => {
-    try {
-      await invoke('ovr_sync_ovras_ini', { payload: JSON.stringify(newConfig) });
-      showToast(t('ovr.toast_sync_success'), 'success');
-    } catch (error) {
-      showToast(t('ovr.toast_sync_fail').replace('{error}', String(error)), 'error');
-    }
-  }, 1000); // 1000ms debounce
+  configSyncTimeout = setTimeout(() => {
+    syncConfigToBackend();
+  }, 500);
 }, { deep: true });
 
 // ========== OVR Backend Integration ==========
@@ -387,6 +690,7 @@ const initOvrBackend = async () => {
 };
 
 const syncConfigToBackend = async () => {
+  void syncConfigToOvrasIni();
   if (!ovrConnected.value) return;
   try {
     await OvrApi.setConfig({
@@ -419,10 +723,50 @@ const syncConfigToBackend = async () => {
         osc_chatbox_enabled: config.value.general.oscChatboxEnabled !== false,
         trans_panel_max_width: config.value.general.transPanelMaxWidth || 640,
         overlay_font_size: config.value.general.overlayFontSize || 30,
+        ocr_language: config.value.ocr.model || 'zh-en-ja',
+        ocr_speed_mode: config.value.ocr.speedMode || 'standard',
+        ocr_image_enhance: config.value.ocr.enhanceContrast || false,
+        ocr_sharpen: config.value.general.ocrSharpen || false,
+        ocr_denoise: config.value.general.ocrDenoise || false,
+        ocr_merge_tolerance_x: config.value.general.ocrMergeWidthTol || 0.1,
+        ocr_merge_tolerance_y: config.value.general.ocrMergeHeightTol || 0.2,
+        auto_start_steamvr: config.value.general.advAutoStart || false,
+        playspace_offset_x: config.value.playspace.offsetX || 0,
+        playspace_offset_y: config.value.playspace.offsetY || 0,
+        playspace_offset_z: config.value.playspace.offsetZ || 0,
+        playspace_rotation: config.value.playspace.rotation || 0,
+        height_toggle_enabled: config.value.playspace.heightToggle || false,
+        height_toggle_offset: config.value.playspace.heightOffset || 0.3,
+        menu_width_m: generalNumber('menuWidthM') || 0.55,
+        menu_offset_x: generalNumber('menuOffsetX'),
+        menu_offset_y: generalNumber('menuOffsetY') || -0.06,
+        menu_offset_z: generalNumber('menuOffsetZ') || -0.75,
+        result_width_m: generalNumber('resultWidthM') || 0.72,
+        result_offset_x: generalNumber('resultOffsetX'),
+        result_offset_y: generalNumber('resultOffsetY') || -0.42,
+        result_offset_z: generalNumber('resultOffsetZ') || -1.10,
+        scan_frame_width_m: generalNumber('scanFrameWidthM') || 0.34,
+        scan_frame_distance_m: generalNumber('scanFrameDistanceM') || 0.72,
       }
     });
   } catch (err) {
     console.warn('OVR config sync failed:', err);
+  }
+};
+
+const syncConfigToOvrasIni = async () => {
+  if (ovrasSyncChecked && !ovrasSyncAvailable) return;
+
+  try {
+    await OvrApi.syncOvrasIni({ payload: JSON.stringify(config.value) });
+    ovrasSyncAvailable = true;
+  } catch (err) {
+    ovrasSyncAvailable = false;
+    if (!ovrasSyncChecked) {
+      console.warn('OVRAS compatibility sync unavailable:', err);
+    }
+  } finally {
+    ovrasSyncChecked = true;
   }
 };
 
@@ -457,7 +801,12 @@ onMounted(async () => {
     const u5 = await listen<boolean>('ovr_auto_scan_status', (e) => {
       autoScanRunning.value = e.payload;
     });
-    ovrUnlisteners = [u1, u2, u3, u4, u5];
+    const u6 = await listen<Record<string, unknown>>('ovr_layout_config_changed', (e) => {
+      if (isPlainObject(e.payload)) {
+        patchOvrLayoutFromBackend(e.payload);
+      }
+    });
+    ovrUnlisteners = [u1, u2, u3, u4, u5, u6];
   } catch {
     // Tauri events not available (dev mode / non-Tauri env)
   }
@@ -479,29 +828,15 @@ const loadSettings = async () => {
   try {
     const all = await DbApi.getAllSettings();
     if (all && typeof all === 'object') {
-      for (const [key, val] of Object.entries(all)) {
-        if (key in config.value) {
-          const target = config.value as any;
-          if (typeof target[key] === 'boolean') {
-            target[key] = val === true || val === 'true';
-          } else if (typeof target[key] === 'number') {
-            target[key] = Number(val) || target[key];
-          } else {
-            target[key] = val;
-          }
-        }
-      }
+      applyConfigPatch(all as Record<string, unknown>);
     }
 
     // Two-way sync: Override with native OVR INI if they changed it in VR
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const iniJsonStr = await invoke<string>('ovr_load_ovras_ini');
-      const iniData = JSON.parse(iniJsonStr);
-      for (const [key, val] of Object.entries(iniData)) {
-        if (key in config.value) {
-          (config.value as any)[key] = val;
-        }
+      const iniJsonStr = await OvrApi.loadOvrasIni();
+      const iniData = JSON.parse(iniJsonStr || '{}');
+      if (isPlainObject(iniData)) {
+        applyConfigPatch(iniData);
       }
     } catch (e) {
       console.warn('Failed to load native OVR INI:', e);
@@ -530,52 +865,7 @@ const saveSettings = async () => {
 };
 
 const restoreDefaults = () => {
-   const defaults = {
-     ovrEnabled: true, ovrDualDisplay: true, ovrTheme: 'dark', ovrWristMode: false,
-     ovrTriggerKey: 'trigger', ovrClearKey: 'left_stick',
-     ocrModel: 'zh-en-ja', ocrSpeedMode: 'standard', ocrEnhanceContrast: false, ocrSharpen: true,
-     ocrDenoise: false, ocrMergeHeightTol: 0.2, ocrMergeWidthTol: 0.1,
-     transMode: 'builtin', transService: 'tencent', transSourceLang: 'auto', transTargetLang: 'zh',
-     transApiKey: '', transLlmModel: '',
-     transLlmPrompt: t('ovr.trans_llm_prompt_default'),
-      overlayTextColor: '#FFFFFF', overlayBgColor: '#101826', overlayBgOpacity: 0.46,
-      overlayGlass: true, overlayBorderOpacity: 0.42, overlayCornerRadius: 18,
-      overlayShadowStrength: 0.35, transPanelMaxWidth: 640, overlayFontSize: 30,
-      overlayStatusColor: '#00FF00', overlayLockMode: 'world',
-    advCpuAccel: true, advGpuAccel: false, advDebugMode: false, advAutoStart: false,
-    // OVR Advanced Settings defaults
-    steamvrTimingOverlay: false, steamvrMultiDriver: false, steamvrDisableNotifs: false,
-    steamvrRequireHmd: true, steamvrSystemButton: false, steamvrControllerPower: true,
-    steamvrNoFadeGrid: false, steamvrCameraEnable: false, steamvrCameraBounds: false,
-    steamvrCameraController: false, steamvrPerAppBinds: false,
-    chapVisibility: 70, chapFadeDistance: 0.7, chapHeight: 2.5, chapCenterMarker: false,
-    chapPlayspaceMarker: false, chapForceBounds: false, chapDisable: false,
-    chapBeginnerMode: false, chapHapticFeedback: false, chapAudioWarning: false,
-    chapLoopAudio: false, chapAudioVolume: false, chapOpenDashboard: false,
-    chapColorR: 0, chapColorG: 255, chapColorB: 128, chapFloorAlways: false, chapActivationDistance: 0.5,
-    spaceOffsetX: 0, spaceOffsetY: 0, spaceOffsetZ: 0, spaceRotation: 0, spaceAdjustChap: true,
-    motionDragLeft: true, motionDragRight: true, motionDragComfort: 0, motionDragForceBounds: true,
-    motionDragMultiplier: 1.0, motionHeightToggle: false, motionHeightOffset: 0.3,
-    motionGravityOn: false, motionGravityStrength: 9.81, motionGravityFriction: 0.1,
-    motionSaveMomentum: false, motionFlingStrength: 1.0,
-    rotationAutoTurn: false, rotationActivationDist: 0.5, rotationDeactivationDist: 0.3,
-    rotationUseCornerAngle: true, rotationUseSmooth: false, rotationTurnSpeed: 90,
-    rotationRedirectedWalk: false, rotationRedirectRadius: 5.0, rotationViewRatchet: 0,
-    rotationSpaceTurnLeft: true, rotationSpaceTurnRight: true, rotationTurnComfort: 0,
-    rotationTurnForceBounds: true, rotationSnapTurnAngle: 45, rotationSmoothTurnRate: 100,
-    audioPlaybackOverride: false, audioMirrorVolume: 100, audioMirrorMute: false,
-    audioMicOverride: false, audioMicVolume: 100, audioMicMute: false,
-    audioProxSensor: false, audioPTT: false, audioPTTNotif: true, audioPTM: false,
-    videoBrightnessOn: false, videoBrightnessValue: 100, videoColorR: 100, videoColorG: 100,
-    videoColorB: 100, videoSSOverride: false, videoSSValue: 1.0, videoMotionSmooth: true,
-    videoAdvSSFilter: true, videoOverlayColor: false, videoOverlayOpacity: 0.5,
-    utilKeyShortcut1: 'Ctrl+Shift+M', utilKeyShortcut2: '', utilKeyShortcut3: '',
-    utilAlarmEnabled: false, utilAlarmTime: '08:00', utilTrackerBattery: false,
-    settingsUniverseRotation: false, settingsCrashRecovery: true, settingsVersionCheck: false,
-    settingsForceSteamvrChap: false, settingsAutoChapProfile: false,
-    settingsForceDisableOculus: false, settingsExclusiveInput: false, settingsDisableVsync: false,
-  };
-  config.value = { ...defaults } as any;
+  config.value = createDefaultConfig();
   saveSettings();
 };
 

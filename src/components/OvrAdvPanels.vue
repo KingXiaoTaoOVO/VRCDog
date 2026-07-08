@@ -29,6 +29,16 @@ const updateConfig = (key: string, value: any) => {
   }
 };
 
+const updateConfigSection = (section: string, values: Record<string, any>) => {
+  emit('update:config', {
+    ...props.config,
+    [section]: {
+      ...props.config[section],
+      ...values,
+    },
+  });
+};
+
 // ===== Native Playspace Control (replaces OVRAS INI sync) =====
 const heightToggled = ref(false);
 const perfStats = ref<any>({
@@ -60,22 +70,32 @@ const applyPlayspaceRotation = async () => {
   }
 };
 
-const toggleHeight = async () => {
+const applyHeightToggle = async (enabled: boolean, syncConfig = false) => {
   try {
     await invoke('ovr_toggle_height');
-    heightToggled.value = !heightToggled.value;
+    heightToggled.value = enabled;
+    if (syncConfig) {
+      updateConfig('playspace.heightToggle', enabled);
+    }
   } catch (e) {
     console.warn('[OvrAdvPanels] Toggle height error:', e);
   }
 };
 
+const toggleHeight = async () => {
+  await applyHeightToggle(!heightToggled.value, true);
+};
+
 const resetPlayspace = async () => {
   try {
     await invoke('ovr_reset_playspace');
-    updateConfig('playspace.offsetX', 0);
-    updateConfig('playspace.offsetY', 0);
-    updateConfig('playspace.offsetZ', 0);
-    updateConfig('playspace.rotation', 0);
+    updateConfigSection('playspace', {
+      offsetX: 0,
+      offsetY: 0,
+      offsetZ: 0,
+      rotation: 0,
+      heightToggle: false,
+    });
     heightToggled.value = false;
   } catch (e) {
     console.warn('[OvrAdvPanels] Reset playspace error:', e);

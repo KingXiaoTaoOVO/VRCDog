@@ -98,6 +98,52 @@ const qrKey = ref('');
 const qrStatusText = ref('');
 const qrLoginLoading = ref(false);
 let qrPollTimer: number | null = null;
+let liveConfigTimer: number | null = null;
+let restartTimer: number | null = null;
+
+const finiteNumber = (value: unknown, fallback: number) => {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+};
+
+const integerInRange = (value: unknown, fallback: number, min: number, max: number) => {
+  const numberValue = Math.trunc(finiteNumber(value, fallback));
+  return Math.min(max, Math.max(min, numberValue));
+};
+
+const runtimeConfig = (): DanmakuConfig => {
+  const base = { ...defaultConfig(), ...config.value };
+  return {
+    ...base,
+    room_id: integerInRange(base.room_id, 0, 0, Number.MAX_SAFE_INTEGER),
+    osc_input_port: integerInRange(base.osc_input_port, 9011, 1, 65535),
+    osc_output_port: integerInRange(base.osc_output_port, 9000, 1, 65535),
+    vrc_chatbox_port: integerInRange(base.vrc_chatbox_port, 9000, 1, 65535),
+    chatbox_interval_ms: integerInRange(base.chatbox_interval_ms, 1600, 250, 60_000),
+    x: finiteNumber(base.x, -0.4),
+    y: finiteNumber(base.y, 0.1),
+    z: finiteNumber(base.z, -0.8),
+    pitch: finiteNumber(base.pitch, 0),
+    yaw: finiteNumber(base.yaw, 15),
+    roll: finiteNumber(base.roll, 0),
+    overlay_width_m: finiteNumber(base.overlay_width_m, 0.4),
+    overlay_alpha: Math.min(1, Math.max(0.05, finiteNumber(base.overlay_alpha, 0.92))),
+    bg_alpha: Math.min(1, Math.max(0, finiteNumber(base.bg_alpha, 0.85))),
+    font_size: finiteNumber(base.font_size, 14),
+    max_messages: integerInRange(base.max_messages, 50, 10, 500),
+  };
+};
+
+const clearRuntimeTimers = () => {
+  if (liveConfigTimer !== null) {
+    window.clearTimeout(liveConfigTimer);
+    liveConfigTimer = null;
+  }
+  if (restartTimer !== null) {
+    window.clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+};
 
 const runningLabel = computed(() => {
   if (status.value.running && status.value.bili_connected) return '直播弹幕已连接';
@@ -301,8 +347,9 @@ const saveSettings = async () => {
   saving.value = true;
   saved.value = false;
   try {
-    await DbApi.saveSetting({ key: STORAGE_KEY, value: JSON.stringify(config.value) });
-    await DanmakuApi.setConfig({ config: config.value });
+    const nextConfig = runtimeConfig();
+    await DbApi.saveSetting({ key: STORAGE_KEY, value: JSON.stringify(nextConfig) });
+    await DanmakuApi.setConfig({ config: nextConfig });
     saved.value = true;
     setTimeout(() => { saved.value = false; }, 1800);
   } catch (e: any) {
@@ -329,8 +376,9 @@ const start = async () => {
   loading.value = true;
   error.value = '';
   try {
+    clearRuntimeTimers();
     await saveSettings();
-    status.value = await DanmakuApi.start({ config: config.value });
+    status.value = await DanmakuApi.start({ config: runtimeConfig() });
     if (config.value.enable_vr_overlay) {
       await sleep(700);
       const snapshot = await DanmakuApi.getStatus();
@@ -340,7 +388,7 @@ const start = async () => {
         await DanmakuApi.stop();
         await OvrApi.shutdown().catch(() => {});
         await sleep(500);
-        status.value = await DanmakuApi.start({ config: config.value });
+        status.value = await DanmakuApi.start({ config: runtimeConfig() });
       }
     }
     addLog('弹幕服务已启动');
@@ -355,6 +403,7 @@ const stop = async () => {
   loading.value = true;
   error.value = '';
   try {
+    clearRuntimeTimers();
     status.value = await DanmakuApi.stop();
     addLog('弹幕服务已停止');
   } catch (e: any) {
@@ -396,14 +445,63 @@ const sendTest = async (type = 'danmaku') => {
   }
 };
 
+const scheduleLiveConfigApply = () => {
+  if (!status.value.running) return;
+  if (liveConfigTimer !== null) {
+    window.clearTimeout(liveConfigTimer);
+  }
+  liveConfigTimer = window.setTimeout(async () => {
+    liveConfigTimer = null;
+    try {
+      status.value = await DanmakuApi.setConfig({ config: runtimeConfig() });
+    } catch (e: any) {
+      error.value = e.message || String(e);
+    }
+  }, 120);
+};
+
+const scheduleRunningRestart = () => {
+  if (!status.value.running) return;
+  if (restartTimer !== null) {
+    window.clearTimeout(restartTimer);
+  }
+  restartTimer = window.setTimeout(async () => {
+    restartTimer = null;
+    if (!status.value.running) return;
+    if (liveConfigTimer !== null) {
+      window.clearTimeout(liveConfigTimer);
+      liveConfigTimer = null;
+    }
+    try {
+      loading.value = true;
+      status.value = await DanmakuApi.start({ config: runtimeConfig() });
+      addLog('已按新的房间号/输入源/VR 窗口配置重连直播姬', 'success');
+    } catch (e: any) {
+      error.value = e.message || String(e);
+    } finally {
+      loading.value = false;
+    }
+  }, 700);
+};
+
 watch(
   () => config.value,
-  () => {
-    if (status.value.running) {
-      DanmakuApi.setConfig({ config: config.value }).catch(() => {});
-    }
-  },
+  scheduleLiveConfigApply,
   { deep: true },
+);
+
+watch(
+  () => [
+    config.value.enable_bilibili,
+    config.value.room_id,
+    config.value.bili_sessdata,
+    config.value.enable_osc_input,
+    config.value.osc_input_host,
+    config.value.osc_input_port,
+    config.value.osc_input_address,
+    config.value.enable_vr_overlay,
+  ],
+  scheduleRunningRestart,
 );
 
 onMounted(async () => {
@@ -431,6 +529,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopQrPolling();
+  clearRuntimeTimers();
   unlisteners.forEach((unlisten) => unlisten());
   unlisteners.length = 0;
 });

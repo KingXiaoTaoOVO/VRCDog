@@ -102,6 +102,27 @@ pub struct OvrConfig {
     pub height_toggle_enabled: bool, // Whether height toggle is active
     #[serde(default = "default_height_offset")]
     pub height_toggle_offset: f32, // Height toggle offset in meters (positive = down)
+    // ===== VR Overlay Layout (runtime-adjustable inside VR) =====
+    #[serde(default = "default_menu_width_m")]
+    pub menu_width_m: f32,
+    #[serde(default)]
+    pub menu_offset_x: f32,
+    #[serde(default = "default_menu_offset_y")]
+    pub menu_offset_y: f32,
+    #[serde(default = "default_menu_offset_z")]
+    pub menu_offset_z: f32,
+    #[serde(default = "default_result_width_m")]
+    pub result_width_m: f32,
+    #[serde(default)]
+    pub result_offset_x: f32,
+    #[serde(default = "default_result_offset_y")]
+    pub result_offset_y: f32,
+    #[serde(default = "default_result_offset_z")]
+    pub result_offset_z: f32,
+    #[serde(default = "default_scan_frame_width_m")]
+    pub scan_frame_width_m: f32,
+    #[serde(default = "default_scan_frame_distance_m")]
+    pub scan_frame_distance_m: f32,
 }
 
 fn default_auto_scan_interval() -> u32 {
@@ -139,6 +160,30 @@ fn default_grip_threshold() -> f32 {
 }
 fn default_ocr_contrast() -> f32 {
     1.0
+}
+fn default_menu_width_m() -> f32 {
+    0.55
+}
+fn default_menu_offset_y() -> f32 {
+    -0.06
+}
+fn default_menu_offset_z() -> f32 {
+    -0.75
+}
+fn default_result_width_m() -> f32 {
+    0.72
+}
+fn default_result_offset_y() -> f32 {
+    -0.42
+}
+fn default_result_offset_z() -> f32 {
+    -1.10
+}
+fn default_scan_frame_width_m() -> f32 {
+    0.34
+}
+fn default_scan_frame_distance_m() -> f32 {
+    0.72
 }
 fn default_merge_x() -> f32 {
     0.2
@@ -192,6 +237,16 @@ impl Default for OvrConfig {
             playspace_rotation: 0.0,
             height_toggle_enabled: false,
             height_toggle_offset: 0.3,
+            menu_width_m: 0.55,
+            menu_offset_x: 0.0,
+            menu_offset_y: -0.06,
+            menu_offset_z: -0.75,
+            result_width_m: 0.72,
+            result_offset_x: 0.0,
+            result_offset_y: -0.42,
+            result_offset_z: -1.10,
+            scan_frame_width_m: 0.34,
+            scan_frame_distance_m: 0.72,
             ocr_contrast: 1.0,
             ocr_sharpen: false,
             ocr_denoise: false,
@@ -323,6 +378,115 @@ async fn perform_scan_translate(config: &OvrConfig) -> Result<(String, String), 
     }
 }
 
+fn normalize_overlay_layout(config: &mut OvrConfig) {
+    config.menu_width_m = config.menu_width_m.clamp(0.25, 1.40);
+    config.menu_offset_x = config.menu_offset_x.clamp(-1.50, 1.50);
+    config.menu_offset_y = config.menu_offset_y.clamp(-0.90, 0.80);
+    config.menu_offset_z = config.menu_offset_z.clamp(-2.50, -0.25);
+    config.result_width_m = config.result_width_m.clamp(0.25, 1.60);
+    config.result_offset_x = config.result_offset_x.clamp(-1.50, 1.50);
+    config.result_offset_y = config.result_offset_y.clamp(-1.20, 0.60);
+    config.result_offset_z = config.result_offset_z.clamp(-2.80, -0.30);
+    config.scan_frame_width_m = config.scan_frame_width_m.clamp(0.12, 1.60);
+    config.scan_frame_distance_m = config.scan_frame_distance_m.clamp(0.30, 2.00);
+}
+
+fn hmd_relative_transform(x: f32, y: f32, z: f32) -> openvr::pose::Matrix3x4 {
+    openvr::pose::Matrix3x4([[1.0, 0.0, 0.0, x], [0.0, 1.0, 0.0, y], [0.0, 0.0, 1.0, z]])
+}
+
+fn wrist_relative_transform(x: f32, y: f32, z: f32) -> openvr::pose::Matrix3x4 {
+    openvr::pose::Matrix3x4([
+        [1.0, 0.0, 0.0, x],
+        [0.0, 0.707, 0.707, y],
+        [0.0, -0.707, 0.707, z],
+    ])
+}
+
+fn world_overlay_transform(x: f32, y: f32, z: f32) -> openvr::pose::Matrix3x4 {
+    openvr::pose::Matrix3x4([
+        [1.0, 0.0, 0.0, x],
+        [0.0, 1.0, 0.0, 1.45 + y],
+        [0.0, 0.0, 1.0, z],
+    ])
+}
+
+#[derive(Clone, Copy)]
+enum TextOverlayKind {
+    Menu,
+    Result,
+}
+
+fn apply_text_overlay_layout(
+    ovr: &mut openvr::Overlay,
+    handle: openvr::overlay::OverlayHandle,
+    config: &OvrConfig,
+    left_idx: Option<openvr::TrackedDeviceIndex>,
+    kind: TextOverlayKind,
+) {
+    let (width, x, y, z) = match kind {
+        TextOverlayKind::Menu => (
+            config.menu_width_m,
+            config.menu_offset_x,
+            config.menu_offset_y,
+            config.menu_offset_z,
+        ),
+        TextOverlayKind::Result => (
+            config.result_width_m,
+            config.result_offset_x,
+            config.result_offset_y,
+            config.result_offset_z,
+        ),
+    };
+
+    let _ = ovr.set_width(handle, width.clamp(0.12, 1.80));
+
+    match config.overlay_lock_mode.as_str() {
+        "head" => {
+            let transform = hmd_relative_transform(x, y, z);
+            let _ = ovr.set_transform_tracked_device_relative(
+                handle,
+                openvr::TrackedDeviceIndex(0),
+                &transform,
+            );
+        }
+        "wrist" => {
+            if let Some(l_idx) = left_idx {
+                let transform = wrist_relative_transform(x, y, z);
+                let _ = ovr.set_transform_tracked_device_relative(handle, l_idx, &transform);
+            } else {
+                let transform = hmd_relative_transform(x, y, z);
+                let _ = ovr.set_transform_tracked_device_relative(
+                    handle,
+                    openvr::TrackedDeviceIndex(0),
+                    &transform,
+                );
+            }
+        }
+        _ => {
+            let transform = world_overlay_transform(x, y, z);
+            let _ = ovr.set_transform_absolute(
+                handle,
+                openvr::TrackingUniverseOrigin::Standing,
+                &transform,
+            );
+        }
+    }
+}
+
+fn apply_scan_frame_layout(
+    ovr: &mut openvr::Overlay,
+    handle: openvr::overlay::OverlayHandle,
+    config: &OvrConfig,
+    right_idx: Option<openvr::TrackedDeviceIndex>,
+) {
+    let _ = ovr.set_width(handle, config.scan_frame_width_m.clamp(0.12, 1.60));
+    if let Some(r_idx) = right_idx {
+        let transform = hmd_relative_transform(0.0, 0.0, -config.scan_frame_distance_m);
+        let _ = ovr.set_transform_tracked_device_relative(handle, r_idx, &transform);
+    }
+}
+
 #[allow(unused_assignments)]
 fn vr_thread_main(
     app_handle: AppHandle,
@@ -387,7 +551,8 @@ fn vr_thread_main(
     );
 
     // ===== Create overlays =====
-    let mut overlay_handle = None; // Main menu/translation overlay
+    let mut overlay_handle = None; // Main menu overlay
+    let mut result_handle = None; // Bottom translation result overlay
     let mut scan_handle = None; // Green scan frame overlay
 
     if let Ok(mut ovr) = context.overlay() {
@@ -457,7 +622,25 @@ fn vr_thread_main(
             }
         }
 
-        // 2) Scan frame overlay - follows right controller, green border
+        // 2) Translation result overlay - shown near the bottom of the VR view
+        match ovr.create_overlay("vrcdog.result\0", "VrcDog Translation\0") {
+            Ok(handle) => {
+                let _ = ovr.set_width(handle, default_result_width_m());
+                let _ = ovr.set_opacity(handle, 0.92);
+                let _ = ovr.set_sort_order(handle, 15);
+                let _ = ovr.set_visibility(handle, false);
+                result_handle = Some(handle);
+                let _ = app_handle.emit("ovr_log", "[OVR] [OK] Translation result overlay created");
+            }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "ovr_log",
+                    format!("[OVR] [Error] Translation result overlay failed: {:?}", e),
+                );
+            }
+        }
+
+        // 3) Scan frame overlay - follows right controller, green border
         match ovr.create_overlay("vrcdog.scan\0", "VrcDog Scan\0") {
             Ok(handle) => {
                 let _ = ovr.set_width(handle, 0.3);
@@ -534,6 +717,7 @@ fn vr_thread_main(
     let mut prev_left_buttons: u64 = 0;
     let mut prev_right_buttons: u64 = 0;
     let mut overlay_menu_visible = false; // Start hidden, user summons with right B long-press
+    let mut result_overlay_visible = false;
     let mut scan_active = false;
     // Channel for scan results (async task -> VR thread)
     let (scan_tx, scan_rx) = std::sync::mpsc::channel::<(String, String)>();
@@ -549,8 +733,9 @@ fn vr_thread_main(
     let _scan_start_pos: Option<[f32; 3]> = None;
 
     let mut last_right_b_press_tick: u64 = 0;
+    let mut menu_combo_ticks: u64 = 0;
+    let mut app_menu_hold_ticks: u64 = 0;
 
-    let mut right_trigger_ticks: u64 = 0;
     let _last_right_trigger_press_tick: u64 = 0;
     let _is_scan_primed = false;
 
@@ -560,9 +745,9 @@ fn vr_thread_main(
 
     let mut joystick_nav_cooldown: u64 = 0; // Prevent too-fast joystick navigation
 
-    // Configurable transforms via joystick
-    let mut menu_offset_z: f32 = 0.0;
-    let mut menu_width: f32 = 0.35; // Make menu larger by default
+    // Configurable transforms via joystick / trackpad.
+    let mut scan_drag_origin: Option<[f32; 3]> = None;
+    let mut scan_drag_origin_width: f32 = default_scan_frame_width_m();
 
     let mut is_translating = false; // Prevent double-trigger while OCR is running
                                     // Desktop mirror auto-scan state
@@ -636,6 +821,12 @@ fn vr_thread_main(
                         if let Some(h) = overlay_handle {
                             let _ = ovr.set_visibility(h, false);
                         }
+                        if let Some(h) = result_handle {
+                            let _ = ovr.set_visibility(h, false);
+                        }
+                        if let Some(h) = scan_handle {
+                            let _ = ovr.set_visibility(h, false);
+                        }
                     }
                     drop(context);
                     let status_c = status.clone();
@@ -649,64 +840,38 @@ fn vr_thread_main(
                 }
                 OvrCommand::UpdateConfig(new_config) => {
                     current_config = *new_config;
+                    normalize_overlay_layout(&mut current_config);
                     // Apply config changes to overlay
                     if let Ok(mut ovr) = context.overlay() {
+                        let left_idx = context.system().ok().and_then(|sys| {
+                            sys.tracked_device_index_for_controller_role(
+                                openvr::TrackedControllerRole::LeftHand,
+                            )
+                        });
+                        let right_idx = context.system().ok().and_then(|sys| {
+                            sys.tracked_device_index_for_controller_role(
+                                openvr::TrackedControllerRole::RightHand,
+                            )
+                        });
                         if let Some(h) = overlay_handle {
                             let _ = ovr.set_opacity(h, current_config.overlay_bg_opacity);
-                            // Switch overlay positioning mode
-                            match current_config.overlay_lock_mode.as_str() {
-                                "head" => {
-                                    // Try left hand first
-                                    let mut locked_to_hand = false;
-                                    if let Ok(sys) = context.system() {
-                                        if let Some(l_idx) = sys
-                                            .tracked_device_index_for_controller_role(
-                                                openvr::TrackedControllerRole::LeftHand,
-                                            )
-                                        {
-                                            // Tilted tablet-like rotation (-45 deg pitch)
-                                            let hand_transform = openvr::pose::Matrix3x4([
-                                                [1.0, 0.0, 0.0, 0.0],
-                                                [0.0, 0.707, 0.707, 0.08],
-                                                [0.0, -0.707, 0.707, -0.05],
-                                            ]);
-                                            let _ = ovr.set_transform_tracked_device_relative(
-                                                h,
-                                                l_idx,
-                                                &hand_transform,
-                                            );
-                                            let _ = ovr.set_width(h, 0.35);
-                                            locked_to_hand = true;
-                                        }
-                                    }
-                                    if !locked_to_hand {
-                                        let head_transform = openvr::pose::Matrix3x4([
-                                            [1.0, 0.0, 0.0, 0.0],
-                                            [0.0, 1.0, 0.0, -0.1],
-                                            [0.0, 0.0, 1.0, -0.5],
-                                        ]);
-                                        let _ = ovr.set_transform_tracked_device_relative(
-                                            h,
-                                            openvr::TrackedDeviceIndex(0),
-                                            &head_transform,
-                                        );
-                                        let _ = ovr.set_width(h, 0.35);
-                                    }
-                                }
-                                _ => {
-                                    // World-locked: fixed position in standing space
-                                    let world_transform = openvr::pose::Matrix3x4([
-                                        [1.0, 0.0, 0.0, 0.0],
-                                        [0.0, 1.0, 0.0, 1.5],
-                                        [0.0, 0.0, 1.0, -1.2],
-                                    ]);
-                                    let _ = ovr.set_transform_absolute(
-                                        h,
-                                        openvr::TrackingUniverseOrigin::Standing,
-                                        &world_transform,
-                                    );
-                                }
-                            }
+                            apply_text_overlay_layout(
+                                &mut ovr,
+                                h,
+                                &current_config,
+                                left_idx,
+                                TextOverlayKind::Menu,
+                            );
+                        }
+                        if let Some(h) = result_handle {
+                            let _ = ovr.set_opacity(h, current_config.overlay_bg_opacity);
+                            apply_text_overlay_layout(
+                                &mut ovr,
+                                h,
+                                &current_config,
+                                left_idx,
+                                TextOverlayKind::Result,
+                            );
                         }
                         // Update scan frame color if changed
                         if let Some(sh) = scan_handle {
@@ -716,6 +881,7 @@ fn vr_thread_main(
                                 &current_config.scan_frame_color,
                             );
                             let _ = ovr.set_raw_data(sh, &scan_pixels, 256, 256, 4);
+                            apply_scan_frame_layout(&mut ovr, sh, &current_config, right_idx);
                         }
                     }
                     // Apply height toggle offset from config
@@ -736,7 +902,7 @@ fn vr_thread_main(
                 } => {
                     current_translation = Some((original, translated));
                     // Render text to overlay using configured panel width
-                    if let (Some(h), Some(ref f)) = (overlay_handle, &font) {
+                    if let (Some(h), Some(ref f)) = (result_handle, &font) {
                         let text_color = crate::vr_ui::VrUiRenderer::parse_hex_rgb(
                             &current_config.overlay_text_color,
                         );
@@ -764,7 +930,20 @@ fn vr_thread_main(
                         if let Ok(mut ovr) = context.overlay() {
                             let _ =
                                 ovr.set_raw_data(h, &pixels, panel_w as usize, panel_h as usize, 4);
+                            let left_idx = context.system().ok().and_then(|sys| {
+                                sys.tracked_device_index_for_controller_role(
+                                    openvr::TrackedControllerRole::LeftHand,
+                                )
+                            });
+                            apply_text_overlay_layout(
+                                &mut ovr,
+                                h,
+                                &current_config,
+                                left_idx,
+                                TextOverlayKind::Result,
+                            );
                             let _ = ovr.set_visibility(h, true);
+                            result_overlay_visible = true;
                         }
                     }
                     let status_c = status.clone();
@@ -775,10 +954,11 @@ fn vr_thread_main(
                 }
                 OvrCommand::SetVisible(vis) => {
                     if let Ok(mut ovr) = context.overlay() {
-                        if let Some(h) = overlay_handle {
+                        if let Some(h) = result_handle {
                             let _ = ovr.set_visibility(h, vis);
                         }
                     }
+                    result_overlay_visible = vis;
                     let status_c = status.clone();
                     tokio::runtime::Handle::current().block_on(async {
                         let mut s = status_c.lock().await;
@@ -788,10 +968,11 @@ fn vr_thread_main(
                 OvrCommand::ClearText => {
                     current_translation = None;
                     if let Ok(mut ovr) = context.overlay() {
-                        if let Some(h) = overlay_handle {
+                        if let Some(h) = result_handle {
                             let _ = ovr.set_visibility(h, false);
                         }
                     }
+                    result_overlay_visible = false;
                     let _ = app_handle.emit("ovr_translation_cleared", "");
                 }
                 OvrCommand::ToggleTranslation => {
@@ -819,7 +1000,7 @@ fn vr_thread_main(
                         is_translating = true;
                         let _ = app_handle.emit("ovr_log", "[OVR] 📸 桌面截图翻译中...");
                         // Show progress overlay
-                        if let (Some(h), Some(ref f)) = (overlay_handle, &font) {
+                        if let (Some(h), Some(ref f)) = (result_handle, &font) {
                             let pixels = crate::vr_ui::VrUiRenderer::render_text_to_rgba(
                                 f,
                                 "",
@@ -833,7 +1014,20 @@ fn vr_thread_main(
                             );
                             if let Ok(mut ovr) = context.overlay() {
                                 let _ = ovr.set_raw_data(h, &pixels, 512, 320, 4);
+                                let left_idx = context.system().ok().and_then(|sys| {
+                                    sys.tracked_device_index_for_controller_role(
+                                        openvr::TrackedControllerRole::LeftHand,
+                                    )
+                                });
+                                apply_text_overlay_layout(
+                                    &mut ovr,
+                                    h,
+                                    &current_config,
+                                    left_idx,
+                                    TextOverlayKind::Result,
+                                );
                                 let _ = ovr.set_visibility(h, true);
+                                result_overlay_visible = true;
                             }
                         }
                         let cfg_clone = current_config.clone();
@@ -998,7 +1192,7 @@ fn vr_thread_main(
 
             // Render translation result
             current_translation = Some((original.clone(), translated.clone()));
-            if let (Some(h), Some(ref f)) = (overlay_handle, &font) {
+            if let (Some(h), Some(ref f)) = (result_handle, &font) {
                 let text_color =
                     crate::vr_ui::VrUiRenderer::parse_hex_rgb(&current_config.overlay_text_color);
                 let bg_color =
@@ -1022,42 +1216,20 @@ fn vr_thread_main(
                 );
                 if let Ok(mut ovr) = context.overlay() {
                     let _ = ovr.set_raw_data(h, &pixels, panel_w as usize, panel_h as usize, 4);
-                    let _ = ovr.set_visibility(h, true);
-                    overlay_menu_visible = true; // Ensure menu state is tracked
-
-                    // Re-apply transform so it respects dynamic offset and mode
-                    let _ = ovr.set_width(h, menu_width + 0.15); // Increase default width
-                    if current_config.overlay_lock_mode == "head" {
-                        let head_transform = openvr::pose::Matrix3x4([
-                            [1.0, 0.0, 0.0, 0.0],
-                            [0.0, 1.0, 0.0, -0.1],
-                            [0.0, 0.0, 1.0, -0.7 + menu_offset_z], // Further away
-                        ]);
-                        let _ = ovr.set_transform_tracked_device_relative(
-                            h,
-                            openvr::TrackedDeviceIndex(0),
-                            &head_transform,
-                        );
-                    } else if let Ok(sys) = context.system() {
-                        if let Some(l_idx) = sys.tracked_device_index_for_controller_role(
+                    let left_idx = context.system().ok().and_then(|sys| {
+                        sys.tracked_device_index_for_controller_role(
                             openvr::TrackedControllerRole::LeftHand,
-                        ) {
-                            // Tilted tablet-like rotation (-45 deg pitch)
-                            let hand_transform = openvr::pose::Matrix3x4([
-                                [1.0, 0.0, 0.0, 0.0],
-                                [0.0, 0.707, 0.707, 0.08],
-                                [0.0, -0.707, 0.707, -0.05 + menu_offset_z],
-                            ]);
-                            let _ = ovr.set_transform_tracked_device_relative(
-                                h,
-                                l_idx,
-                                &hand_transform,
-                            );
-                        }
-                    }
-
-                    // Update menu visible state so it doesn't instantly close on next interaction
-                    overlay_menu_visible = true;
+                        )
+                    });
+                    apply_text_overlay_layout(
+                        &mut ovr,
+                        h,
+                        &current_config,
+                        left_idx,
+                        TextOverlayKind::Result,
+                    );
+                    let _ = ovr.set_visibility(h, true);
+                    result_overlay_visible = true;
 
                     // --- NEW: Render to Wrist Overlay if Wrist Mode enabled ---
                     if current_config.wrist_mode {
@@ -1254,15 +1426,18 @@ fn vr_thread_main(
                 }
             }
 
-            // --- Right B key Double-Click detection ---
-            // B button = APPLICATION_MENU on most controllers (index 1)
+            // --- Menu toggle: works on Vive/Index/Touch without relying on A/B/X/Y ---
+            // APPLICATION_MENU remains supported, but both grips held together is the
+            // universal fallback for Vive wands and other minimal controllers.
             let b_mask = 1u64 << openvr::button_id::APPLICATION_MENU;
             let right_b_pressed = right_new & b_mask != 0;
+            let right_app_menu_held = right_pressed & b_mask != 0;
+            let left_grip_held_for_menu = left_pressed & grip_mask != 0;
+            let right_grip_held_for_menu = (right_pressed & grip_mask != 0) || ivr_scale_pressed;
 
             let mut should_toggle = false;
             if right_b_pressed {
                 if tick.saturating_sub(last_right_b_press_tick) < 30 {
-                    // Double click!
                     should_toggle = true;
                     last_right_b_press_tick = 0; // reset
                 } else {
@@ -1270,39 +1445,46 @@ fn vr_thread_main(
                 }
             }
 
+            if left_grip_held_for_menu && right_grip_held_for_menu {
+                menu_combo_ticks += 1;
+                if menu_combo_ticks == 64 {
+                    should_toggle = true;
+                }
+            } else {
+                menu_combo_ticks = 0;
+            }
+
+            if right_app_menu_held {
+                app_menu_hold_ticks += 1;
+                if app_menu_hold_ticks == 64 {
+                    should_toggle = true;
+                }
+            } else {
+                app_menu_hold_ticks = 0;
+            }
+
             if should_toggle {
-                // Toggle menu!
                 overlay_menu_visible = !overlay_menu_visible;
+                if overlay_menu_visible {
+                    scan_active = false;
+                    scan_drag_origin = None;
+                }
                 if let Ok(mut ovr) = context.overlay() {
                     if let Some(h) = overlay_handle {
                         let _ = ovr.set_visibility(h, overlay_menu_visible);
                         if overlay_menu_visible {
-                            let _ = ovr.set_width(h, menu_width);
-                            if current_config.overlay_lock_mode == "head" {
-                                let head_transform = openvr::pose::Matrix3x4([
-                                    [1.0, 0.0, 0.0, 0.0],
-                                    [0.0, 1.0, 0.0, -0.1],
-                                    [0.0, 0.0, 1.0, -0.5 + menu_offset_z],
-                                ]);
-                                let _ = ovr.set_transform_tracked_device_relative(
-                                    h,
-                                    openvr::TrackedDeviceIndex(0),
-                                    &head_transform,
-                                );
-                            } else {
-                                if let Some(l_idx) = left_idx {
-                                    let hand_transform = openvr::pose::Matrix3x4([
-                                        [1.0, 0.0, 0.0, 0.0],
-                                        [0.0, 1.0, 0.0, 0.08],
-                                        [0.0, 0.0, 1.0, -0.05 + menu_offset_z],
-                                    ]);
-                                    let _ = ovr.set_transform_tracked_device_relative(
-                                        h,
-                                        l_idx,
-                                        &hand_transform,
-                                    );
-                                }
-                            }
+                            apply_text_overlay_layout(
+                                &mut ovr,
+                                h,
+                                &current_config,
+                                left_idx,
+                                TextOverlayKind::Menu,
+                            );
+                        }
+                    }
+                    if let Some(sh) = scan_handle {
+                        if overlay_menu_visible {
+                            let _ = ovr.set_visibility(sh, false);
                         }
                     }
                 }
@@ -1341,9 +1523,12 @@ fn vr_thread_main(
                 // Joystick axes for navigation
                 let joy_x = right_state.map(|s| s.axis[0].x).unwrap_or(0.0);
                 let joy_y = right_state.map(|s| s.axis[0].y).unwrap_or(0.0);
+                let left_joy_x = left_state.map(|s| s.axis[0].x).unwrap_or(0.0);
+                let left_joy_y = left_state.map(|s| s.axis[0].y).unwrap_or(0.0);
+                let right_grip_held = (right_pressed & grip_mask != 0) || ivr_scale_pressed;
 
                 // Use joystick X to switch pages (with cooldown to prevent rapid switching)
-                if joystick_nav_cooldown == 0 {
+                if joystick_nav_cooldown == 0 && !right_grip_held {
                     if joy_x > 0.7 && menu_page < 7 {
                         menu_page += 1;
                         menu_selection = 0;
@@ -1368,48 +1553,38 @@ fn vr_thread_main(
                     }
                 }
 
-                // --- NEW: Grip + Joystick to Move and Resize Menu ---
-                let right_grip_held = (right_pressed & grip_mask != 0) || ivr_scale_pressed;
+                // Grip + sticks/trackpads edit the menu overlay in-place:
+                // right Y = up/down, right X = size, left X/Y = lateral/depth.
                 if right_grip_held {
-                    if joy_y.abs() > 0.1 || joy_x.abs() > 0.1 {
-                        menu_offset_z -= joy_y * 0.005; // Up pushes away (-Z), down pulls closer (+Z)
-                        menu_width += joy_x * 0.005; // Right enlarges, left shrinks
+                    if joy_y.abs() > 0.1
+                        || joy_x.abs() > 0.1
+                        || left_joy_x.abs() > 0.1
+                        || left_joy_y.abs() > 0.1
+                    {
+                        current_config.menu_width_m += joy_x * 0.006;
+                        current_config.menu_offset_y += joy_y * 0.004;
+                        current_config.menu_offset_x += left_joy_x * 0.004;
+                        current_config.menu_offset_z += left_joy_y * 0.006;
+                        normalize_overlay_layout(&mut current_config);
 
-                        // Clamp values
-                        menu_offset_z = menu_offset_z.clamp(-2.0, 0.5);
-                        menu_width = menu_width.clamp(0.05, 2.0);
-
-                        // Apply immediately based on current lock mode
                         if let Ok(mut ovr) = context.overlay() {
                             if let Some(h) = overlay_handle {
-                                let _ = ovr.set_width(h, menu_width);
-                                if current_config.overlay_lock_mode == "head" {
-                                    let head_transform = openvr::pose::Matrix3x4([
-                                        [1.0, 0.0, 0.0, 0.0],
-                                        [0.0, 1.0, 0.0, -0.1],
-                                        [0.0, 0.0, 1.0, -0.5 + menu_offset_z],
-                                    ]);
-                                    let _ = ovr.set_transform_tracked_device_relative(
-                                        h,
-                                        openvr::TrackedDeviceIndex(0),
-                                        &head_transform,
-                                    );
-                                } else {
-                                    // Wrist mode (fallback to left hand)
-                                    if let Some(l_idx) = left_idx {
-                                        let hand_transform = openvr::pose::Matrix3x4([
-                                            [1.0, 0.0, 0.0, 0.0],
-                                            [0.0, 0.707, 0.707, 0.08],
-                                            [0.0, -0.707, 0.707, -0.05 + menu_offset_z],
-                                        ]);
-                                        let _ = ovr.set_transform_tracked_device_relative(
-                                            h,
-                                            l_idx,
-                                            &hand_transform,
-                                        );
-                                    }
-                                }
+                                apply_text_overlay_layout(
+                                    &mut ovr,
+                                    h,
+                                    &current_config,
+                                    left_idx,
+                                    TextOverlayKind::Menu,
+                                );
                             }
+                        }
+                        if tick % 12 == 0 {
+                            let _ = app_handle.emit("ovr_layout_config_changed", serde_json::json!({
+                                "menu_width_m": current_config.menu_width_m,
+                                "menu_offset_x": current_config.menu_offset_x,
+                                "menu_offset_y": current_config.menu_offset_y,
+                                "menu_offset_z": current_config.menu_offset_z,
+                            }));
                         }
                     }
                 }
@@ -1539,22 +1714,17 @@ fn vr_thread_main(
                     (right_new & grip_mask != 0) || (ivr_scale_pressed && !prev_ivr_scale);
                 let left_joy_x = left_state.map(|s| s.axis[0].x).unwrap_or(0.0);
                 let left_joy_y = left_state.map(|s| s.axis[0].y).unwrap_or(0.0);
+                let right_joy_x = right_state.map(|s| s.axis[0].x).unwrap_or(0.0);
                 let right_joy_y = right_state.map(|s| s.axis[0].y).unwrap_or(0.0);
 
-                // Get absolute positions for Head, Left Hand, Right Hand
+                // Get absolute positions for Left Hand and Right Hand.
                 let poses = sys.device_to_absolute_tracking_pose(
                     openvr::TrackingUniverseOrigin::Standing,
                     0.0,
                 );
-                let mut head_pos = [0.0, 0.0, 0.0];
                 let mut right_pos = [0.0, 0.0, 0.0];
                 let mut left_pos = [0.0, 0.0, 0.0];
 
-                let head_pose = poses[0];
-                if head_pose.pose_is_valid() {
-                    let mat = head_pose.device_to_absolute_tracking();
-                    head_pos = [mat[0][3], mat[1][3], mat[2][3]];
-                }
                 if let Some(r_idx) = right_idx {
                     let pose = poses[r_idx.0 as usize];
                     if pose.pose_is_valid() {
@@ -1570,83 +1740,62 @@ fn vr_thread_main(
                     }
                 }
 
-                let dist_right_to_head = ((right_pos[0] - head_pos[0]).powi(2)
-                    + (right_pos[1] - head_pos[1]).powi(2)
-                    + (right_pos[2] - head_pos[2]).powi(2))
-                .sqrt();
                 let dist_right_to_left = ((right_pos[0] - left_pos[0]).powi(2)
                     + (right_pos[1] - left_pos[1]).powi(2)
                     + (right_pos[2] - left_pos[2]).powi(2))
                 .sqrt();
                 let is_near_wrist = dist_right_to_left < 0.3;
 
-                // 1. Controller near ear -> Show scan frame
-                let is_near_ear = dist_right_to_head < 0.35 && right_pos[1] > head_pos[1] - 0.2;
-                if translation_enabled && is_near_ear {
-                    if !scan_active {
-                        scan_active = true;
-                        if let Ok(mut ovr) = context.overlay() {
-                            if let Some(sh) = scan_handle {
-                                let _ = ovr.set_visibility(sh, true);
-                            }
+                if trigger_just_pressed && translation_enabled && !is_translating {
+                    scan_active = true;
+                    scan_drag_origin = Some(right_pos);
+                    scan_drag_origin_width = current_config.scan_frame_width_m;
+                    if let Ok(mut ovr) = context.overlay() {
+                        if let Some(h) = result_handle {
+                            let _ = ovr.set_visibility(h, false);
+                            result_overlay_visible = false;
+                        }
+                        if let Some(sh) = scan_handle {
+                            apply_scan_frame_layout(&mut ovr, sh, &current_config, right_idx);
+                            let _ = ovr.set_visibility(sh, true);
                         }
                     }
-                } else if !is_near_ear && scan_active && !is_translating {
-                    // Turn off if moved away
-                    scan_active = false;
+                }
+
+                if trigger_down && scan_active {
+                    if let Some(origin) = scan_drag_origin {
+                        let drag_distance = ((right_pos[0] - origin[0]).powi(2)
+                            + (right_pos[1] - origin[1]).powi(2)
+                            + (right_pos[2] - origin[2]).powi(2))
+                        .sqrt();
+                        current_config.scan_frame_width_m =
+                            (scan_drag_origin_width + drag_distance * 1.55).clamp(0.12, 1.60);
+                    }
+                    if right_joy_y.abs() > 0.12 {
+                        current_config.scan_frame_distance_m += right_joy_y * 0.01;
+                    }
+                    normalize_overlay_layout(&mut current_config);
+
                     if let Ok(mut ovr) = context.overlay() {
                         if let Some(sh) = scan_handle {
-                            let _ = ovr.set_visibility(sh, false);
+                            apply_scan_frame_layout(&mut ovr, sh, &current_config, right_idx);
+                            let _ = ovr.set_visibility(sh, true);
                         }
                     }
-                }
 
-                // Follow right controller if scan active
-                if scan_active {
-                    if let Ok(mut ovr) = context.overlay() {
-                        if let (Some(sh), Some(r_idx)) = (scan_handle, right_idx) {
-                            let tf = openvr::pose::Matrix3x4([
-                                [1.0, 0.0, 0.0, 0.0],
-                                [0.0, 1.0, 0.0, 0.0],
-                                [0.0, 0.0, 1.0, -0.6],
-                            ]);
-                            let _ = ovr.set_transform_tracked_device_relative(sh, r_idx, &tf);
-                        }
-                    }
-                }
-
-                // 2. Long press trigger -> Toggle Translation mode
-                if trigger_just_pressed {
-                    right_trigger_ticks = 0;
-                }
-                if trigger_down {
-                    right_trigger_ticks += 1;
-                    if right_trigger_ticks == 90 {
-                        // ~1 second at 90Hz
-                        translation_enabled = !translation_enabled;
-                        let status_c = status.clone();
-                        let en = translation_enabled;
-                        tokio::runtime::Handle::current().block_on(async {
-                            let mut s = status_c.lock().await;
-                            s.translation_enabled = en;
-                        });
+                    if tick % 12 == 0 {
                         let _ = app_handle.emit(
-                            "ovr_log",
-                            format!(
-                                "[OVR] 翻译模式: {}",
-                                if translation_enabled {
-                                    "已开启"
-                                } else {
-                                    "已关闭"
-                                }
-                            ),
+                            "ovr_layout_config_changed",
+                            serde_json::json!({
+                                "scan_frame_width_m": current_config.scan_frame_width_m,
+                                "scan_frame_distance_m": current_config.scan_frame_distance_m,
+                            }),
                         );
                     }
                 }
 
-                // 3. Pull trigger -> OCR & Translate
+                // 1. Release trigger -> OCR & Translate
                 if trigger_just_released
-                    && right_trigger_ticks < 90
                     && translation_enabled
                     && !is_translating
                 {
@@ -1654,14 +1803,16 @@ fn vr_thread_main(
                     let _ = app_handle.emit("ovr_log", "[OVR] 📸 触发截图识别...");
 
                     if let Ok(mut ovr) = context.overlay() {
-                        if let Some(h) = overlay_handle {
+                        if let Some(h) = result_handle {
                             let _ = ovr.set_visibility(h, false);
+                            result_overlay_visible = false;
                         }
                         if let Some(sh) = scan_handle {
                             let _ = ovr.set_visibility(sh, false);
                         }
                     }
                     scan_active = false;
+                    scan_drag_origin = None;
 
                     let cfg_clone = current_config.clone();
                     let app_h = app_handle.clone();
@@ -1694,30 +1845,60 @@ fn vr_thread_main(
                     });
                 }
 
-                // 4. Flick left joystick or trigger clear action -> Clear current translation
+                // 2. Flick left joystick or trigger clear action -> Clear current translation
                 if left_joy_x.abs() > 0.8
                     || left_joy_y.abs() > 0.8
                     || (ivr_clear_pressed && !prev_ivr_clear)
                 {
                     if let Ok(mut ovr) = context.overlay() {
-                        if let Some(h) = overlay_handle {
+                        if let Some(h) = result_handle {
                             let _ = ovr.set_visibility(h, false);
+                            result_overlay_visible = false;
                         }
                     }
                 }
 
-                // 5. Hold grip when scan frame is visible -> Adjust scan frame size
-                if right_grip_down && scan_active && right_joy_y.abs() > 0.1 {
-                    menu_width += right_joy_y * 0.01;
-                    menu_width = menu_width.clamp(0.1, 2.0);
+                // 3. Hold right grip to edit the bottom result overlay in VR.
+                if right_grip_down
+                    && result_overlay_visible
+                    && !scan_active
+                    && (right_joy_x.abs() > 0.1
+                        || right_joy_y.abs() > 0.1
+                        || left_joy_x.abs() > 0.1
+                        || left_joy_y.abs() > 0.1)
+                {
+                    current_config.result_width_m += right_joy_x * 0.006;
+                    current_config.result_offset_y += right_joy_y * 0.004;
+                    current_config.result_offset_x += left_joy_x * 0.004;
+                    current_config.result_offset_z += left_joy_y * 0.006;
+                    normalize_overlay_layout(&mut current_config);
+
                     if let Ok(mut ovr) = context.overlay() {
-                        if let Some(sh) = scan_handle {
-                            let _ = ovr.set_width(sh, menu_width);
+                        if let Some(h) = result_handle {
+                            apply_text_overlay_layout(
+                                &mut ovr,
+                                h,
+                                &current_config,
+                                left_idx,
+                                TextOverlayKind::Result,
+                            );
                         }
+                    }
+
+                    if tick % 12 == 0 {
+                        let _ = app_handle.emit(
+                            "ovr_layout_config_changed",
+                            serde_json::json!({
+                                "result_width_m": current_config.result_width_m,
+                                "result_offset_x": current_config.result_offset_x,
+                                "result_offset_y": current_config.result_offset_y,
+                                "result_offset_z": current_config.result_offset_z,
+                            }),
+                        );
                     }
                 }
 
-                // 6. Right controller near left wrist + press grip -> dock to wrist
+                // 4. Right controller near left wrist + press grip -> dock to wrist
                 if right_grip_just_pressed && is_near_wrist {
                     current_config.overlay_lock_mode = "wrist".to_string();
                     if let Ok(mut ovr) = context.overlay() {
@@ -1741,9 +1922,9 @@ fn vr_thread_main(
             }
 
             // ===== Space Drag (OVRAS Replacement) =====
-            // Left Grip drags the world ONLY IF menu is hidden, avoiding conflicts.
+            // Left Grip drags the world only while menu/combo shortcuts are idle.
             let left_grip_held = left_pressed & grip_mask != 0;
-            if !overlay_menu_visible {
+            if !overlay_menu_visible && !(left_grip_held_for_menu && right_grip_held_for_menu) {
                 if left_grip_held {
                     if let Some(l_idx) = left_idx {
                         // Use RawAndUncalibrated so the coordinate space doesn't move while we drag it!
@@ -1770,8 +1951,16 @@ fn vr_thread_main(
                                     ps_offset_y -= dy;
                                     ps_offset_z -= dz;
 
-                                    // ChaperoneSetup API is not exported by openvr crate.
-                                    // Space drag is disabled.
+                                    if let Ok(ref mut ps) = playspace {
+                                        let y_total = ps_offset_y
+                                            + if height_toggled { height_offset } else { 0.0 };
+                                        ps.apply_offset(
+                                            ps_offset_x,
+                                            y_total,
+                                            ps_offset_z,
+                                            ps_rotation_deg,
+                                        );
+                                    }
 
                                     drag_last_pos = Some(curr_raw_pos);
                                 }
@@ -1784,7 +1973,7 @@ fn vr_thread_main(
                         // On release, commit to Live to make it persistent
                         let _ = app_handle.emit(
                             "ovr_log",
-                            "[OVR] ⚠ openvr crate 暂不支持 ChaperoneSetup API，空间拖拽无法应用",
+                            "[OVR] Space drag applied through native playspace controller",
                         );
                     }
                 }

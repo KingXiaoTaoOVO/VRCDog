@@ -1645,7 +1645,7 @@ watch(activeTab, (tab) => {
   <transition name="modal-fade">
     <div v-if="profileStore.isOpen" class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);" @click.self="profileStore.closeProfile">
       <transition name="modal-scale">
-        <div class="profile-panel flex flex-col w-full max-w-[900px] max-h-[88vh] rounded-xl overflow-hidden shadow-2xl" style="background: var(--theme-bg-main); border: 1px solid var(--theme-border-soft);">
+        <div v-if="profileStore.isOpen" class="profile-panel flex flex-col w-full max-w-[900px] max-h-[88vh] rounded-xl overflow-hidden shadow-2xl" style="background: var(--theme-bg-main); border: 1px solid var(--theme-border-soft);">
 
           <!-- ── BREADCRUMB NAVIGATION ──────────────────────────── -->
           <div v-if="navHistory.length > 0" class="flex items-center gap-1 px-4 pt-3 pb-1 text-sm shrink-0" style="color: var(--theme-text-muted);">

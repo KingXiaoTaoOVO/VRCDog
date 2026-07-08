@@ -525,7 +525,326 @@ async fn ovr_sync_ovras_ini(payload: String) -> Result<(), String> {
             }
         };
 
-        // Chaperone settings
+        // OVRAS native Qt settings. Keep the legacy compatibility keys below too:
+        // different OVRAS versions have used both Qt category names and older
+        // hand-written section names.
+        update(
+            "steamVRSettings",
+            "perappBindEnabled",
+            "steamvr",
+            "perAppBinds",
+        );
+
+        update(
+            "applicationSettings",
+            "enableDebug",
+            "general",
+            "advDebugMode",
+        );
+        update(
+            "applicationSettings",
+            "disableVersionCheck",
+            "general",
+            "settingsVersionCheck",
+        );
+        update(
+            "applicationSettings",
+            "enableExclusiveInput",
+            "general",
+            "settingsExclusiveInput",
+        );
+        update(
+            "applicationSettings",
+            "vsyncDisabled",
+            "general",
+            "settingsDisableVsync",
+        );
+        update(
+            "applicationSettings",
+            "desktopModeToggle",
+            "general",
+            "desktopMode",
+        );
+
+        update("audioSettings", "pttEnabled", "audio", "pTT");
+        update("audioSettings", "pttShowNotification", "audio", "pTTNotif");
+        update(
+            "audioSettings",
+            "micProximitySensorCanMute",
+            "audio",
+            "proxSensor",
+        );
+        update("audioSettings", "micReversePtt", "audio", "pTM");
+
+        update(
+            "utilitiesSettings",
+            "alarmEnabled",
+            "utilities",
+            "alarmEnabled",
+        );
+        update(
+            "utilitiesSettings",
+            "trackerOverlayEnabled",
+            "utilities",
+            "trackerBattery",
+        );
+        update("utilitiesSettings", "vrcDebug", "utilities", "keyboard");
+        update(
+            "keyboardShortcuts",
+            "keyboardOne",
+            "utilities",
+            "keyShortcut1",
+        );
+        update(
+            "keyboardShortcuts",
+            "keyboardTwo",
+            "utilities",
+            "keyShortcut2",
+        );
+        update(
+            "keyboardShortcuts",
+            "keyboardThree",
+            "utilities",
+            "keyShortcut3",
+        );
+
+        update(
+            "videoSettings",
+            "brightnessEnabled",
+            "video",
+            "brightnessOn",
+        );
+        update(
+            "videoSettings",
+            "brightnessOpacityValue",
+            "video",
+            "brightnessValue",
+        );
+        update(
+            "videoSettings",
+            "isOverlayMethodActive",
+            "video",
+            "advSSFilter",
+        );
+        update(
+            "videoSettings",
+            "colorOverlayEnabled",
+            "video",
+            "overlayColor",
+        );
+        update(
+            "videoSettings",
+            "colorOverlayOpacity",
+            "video",
+            "overlayOpacity",
+        );
+        update("videoSettings", "colorRedNew", "video", "colorR");
+        update("videoSettings", "colorGreenNew", "video", "colorG");
+        update("videoSettings", "colorBlueNew", "video", "colorB");
+
+        update(
+            "chaperoneSettings",
+            "fadeDistanceRemembered",
+            "chaperone",
+            "fadeDistance",
+        );
+        update("chaperoneSettings", "dimHeight", "chaperone", "height");
+        update(
+            "chaperoneSettings",
+            "chaperoneSwitchToBeginnerEnabled",
+            "chaperone",
+            "beginnerMode",
+        );
+        update(
+            "chaperoneSettings",
+            "chaperoneHapticFeedbackEnabled",
+            "chaperone",
+            "hapticFeedback",
+        );
+        update(
+            "chaperoneSettings",
+            "chaperoneAlarmSoundEnabled",
+            "chaperone",
+            "audioWarning",
+        );
+        update(
+            "chaperoneSettings",
+            "chaperoneAlarmSoundLooping",
+            "chaperone",
+            "loopAudio",
+        );
+        update(
+            "chaperoneSettings",
+            "chaperoneAlarmSoundAdjustVolume",
+            "chaperone",
+            "audioVolume",
+        );
+        update(
+            "chaperoneSettings",
+            "chaperoneShowDashboardEnabled",
+            "chaperone",
+            "openDashboard",
+        );
+        update(
+            "chaperoneSettings",
+            "disableChaperone",
+            "chaperone",
+            "disable",
+        );
+        update(
+            "chaperoneSettings",
+            "centerMarkerNew",
+            "chaperone",
+            "centerMarker",
+        );
+
+        update(
+            "playspaceSettings",
+            "adjustChaperone",
+            "general",
+            "spaceAdjustChap",
+        );
+        update(
+            "playspaceSettings",
+            "adjustChaperone2",
+            "general",
+            "spaceAdjustChap",
+        );
+        update(
+            "playspaceSettings",
+            "adjustChaperone3",
+            "general",
+            "spaceAdjustChap",
+        );
+        update(
+            "playspaceSettings",
+            "moveShortcutLeft",
+            "playspace",
+            "dragLeft",
+        );
+        update(
+            "playspaceSettings",
+            "moveShortcutRight",
+            "playspace",
+            "dragRight",
+        );
+        update(
+            "playspaceSettings",
+            "momentumSave",
+            "general",
+            "motionSaveMomentum",
+        );
+        update(
+            "playspaceSettings",
+            "heightToggleOffset",
+            "playspace",
+            "heightOffset",
+        );
+        update(
+            "playspaceSettings",
+            "gravityStrength",
+            "general",
+            "motionGravityStrength",
+        );
+        update(
+            "playspaceSettings",
+            "flingStrength",
+            "general",
+            "motionFlingStrength",
+        );
+        update(
+            "playspaceSettings",
+            "dragMult",
+            "general",
+            "motionDragMultiplier",
+        );
+        update(
+            "playspaceSettings",
+            "dragComfortFactor",
+            "general",
+            "motionDragComfort",
+        );
+        update(
+            "playspaceSettings",
+            "turnComfortFactor",
+            "general",
+            "rotationTurnComfort",
+        );
+        update(
+            "playspaceSettings",
+            "snapTurnAngle",
+            "general",
+            "rotationSnapTurnAngle",
+        );
+        update(
+            "playspaceSettings",
+            "smoothTurnRate",
+            "general",
+            "rotationSmoothTurnRate",
+        );
+        update(
+            "playspaceSettings",
+            "frictionPercent",
+            "general",
+            "motionGravityFriction",
+        );
+        update(
+            "playspaceSettings",
+            "universeCenteredRotation",
+            "general",
+            "settingsUniverseRotation",
+        );
+
+        update(
+            "rotationSettings",
+            "autoturnEnabled",
+            "general",
+            "rotationAutoTurn",
+        );
+        update(
+            "rotationSettings",
+            "activationDistance",
+            "general",
+            "rotationActivationDist",
+        );
+        update(
+            "rotationSettings",
+            "deactivateDistance",
+            "general",
+            "rotationDeactivationDist",
+        );
+        update(
+            "rotationSettings",
+            "autoturnUseCornerAngle",
+            "general",
+            "rotationUseCornerAngle",
+        );
+        update(
+            "rotationSettings",
+            "autoturnLinearTurnSpeed",
+            "general",
+            "rotationTurnSpeed",
+        );
+        update(
+            "rotationSettings",
+            "autoturnVestibularMotionEnabled",
+            "general",
+            "rotationRedirectedWalk",
+        );
+        update(
+            "rotationSettings",
+            "autoturnVestibularMotionRadius",
+            "general",
+            "rotationRedirectRadius",
+        );
+        update(
+            "rotationSettings",
+            "autoturnViewRatchettingPercent",
+            "general",
+            "rotationViewRatchet",
+        );
+
+        // Legacy compatibility sections
         update(
             "chaperone",
             "CollisionBoundsColorAlpha",
@@ -545,7 +864,7 @@ async fn ovr_sync_ovras_ini(payload: String) -> Result<(), String> {
         update("offsets", "X", "playspace", "offsetX");
         update("offsets", "Y", "playspace", "offsetY");
         update("offsets", "Z", "playspace", "offsetZ");
-        update("motion", "GravitySim", "playspace", "gravity");
+        update("motion", "GravitySim", "general", "motionGravityOn");
         update("motion", "SpaceDragLeft", "playspace", "dragLeft");
         update("motion", "SpaceDragRight", "playspace", "dragRight");
         update("motion", "HeightToggle", "playspace", "heightToggle");
@@ -557,6 +876,18 @@ async fn ovr_sync_ovras_ini(payload: String) -> Result<(), String> {
 
         // Utilities
         update("utilities", "MediaKeysEnabled", "utilities", "mediaKeys");
+
+        if let Some(crash_recovery_enabled) = obj
+            .get("general")
+            .and_then(|v| v.as_object())
+            .and_then(|general| general.get("settingsCrashRecovery"))
+            .and_then(|v| v.as_bool())
+        {
+            conf.with_section(Some("applicationSettings")).set(
+                "crashRecoveryDisabled2",
+                (!crash_recovery_enabled).to_string(),
+            );
+        }
 
         // VrcDog Branding
         conf.with_section(Some("VrcDog"))
@@ -605,8 +936,202 @@ async fn ovr_load_ovras_ini() -> Result<String, String> {
                 }
             };
         }
+        macro_rules! get_str {
+            ($section:expr, $key:expr, $map_key:expr) => {
+                if let Some(val) = conf.get_from(Some($section), $key) {
+                    map.insert($map_key.to_string(), serde_json::json!(val));
+                }
+            };
+        }
 
-        // Chaperone settings
+        // OVRAS native Qt settings
+        get_bool!("steamVRSettings", "perappBindEnabled", "steamvrPerAppBinds");
+
+        get_bool!("applicationSettings", "enableDebug", "advDebugMode");
+        get_bool!(
+            "applicationSettings",
+            "disableVersionCheck",
+            "settingsVersionCheck"
+        );
+        if let Some(val) = conf.get_from(Some("applicationSettings"), "crashRecoveryDisabled2") {
+            map.insert(
+                "settingsCrashRecovery".to_string(),
+                serde_json::json!(val.to_lowercase() != "true"),
+            );
+        }
+        get_bool!(
+            "applicationSettings",
+            "enableExclusiveInput",
+            "settingsExclusiveInput"
+        );
+        get_bool!(
+            "applicationSettings",
+            "vsyncDisabled",
+            "settingsDisableVsync"
+        );
+        get_bool!("applicationSettings", "desktopModeToggle", "desktopMode");
+
+        get_bool!("audioSettings", "pttEnabled", "audioPTT");
+        get_bool!("audioSettings", "pttShowNotification", "audioPTTNotif");
+        get_bool!(
+            "audioSettings",
+            "micProximitySensorCanMute",
+            "audioProxSensor"
+        );
+        get_bool!("audioSettings", "micReversePtt", "audioPTM");
+
+        get_bool!("utilitiesSettings", "alarmEnabled", "utilAlarmEnabled");
+        get_bool!(
+            "utilitiesSettings",
+            "trackerOverlayEnabled",
+            "utilTrackerBattery"
+        );
+        get_bool!("utilitiesSettings", "vrcDebug", "utilKeyboard");
+        get_str!("keyboardShortcuts", "keyboardOne", "utilKeyShortcut1");
+        get_str!("keyboardShortcuts", "keyboardTwo", "utilKeyShortcut2");
+        get_str!("keyboardShortcuts", "keyboardThree", "utilKeyShortcut3");
+
+        get_bool!("videoSettings", "brightnessEnabled", "videoBrightnessOn");
+        get_num!(
+            "videoSettings",
+            "brightnessOpacityValue",
+            "videoBrightnessValue"
+        );
+        get_bool!("videoSettings", "isOverlayMethodActive", "videoAdvSSFilter");
+        get_bool!("videoSettings", "colorOverlayEnabled", "videoOverlayColor");
+        get_num!(
+            "videoSettings",
+            "colorOverlayOpacity",
+            "videoOverlayOpacity"
+        );
+        get_num!("videoSettings", "colorRedNew", "videoColorR");
+        get_num!("videoSettings", "colorGreenNew", "videoColorG");
+        get_num!("videoSettings", "colorBlueNew", "videoColorB");
+
+        get_num!(
+            "chaperoneSettings",
+            "fadeDistanceRemembered",
+            "chapFadeDistance"
+        );
+        get_num!("chaperoneSettings", "dimHeight", "chapHeight");
+        get_bool!(
+            "chaperoneSettings",
+            "chaperoneSwitchToBeginnerEnabled",
+            "chapBeginnerMode"
+        );
+        get_bool!(
+            "chaperoneSettings",
+            "chaperoneHapticFeedbackEnabled",
+            "chapHapticFeedback"
+        );
+        get_bool!(
+            "chaperoneSettings",
+            "chaperoneAlarmSoundEnabled",
+            "chapAudioWarning"
+        );
+        get_bool!(
+            "chaperoneSettings",
+            "chaperoneAlarmSoundLooping",
+            "chapLoopAudio"
+        );
+        get_bool!(
+            "chaperoneSettings",
+            "chaperoneAlarmSoundAdjustVolume",
+            "chapAudioVolume"
+        );
+        get_bool!(
+            "chaperoneSettings",
+            "chaperoneShowDashboardEnabled",
+            "chapOpenDashboard"
+        );
+        get_bool!("chaperoneSettings", "disableChaperone", "chapDisable");
+        get_bool!("chaperoneSettings", "centerMarkerNew", "chapCenterMarker");
+
+        get_bool!("playspaceSettings", "adjustChaperone", "spaceAdjustChap");
+        get_bool!("playspaceSettings", "moveShortcutLeft", "motionDragLeft");
+        get_bool!("playspaceSettings", "moveShortcutRight", "motionDragRight");
+        get_bool!("playspaceSettings", "momentumSave", "motionSaveMomentum");
+        get_num!(
+            "playspaceSettings",
+            "heightToggleOffset",
+            "spaceHeightOffset"
+        );
+        get_num!(
+            "playspaceSettings",
+            "gravityStrength",
+            "motionGravityStrength"
+        );
+        get_num!("playspaceSettings", "flingStrength", "motionFlingStrength");
+        get_num!("playspaceSettings", "dragMult", "motionDragMultiplier");
+        get_num!(
+            "playspaceSettings",
+            "dragComfortFactor",
+            "motionDragComfort"
+        );
+        get_num!(
+            "playspaceSettings",
+            "turnComfortFactor",
+            "rotationTurnComfort"
+        );
+        get_num!(
+            "playspaceSettings",
+            "snapTurnAngle",
+            "rotationSnapTurnAngle"
+        );
+        get_num!(
+            "playspaceSettings",
+            "smoothTurnRate",
+            "rotationSmoothTurnRate"
+        );
+        get_num!(
+            "playspaceSettings",
+            "frictionPercent",
+            "motionGravityFriction"
+        );
+        get_bool!(
+            "playspaceSettings",
+            "universeCenteredRotation",
+            "settingsUniverseRotation"
+        );
+
+        get_bool!("rotationSettings", "autoturnEnabled", "rotationAutoTurn");
+        get_num!(
+            "rotationSettings",
+            "activationDistance",
+            "rotationActivationDist"
+        );
+        get_num!(
+            "rotationSettings",
+            "deactivateDistance",
+            "rotationDeactivationDist"
+        );
+        get_bool!(
+            "rotationSettings",
+            "autoturnUseCornerAngle",
+            "rotationUseCornerAngle"
+        );
+        get_num!(
+            "rotationSettings",
+            "autoturnLinearTurnSpeed",
+            "rotationTurnSpeed"
+        );
+        get_bool!(
+            "rotationSettings",
+            "autoturnVestibularMotionEnabled",
+            "rotationRedirectedWalk"
+        );
+        get_num!(
+            "rotationSettings",
+            "autoturnVestibularMotionRadius",
+            "rotationRedirectRadius"
+        );
+        get_num!(
+            "rotationSettings",
+            "autoturnViewRatchettingPercent",
+            "rotationViewRatchet"
+        );
+
+        // Legacy compatibility sections
         get_num!("chaperone", "CollisionBoundsColorAlpha", "chapVisibility");
         get_bool!("chaperone", "ForceBoundsVisible", "chapForceBounds");
         get_bool!("chaperone", "HapticFeedback", "chapHapticFeedback");

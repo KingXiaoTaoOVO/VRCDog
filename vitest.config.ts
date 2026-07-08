@@ -6,5 +6,13 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx,js,jsx}', '*.{test,spec}.{ts,tsx,js,jsx}'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/src-tauri/**',
+      '**/src-python/**',
+      '**/源码模板/**',
+    ],
   },
 })

@@ -2,6 +2,9 @@
 import { useI18n } from 'vue-i18n';
 import { currentTheme } from '../theme';
 import { Ruler, Target } from 'lucide-vue-next';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 
 const { t } = useI18n();
 
@@ -11,6 +14,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits(['update:config']);
+const heightToggled = ref(false);
+const perfStats = ref({
+  num_frame_presents: 0,
+  num_dropped_frames: 0,
+  num_reprojected_frames: 0,
+  reprojection_ratio: 0,
+});
 
 const updateConfig = (key: string, value: any) => {
   const keys = key.split('.');
@@ -26,6 +36,109 @@ const updateConfig = (key: string, value: any) => {
     emit('update:config', { ...props.config, [key]: value });
   }
 };
+
+const updateConfigSection = (section: string, values: Record<string, any>) => {
+  emit('update:config', {
+    ...props.config,
+    [section]: {
+      ...props.config[section],
+      ...values,
+    },
+  });
+};
+
+const applyPlayspaceOffset = async () => {
+  try {
+    await invoke('ovr_set_playspace_offset', {
+      x: props.config.playspace.offsetX || 0,
+      y: props.config.playspace.offsetY || 0,
+      z: props.config.playspace.offsetZ || 0,
+    });
+  } catch (error) {
+    console.warn('[OvrAdvVrDashPanels] Playspace offset error:', error);
+  }
+};
+
+const setPlayspaceRotation = async (degrees: number) => {
+  updateConfig('playspace.rotation', degrees);
+  try {
+    await invoke('ovr_set_playspace_rotation', { degrees });
+  } catch (error) {
+    console.warn('[OvrAdvVrDashPanels] Playspace rotation error:', error);
+  }
+};
+
+const resetPlayspace = async () => {
+  updateConfigSection('playspace', {
+    offsetX: 0,
+    offsetY: 0,
+    offsetZ: 0,
+    rotation: 0,
+    heightToggle: false,
+  });
+  heightToggled.value = false;
+
+  try {
+    await invoke('ovr_reset_playspace');
+  } catch (error) {
+    console.warn('[OvrAdvVrDashPanels] Reset playspace error:', error);
+  }
+};
+
+const fixFloor = async () => {
+  try {
+    await invoke('ovr_fix_floor');
+  } catch (error) {
+    console.warn('[OvrAdvVrDashPanels] Fix floor error:', error);
+  }
+};
+
+const toggleHeight = async () => {
+  const nextEnabled = !heightToggled.value;
+  updateConfig('playspace.heightToggle', nextEnabled);
+  try {
+    await invoke('ovr_toggle_height');
+    heightToggled.value = nextEnabled;
+  } catch (error) {
+    console.warn('[OvrAdvVrDashPanels] Toggle height error:', error);
+  }
+};
+
+watch(
+  () => [props.config.playspace.offsetX, props.config.playspace.offsetY, props.config.playspace.offsetZ],
+  () => {
+    applyPlayspaceOffset();
+  }
+);
+
+watch(
+  () => props.config.playspace.heightToggle,
+  (enabled) => {
+    heightToggled.value = Boolean(enabled);
+  },
+  { immediate: true }
+);
+
+let unlistenPerf: (() => void) | null = null;
+
+onMounted(async () => {
+  try {
+    unlistenPerf = await listen('ovr_perf_stats', (event: any) => {
+      perfStats.value = {
+        num_frame_presents: event.payload?.num_frame_presents || 0,
+        num_dropped_frames: event.payload?.num_dropped_frames || 0,
+        num_reprojected_frames: event.payload?.num_reprojected_frames || 0,
+        reprojection_ratio: event.payload?.reprojection_ratio || 0,
+      };
+    });
+  } catch (error) {
+    console.warn('[OvrAdvVrDashPanels] Perf listener unavailable:', error);
+  }
+});
+
+onUnmounted(() => {
+  if (unlistenPerf) unlistenPerf();
+});
 
 </script>
 
@@ -124,13 +237,13 @@ const updateConfig = (key: string, value: any) => {
       <div class="grid grid-cols-2 gap-4">
         <button
           class="vr-dash-btn"
-          @click="console.log('fix floor')"
+          @click="fixFloor"
         >
           <Ruler class="w-5 h-5 inline-block mr-2" /> {{ t('ovr.space_fix_floor') }}
         </button>
         <button
           class="vr-dash-btn"
-          @click="console.log('fix center')"
+          @click="resetPlayspace"
         >
           <Target class="w-5 h-5 inline-block mr-2" /> {{ t('ovr.space_fix_center') }}
         </button>
@@ -148,17 +261,17 @@ const updateConfig = (key: string, value: any) => {
         <div class="flex gap-2">
           <button
             class="vr-dash-btn"
-            @click="updateConfig('playspace.rotation', -90)"
+            @click="setPlayspaceRotation(-90)"
           >
             -90°
           </button>
           <button
             class="vr-dash-btn"
-            @click="updateConfig('playspace.rotation', 0)"
+            @click="setPlayspaceRotation(0)"
           >{{ t('ovr.stats_reset') }}</button>
           <button
             class="vr-dash-btn"
-            @click="updateConfig('playspace.rotation', 90)"
+            @click="setPlayspaceRotation(90)"
           >
             +90°
           </button>
@@ -176,6 +289,18 @@ const updateConfig = (key: string, value: any) => {
         >
           <div class="vr-dash-switch-knob" />
         </div>
+      </div>
+      <div
+        class="flex justify-between"
+        style="width: 100%; align-items: center"
+      >
+        <span style="font-size: 11px; opacity: 0.8">{{ t('ovr.space_height_toggle_title') }}</span>
+        <button
+          class="vr-dash-btn"
+          @click="toggleHeight"
+        >
+          {{ heightToggled ? t('ovr.space_height_toggled') : t('ovr.space_height_toggle_btn') }}
+        </button>
       </div>
     </div>
   </div>
@@ -284,12 +409,16 @@ const updateConfig = (key: string, value: any) => {
     class="vr-dash-section animate-fade-in"
   >
     <div class="vr-dash-row">
-      <span>{{ t('ovr.stats_hmd_distance') }}</span>
-      <span class="vr-dash-value">0 {{ t('ovr.stats_unit_m') }}</span>
+      <span>{{ t('ovr.stats_frames', { val: '' }).trim() || 'Frames' }}</span>
+      <span class="vr-dash-value">{{ perfStats.num_frame_presents.toLocaleString() }}</span>
     </div>
     <div class="vr-dash-row">
       <span>{{ t('ovr.stats_reprojection_ratio') }}</span>
-      <span class="vr-dash-value">0%</span>
+      <span class="vr-dash-value">{{ perfStats.reprojection_ratio.toFixed(1) }}%</span>
+    </div>
+    <div class="vr-dash-row">
+      <span>{{ t('ovr.stats_dropped_frames') }}</span>
+      <span class="vr-dash-value">{{ perfStats.num_dropped_frames.toLocaleString() }}</span>
     </div>
   </div>
 </template>

@@ -82,6 +82,8 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     if (cmd === 'vrc_get_friends' || cmd === 'vrc_search_users' || cmd === 'vrc_search_worlds' || cmd === 'vrc_get_notifications' || cmd === 'vrc_get_avatars' || cmd === 'db_get_status_presets' || cmd === 'vrc_get_latest_gamelogs' || cmd === 'db_get_all_notes') {
       return Promise.resolve([]) as any;
     }
+    if (cmd === 'ovr_load_ovras_ini') return Promise.resolve('{}') as any;
+    if (cmd === 'ovr_sync_ovras_ini') return Promise.resolve(undefined) as any;
     if (cmd === 'danmaku_get_config') return Promise.resolve(mockDanmakuConfig) as any;
     if (cmd === 'danmaku_get_status') return Promise.resolve(mockDanmakuStatus()) as any;
     if (cmd === 'danmaku_get_messages') return Promise.resolve([]) as any;
@@ -443,6 +445,8 @@ export const OvrApi = {
   shutdown: () => safeInvoke<void>('ovr_shutdown'),
   getStatus: () => safeInvoke<any>('ovr_get_status'),
   setConfig: (params: { config: any }) => safeInvoke<void>('ovr_set_config', params),
+  syncOvrasIni: (params: { payload: string }) => safeInvoke<void>('ovr_sync_ovras_ini', params),
+  loadOvrasIni: () => safeInvoke<string>('ovr_load_ovras_ini'),
   toggleTranslation: () => safeInvoke<boolean>('ovr_toggle_translation'),
   captureScreenshot: () => safeInvoke<string>('ovr_capture_screenshot'),
   updateOverlayText: (params: { original: string; translated: string }) => safeInvoke<void>('ovr_update_overlay_text', params),
