@@ -46,9 +46,9 @@ async function setCachedWorldName(worldId: string, name: string) {
   } catch { /* ignore */ }
 }
 
-// ── 并发拉取世界名（VRCX 风格：立即渲染，后台补全名称）────────────
+// ── 并发拉取世界名（VrcDog 风格：立即渲染，后台补全名称）────────────
 async function fetchWorldNamesConcurrent(locs: FriendLocation[]) {
-  const CONCURRENCY = 5; // 同 VRCX bulkRefreshFriends 并发数
+  const CONCURRENCY = 5; // 同 VrcDog bulkRefreshFriends 并发数
   const queue = locs.filter(l => !l.worldName || l.worldName === l.worldId);
 
   // 先用缓存填充，避免任何网络请求
@@ -88,7 +88,7 @@ async function fetchWorldNamesConcurrent(locs: FriendLocation[]) {
 const fetchLocations = async () => {
   loading.value = true;
   try {
-    // 一次性拉取全部在线好友（n=100 足够，VRCX 也是分页但首屏用 100）
+    // 一次性拉取全部在线好友（n=100 足够，VrcDog 也是分页但首屏用 100）
     const friends = await VrcApi.getFriends({ n: 100, offset: 0 });
     const locMap = new Map<string, FriendLocation>();
     const privates: any[] = [];
@@ -155,7 +155,7 @@ const getStatusDot = (status: string) => {
   return 'bg-green-500';
 };
 
-// Trust rank color — aligned with VRCX
+// Trust rank color — aligned with VrcDog
 const getTrustColor = (tags: string[]) => {
   if (!tags || !tags.length) return undefined;
   if (tags.includes('system_trust_legend')) return '#ff69b4';
@@ -166,7 +166,7 @@ const getTrustColor = (tags: string[]) => {
   return undefined;
 };
 
-// Country flags from language tags (like VRCX)
+// Country flags from language tags (like VrcDog)
 const LANGUAGE_FLAGS: Record<string, string> = {
   language_eng: '🇺🇸', language_kor: '🇰🇷', language_rus: '🇷🇺',
   language_spa: '🇪🇸', language_por: '🇧🇷', language_zho: '🇨🇳',

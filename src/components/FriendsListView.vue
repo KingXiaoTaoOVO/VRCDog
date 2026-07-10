@@ -135,18 +135,18 @@ const searchPlaceholder = computed(() =>
   activeTab.value === 'groups' ? t('groups.search_placeholder') : t('friends.search_placeholder')
 );
 
-// Extract Trust Color — aligned with VRCX color scheme
+// Extract Trust Color — aligned with VrcDog color scheme
 const getTrustColor = (tags: string[]) => {
   if (!tags || !tags.length) return '#9e9e9e'; // Visitor - gray
-  if (tags.includes('system_trust_legend')) return '#ff69b4';   // Legend - pink (VRCX)
-  if (tags.includes('system_trust_veteran')) return '#8b5cf6';  // Trusted User - purple (VRCX)
+  if (tags.includes('system_trust_legend')) return '#ff69b4';   // Legend - pink (VrcDog)
+  if (tags.includes('system_trust_veteran')) return '#8b5cf6';  // Trusted User - purple (VrcDog)
   if (tags.includes('system_trust_trusted')) return '#ff7b42';  // Known User - orange
   if (tags.includes('system_trust_known')) return '#2bcf5c';    // User - green
   if (tags.includes('system_trust_basic')) return '#1778ff';    // New User - blue
   return '#9e9e9e'; // Visitor - gray
 };
 
-// Grouping Logic matching VRCX
+// Grouping Logic matching VrcDog
 const groupedFriends = computed(() => {
   let q = searchQuery.value.toLowerCase();
   let list = onlineFriends.value;

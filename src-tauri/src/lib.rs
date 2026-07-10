@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 pub mod audio_capture;
 pub mod bilibili;
@@ -132,6 +132,100 @@ async fn scan_local_project_dependencies() -> AppResult<Vec<LocalDependency>> {
     Ok(result)
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn hide_tray_menu_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("tray-menu") {
+        let _ = window.hide();
+    }
+}
+
+fn show_tray_menu_window(
+    app: &tauri::AppHandle,
+    cursor_x: f64,
+    cursor_y: f64,
+) -> Result<(), String> {
+    const MENU_WIDTH: f64 = 244.0;
+    const MENU_HEIGHT: f64 = 220.0;
+    const OFFSET: f64 = 12.0;
+
+    let x = (cursor_x - MENU_WIDTH + OFFSET).max(0.0) as i32;
+    let y = (cursor_y - MENU_HEIGHT - OFFSET).max(0.0) as i32;
+
+    if let Some(window) = app.get_webview_window("tray-menu") {
+        window
+            .set_size(tauri::PhysicalSize::new(
+                MENU_WIDTH as u32,
+                MENU_HEIGHT as u32,
+            ))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_position(tauri::PhysicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "tray-menu",
+        tauri::WebviewUrl::App("index.html?mode=tray-menu".into()),
+    )
+    .title("VrcDog Menu")
+    .decorations(false)
+    .transparent(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .visible(false)
+    .inner_size(MENU_WIDTH, MENU_HEIGHT)
+    .build()
+    .map_err(|e| e.to_string())?
+    .set_position(tauri::PhysicalPosition::new(x, y))
+    .map_err(|e| e.to_string())?;
+
+    if let Some(window) = app.get_webview_window("tray-menu") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn tray_show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    hide_tray_menu_window(&app);
+    show_main_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn tray_open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    hide_tray_menu_window(&app);
+    show_main_window(&app);
+    let _ = app.emit("tray_open_settings", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn tray_close_menu(app: tauri::AppHandle) -> Result<(), String> {
+    hide_tray_menu_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn tray_quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -150,50 +244,35 @@ pub fn run() {
             println!("[VrcDog] Independent mode: no OVRAS auto-install or auto-launch.");
 
             // System Tray Integration
-            if let Ok(quit_i) =
-                tauri::menu::MenuItem::with_id(app, "quit", "退出 VrcDog", true, None::<&str>)
-            {
-                if let Ok(show_i) =
-                    tauri::menu::MenuItem::with_id(app, "show", "显示主面板", true, None::<&str>)
-                {
-                    if let Ok(menu) = tauri::menu::Menu::with_items(app, &[&show_i, &quit_i]) {
-                        let mut tray = tauri::tray::TrayIconBuilder::new()
-                            .menu(&menu)
-                            .on_menu_event(|app, event| match event.id.as_ref() {
-                                "quit" => {
-                                    app.exit(0);
-                                }
-                                "show" => {
-                                    if let Some(window) = app.get_webview_window("main") {
-                                        let _ = window.show();
-                                        let _ = window.set_focus();
-                                    }
-                                }
-                                _ => {}
-                            })
-                            .on_tray_icon_event(|tray, event| {
-                                if let tauri::tray::TrayIconEvent::Click {
-                                    button: tauri::tray::MouseButton::Left,
-                                    button_state: tauri::tray::MouseButtonState::Up,
-                                    ..
-                                } = event
-                                {
-                                    let app = tray.app_handle();
-                                    if let Some(window) = app.get_webview_window("main") {
-                                        let _ = window.show();
-                                        let _ = window.set_focus();
-                                    }
-                                }
-                            });
-
-                        if let Some(icon) = app.default_window_icon() {
-                            tray = tray.icon(icon.clone());
+            let mut tray = tauri::tray::TrayIconBuilder::new()
+                .tooltip("VrcDog")
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        position,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        match button {
+                            tauri::tray::MouseButton::Left => {
+                                hide_tray_menu_window(app);
+                                show_main_window(app);
+                            }
+                            tauri::tray::MouseButton::Right => {
+                                let _ = show_tray_menu_window(app, position.x, position.y);
+                            }
+                            _ => {}
                         }
-
-                        let _ = tray.build(app);
                     }
-                }
+                });
+
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
             }
+
+            let _ = tray.build(app);
 
             Ok(())
         })
@@ -206,6 +285,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             scan_local_project_dependencies,
+            tray_show_main_window,
+            tray_open_settings,
+            tray_close_menu,
+            tray_quit_app,
             toolchain::check_system_status,
             toolchain::install_software,
             toolchain::uninstall_software,
@@ -319,6 +402,8 @@ pub fn run() {
             danmaku::danmaku_stop,
             danmaku::danmaku_clear_messages,
             danmaku::danmaku_set_overlay_visible,
+            danmaku::danmaku_set_vr_input_text,
+            danmaku::danmaku_submit_vr_input,
             danmaku::danmaku_send_test,
             translate::ovr_translate,
             vrct::vrct_process_message,

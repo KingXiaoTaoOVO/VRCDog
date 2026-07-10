@@ -1,39 +1,48 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  Activity,
-  Bell,
-  CheckCircle2,
-  Eye,
-  EyeOff,
-  Gift,
-  Glasses,
-  Loader2,
-  LogOut,
-  MessageSquare,
-  MonitorUp,
-  Play,
-  QrCode,
-  Radio,
-  Save,
-  Send,
-  Settings2,
-  Square,
-  Trash2,
-  Wifi,
-  WifiOff,
-} from 'lucide-vue-next';
-import { DanmakuApi, DbApi, OvrApi, type DanmakuConfig, type DanmakuMessage, type DanmakuStatus } from '../api';
+import { DbApi, DanmakuApi, OvrApi, type DanmakuConfig, type DanmakuMessage, type DanmakuStatus } from '../api';
 
-const STORAGE_KEY = 'danmaku_config_v1';
+const STORAGE_KEY = 'danmaku_config_v2';
+
+const hmdDefault = {
+  x: -0.4,
+  y: 0.1,
+  z: -0.8,
+  pitch: 0,
+  yaw: 15,
+  roll: 0,
+  overlay_width_m: 0.4,
+  overlay_alpha: 0.92,
+  bg_alpha: 0.85,
+  font_size: 14,
+};
+
+const handDefault = {
+  x: 0,
+  y: 0.08,
+  z: -0.1,
+  pitch: -30,
+  yaw: 0,
+  roll: 0,
+  overlay_width_m: 0.25,
+  overlay_alpha: 0.95,
+  bg_alpha: 0.9,
+  font_size: 12,
+};
+
+const presets = {
+  left: { x: -0.4, y: 0.1, z: -0.8, pitch: 0, yaw: 15, roll: 0 },
+  center: { x: 0, y: 0, z: -0.8, pitch: 0, yaw: 0, roll: 0 },
+  right: { x: 0.4, y: 0.1, z: -0.8, pitch: 0, yaw: -15, roll: 0 },
+};
 
 const defaultConfig = (): DanmakuConfig => ({
   enable_bilibili: true,
   room_id: 0,
   bili_sessdata: '',
-  enable_osc_input: true,
+  enable_osc_input: false,
   osc_input_host: '127.0.0.1',
   osc_input_port: 9011,
   osc_input_address: '/vrcdog/danmaku',
@@ -46,20 +55,12 @@ const defaultConfig = (): DanmakuConfig => ({
   chatbox_interval_ms: 1600,
   enable_vr_overlay: true,
   overlay_visible: true,
+  vr_menu_visible: false,
   attach_mode: 'hmd',
   toggle_hand: 'left',
-  x: -0.4,
-  y: 0.1,
-  z: -0.8,
-  pitch: 0,
-  yaw: 15,
-  roll: 0,
-  overlay_width_m: 0.4,
-  overlay_alpha: 0.92,
-  bg_alpha: 0.85,
-  font_size: 14,
+  ...hmdDefault,
   text_color: '#FFFFFF',
-  bg_color: '#10141F',
+  bg_color: '#121216',
   max_messages: 50,
   show_danmaku: true,
   show_gift: true,
@@ -67,39 +68,50 @@ const defaultConfig = (): DanmakuConfig => ({
   show_follow: true,
   show_guard: true,
   show_sc: true,
+  vr_input_text: '',
 });
 
 const config = ref<DanmakuConfig>(defaultConfig());
+const modeMemory = reactive({
+  hmd: { ...hmdDefault },
+  hand: { ...handDefault },
+});
+
 const status = ref<DanmakuStatus>({
   running: false,
   bili_connected: false,
   osc_input_running: false,
   vr_initialized: false,
   overlay_visible: true,
+  vr_menu_visible: false,
   room_id: 0,
   online: 0,
   message_count: 0,
   last_error: '',
   last_event: '',
+  vr_input_text: '',
+  vr_keyboard_open: false,
 });
-const messages = ref<DanmakuMessage[]>([]);
+
 const logs = ref<string[]>([]);
+const messages = ref<DanmakuMessage[]>([]);
+const roomInput = ref('');
 const loading = ref(false);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
-const previewInput = ref('VRDanmaku is integrated into VrcDog.');
-const unlisteners: Array<() => void> = [];
 const biliLoggedIn = ref(false);
-const biliLoginChecking = ref(false);
-const showQrModal = ref(false);
+const qrModalOpen = ref(false);
 const qrCodeUrl = ref('');
 const qrKey = ref('');
 const qrStatusText = ref('');
-const qrLoginLoading = ref(false);
-let qrPollTimer: number | null = null;
+const qrLoading = ref(false);
+const previewText = ref('这是一条测试弹幕，会同步到 VR 弹幕窗口。');
+const unlisteners: Array<() => void> = [];
 let liveConfigTimer: number | null = null;
-let restartTimer: number | null = null;
+let qrPollTimer: number | null = null;
+
+const positionKeys = ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'overlay_width_m', 'overlay_alpha', 'bg_alpha', 'font_size'] as const;
 
 const finiteNumber = (value: unknown, fallback: number) => {
   const numberValue = Number(value);
@@ -120,238 +132,87 @@ const runtimeConfig = (): DanmakuConfig => {
     osc_output_port: integerInRange(base.osc_output_port, 9000, 1, 65535),
     vrc_chatbox_port: integerInRange(base.vrc_chatbox_port, 9000, 1, 65535),
     chatbox_interval_ms: integerInRange(base.chatbox_interval_ms, 1600, 250, 60_000),
-    x: finiteNumber(base.x, -0.4),
-    y: finiteNumber(base.y, 0.1),
-    z: finiteNumber(base.z, -0.8),
+    x: finiteNumber(base.x, hmdDefault.x),
+    y: finiteNumber(base.y, hmdDefault.y),
+    z: finiteNumber(base.z, hmdDefault.z),
     pitch: finiteNumber(base.pitch, 0),
     yaw: finiteNumber(base.yaw, 15),
     roll: finiteNumber(base.roll, 0),
-    overlay_width_m: finiteNumber(base.overlay_width_m, 0.4),
-    overlay_alpha: Math.min(1, Math.max(0.05, finiteNumber(base.overlay_alpha, 0.92))),
+    overlay_width_m: Math.min(0.8, Math.max(0.15, finiteNumber(base.overlay_width_m, 0.4))),
+    overlay_alpha: Math.min(1, Math.max(0.3, finiteNumber(base.overlay_alpha, 0.92))),
     bg_alpha: Math.min(1, Math.max(0, finiteNumber(base.bg_alpha, 0.85))),
-    font_size: finiteNumber(base.font_size, 14),
+    font_size: integerInRange(base.font_size, 14, 10, 20),
     max_messages: integerInRange(base.max_messages, 50, 10, 500),
   };
 };
 
-const clearRuntimeTimers = () => {
-  if (liveConfigTimer !== null) {
-    window.clearTimeout(liveConfigTimer);
-    liveConfigTimer = null;
-  }
-  if (restartTimer !== null) {
-    window.clearTimeout(restartTimer);
-    restartTimer = null;
-  }
-};
-
-const runningLabel = computed(() => {
-  if (status.value.running && status.value.bili_connected) return '直播弹幕已连接';
-  if (status.value.running && status.value.osc_input_running) return 'OSC 监听中';
-  if (status.value.running) return '服务运行中';
-  return '未启动';
+const connectedText = computed(() => {
+  if (status.value.bili_connected) return status.value.online ? `在线 ${status.value.online}` : '已连接';
+  if (status.value.running) return '连接中';
+  return '未连接';
 });
 
-const connectionPills = computed(() => [
-  {
-    label: 'Bilibili',
-    active: status.value.bili_connected,
-    detail: status.value.room_id ? `#${status.value.room_id}` : '未连接',
-  },
-  {
-    label: 'OSC',
-    active: status.value.osc_input_running,
-    detail: `${config.value.osc_input_host}:${config.value.osc_input_port}`,
-  },
-  {
-    label: 'SteamVR',
-    active: status.value.vr_initialized,
-    detail: status.value.overlay_visible ? '窗口显示' : '窗口隐藏',
-  },
-]);
+const isConnected = computed(() => status.value.running && (status.value.bili_connected || status.value.osc_input_running));
+const statusClass = computed(() => (isConnected.value ? 'connected' : status.value.running ? 'connecting' : ''));
+const activeMessages = computed(() => [...messages.value].reverse().slice(0, 120));
 
-const recentMessages = computed(() => [...messages.value].reverse().slice(0, 80));
-
-const addLog = (line: string, level = 'info') => {
-  const prefix = level === 'error' ? '[ERROR] ' : level === 'success' ? '[OK] ' : '';
-  logs.value.unshift(`[${new Date().toLocaleTimeString()}] ${prefix}${line}`);
-  logs.value = logs.value.slice(0, 60);
+const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+  const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const prefix = level === 'error' ? '[错误] ' : level === 'success' ? '[成功] ' : level === 'warning' ? '[警告] ' : '';
+  logs.value.push(`${time} ${prefix}${message}`);
+  logs.value = logs.value.slice(-500);
 };
 
-const formatTime = (timestamp: number) => {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const clearLog = () => {
+  logs.value = [];
 };
 
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-const generateQrUrl = (url: string) => {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`;
-};
-
-const stopQrPolling = () => {
-  if (qrPollTimer !== null) {
-    window.clearInterval(qrPollTimer);
-    qrPollTimer = null;
+const persistModePosition = () => {
+  const mode = config.value.attach_mode === 'hand' || config.value.attach_mode === 'left_hand' ? 'hand' : 'hmd';
+  const target = mode === 'hand' ? modeMemory.hand : modeMemory.hmd;
+  for (const key of positionKeys) {
+    (target as any)[key] = (config.value as any)[key];
   }
 };
 
-const checkBiliLogin = async () => {
-  const sessdata = (config.value.bili_sessdata || '').trim();
-  biliLoggedIn.value = false;
-  if (!sessdata) return;
-
-  biliLoginChecking.value = true;
-  try {
-    biliLoggedIn.value = await invoke<boolean>('bili_check_login', { sessdata });
-    if (biliLoggedIn.value) {
-      await DbApi.saveSetting({ key: 'bili_sessdata', value: sessdata });
-      await saveSettings();
-      addLog('Bilibili 登录有效，已同步到直播弹幕配置', 'success');
-    } else {
-      addLog('Bilibili 登录已失效，请重新扫码登录');
-    }
-  } catch (e) {
-    addLog(`Bilibili 登录状态检查失败: ${String(e)}`);
-  } finally {
-    biliLoginChecking.value = false;
-  }
+const applyPosition = (next: Partial<typeof hmdDefault>) => {
+  Object.assign(config.value, next);
 };
 
-const openBiliLogin = async () => {
-  stopQrPolling();
-  showQrModal.value = true;
-  qrCodeUrl.value = '';
-  qrKey.value = '';
-  qrStatusText.value = '正在生成登录二维码...';
-  qrLoginLoading.value = true;
-  addLog('正在生成 Bilibili 登录二维码...');
-
-  try {
-    const res: any = await invoke('bili_new_qr');
-    if (res?.code === 0 && res.data?.url && res.data?.qrcode_key) {
-      qrCodeUrl.value = res.data.qr_image_data_url || generateQrUrl(res.data.url);
-      qrKey.value = res.data.qrcode_key;
-      qrStatusText.value = '二维码已生成，请使用哔哩哔哩 APP 扫描';
-      addLog('二维码已生成，请使用哔哩哔哩 APP 扫描');
-
-      qrPollTimer = window.setInterval(async () => {
-        try {
-          const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
-          const code = pollRes?.data?.code;
-          if (code === 0) {
-            stopQrPolling();
-            const sessdata = pollRes.sessdata_extracted;
-            if (!sessdata) {
-              qrStatusText.value = '登录成功，但没有获取到 SESSDATA，请重试';
-              qrLoginLoading.value = false;
-              addLog('Bilibili 登录成功但未返回 SESSDATA', 'error');
-              return;
-            }
-
-            config.value.bili_sessdata = sessdata;
-            await DbApi.saveSetting({ key: 'bili_sessdata', value: sessdata });
-            await saveSettings();
-            biliLoggedIn.value = true;
-            qrStatusText.value = '登录成功，已同步到直播弹幕配置';
-            qrLoginLoading.value = false;
-            addLog('Bilibili 扫码登录成功，已同步到直播弹幕配置');
-            window.setTimeout(() => {
-              showQrModal.value = false;
-            }, 900);
-          } else if (code === 86090) {
-            qrStatusText.value = '已扫码，请在手机上确认登录';
-          } else if (code === 86038) {
-            stopQrPolling();
-            qrStatusText.value = '二维码已过期，请重新扫码';
-            qrLoginLoading.value = false;
-            addLog('Bilibili 登录二维码已过期');
-          } else if (code === 86101) {
-            qrStatusText.value = '等待扫码，请使用哔哩哔哩 APP 扫描';
-          }
-        } catch (e) {
-          stopQrPolling();
-          qrStatusText.value = `登录轮询失败: ${String(e)}`;
-          qrLoginLoading.value = false;
-          addLog(qrStatusText.value);
-        }
-      }, 1600);
-    } else {
-      qrStatusText.value = res?.message || '二维码生成失败';
-      qrLoginLoading.value = false;
-      addLog(qrStatusText.value);
-    }
-  } catch (e) {
-    qrStatusText.value = `二维码生成失败: ${String(e)}`;
-    qrLoginLoading.value = false;
-    addLog(qrStatusText.value);
-  }
+const setAttachMode = (mode: 'hmd' | 'hand') => {
+  persistModePosition();
+  config.value.attach_mode = mode;
+  applyPosition(mode === 'hand' ? modeMemory.hand : modeMemory.hmd);
+  addLog(`绑定模式切换为${mode === 'hand' ? '左手' : '头显'}`);
 };
 
-const closeBiliLogin = () => {
-  stopQrPolling();
-  showQrModal.value = false;
-  qrLoginLoading.value = false;
+const setToggleHand = (hand: 'left' | 'right' | 'always_on') => {
+  config.value.toggle_hand = hand;
+  addLog(hand === 'always_on' ? '弹幕窗口已设置为常开' : `Grip 切换手柄改为${hand === 'left' ? '左手柄' : '右手柄'}`);
 };
 
-const logoutBili = async () => {
-  stopQrPolling();
-  config.value.bili_sessdata = '';
-  biliLoggedIn.value = false;
-  await DbApi.saveSetting({ key: 'bili_sessdata', value: '' });
-  await saveSettings();
-  addLog('已退出 Bilibili 登录');
+const applyPreset = (name: keyof typeof presets) => {
+  if (config.value.attach_mode !== 'hmd') setAttachMode('hmd');
+  applyPosition(presets[name]);
+  addLog(`已应用预设位置：${name === 'left' ? '左前方' : name === 'center' ? '正前方' : '右前方'}`);
 };
 
-const badgeClass = (type: string) => {
-  switch (type) {
-    case 'sc': return 'bg-amber-100 text-amber-700 border-amber-200';
-    case 'gift': return 'bg-orange-100 text-orange-700 border-orange-200';
-    case 'enter': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-    case 'follow': return 'bg-pink-100 text-pink-700 border-pink-200';
-    case 'guard':
-    case 'vip_enter': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    case 'warning': return 'bg-red-100 text-red-700 border-red-200';
-    case 'osc': return 'bg-primary/10 text-primary border-primary/20';
-    default: return 'bg-primary/10 text-primary border-primary/20';
-  }
-};
-
-const messageLabel = (message: DanmakuMessage) => {
-  if (message.message_type === 'sc') return `SC ${message.price ? `¥${message.price}` : ''}`;
-  if (message.message_type === 'gift') return '礼物';
-  if (message.message_type === 'enter') return '进入';
-  if (message.message_type === 'follow') return '关注';
-  if (message.message_type === 'guard' || message.message_type === 'vip_enter') return '舰长';
-  if (message.message_type === 'warning') return '警告';
-  if (message.source === 'osc') return 'OSC';
-  return '弹幕';
-};
-
-const loadSettings = async () => {
-  try {
-    const stored = await DbApi.getSetting({ key: STORAGE_KEY });
-    if (stored) {
-      config.value = { ...defaultConfig(), ...JSON.parse(stored) };
-    }
-    const sessdata = await DbApi.getSetting({ key: 'bili_sessdata' });
-    if (sessdata && !config.value.bili_sessdata) {
-      config.value.bili_sessdata = sessdata;
-    }
-  } catch (e) {
-    addLog(`读取配置失败: ${String(e)}`);
-  }
+const resetPosition = () => {
+  applyPosition(config.value.attach_mode === 'hand' ? handDefault : hmdDefault);
+  addLog('已重置当前位置参数');
 };
 
 const saveSettings = async () => {
   saving.value = true;
   saved.value = false;
   try {
+    persistModePosition();
     const nextConfig = runtimeConfig();
-    await DbApi.saveSetting({ key: STORAGE_KEY, value: JSON.stringify(nextConfig) });
-    await DanmakuApi.setConfig({ config: nextConfig });
+    await DbApi.saveSetting({ key: STORAGE_KEY, value: JSON.stringify({ config: nextConfig, modeMemory }) });
+    await DbApi.saveSetting({ key: 'bili_sessdata', value: nextConfig.bili_sessdata || '' });
+    status.value = await DanmakuApi.setConfig({ config: nextConfig });
     saved.value = true;
-    setTimeout(() => { saved.value = false; }, 1800);
+    window.setTimeout(() => { saved.value = false; }, 1500);
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -359,12 +220,27 @@ const saveSettings = async () => {
   }
 };
 
+const loadSettings = async () => {
+  try {
+    const stored = await DbApi.getSetting({ key: STORAGE_KEY });
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed?.config) config.value = { ...defaultConfig(), ...parsed.config };
+      else config.value = { ...defaultConfig(), ...parsed };
+      if (parsed?.modeMemory?.hmd) Object.assign(modeMemory.hmd, parsed.modeMemory.hmd);
+      if (parsed?.modeMemory?.hand) Object.assign(modeMemory.hand, parsed.modeMemory.hand);
+    }
+    const sessdata = await DbApi.getSetting({ key: 'bili_sessdata' });
+    if (sessdata && !config.value.bili_sessdata) config.value.bili_sessdata = sessdata;
+    roomInput.value = config.value.room_id ? String(config.value.room_id) : '';
+  } catch (e) {
+    addLog(`读取配置失败：${String(e)}`, 'error');
+  }
+};
+
 const refreshSnapshot = async () => {
   try {
-    const [nextStatus, nextMessages] = await Promise.all([
-      DanmakuApi.getStatus(),
-      DanmakuApi.getMessages(),
-    ]);
+    const [nextStatus, nextMessages] = await Promise.all([DanmakuApi.getStatus(), DanmakuApi.getMessages()]);
     status.value = nextStatus;
     messages.value = nextMessages;
   } catch {
@@ -373,37 +249,24 @@ const refreshSnapshot = async () => {
 };
 
 const start = async () => {
+  const room = roomInput.value.trim();
+  if (config.value.enable_bilibili && (!room || !/^\d+$/.test(room))) {
+    error.value = '请输入有效的 Bilibili 直播间房间号。';
+    addLog(error.value, 'error');
+    return;
+  }
+
   loading.value = true;
   error.value = '';
   try {
-    clearRuntimeTimers();
+    config.value.room_id = room ? Number(room) : 0;
     await saveSettings();
     status.value = await DanmakuApi.start({ config: runtimeConfig() });
-    if (config.value.enable_vr_overlay) {
-      // 轮询等待 VR overlay 初始化结果（最长 3 秒），比固定 sleep 更可靠
-      for (let i = 0; i < 30; i++) {
-        await sleep(100);
-        const snapshot = await DanmakuApi.getStatus();
-        status.value = snapshot;
-        // VR 初始化已完成（成功或失败）则退出轮询
-        if (snapshot.vr_initialized || snapshot.last_error) break;
-      }
-      if (status.value.last_error.includes('already initialized')) {
-        addLog('SteamVR overlay 被 OVR 翻译后端占用，正在释放并重试弹幕窗口');
-        await DanmakuApi.stop();
-        await OvrApi.shutdown().catch(() => {});
-        await sleep(800);
-        status.value = await DanmakuApi.start({ config: runtimeConfig() });
-      } else if (status.value.last_error) {
-        addLog(`VR overlay 初始化失败: ${status.value.last_error}`, 'error');
-      }
-    }
-    // 只在没有致命错误时显示启动成功
-    if (!status.value.last_error) {
-      addLog('弹幕服务已启动');
-    }
+    addLog(`正在连接直播间 ${config.value.room_id || 'OSC 输入'}...`);
+    void recoverOpenVrConflict();
   } catch (e: any) {
     error.value = e.message || String(e);
+    addLog(error.value, 'error');
   } finally {
     loading.value = false;
   }
@@ -413,9 +276,8 @@ const stop = async () => {
   loading.value = true;
   error.value = '';
   try {
-    clearRuntimeTimers();
     status.value = await DanmakuApi.stop();
-    addLog('弹幕服务已停止');
+    addLog('已断开直播弹幕连接');
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -423,108 +285,198 @@ const stop = async () => {
   }
 };
 
+const toggleConnect = () => {
+  if (status.value.running) void stop();
+  else void start();
+};
+
 const toggleOverlay = async () => {
   try {
-    const visible = !status.value.overlay_visible;
-    status.value = await DanmakuApi.setOverlayVisible({ visible });
+    const visible = !config.value.overlay_visible;
     config.value.overlay_visible = visible;
+    status.value = await DanmakuApi.setOverlayVisible({ visible });
+    addLog(visible ? 'VR 弹幕窗口已显示' : 'VR 弹幕窗口已隐藏');
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const toggleVrMenu = async () => {
+  try {
+    config.value.vr_menu_visible = !config.value.vr_menu_visible;
+    status.value = await DanmakuApi.setConfig({ config: runtimeConfig() });
+    addLog(config.value.vr_menu_visible ? 'VR 调整菜单已调出' : 'VR 调整菜单已隐藏');
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const sendTest = async (messageType: string) => {
+  try {
+    const text = messageType === 'danmaku' ? previewText.value.trim() : undefined;
+    const msg = await DanmakuApi.sendTest(text ? { messageType, text } : { messageType });
+    if (msg.source === 'browser') messages.value.push(msg);
+    addLog(`已发送测试${messageType === 'sc' ? ' SC' : messageType === 'gift' ? '礼物' : messageType === 'enter' ? '进入' : messageType === 'warning' ? '警告' : '弹幕'}`, 'success');
   } catch (e: any) {
     error.value = e.message || String(e);
   }
 };
 
 const clearMessages = async () => {
-  try {
-    await DanmakuApi.clearMessages();
-    messages.value = [];
-  } catch (e: any) {
-    error.value = e.message || String(e);
-  }
-};
-
-const sendTest = async (type = 'danmaku') => {
-  try {
-    const text = type === 'danmaku' ? previewInput.value.trim() : undefined;
-    const message = await DanmakuApi.sendTest(text ? { messageType: type, text } : { messageType: type });
-    if (message.source === 'browser') {
-      messages.value.push(message);
-    }
-    addLog(`已发送测试${type === 'sc' ? ' SC' : type === 'gift' ? '礼物' : '弹幕'}，VR overlay 将同步刷新`, 'success');
-  } catch (e: any) {
-    error.value = e.message || String(e);
-  }
+  await DanmakuApi.clearMessages().catch(() => {});
+  messages.value = [];
+  addLog('已清空弹幕列表');
 };
 
 const scheduleLiveConfigApply = () => {
   if (!status.value.running) return;
-  if (liveConfigTimer !== null) {
-    window.clearTimeout(liveConfigTimer);
-  }
+  if (liveConfigTimer !== null) window.clearTimeout(liveConfigTimer);
   liveConfigTimer = window.setTimeout(async () => {
     liveConfigTimer = null;
     try {
+      persistModePosition();
       status.value = await DanmakuApi.setConfig({ config: runtimeConfig() });
     } catch (e: any) {
       error.value = e.message || String(e);
     }
-  }, 120);
+  }, 80);
 };
 
-const scheduleRunningRestart = () => {
-  if (!status.value.running) return;
-  if (restartTimer !== null) {
-    window.clearTimeout(restartTimer);
+const checkBiliLogin = async () => {
+  const sessdata = (config.value.bili_sessdata || '').trim();
+  biliLoggedIn.value = false;
+  if (!sessdata) return;
+  try {
+    biliLoggedIn.value = await invoke<boolean>('bili_check_login', { sessdata });
+    addLog(biliLoggedIn.value ? 'Bilibili 登录凭证有效' : 'Bilibili 登录凭证无效或已过期', biliLoggedIn.value ? 'success' : 'warning');
+  } catch (e) {
+    addLog(`登录状态检查失败：${String(e)}`, 'warning');
   }
-  restartTimer = window.setTimeout(async () => {
-    restartTimer = null;
-    if (!status.value.running) return;
-    if (liveConfigTimer !== null) {
-      window.clearTimeout(liveConfigTimer);
-      liveConfigTimer = null;
-    }
-    try {
-      loading.value = true;
-      status.value = await DanmakuApi.start({ config: runtimeConfig() });
-      addLog('已按新的房间号/输入源/VR 窗口配置重连直播姬', 'success');
-    } catch (e: any) {
-      error.value = e.message || String(e);
-    } finally {
-      loading.value = false;
-    }
-  }, 700);
 };
 
-watch(
-  () => config.value,
-  scheduleLiveConfigApply,
-  { deep: true },
-);
+const generateQrUrl = (url: string) => `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`;
 
-watch(
-  () => [
-    config.value.enable_bilibili,
-    config.value.room_id,
-    config.value.bili_sessdata,
-    config.value.enable_osc_input,
-    config.value.osc_input_host,
-    config.value.osc_input_port,
-    config.value.osc_input_address,
-    config.value.enable_vr_overlay,
-  ],
-  scheduleRunningRestart,
-);
+const stopQrPolling = () => {
+  if (qrPollTimer !== null) window.clearInterval(qrPollTimer);
+  qrPollTimer = null;
+};
+
+const openBiliLogin = async () => {
+  stopQrPolling();
+  qrModalOpen.value = true;
+  qrLoading.value = true;
+  qrCodeUrl.value = '';
+  qrStatusText.value = '正在生成登录二维码...';
+  try {
+    const res: any = await invoke('bili_new_qr');
+    if (res?.code !== 0 || !res.data?.url || !res.data?.qrcode_key) {
+      throw new Error(res?.message || '二维码生成失败');
+    }
+    qrCodeUrl.value = res.data.qr_image_data_url || generateQrUrl(res.data.url);
+    qrKey.value = res.data.qrcode_key;
+    qrStatusText.value = '请使用哔哩哔哩 APP 扫码登录';
+    addLog('Bilibili 登录二维码已生成');
+
+    qrPollTimer = window.setInterval(async () => {
+      const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
+      const code = pollRes?.data?.code;
+      if (code === 0) {
+        stopQrPolling();
+        const sessdata = pollRes.sessdata_extracted;
+        if (!sessdata) throw new Error('登录成功但未获得 SESSDATA');
+        config.value.bili_sessdata = sessdata;
+        await saveSettings();
+        biliLoggedIn.value = true;
+        qrStatusText.value = '登录成功';
+        qrLoading.value = false;
+        addLog('Bilibili 扫码登录成功', 'success');
+        window.setTimeout(() => { qrModalOpen.value = false; }, 900);
+      } else if (code === 86090) {
+        qrStatusText.value = '已扫码，请在手机上确认';
+      } else if (code === 86038) {
+        stopQrPolling();
+        qrLoading.value = false;
+        qrStatusText.value = '二维码已过期，请重新生成';
+      } else {
+        qrStatusText.value = '等待扫码...';
+      }
+    }, 1600);
+  } catch (e) {
+    qrLoading.value = false;
+    qrStatusText.value = String(e);
+    addLog(`扫码登录失败：${String(e)}`, 'error');
+  }
+};
+
+const closeBiliLogin = () => {
+  stopQrPolling();
+  qrModalOpen.value = false;
+  qrLoading.value = false;
+};
+
+const logoutBili = async () => {
+  config.value.bili_sessdata = '';
+  biliLoggedIn.value = false;
+  await saveSettings();
+  addLog('已退出 Bilibili 登录');
+};
+
+const eventLabel = (message: DanmakuMessage) => {
+  if (message.message_type === 'sc') return message.price ? `SC ${message.price}` : 'SC';
+  if (message.message_type === 'gift') return '礼物';
+  if (message.message_type === 'enter') return '进入';
+  if (message.message_type === 'follow') return '关注';
+  if (message.message_type === 'guard' || message.message_type === 'vip_enter') return '舰长';
+  if (message.message_type === 'warning') return '警告';
+  return '弹幕';
+};
+
+const formatMessageLine = (message: DanmakuMessage) => {
+  const time = new Date(message.timestamp_ms).toLocaleTimeString('zh-CN', { hour12: false });
+  return `${time} [${eventLabel(message)}] ${message.user}${message.text ? `: ${message.text}` : ''}`;
+};
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const recoverOpenVrConflict = async () => {
+  if (!config.value.enable_vr_overlay) return false;
+  for (let i = 0; i < 6; i += 1) {
+    await sleep(420);
+    const latest = await DanmakuApi.getStatus();
+    status.value = latest;
+    if (!latest.last_error) return false;
+    if (latest.last_error.toLowerCase().includes('already initialized')) {
+      addLog('检测到 OVR 翻译器占用了 OpenVR，正在释放后重启 VR 弹幕。', 'warning');
+      await DanmakuApi.stop().catch(() => {});
+      await OvrApi.shutdown().catch(() => {});
+      await sleep(450);
+      status.value = await DanmakuApi.start({ config: runtimeConfig() });
+      addLog('已重新启动 VR 弹幕 Overlay。', 'success');
+      return true;
+    }
+  }
+  return false;
+};
+
+watch(config, scheduleLiveConfigApply, { deep: true });
 
 onMounted(async () => {
   await loadSettings();
   await checkBiliLogin();
   await refreshSnapshot();
+  addLog('直播姬界面已加载');
+
   try {
     unlisteners.push(await listen<DanmakuStatus>('danmaku_status', (event) => {
       status.value = event.payload;
     }));
     unlisteners.push(await listen<DanmakuMessage>('danmaku_message', (event) => {
       messages.value.push(event.payload);
-      messages.value = messages.value.slice(-120);
+      messages.value = messages.value.slice(-500);
+    }));
+    unlisteners.push(await listen<DanmakuConfig>('danmaku_config', (event) => {
+      config.value = { ...config.value, ...event.payload };
+      persistModePosition();
     }));
     unlisteners.push(await listen<string>('danmaku_log', (event) => {
       addLog(event.payload);
@@ -539,504 +491,502 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopQrPolling();
-  clearRuntimeTimers();
+  if (liveConfigTimer !== null) window.clearTimeout(liveConfigTimer);
   unlisteners.forEach((unlisten) => unlisten());
-  unlisteners.length = 0;
 });
 </script>
 
 <template>
-  <div class="h-full min-h-0 flex flex-col bg-surface-hover rounded-3xl overflow-hidden">
-    <header class="px-6 py-5 border-b border-border-soft bg-surface flex items-center justify-between gap-4">
-      <div class="min-w-0">
-        <div class="flex items-center gap-3">
-          <span class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-            <Radio class="w-5 h-5" />
-          </span>
-          <div>
-            <h1 class="text-2xl font-extrabold text-text leading-tight">
-              直播弹幕
-            </h1>
-            <p class="text-sm text-text-muted font-medium">
-              Bilibili 直播弹幕、第三方 OSC 推流与 SteamVR 弹幕窗口
-            </p>
-          </div>
-        </div>
-      </div>
+  <div class="live-hime-shell">
+    <aside class="live-hime-sidebar">
+      <header class="live-hime-header">
+        <strong>直播姬</strong>
+        <span class="status-badge">
+          <i class="status-dot" :class="statusClass" />
+          {{ connectedText }}
+        </span>
+      </header>
 
-      <div class="flex items-center gap-2">
-        <button
-          class="px-4 py-2 rounded-xl border border-border-soft bg-surface text-text-muted hover:text-primary font-bold text-sm flex items-center gap-2"
-          :disabled="saving"
-          @click="saveSettings"
-        >
-          <CheckCircle2 v-if="saved" class="w-4 h-4 text-emerald-500" />
-          <Loader2 v-else-if="saving" class="w-4 h-4 animate-spin" />
-          <Save v-else class="w-4 h-4" />
-          保存
-        </button>
-        <button
-          v-if="!status.running"
-          class="px-5 py-2 rounded-xl bg-primary text-white font-bold text-sm flex items-center gap-2 shadow-md hover:brightness-110"
-          :disabled="loading"
-          @click="start"
-        >
-          <Loader2 v-if="loading" class="w-4 h-4 animate-spin" />
-          <Play v-else class="w-4 h-4" />
-          启动
-        </button>
-        <button
-          v-else
-          class="px-5 py-2 rounded-xl bg-red-500 text-white font-bold text-sm flex items-center gap-2 shadow-md hover:bg-red-600"
-          :disabled="loading"
-          @click="stop"
-        >
-          <Loader2 v-if="loading" class="w-4 h-4 animate-spin" />
-          <Square v-else class="w-4 h-4" />
-          停止
-        </button>
-      </div>
-    </header>
-
-    <div class="grid grid-cols-3 gap-3 px-6 py-4 bg-background/20 border-b border-border-soft">
-      <div
-        v-for="pill in connectionPills"
-        :key="pill.label"
-        class="rounded-2xl bg-surface border border-border-soft px-4 py-3 flex items-center justify-between"
-      >
-        <div>
-          <p class="text-xs text-text-muted font-bold uppercase tracking-wide">
-            {{ pill.label }}
-          </p>
-          <p class="text-sm text-text font-bold truncate">
-            {{ pill.detail }}
-          </p>
-        </div>
-        <Wifi v-if="pill.active" class="w-5 h-5 text-emerald-500" />
-        <WifiOff v-else class="w-5 h-5 text-border-strong" />
-      </div>
-    </div>
-
-    <div class="flex-1 min-h-0 grid grid-cols-[380px_1fr] gap-0">
-      <aside class="min-h-0 overflow-y-auto border-r border-border-soft bg-surface p-5 space-y-5">
-        <section class="space-y-3">
-          <div class="flex items-center gap-2 text-text font-extrabold">
-            <MessageSquare class="w-4 h-4 text-primary" />
-            Bilibili 直播间
-          </div>
-          <label class="block">
-            <span class="text-xs font-bold text-text-muted">房间号</span>
+      <div class="sidebar-scroll">
+        <section class="section">
+          <div class="section-title">直播间</div>
+          <div class="input-row">
             <input
-              v-model.number="config.room_id"
-              type="number"
-              min="0"
-              class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text font-bold outline-none focus:border-primary"
-              placeholder="例如 22603245"
+              v-model="roomInput"
+              :disabled="status.running"
+              class="dark-input"
+              placeholder="输入房间号"
+              inputmode="numeric"
+              @keydown.enter="toggleConnect"
             >
-          </label>
-          <label class="flex items-center justify-between gap-3 rounded-xl border border-border-soft bg-surface-hover px-3 py-2">
-            <span class="text-sm font-bold text-text-muted">启用 B 站弹幕源</span>
-            <input v-model="config.enable_bilibili" type="checkbox" class="w-4 h-4">
-          </label>
-          <div class="rounded-xl border border-border-soft bg-surface-hover px-3 py-3 space-y-3">
-            <div class="flex items-center justify-between gap-3">
-              <div class="min-w-0 flex items-center gap-2">
-                <span
-                  class="w-2.5 h-2.5 rounded-full shrink-0"
-                  :class="biliLoggedIn ? 'bg-emerald-500 shadow-sm shadow-emerald-500/30' : 'bg-border-strong'"
-                />
-                <div class="min-w-0">
-                  <p class="text-sm font-extrabold text-text">
-                    {{ biliLoggedIn ? 'Bilibili 已登录' : 'Bilibili 未登录' }}
-                  </p>
-                  <p class="text-[11px] text-text-muted truncate">
-                    登录后直播间鉴权、舰长/进场等事件更完整
-                  </p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <button
-                  v-if="!biliLoggedIn"
-                  class="px-3 py-2 rounded-lg bg-primary text-white text-xs font-bold flex items-center gap-1.5 shadow-sm hover:brightness-110 disabled:opacity-60"
-                  :disabled="biliLoginChecking || qrLoginLoading"
-                  @click="openBiliLogin"
-                >
-                  <Loader2 v-if="biliLoginChecking || qrLoginLoading" class="w-3.5 h-3.5 animate-spin" />
-                  <QrCode v-else class="w-3.5 h-3.5" />
-                  扫码登录
-                </button>
-                <button
-                  v-else
-                  class="px-3 py-2 rounded-lg bg-surface border border-border-soft text-text-muted hover:text-red-500 text-xs font-bold flex items-center gap-1.5"
-                  @click="logoutBili"
-                >
-                  <LogOut class="w-3.5 h-3.5" />
-                  退出
-                </button>
-              </div>
-            </div>
-            <label class="block">
-              <span class="text-[11px] font-bold text-text-muted">SESSDATA（可手动粘贴，扫码成功会自动填入）</span>
-              <div class="mt-1 flex gap-2">
-                <input
-                  v-model="config.bili_sessdata"
-                  type="password"
-                  class="min-w-0 flex-1 rounded-xl bg-surface border border-border-soft px-3 py-2 text-text outline-none focus:border-primary"
-                  placeholder="匿名可用；登录后弹幕事件更完整"
-                >
-                <button
-                  class="px-3 py-2 rounded-xl bg-surface border border-border-soft text-text-muted hover:text-primary font-bold text-xs"
-                  @click="checkBiliLogin"
-                >
-                  检查
-                </button>
-              </div>
-            </label>
-          </div>
-        </section>
-
-        <section class="space-y-3">
-          <div class="flex items-center gap-2 text-text font-extrabold">
-            <MonitorUp class="w-4 h-4 text-primary" />
-            第三方 OSC 推流
-          </div>
-          <label class="flex items-center justify-between gap-3 rounded-xl border border-border-soft bg-surface-hover px-3 py-2">
-            <span class="text-sm font-bold text-text-muted">接收外部 OSC 弹幕</span>
-            <input v-model="config.enable_osc_input" type="checkbox" class="w-4 h-4">
-          </label>
-          <div class="grid grid-cols-2 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">监听地址</span>
-              <input v-model="config.osc_input_host" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">监听端口</span>
-              <input v-model.number="config.osc_input_port" type="number" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-          <label>
-            <span class="text-xs font-bold text-text-muted">OSC 地址</span>
-            <input v-model="config.osc_input_address" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-          </label>
-          <label class="flex items-center justify-between gap-3 rounded-xl border border-border-soft bg-surface-hover px-3 py-2">
-            <span class="text-sm font-bold text-text-muted">转发到 VRChat Chatbox</span>
-            <input v-model="config.enable_vrc_chatbox" type="checkbox" class="w-4 h-4">
-          </label>
-          <label class="flex items-center justify-between gap-3 rounded-xl border border-border-soft bg-surface-hover px-3 py-2">
-            <span class="text-sm font-bold text-text-muted">转发为 OSC 数据流</span>
-            <input v-model="config.enable_osc_output" type="checkbox" class="w-4 h-4">
-          </label>
-          <div class="grid grid-cols-2 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">转发地址</span>
-              <input v-model="config.osc_output_host" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">转发端口</span>
-              <input v-model.number="config.osc_output_port" type="number" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-          <label>
-            <span class="text-xs font-bold text-text-muted">转发 OSC 地址</span>
-            <input v-model="config.osc_output_address" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-          </label>
-          <div class="grid grid-cols-2 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">Chatbox 端口</span>
-              <input v-model.number="config.vrc_chatbox_port" type="number" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">Chatbox 间隔(ms)</span>
-              <input v-model.number="config.chatbox_interval_ms" type="number" step="100" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-        </section>
-
-        <section class="space-y-3">
-          <div class="flex items-center gap-2 text-text font-extrabold">
-            <Glasses class="w-4 h-4 text-primary" />
-            SteamVR 弹幕窗口
-          </div>
-          <label class="flex items-center justify-between gap-3 rounded-xl border border-border-soft bg-surface-hover px-3 py-2">
-            <span class="text-sm font-bold text-text-muted">启用 SteamVR overlay</span>
-            <input v-model="config.enable_vr_overlay" type="checkbox" class="w-4 h-4">
-          </label>
-          <div class="grid grid-cols-2 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">挂载位置</span>
-              <select v-model="config.attach_mode" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-                <option value="hmd">头显前方</option>
-                <option value="left_hand">左手手腕</option>
-                <option value="right_hand">右手手腕</option>
-              </select>
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">Grip 切换手</span>
-              <select v-model="config.toggle_hand" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-                <option value="left">左手</option>
-                <option value="right">右手</option>
-                <option value="always_on">常开</option>
-              </select>
-            </label>
-          </div>
-          <div class="grid grid-cols-3 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted uppercase">x</span>
-              <input v-model.number="config.x" type="range" step="0.01" min="-2.0" max="2.0" class="mt-1 w-full accent-primary">
-              <span class="text-[10px] text-text-muted font-mono text-right block">{{ config.x.toFixed(2) }}</span>
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted uppercase">y</span>
-              <input v-model.number="config.y" type="range" step="0.01" min="-2.0" max="2.0" class="mt-1 w-full accent-primary">
-              <span class="text-[10px] text-text-muted font-mono text-right block">{{ config.y.toFixed(2) }}</span>
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted uppercase">z</span>
-              <input v-model.number="config.z" type="range" step="0.01" min="-2.0" max="2.0" class="mt-1 w-full accent-primary">
-              <span class="text-[10px] text-text-muted font-mono text-right block">{{ config.z.toFixed(2) }}</span>
-            </label>
-          </div>
-          <div class="grid grid-cols-3 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">Pitch</span>
-              <input v-model.number="config.pitch" type="number" step="1" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">Yaw</span>
-              <input v-model.number="config.yaw" type="number" step="1" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">Roll</span>
-              <input v-model.number="config.roll" type="number" step="1" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">宽度(m)</span>
-              <input v-model.number="config.overlay_width_m" type="number" step="0.01" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">字号</span>
-              <input v-model.number="config.font_size" type="number" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">窗口透明度</span>
-              <input v-model.number="config.overlay_alpha" type="number" step="0.01" min="0.05" max="1" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">背景透明度</span>
-              <input v-model.number="config.bg_alpha" type="number" step="0.01" min="0" max="1" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-          <div class="grid grid-cols-3 gap-2">
-            <label>
-              <span class="text-xs font-bold text-text-muted">文字色</span>
-              <input v-model="config.text_color" type="color" class="mt-1 w-full h-10 rounded-xl bg-surface-hover border border-border-soft px-2 py-1">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">背景色</span>
-              <input v-model="config.bg_color" type="color" class="mt-1 w-full h-10 rounded-xl bg-surface-hover border border-border-soft px-2 py-1">
-            </label>
-            <label>
-              <span class="text-xs font-bold text-text-muted">保留条数</span>
-              <input v-model.number="config.max_messages" type="number" min="10" class="mt-1 w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-text outline-none focus:border-primary">
-            </label>
-          </div>
-          <div class="flex gap-2">
-            <button class="flex-1 px-3 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted hover:text-primary font-bold text-sm flex items-center justify-center gap-2" @click="toggleOverlay">
-              <EyeOff v-if="status.overlay_visible" class="w-4 h-4" />
-              <Eye v-else class="w-4 h-4" />
-              {{ status.overlay_visible ? '隐藏窗口' : '显示窗口' }}
+            <button class="primary-btn" :disabled="loading" @click="toggleConnect">
+              {{ status.running ? '断开' : '连接' }}
             </button>
           </div>
         </section>
 
-        <section class="space-y-3">
-          <div class="flex items-center gap-2 text-text font-extrabold">
-            <Settings2 class="w-4 h-4 text-primary" />
-            显示过滤
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <label class="rounded-xl border border-border-soft bg-surface-hover px-3 py-2 flex items-center justify-between">
-              <span class="text-xs font-bold text-text-muted">普通弹幕</span>
-              <input v-model="config.show_danmaku" type="checkbox">
-            </label>
-            <label class="rounded-xl border border-border-soft bg-surface-hover px-3 py-2 flex items-center justify-between">
-              <span class="text-xs font-bold text-text-muted">SC</span>
-              <input v-model="config.show_sc" type="checkbox">
-            </label>
-            <label class="rounded-xl border border-border-soft bg-surface-hover px-3 py-2 flex items-center justify-between">
-              <span class="text-xs font-bold text-text-muted">礼物</span>
-              <input v-model="config.show_gift" type="checkbox">
-            </label>
-            <label class="rounded-xl border border-border-soft bg-surface-hover px-3 py-2 flex items-center justify-between">
-              <span class="text-xs font-bold text-text-muted">进入</span>
-              <input v-model="config.show_enter" type="checkbox">
-            </label>
-            <label class="rounded-xl border border-border-soft bg-surface-hover px-3 py-2 flex items-center justify-between">
-              <span class="text-xs font-bold text-text-muted">关注</span>
-              <input v-model="config.show_follow" type="checkbox">
-            </label>
-            <label class="rounded-xl border border-border-soft bg-surface-hover px-3 py-2 flex items-center justify-between">
-              <span class="text-xs font-bold text-text-muted">舰长</span>
-              <input v-model="config.show_guard" type="checkbox">
-            </label>
+        <section class="section">
+          <div class="section-title">账号</div>
+          <div class="account-row">
+            <i class="status-dot" :class="{ connected: biliLoggedIn }" />
+            <span>{{ biliLoggedIn ? '已登录' : '未登录' }}</span>
+            <button v-if="!biliLoggedIn" class="small-btn" @click="openBiliLogin">扫码登录</button>
+            <button v-else class="small-btn" @click="logoutBili">退出登录</button>
           </div>
         </section>
-      </aside>
 
-      <main class="min-h-0 flex flex-col">
-        <div class="px-6 py-4 border-b border-border-soft bg-surface flex items-center justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <span
-                class="w-2.5 h-2.5 rounded-full"
-                :class="status.running ? 'bg-emerald-500 animate-pulse' : 'bg-border-strong'"
-              />
-              <span class="font-extrabold text-text">{{ runningLabel }}</span>
-            </div>
-            <p class="text-xs text-text-muted mt-1">
-              消息 {{ status.message_count }} 条，观众 {{ status.online }}，最后事件 {{ status.last_event || 'none' }}
-            </p>
+        <section class="section">
+          <div class="section-title">绑定模式</div>
+          <div class="toggle-group">
+            <button :class="{ active: config.attach_mode === 'hmd' }" @click="setAttachMode('hmd')">头显</button>
+            <button :class="{ active: config.attach_mode !== 'hmd' }" @click="setAttachMode('hand')">左手</button>
           </div>
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <input
-              v-model="previewInput"
-              class="w-64 max-w-full rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-sm text-text outline-none focus:border-primary"
-              placeholder="测试弹幕内容"
-            >
-            <button class="px-3 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted hover:text-primary font-bold text-sm flex items-center gap-2" @click="sendTest('danmaku')">
-              <Send class="w-4 h-4" />
-              测试弹幕
-            </button>
-            <button class="px-3 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted hover:text-amber-600 font-bold text-sm flex items-center gap-2" @click="sendTest('sc')">
-              <Bell class="w-4 h-4" />
-              测试 SC
-            </button>
-            <button class="px-3 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted hover:text-orange-600 font-bold text-sm flex items-center gap-2" @click="sendTest('gift')">
-              <Gift class="w-4 h-4" />
-              测试礼物
-            </button>
-            <button class="p-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted hover:text-red-500" @click="clearMessages">
-              <Trash2 class="w-4 h-4" />
-            </button>
+        </section>
+
+        <section class="section">
+          <div class="section-title">显示切换</div>
+          <div class="toggle-group three">
+            <button :class="{ active: config.toggle_hand === 'left' }" @click="setToggleHand('left')">左手柄</button>
+            <button :class="{ active: config.toggle_hand === 'right' }" @click="setToggleHand('right')">右手柄</button>
+            <button :class="{ active: config.toggle_hand === 'always_on' }" @click="setToggleHand('always_on')">常开</button>
           </div>
+        </section>
+
+        <section v-if="config.attach_mode === 'hmd'" class="section">
+          <div class="section-title">预设位置</div>
+          <div class="btn-row">
+            <button class="small-btn" @click="applyPreset('left')">左前方</button>
+            <button class="small-btn" @click="applyPreset('center')">正前方</button>
+            <button class="small-btn" @click="applyPreset('right')">右前方</button>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">{{ config.attach_mode === 'hmd' ? '位置' : '位置微调' }}</div>
+          <div class="slider-row">
+            <span>{{ config.attach_mode === 'hmd' ? '水平' : '左右' }}</span>
+            <input v-model.number="config.x" type="range" :min="config.attach_mode === 'hmd' ? -1 : -0.1" :max="config.attach_mode === 'hmd' ? 1 : 0.1" :step="config.attach_mode === 'hmd' ? 0.02 : 0.01">
+            <b>{{ config.x.toFixed(2) }}</b>
+          </div>
+          <div class="slider-row">
+            <span>{{ config.attach_mode === 'hmd' ? '垂直' : '上下' }}</span>
+            <input v-model.number="config.y" type="range" :min="config.attach_mode === 'hmd' ? -0.8 : 0" :max="config.attach_mode === 'hmd' ? 0.8 : 0.15" step="0.01">
+            <b>{{ config.y.toFixed(2) }}</b>
+          </div>
+          <div class="slider-row">
+            <span>{{ config.attach_mode === 'hmd' ? '距离' : '前后' }}</span>
+            <input v-model.number="config.z" type="range" :min="config.attach_mode === 'hmd' ? -1.5 : -0.1" :max="config.attach_mode === 'hmd' ? -0.3 : 0.1" step="0.01">
+            <b>{{ config.z.toFixed(2) }}</b>
+          </div>
+        </section>
+
+        <section v-if="config.attach_mode === 'hmd'" class="section">
+          <div class="section-title">角度</div>
+          <div class="slider-row">
+            <span>俯仰</span>
+            <input v-model.number="config.pitch" type="range" min="-30" max="30" step="1">
+            <b>{{ Math.round(config.pitch) }}°</b>
+          </div>
+          <div class="slider-row">
+            <span>偏航</span>
+            <input v-model.number="config.yaw" type="range" min="-30" max="30" step="1">
+            <b>{{ Math.round(config.yaw) }}°</b>
+          </div>
+          <div class="slider-row">
+            <span>翻滚</span>
+            <input v-model.number="config.roll" type="range" min="-20" max="20" step="1">
+            <b>{{ Math.round(config.roll) }}°</b>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">外观</div>
+          <div class="slider-row">
+            <span>大小</span>
+            <input v-model.number="config.overlay_width_m" type="range" min="0.15" max="0.8" step="0.01">
+            <b>{{ config.overlay_width_m.toFixed(2) }}</b>
+          </div>
+          <div class="slider-row">
+            <span>透明</span>
+            <input v-model.number="config.overlay_alpha" type="range" min="0.3" max="1" step="0.02">
+            <b>{{ config.overlay_alpha.toFixed(2) }}</b>
+          </div>
+          <div class="slider-row">
+            <span>背景</span>
+            <input v-model.number="config.bg_alpha" type="range" min="0" max="1" step="0.05">
+            <b>{{ config.bg_alpha.toFixed(2) }}</b>
+          </div>
+          <div class="slider-row">
+            <span>字号</span>
+            <input v-model.number="config.font_size" type="range" min="10" max="20" step="1">
+            <b>{{ Math.round(config.font_size) }}</b>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">显示内容</div>
+          <div class="checkbox-grid">
+            <label><input v-model="config.show_danmaku" type="checkbox">弹幕</label>
+            <label><input v-model="config.show_gift" type="checkbox">礼物</label>
+            <label><input v-model="config.show_sc" type="checkbox">SC</label>
+            <label><input v-model="config.show_guard" type="checkbox">舰长</label>
+            <label><input v-model="config.show_follow" type="checkbox">关注</label>
+            <label><input v-model="config.show_enter" type="checkbox">进入</label>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">VR 调整</div>
+          <div class="hint-box">
+            <p>启动后会创建真实 SteamVR 弹幕 Overlay。</p>
+            <p>在 VR 内按应用菜单键调出调整菜单；摇杆/触控板调位置，按住扳机调距离和大小，Grip 显示/隐藏弹幕窗口。</p>
+          </div>
+          <div class="btn-row">
+            <button class="small-btn" @click="toggleOverlay">{{ config.overlay_visible ? '隐藏窗口' : '显示窗口' }}</button>
+            <button class="small-btn" @click="toggleVrMenu">{{ config.vr_menu_visible ? '隐藏 VR 菜单' : '调出 VR 菜单' }}</button>
+            <button class="small-btn" @click="resetPosition">重置位置</button>
+            <button class="small-btn" @click="saveSettings">{{ saved ? '已保存' : '保存配置' }}</button>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">测试</div>
+          <input v-model="previewText" class="dark-input full" placeholder="测试弹幕内容">
+          <div class="btn-row test-row">
+            <button class="small-btn" @click="sendTest('danmaku')">弹幕</button>
+            <button class="small-btn" @click="sendTest('sc')">SC</button>
+            <button class="small-btn" @click="sendTest('gift')">礼物</button>
+            <button class="small-btn" @click="sendTest('enter')">进入</button>
+            <button class="small-btn" @click="sendTest('warning')">警告</button>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <main class="live-hime-main">
+      <header class="log-header">
+        <span>日志</span>
+        <button class="small-btn" @click="clearLog">清空</button>
+      </header>
+
+      <div v-if="error || status.last_error" class="error-banner">
+        {{ error || status.last_error }}
+      </div>
+
+      <div class="log-body">
+        <div v-for="line in logs" :key="line" class="log-entry">{{ line }}</div>
+        <div v-for="message in activeMessages" :key="message.id" class="log-entry message">
+          {{ formatMessageLine(message) }}
         </div>
+      </div>
+    </main>
 
-        <div v-if="error || status.last_error" class="mx-6 mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm font-bold">
-          {{ error || status.last_error }}
+    <div v-if="qrModalOpen" class="modal-mask">
+      <div class="qr-modal">
+        <h2>Bilibili 扫码登录</h2>
+        <p>{{ qrStatusText }}</p>
+        <div class="qr-box">
+          <span v-if="!qrCodeUrl">生成中...</span>
+          <img v-else :src="qrCodeUrl" alt="Bilibili login QR code">
         </div>
-
-        <div class="flex-1 min-h-0 grid grid-cols-[1fr_300px] gap-0">
-          <section class="min-h-0 overflow-y-auto p-6 space-y-3">
-            <div
-              v-if="recentMessages.length === 0"
-              class="h-full min-h-[360px] rounded-3xl border border-dashed border-border-soft bg-surface flex flex-col items-center justify-center text-text-muted"
-            >
-              <Activity class="w-10 h-10 mb-3 opacity-60" />
-              <p class="font-bold">
-                等待弹幕流入
-              </p>
-              <p class="text-xs mt-1">
-                启动后可接收 Bilibili 或第三方 OSC 推流消息
-              </p>
-            </div>
-
-            <div
-              v-for="message in recentMessages"
-              :key="message.id"
-              class="rounded-2xl bg-surface border border-border-soft px-4 py-3 shadow-sm"
-            >
-              <div class="flex items-center gap-2 mb-2">
-                <span class="px-2 py-0.5 rounded-lg border text-[11px] font-extrabold" :class="badgeClass(message.message_type)">
-                  {{ messageLabel(message) }}
-                </span>
-                <span class="font-extrabold text-text truncate">{{ message.user }}</span>
-                <span v-if="message.medal_name" class="text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                  {{ message.medal_name }} {{ message.medal_level }}
-                </span>
-                <span class="ml-auto text-[11px] text-text-muted font-mono">{{ formatTime(message.timestamp_ms) }}</span>
-              </div>
-              <p class="text-sm text-text-muted leading-relaxed break-words">
-                {{ message.text }}
-              </p>
-            </div>
-          </section>
-
-          <aside class="min-h-0 overflow-y-auto border-l border-border-soft bg-surface p-4">
-            <h2 class="font-extrabold text-text mb-3">
-              运行日志
-            </h2>
-            <div class="space-y-2">
-              <div
-                v-for="line in logs"
-                :key="line"
-                class="rounded-xl bg-surface-hover border border-border-soft px-3 py-2 text-xs text-text-muted font-mono break-words"
-              >
-                {{ line }}
-              </div>
-              <div v-if="logs.length === 0" class="text-xs text-text-muted">
-                暂无日志。
-              </div>
-            </div>
-          </aside>
-        </div>
-      </main>
-    </div>
-
-    <div
-      v-if="showQrModal"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-xl"
-    >
-      <div class="w-[360px] max-w-[calc(100vw-32px)] rounded-2xl bg-surface border border-border-soft shadow-2xl p-6 text-center">
-        <div class="mx-auto mb-4 w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
-          <QrCode class="w-5 h-5" />
-        </div>
-        <h2 class="text-xl font-extrabold text-text">
-          Bilibili 扫码登录
-        </h2>
-        <p class="mt-1 text-xs text-text-muted">
-          使用哔哩哔哩 APP 扫描二维码，确认后会自动写入直播弹幕配置
-        </p>
-
-        <div class="mx-auto mt-5 w-56 h-56 rounded-2xl bg-white border border-border-soft p-3 flex items-center justify-center shadow-inner">
-          <Loader2
-            v-if="!qrCodeUrl"
-            class="w-8 h-8 animate-spin text-primary"
-          />
-          <img
-            v-else
-            :src="qrCodeUrl"
-            class="w-full h-full rounded-xl"
-            alt="Bilibili login QR code"
-          >
-        </div>
-
-        <div class="mt-5 rounded-xl bg-primary/10 border border-primary/20 px-3 py-2 text-sm font-bold text-primary flex items-center justify-center gap-2">
-          <Loader2
-            v-if="qrLoginLoading"
-            class="w-4 h-4 animate-spin"
-          />
-          <span>{{ qrStatusText }}</span>
-        </div>
-
-        <div class="mt-5 flex gap-2">
-          <button
-            class="flex-1 px-4 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted hover:text-text font-bold text-sm"
-            @click="closeBiliLogin"
-          >
-            取消
-          </button>
-          <button
-            class="flex-1 px-4 py-2 rounded-xl bg-primary text-white font-bold text-sm hover:brightness-110"
-            @click="openBiliLogin"
-          >
-            重新生成
-          </button>
+        <div class="btn-row">
+          <button class="small-btn" @click="closeBiliLogin">关闭</button>
+          <button class="primary-btn" :disabled="qrLoading" @click="openBiliLogin">重新生成</button>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.live-hime-shell {
+  --dm-bg: rgba(255, 255, 255, 0.16);
+  --dm-side: var(--theme-surface, rgba(255, 252, 240, 0.64));
+  --dm-panel: var(--theme-surface-hover, rgba(255, 252, 240, 0.78));
+  --dm-hover: var(--theme-active-bg, rgba(251, 191, 36, 0.18));
+  --dm-border: var(--theme-border-soft, rgba(120, 53, 15, 0.12));
+  --dm-text: var(--theme-text-strong, #451a03);
+  --dm-muted: var(--theme-text-soft, #7c5a2a);
+  --dm-dim: var(--theme-text-muted, #9a7b4f);
+  --dm-accent: var(--theme-primary, #f59e0b);
+  --dm-accent-hover: var(--theme-primary-hover, #d97706);
+  --dm-success: #22c55e;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--dm-bg);
+  color: var(--dm-text);
+  border: 1px solid var(--dm-border);
+  border-radius: 24px;
+  box-shadow: 0 20px 50px rgba(74, 45, 15, 0.08);
+  backdrop-filter: blur(18px);
+  font-size: 13px;
+}
+.live-hime-sidebar {
+  width: 320px;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--dm-side);
+  box-shadow: inset -1px 0 0 var(--dm-border);
+}
+.live-hime-header,
+.log-header {
+  min-height: 56px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: inset 0 -1px 0 var(--dm-border);
+}
+.status-badge,
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dm-muted);
+  font-size: 12px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dm-dim);
+}
+.status-dot.connected {
+  background: var(--dm-success);
+}
+.status-dot.connecting {
+  background: #f59e0b;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  50% { opacity: 0.4; }
+}
+.sidebar-scroll,
+.log-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar-scroll {
+  padding: 12px;
+}
+.section {
+  margin-bottom: 16px;
+}
+.section-title {
+  margin-bottom: 8px;
+  color: var(--dm-dim);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.input-row,
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+.dark-input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--dm-border);
+  border-radius: 6px;
+  background: var(--dm-panel);
+  color: var(--dm-text);
+  outline: none;
+}
+.dark-input.full {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.dark-input:focus {
+  border-color: var(--dm-accent);
+}
+.primary-btn,
+.small-btn {
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.primary-btn {
+  padding: 8px 16px;
+  color: white;
+  background: var(--dm-accent);
+  box-shadow: 0 8px 18px rgba(245, 158, 11, 0.18);
+}
+.primary-btn:hover {
+  background: var(--dm-accent-hover);
+}
+.small-btn {
+  padding: 6px 12px;
+  color: var(--dm-muted);
+  background: var(--dm-panel);
+  box-shadow: inset 0 0 0 1px var(--dm-border);
+}
+.small-btn:hover {
+  color: var(--dm-text);
+  background: var(--dm-hover);
+}
+.account-row {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--dm-panel);
+}
+.account-row span {
+  flex: 1;
+}
+.toggle-group {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--dm-panel);
+}
+.toggle-group.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+.toggle-group button {
+  border: 0;
+  border-radius: 4px;
+  padding: 7px 8px;
+  color: var(--dm-muted);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+}
+.toggle-group button.active {
+  color: var(--dm-text);
+  background: var(--dm-hover);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.18);
+}
+.slider-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.slider-row span {
+  color: var(--dm-muted);
+  font-size: 12px;
+}
+.slider-row b {
+  text-align: right;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: var(--dm-text);
+}
+.slider-row input[type="range"] {
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dm-text) 10%, transparent);
+}
+.slider-row input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--dm-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dm-accent) 18%, transparent);
+}
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.checkbox-grid label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--dm-muted);
+  background: var(--dm-panel);
+}
+.hint-box {
+  padding: 10px;
+  border-radius: 6px;
+  color: var(--dm-muted);
+  background: var(--dm-panel);
+  line-height: 1.6;
+}
+.live-hime-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--dm-panel) 62%, transparent);
+}
+.log-body {
+  flex: 1;
+  padding: 12px 16px;
+  font-family: Consolas, "SF Mono", monospace;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.log-entry {
+  padding: 3px 0;
+  color: var(--dm-text);
+  word-break: break-all;
+}
+.log-entry.message {
+  color: var(--dm-muted);
+}
+.error-banner {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+}
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+}
+.qr-modal {
+  width: 340px;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--dm-side);
+  box-shadow: 0 20px 60px rgba(74, 45, 15, 0.2), 0 0 0 1px var(--dm-border) inset;
+}
+.qr-modal h2 {
+  margin-bottom: 6px;
+  font-size: 18px;
+}
+.qr-modal p {
+  color: var(--dm-muted);
+}
+.qr-box {
+  width: 220px;
+  height: 220px;
+  margin: 18px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: white;
+  color: #111;
+}
+.qr-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--dm-border);
+  border-radius: 999px;
+}
+</style>

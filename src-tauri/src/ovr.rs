@@ -1579,12 +1579,15 @@ fn vr_thread_main(
                             }
                         }
                         if tick % 12 == 0 {
-                            let _ = app_handle.emit("ovr_layout_config_changed", serde_json::json!({
-                                "menu_width_m": current_config.menu_width_m,
-                                "menu_offset_x": current_config.menu_offset_x,
-                                "menu_offset_y": current_config.menu_offset_y,
-                                "menu_offset_z": current_config.menu_offset_z,
-                            }));
+                            let _ = app_handle.emit(
+                                "ovr_layout_config_changed",
+                                serde_json::json!({
+                                    "menu_width_m": current_config.menu_width_m,
+                                    "menu_offset_x": current_config.menu_offset_x,
+                                    "menu_offset_y": current_config.menu_offset_y,
+                                    "menu_offset_z": current_config.menu_offset_z,
+                                }),
+                            );
                         }
                     }
                 }
@@ -1795,10 +1798,7 @@ fn vr_thread_main(
                 }
 
                 // 1. Release trigger -> OCR & Translate
-                if trigger_just_released
-                    && translation_enabled
-                    && !is_translating
-                {
+                if trigger_just_released && translation_enabled && !is_translating {
                     is_translating = true;
                     let _ = app_handle.emit("ovr_log", "[OVR] 📸 触发截图识别...");
 

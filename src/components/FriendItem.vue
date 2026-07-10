@@ -15,7 +15,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// Map VRChat language tags to country flag emojis (same as VRCX)
+// Map VRChat language tags to country flag emojis (same as VrcDog)
 const LANGUAGE_FLAGS: Record<string, string> = {
   language_eng: '🇺🇸',
   language_kor: '🇰🇷',
@@ -52,7 +52,7 @@ const countryFlags = computed(() => {
     .filter(tag => tag.startsWith('language_'))
     .map(tag => LANGUAGE_FLAGS[tag])
     .filter(Boolean)
-    .slice(0, 3); // max 3 flags like VRCX
+    .slice(0, 3); // max 3 flags like VrcDog
 });
 
 const getFlag = (location: string) => {
@@ -98,7 +98,7 @@ const cleanLocName = (location: string) => {
     </div>
     <div class="flex-1 min-w-0 flex flex-col justify-center leading-tight">
       <div class="flex items-center gap-1 min-w-0">
-        <!-- Country flags from language tags (like VRCX) -->
+        <!-- Country flags from language tags (like VrcDog) -->
         <span v-for="flag in countryFlags" :key="flag" class="text-[13px] leading-none shrink-0">{{ flag }}</span>
         <span 
           class="text-[15px] font-black truncate transition-colors" 

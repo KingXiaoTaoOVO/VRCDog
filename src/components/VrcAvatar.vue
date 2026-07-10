@@ -63,7 +63,7 @@ const loadImage = async () => {
     return;
   }
 
-  // 转换 file 路径为 image 路径 (参考 VRCX 实现)
+  // 转换 file 路径为 image 路径 (参考 VrcDog 实现)
   let finalUrl = targetUrl;
   const pattern = /file\/file_([a-f0-9-]+)\/(\d+)(\/file)?\/?$/;
   const match = targetUrl.match(pattern);

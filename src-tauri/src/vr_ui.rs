@@ -362,7 +362,7 @@ impl VrUiRenderer {
             "叠加层外观",
             "高级性能",
             "操作说明",
-            "VRCX 社交状态",
+            "VrcDog 社交状态",
             "VRCT 语音输入",
             "VRCLS 日志追踪",
             "OVRAS 空间控制",
@@ -372,7 +372,7 @@ impl VrUiRenderer {
         let items: Vec<String> = match page {
             0 => vec![
                 "  ► [1] 常规与翻译设置".to_string(),
-                "  ► [8] VRCX: 好友与社交".to_string(),
+                "  ► [8] VrcDog: 好友与社交".to_string(),
                 "  ► [9] VRCT: 麦克风语音".to_string(),
                 "  ► [10] VRCLS: 游戏内日志".to_string(),
                 "  ► [11] OVRAS: 游玩空间".to_string(),
@@ -459,7 +459,7 @@ impl VrUiRenderer {
                 "  ◄ 返回主菜单".to_string(),
             ],
             8 => vec![
-                // VRCX
+                // VrcDog
                 "  👥 在线好友: 暂未拉取".to_string(),
                 "  📍 当前实例: 加载中...".to_string(),
                 "  🔔 通知: 无新通知".to_string(),

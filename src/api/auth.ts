@@ -16,7 +16,7 @@ export const AuthApi = {
   login: async (params: any) => {
     const headers: any = {};
     if (params.username && params.password) {
-      // VRCX uses encodeURIComponent on username and password separately before base64
+      // VrcDog uses encodeURIComponent on username and password separately before base64
       const authStr = `${encodeURIComponent(params.username)}:${encodeURIComponent(params.password)}`;
       const b64 = btoa(authStr);
       headers['Authorization'] = `Basic ${b64}`;

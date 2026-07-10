@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CustomSelect from './CustomSelect.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { Languages, ScanEye, Settings, Save, Layers, Cpu, Check, PlaySquare, Watch, Eye, EyeOff, GripVertical, RotateCcw, HelpCircle, Info, MessageSquare, Gamepad2, Hand, Globe, User, Loader2, X, Headphones, MonitorSpeaker, Volume2, VolumeX, Mic, MicOff, Sun, Palette, Sliders, Gauge, Move3d, Compass, ArrowUpDown, BarChart3, Timer, Keyboard, Bell, SkipBack, Play, SquareIcon, SkipForward, Power, BatteryCharging, RefreshCw, Shield, Crosshair, Box, Footprints, Rotate3d, Move, Activity, Wind, Monitor } from 'lucide-vue-next';
+import { Languages, ScanEye, Settings, Save, Layers, Cpu, Check, PlaySquare, Watch, Eye, EyeOff, GripVertical, RotateCcw, HelpCircle, Info, MessageSquare, Gamepad2, Hand, Globe, User, Loader2, X, Headphones, MonitorSpeaker, Volume2, VolumeX, Mic, MicOff, Sun, Palette, Sliders, Gauge, Move3d, Compass, ArrowUpDown, BarChart3, Timer, Keyboard, Bell, SkipBack, Play, SquareIcon, SkipForward, Power, BatteryCharging, RefreshCw, Shield, Crosshair, Box, Footprints, Rotate3d, Move, Activity, Wind, Monitor, ChevronDown, ChevronRight } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { DbApi, OvrApi } from '../api';
 import { currentTheme, setTheme, themes, type ThemeId } from '../theme';
@@ -522,6 +522,11 @@ const vrDashboardTabs = computed(() => {
 });
 
 const vrDashboardTab = ref('basic');
+const vrLogoLoadFailed = ref(false);
+
+watch(() => currentTheme.value.id, () => {
+  vrLogoLoadFailed.value = false;
+});
 
 // Sample OCR demo content
 const ocrSamples = [
@@ -2096,7 +2101,7 @@ const getKeyDisplay = (val: string) => {
 
       <div
         v-if="showVrPreview"
-        class="vr-viewport-wrapper flex-shrink-0 mb-8 rounded-2xl overflow-hidden border-2 border-primary shadow-xl"
+        class="vr-viewport-wrapper flex-shrink-0 mb-8 rounded-2xl overflow-hidden shadow-xl"
       >
         <!-- VR 3D Scene -->
         <div
@@ -2143,14 +2148,23 @@ const getKeyDisplay = (val: string) => {
             >
               <div class="vr-dash-logo">
                 <img
+                  v-if="!vrLogoLoadFailed"
                   :src="currentTheme.logo"
                   class="w-6 h-6 rounded-full border-2 shadow-sm"
                   :style="{ borderColor: currentTheme.colors.borderStrong }"
+                  alt=""
+                  @error="vrLogoLoadFailed = true"
                 >
+                <Box
+                  v-else
+                  class="w-6 h-6 rounded-full p-1 shadow-sm bg-white/70"
+                  :style="{ color: currentTheme.colors.textSoft }"
+                />
                 <span class="vr-dash-logo-text">{{ currentTheme.appTitle }}</span>
               </div>
               <div class="vr-dash-toggle">
-                {{ vrDashboardOpen ? '▼' : '▶' }}
+                <ChevronDown v-if="vrDashboardOpen" class="w-4 h-4" />
+                <ChevronRight v-else class="w-4 h-4" />
               </div>
             </div>
 
@@ -2410,10 +2424,18 @@ const getKeyDisplay = (val: string) => {
                     style="flex-direction: column; align-items: center; gap: 8px; justify-content: center; height: 100%; padding-top: 40px;"
                   >
                     <img
+                      v-if="!vrLogoLoadFailed"
                       :src="currentTheme.logo"
                       class="w-12 h-12 rounded-full border-2 shadow-md mb-2"
                       :style="{ borderColor: currentTheme.colors.borderStrong }"
+                      alt=""
+                      @error="vrLogoLoadFailed = true"
                     >
+                    <Box
+                      v-else
+                      class="w-12 h-12 rounded-full p-3 bg-white/70 shadow-md mb-2"
+                      :style="{ color: currentTheme.colors.textSoft }"
+                    />
                     <span style="font-size: 20px; font-weight: 800; color: v-bind('currentTheme.colors.textStrong');">{{ currentTheme.appTitle }} OVR</span>
                     <span style="font-size: 12px; color: v-bind('currentTheme.colors.textSoft');">{{ t('ovr.dash_version') }} v1.0.0 Beta</span>
                   </div>
@@ -2664,9 +2686,8 @@ const getKeyDisplay = (val: string) => {
   min-width: 280px;
   max-width: 380px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255,255,255,0.15) inset;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.12) inset;
   z-index: 20;
   transition: box-shadow 0.3s;
   display: flex;
@@ -2690,8 +2711,8 @@ const getKeyDisplay = (val: string) => {
   cursor: grab;
   opacity: 0.4;
   transition: opacity 0.2s;
-  border-right: 1px solid rgba(255,255,255,0.1);
   flex-shrink: 0;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.08);
 }
 .vr-panel-drag:hover { opacity: 0.9; }
 .vr-panel-drag:active { cursor: grabbing; }
@@ -2732,9 +2753,8 @@ const getKeyDisplay = (val: string) => {
   width: 180px;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.08);
   backdrop-filter: blur(10px);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1) inset;
   z-index: 15;
   cursor: grab;
   font-size: 11px;
@@ -2782,14 +2802,13 @@ const getKeyDisplay = (val: string) => {
 /* ========== Dynamic Theme VR Dashboard Menu Panel ========== */
 .vr-dashboard {
   position: absolute;
-  top: 40px;
-  left: 20px;
-  width: 580px;
+  top: 44px;
+  left: 24px;
+  width: min(540px, calc(100% - 48px));
   /* background opacity dynamically bound in template */
   backdrop-filter: blur(12px);
-  border: 2px solid v-bind('currentTheme.colors.borderSoft');
-  border-radius: 20px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border-radius: 18px;
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.28), 0 0 0 1px v-bind('currentTheme.colors.borderSoft') inset;
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -2798,7 +2817,7 @@ const getKeyDisplay = (val: string) => {
   transform-origin: top left;
 }
 .vr-dashboard-collapsed {
-  width: 200px;
+  width: 220px;
 }
 .vr-dashboard-collapsed .vr-dash-body {
   height: 0;
@@ -2806,14 +2825,14 @@ const getKeyDisplay = (val: string) => {
   pointer-events: none;
 }
 .vr-dash-header {
-  padding: 14px 18px;
+  padding: 12px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: rgba(255, 255, 255, 0.5);
   cursor: pointer;
   user-select: none;
-  border-bottom: 2px solid v-bind('currentTheme.colors.borderSoft');
+  box-shadow: inset 0 -1px 0 v-bind('currentTheme.colors.borderSoft');
 }
 .vr-dash-header:hover { background: rgba(255, 255, 255, 0.8); }
 .vr-dash-logo {
@@ -2829,19 +2848,21 @@ const getKeyDisplay = (val: string) => {
 }
 .vr-dash-toggle {
   color: v-bind('currentTheme.colors.textSoft');
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .vr-dash-body {
   display: flex;
-  height: 320px;
+  height: 300px;
   transition: all 0.3s ease;
 }
 .vr-dash-sidebar {
-  width: 170px;
+  width: 158px;
   background: rgba(255, 255, 255, 0.4);
   display: flex;
   flex-direction: column;
-  border-right: 2px solid v-bind('currentTheme.colors.borderSoft');
+  box-shadow: inset -1px 0 0 v-bind('currentTheme.colors.borderSoft');
   padding: 12px 8px;
   gap: 6px;
 }
@@ -2866,12 +2887,12 @@ const getKeyDisplay = (val: string) => {
   font-size: 13px;
   font-weight: 600;
   text-align: left;
-  border: 1px solid v-bind('currentTheme.colors.borderSoft');
   border-radius: 8px;
   cursor: pointer;
+  box-shadow: 0 0 0 1px v-bind('currentTheme.colors.borderSoft') inset;
 }
-.vr-dash-tab:hover { background: v-bind('currentTheme.colors.surfaceHover'); color: v-bind('currentTheme.colors.textStrong'); border-color: v-bind('currentTheme.colors.borderStrong'); }
-.vr-dash-tab-active { background: v-bind('currentTheme.colors.primaryBtnBg') !important; color: white !important; border-color: v-bind('currentTheme.colors.primaryBtnBg') !important; box-shadow: 0 8px 18px rgba(0,0,0,0.12); }
+.vr-dash-tab:hover { background: v-bind('currentTheme.colors.surfaceHover'); color: v-bind('currentTheme.colors.textStrong'); box-shadow: 0 0 0 1px v-bind('currentTheme.colors.borderStrong') inset; }
+.vr-dash-tab-active { background: v-bind('currentTheme.colors.primaryBtnBg') !important; color: white !important; box-shadow: 0 8px 18px rgba(0,0,0,0.12), 0 0 0 1px v-bind('currentTheme.colors.primaryBtnBg') inset; }
 .vr-dash-tab-icon { font-size: 14px; }
 
 .vr-dash-content {
@@ -2895,7 +2916,7 @@ const getKeyDisplay = (val: string) => {
   font-size: 13px;
   font-weight: 600;
   padding-bottom: 8px;
-  border-bottom: 1px dashed v-bind('currentTheme.colors.borderSoft');
+  box-shadow: inset 0 -1px 0 v-bind('currentTheme.colors.borderSoft');
 }
 .vr-dash-value {
   color: v-bind('currentTheme.colors.textSoft');
@@ -2904,26 +2925,24 @@ const getKeyDisplay = (val: string) => {
   background: v-bind('currentTheme.colors.bgMain');
   padding: 4px 10px;
   border-radius: 6px;
-  border: 1px solid v-bind('currentTheme.colors.borderStrong');
+  box-shadow: 0 0 0 1px v-bind('currentTheme.colors.borderStrong') inset;
 }
 .vr-dash-color-btn {
   width: 24px; height: 24px;
   border-radius: 50%;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 0 0 2px rgba(255,255,255,0.75) inset;
   cursor: pointer;
 }
 .vr-dash-switch {
   width: 32px; height: 18px;
   background: v-bind('currentTheme.colors.borderStrong');
-  border: 1px solid v-bind('currentTheme.colors.borderStrong');
   border-radius: 10px;
   position: relative;
   cursor: pointer;
   transition: background 0.3s;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px v-bind('currentTheme.colors.borderStrong') inset;
 }
-.vr-dash-switch.on { background: v-bind('currentTheme.colors.primaryBtnBg'); border-color: v-bind('currentTheme.colors.primaryBtnBg'); }
+.vr-dash-switch.on { background: v-bind('currentTheme.colors.primaryBtnBg'); box-shadow: inset 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px v-bind('currentTheme.colors.primaryBtnBg') inset; }
 .vr-dash-switch-knob {
   width: 14px; height: 14px;
   background: white;

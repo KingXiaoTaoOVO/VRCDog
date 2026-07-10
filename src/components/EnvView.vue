@@ -8,7 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { SysApi } from "../api/index";
 import StatusCard, { type ComponentStatus } from "./StatusCard.vue";
 import InstallDialog from "./InstallDialog.vue";
-import { Settings, RefreshCcw, Bone, X, Heart, AlertTriangle } from "lucide-vue-next";
+import { Settings, RefreshCcw, Bone, X, Heart, AlertTriangle, Package } from "lucide-vue-next";
 import dogImg from '../assets/dog.jpg';
 import unityImg from '../assets/unity.png';
 import vrchatImg from '../assets/vrchat.png';
@@ -30,6 +30,7 @@ const alcomStatus = ref(false);
 const showInstallDialog = ref(false);
 const showSettings = ref(false);
 const dialogConfig = ref({ title: '', target: '', isVccSelection: false });
+const dogImageFailed = ref(false);
 
 const checkEnvironment = async () => {
   hubStatus.value = 'checking'; unityStatus.value = 'checking'; toolStatus.value = 'checking';
@@ -249,12 +250,18 @@ onMounted(() => {
 
     <header class="flex items-center justify-between mb-8 shrink-0 z-10">
       <div class="flex items-center gap-4">
-        <div class="w-14 h-14 rounded-2xl overflow-hidden border-border-soft shadow-lg shadow-indigo-200/50 flex-shrink-0 bg-surface">
+        <div class="w-14 h-14 rounded-2xl overflow-hidden border-border-soft shadow-lg shadow-indigo-200/50 flex-shrink-0 bg-surface flex items-center justify-center">
           <img
+            v-if="!dogImageFailed"
             :src="dogImg"
             class="w-full h-full object-cover"
             alt="VrcDog Logo"
+            @error="dogImageFailed = true"
           >
+          <Package
+            v-else
+            class="w-7 h-7 m-auto text-text-muted"
+          />
         </div>
         <div>
           <h1 class="text-3xl font-extrabold text-text tracking-tight mb-1 flex items-center gap-2">
@@ -627,11 +634,18 @@ onMounted(() => {
               </button>
             </div>
             <div class="space-y-4 text-center">
-              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-primary shadow-md mb-4 bg-surface">
+              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-primary shadow-md mb-4 bg-surface flex items-center justify-center">
                 <img
+                  v-if="!dogImageFailed"
                   :src="dogImg"
                   class="w-full h-full object-cover"
+                  alt=""
+                  @error="dogImageFailed = true"
                 >
+                <Package
+                  v-else
+                  class="w-10 h-10 m-auto text-text-muted"
+                />
               </div>
               <h3 class="text-xl font-black text-text">
                 VrcDog {{ t('env.dog_manager') }}

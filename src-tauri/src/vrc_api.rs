@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::State;
 use tokio::sync::RwLock;
 
-const VRC_USER_AGENT: &str = "VRCX";
+const VRC_USER_AGENT: &str = "VRCDog/5.0.0";
 
 pub struct VrcState {
     pub client: RwLock<Client>,
@@ -305,8 +305,8 @@ pub async fn vrc_execute(
 
     let mut req = client.request(method.clone(), &options.url);
 
-    // [VRCX 对齐] 注入 auth cookie �?既更�?jar（长期持久化），也直接设�?Cookie header（确保本次请求一定携带）
-    // VRCX �?CookieContainer �?HttpClient 层面管理 Cookie，不会出现遗�?    // 我们使用双重保障：jar + header
+    // Align with VrcDog auth handling: keep cookies in the jar and also attach
+    // a Cookie header for the current VRChat API request.
     let mut direct_cookies: Vec<String> = Vec::new();
     if let Some(ref cv) = options.auth_cookie {
         let jar = state.cookie_jar.read().await.clone();
@@ -318,7 +318,7 @@ pub async fn vrc_execute(
         }
     }
 
-    // 如果有直接的 cookie 需要注入，且目标是 VRChat API，设�?Cookie header 作为双重保障
+    // Attach direct cookies to VRChat API requests as a second auth path.
     if !direct_cookies.is_empty() && options.url.contains("api.vrchat.cloud") {
         let cookie_str = direct_cookies.join("; ");
         if let Ok(hv) = reqwest::header::HeaderValue::from_str(&cookie_str) {
@@ -371,10 +371,10 @@ pub async fn vrc_execute(
     let status = res.status().as_u16();
     let auth_cookie = extract_auth_cookie(&res);
 
-    // Debug logging for auth issues
+    // Debug logging for auth issues.
     if status == 401 && options.url.contains("api.vrchat.cloud") {
         eprintln!(
-            "[VrcApi] �?401 for {} �?auth_cookie provided: {}, direct_cookies count: {}",
+            "[VrcApi] 401 for {} - auth_cookie provided: {}, direct_cookies count: {}",
             options.url,
             options.auth_cookie.is_some(),
             direct_cookies.len()

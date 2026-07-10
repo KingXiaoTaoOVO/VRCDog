@@ -150,7 +150,7 @@ async function loginWithSavedAccount(account: SavedAccount) {
   }
 }
 
-// ========== 语言切换（VRCX 对齐：14 种）==========
+// ========== 语言切换（VrcDog 对齐：14 种）==========
 const languages = localeOptions.map(({ label, value }) => ({ label, code: value }));
 
 const currentLangLabel = computed(() => {
@@ -394,10 +394,10 @@ const handle2FA = async () => {
   }
 };
 
-function closeVrcxMenusOutside(e: MouseEvent) {
+function closeVrcDogMenusOutside(e: MouseEvent) {
   const el = e.target as HTMLElement;
-  if (!el.closest('.vrcx-lang-wrap')) showLangMenu.value = false;
-  if (!el.closest('.vrcx-version-trigger') && !el.closest('.vrcx-version-list')) showUpdateVersionDropdown.value = false;
+  if (!el.closest('.vrcdog-lang-wrap')) showLangMenu.value = false;
+  if (!el.closest('.vrcdog-version-trigger') && !el.closest('.vrcdog-version-list')) showUpdateVersionDropdown.value = false;
 }
 
 onMounted(async () => {
@@ -409,21 +409,21 @@ onMounted(async () => {
     }
   } catch (e) {}
   await loadSavedAccounts();
-  document.addEventListener('click', closeVrcxMenusOutside);
+  document.addEventListener('click', closeVrcDogMenusOutside);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', closeVrcxMenusOutside);
+  document.removeEventListener('click', closeVrcDogMenusOutside);
 });
 </script>
 
 <template>
   <div class="flex items-center justify-center h-screen bg-[var(--theme-bg-main)] relative overflow-hidden">
-    <!-- VRCX 风格左上角工具栏 -->
+    <!-- VrcDog 风格左上角工具栏 -->
     <div class="fixed top-4 left-4 z-50 flex gap-1 items-center">
       <!-- 设置 -->
       <button
-        class="vrcx-toolbar-btn"
+        class="vrcdog-toolbar-btn"
         :title="t('login.toolbar.settings')"
         @click="openSettings"
       >
@@ -431,36 +431,36 @@ onUnmounted(() => {
       </button>
       <!-- 检查更新 -->
       <button
-        class="vrcx-toolbar-btn"
+        class="vrcdog-toolbar-btn"
         :title="t('login.toolbar.check_update')"
         @click="openUpdateDialog"
       >
         <ArrowDownToLine :size="18" />
       </button>
       <!-- 语言 -->
-      <div class="relative vrcx-lang-wrap">
+      <div class="relative vrcdog-lang-wrap">
         <button
-          class="vrcx-toolbar-btn"
+          class="vrcdog-toolbar-btn"
           :title="t('login.toolbar.language')"
           @click.stop="showLangMenu = !showLangMenu"
         >
           <Languages :size="18" />
         </button>
-        <transition name="vrcx-menu">
-          <div v-if="showLangMenu" class="vrcx-lang-menu">
+        <transition name="vrcdog-menu">
+          <div v-if="showLangMenu" class="vrcdog-lang-menu">
             <button
               v-for="lang in languages"
               :key="lang.code"
-              class="vrcx-lang-item"
+              class="vrcdog-lang-item"
               :class="{ active: preferredLangCode === lang.code }"
               @click="selectLanguage(lang.code)"
             >
               <Check
                 :size="14"
-                class="vrcx-lang-check"
+                class="vrcdog-lang-check"
                 :style="{ visibility: preferredLangCode === lang.code ? 'visible' : 'hidden' }"
               />
-              <span class="vrcx-lang-label">{{ lang.label }} ({{ lang.code }})</span>
+              <span class="vrcdog-lang-label">{{ lang.label }} ({{ lang.code }})</span>
             </button>
           </div>
         </transition>
@@ -645,22 +645,22 @@ onUnmounted(() => {
     </div>
 
     <!-- ============ 设置弹窗 ============ -->
-    <transition name="vrcx-modal">
-      <div v-if="showSettingsDialog" class="vrcx-dialog-overlay" @click="showSettingsDialog = false">
-        <div class="vrcx-dialog-panel" style="width: 460px;" @click.stop>
-          <div class="vrcx-dialog-header">
-            <h3 class="vrcx-dialog-title">{{ t('login.settings.title') }}</h3>
-            <button class="vrcx-dialog-close" @click="showSettingsDialog = false"><X :size="18" /></button>
+    <transition name="vrcdog-modal">
+      <div v-if="showSettingsDialog" class="vrcdog-dialog-overlay" @click="showSettingsDialog = false">
+        <div class="vrcdog-dialog-panel" style="width: 460px;" @click.stop>
+          <div class="vrcdog-dialog-header">
+            <h3 class="vrcdog-dialog-title">{{ t('login.settings.title') }}</h3>
+            <button class="vrcdog-dialog-close" @click="showSettingsDialog = false"><X :size="18" /></button>
           </div>
-          <div class="vrcx-dialog-body">
-            <label class="vrcx-field-label">{{ t('login.settings.proxy_label') }}</label>
+          <div class="vrcdog-dialog-body">
+            <label class="vrcdog-field-label">{{ t('login.settings.proxy_label') }}</label>
             <input
               v-model="settingsProxy"
               type="text"
               :placeholder="t('login.settings.proxy_placeholder')"
-              class="vrcx-input"
+              class="vrcdog-input"
             >
-            <label class="vrcx-checkbox-row mt-4">
+            <label class="vrcdog-checkbox-row mt-4">
               <input
                 v-model="settingsCustomApiEnabled"
                 type="checkbox"
@@ -673,66 +673,66 @@ onUnmounted(() => {
               v-model="settingsCustomApiUrl"
               type="text"
               placeholder="https://api.vrchat.cloud/api/1"
-              class="vrcx-input mt-2"
+              class="vrcdog-input mt-2"
             >
           </div>
-          <div class="vrcx-dialog-footer">
-            <button class="vrcx-btn-primary" @click="saveSettingsAndRestart">{{ t('login.settings.save_restart') }}</button>
-            <button class="vrcx-btn-secondary" @click="showSettingsDialog = false">{{ t('login.settings.close') }}</button>
+          <div class="vrcdog-dialog-footer">
+            <button class="vrcdog-btn-primary" @click="saveSettingsAndRestart">{{ t('login.settings.save_restart') }}</button>
+            <button class="vrcdog-btn-secondary" @click="showSettingsDialog = false">{{ t('login.settings.close') }}</button>
           </div>
         </div>
       </div>
     </transition>
 
     <!-- ============ 更新检查弹窗 ============ -->
-    <transition name="vrcx-modal">
-      <div v-if="showUpdateDialog" class="vrcx-dialog-overlay" @click="showUpdateDialog = false">
-        <div class="vrcx-dialog-panel" style="width: 520px;" @click.stop>
-          <div class="vrcx-dialog-header">
-            <h3 class="vrcx-dialog-title">{{ t('login.update.title') }}</h3>
-            <button class="vrcx-dialog-close" @click="showUpdateDialog = false"><X :size="18" /></button>
+    <transition name="vrcdog-modal">
+      <div v-if="showUpdateDialog" class="vrcdog-dialog-overlay" @click="showUpdateDialog = false">
+        <div class="vrcdog-dialog-panel" style="width: 520px;" @click.stop>
+          <div class="vrcdog-dialog-header">
+            <h3 class="vrcdog-dialog-title">{{ t('login.update.title') }}</h3>
+            <button class="vrcdog-dialog-close" @click="showUpdateDialog = false"><X :size="18" /></button>
           </div>
-          <div class="vrcx-dialog-body">
+          <div class="vrcdog-dialog-body">
             <!-- 稳定版 / 测试版 切换 -->
-            <div class="vrcx-tab-group">
+            <div class="vrcdog-tab-group">
               <button
-                class="vrcx-tab-pill"
+                class="vrcdog-tab-pill"
                 :class="{ active: updateChannel === 'stable' }"
                 @click="switchUpdateChannel('stable')"
               >{{ t('login.update.tab_stable') }}</button>
               <button
-                class="vrcx-tab-pill"
+                class="vrcdog-tab-pill"
                 :class="{ active: updateChannel === 'beta' }"
                 @click="switchUpdateChannel('beta')"
               >{{ t('login.update.tab_beta') }}</button>
             </div>
 
             <!-- 测试版警告 -->
-            <div v-if="updateChannel === 'beta'" class="vrcx-warning-box">
-              <AlertCircle :size="18" class="vrcx-warning-icon" />
+            <div v-if="updateChannel === 'beta'" class="vrcdog-warning-box">
+              <AlertCircle :size="18" class="vrcdog-warning-icon" />
               <div>
-                <div class="vrcx-warning-title">{{ t('login.update.beta_warning_title') }}</div>
-                <div class="vrcx-warning-desc">{{ t('login.update.beta_warning_desc') }}</div>
+                <div class="vrcdog-warning-title">{{ t('login.update.beta_warning_title') }}</div>
+                <div class="vrcdog-warning-desc">{{ t('login.update.beta_warning_desc') }}</div>
               </div>
             </div>
 
             <!-- 版本下拉 -->
-            <label class="vrcx-field-label mt-4">{{ t('login.update.version') }}</label>
+            <label class="vrcdog-field-label mt-4">{{ t('login.update.version') }}</label>
             <div class="relative">
               <button
-                class="vrcx-version-trigger"
+                class="vrcdog-version-trigger"
                 :disabled="updateLoading || updateChannelReleases.length === 0"
                 @click.stop="showUpdateVersionDropdown = !showUpdateVersionDropdown"
               >
                 <span>{{ updateLoading ? '...' : (updateSelectedTag || (updateChannelReleases.length === 0 ? t('login.update.no_releases') : '...')) }}</span>
                 <ChevronDown :size="16" />
               </button>
-              <transition name="vrcx-menu">
-                <div v-if="showUpdateVersionDropdown" class="vrcx-version-list">
+              <transition name="vrcdog-menu">
+                <div v-if="showUpdateVersionDropdown" class="vrcdog-version-list">
                   <button
                     v-for="rel in updateChannelReleases"
                     :key="rel.tag"
-                    class="vrcx-version-item"
+                    class="vrcdog-version-item"
                     :class="{ active: rel.tag === updateSelectedTag }"
                     @click="updateSelectedTag = rel.tag; showUpdateVersionDropdown = false"
                   >
@@ -744,14 +744,14 @@ onUnmounted(() => {
             </div>
 
             <!-- 是否最新 -->
-            <p v-if="!updateLoading && updateChannel === 'stable'" class="vrcx-update-status">
+            <p v-if="!updateLoading && updateChannel === 'stable'" class="vrcdog-update-status">
               <span v-if="isCurrentLatest">{{ t('login.update.up_to_date') }}</span>
               <span v-else style="color: #f97316;">{{ t('login.update.has_new', { version: updateChannelReleases[0]?.tag || '' }) }}</span>
             </p>
           </div>
-          <div class="vrcx-dialog-footer">
+          <div class="vrcdog-dialog-footer">
             <button
-              class="vrcx-btn-primary"
+              class="vrcdog-btn-primary"
               :disabled="!updateSelectedTag"
               @click="downloadUpdate"
             >{{ t('login.update.download') }}</button>
@@ -763,8 +763,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ── VRCX-style toolbar ─────────────────────────────────────── */
-.vrcx-toolbar-btn {
+/* ── VrcDog-style toolbar ─────────────────────────────────────── */
+.vrcdog-toolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -777,14 +777,14 @@ onUnmounted(() => {
   transition: background 0.15s, color 0.15s;
   cursor: pointer;
 }
-.vrcx-toolbar-btn:hover {
+.vrcdog-toolbar-btn:hover {
   background: var(--theme-surface-hover);
   color: var(--theme-text);
 }
 
 /* ── Language menu ─────────────────────────────────────────── */
-.vrcx-lang-wrap { position: relative; }
-.vrcx-lang-menu {
+.vrcdog-lang-wrap { position: relative; }
+.vrcdog-lang-menu {
   position: absolute;
   top: 44px;
   left: 0;
@@ -798,7 +798,7 @@ onUnmounted(() => {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
   padding: 6px 0;
 }
-.vrcx-lang-item {
+.vrcdog-lang-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -811,9 +811,9 @@ onUnmounted(() => {
   cursor: pointer;
   text-align: left;
 }
-.vrcx-lang-item:hover { background: var(--theme-surface-hover); }
-.vrcx-lang-check { flex-shrink: 0; color: var(--theme-primary); }
-.vrcx-lang-label {
+.vrcdog-lang-item:hover { background: var(--theme-surface-hover); }
+.vrcdog-lang-check { flex-shrink: 0; color: var(--theme-primary); }
+.vrcdog-lang-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -822,7 +822,7 @@ onUnmounted(() => {
 }
 
 /* ── Dialog overlay & panel ───────────────────────────────── */
-.vrcx-dialog-overlay {
+.vrcdog-dialog-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -832,7 +832,7 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
 }
-.vrcx-dialog-panel {
+.vrcdog-dialog-panel {
   background: var(--theme-surface);
   border: 1px solid var(--theme-border-soft);
   border-radius: 16px;
@@ -841,19 +841,19 @@ onUnmounted(() => {
   flex-direction: column;
   max-height: 90vh;
 }
-.vrcx-dialog-header {
+.vrcdog-dialog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 18px 22px 12px 22px;
 }
-.vrcx-dialog-title {
+.vrcdog-dialog-title {
   font-size: 18px;
   font-weight: 600;
   color: var(--theme-text);
   margin: 0;
 }
-.vrcx-dialog-close {
+.vrcdog-dialog-close {
   width: 32px; height: 32px;
   border-radius: 9999px;
   background: transparent;
@@ -863,12 +863,12 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center; justify-content: center;
 }
-.vrcx-dialog-close:hover { background: var(--theme-surface-hover); color: var(--theme-text); }
-.vrcx-dialog-body {
+.vrcdog-dialog-close:hover { background: var(--theme-surface-hover); color: var(--theme-text); }
+.vrcdog-dialog-body {
   padding: 4px 22px 16px 22px;
   overflow-y: auto;
 }
-.vrcx-dialog-footer {
+.vrcdog-dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -876,14 +876,14 @@ onUnmounted(() => {
 }
 
 /* ── Form controls ───────────────────────────────────────── */
-.vrcx-field-label {
+.vrcdog-field-label {
   display: block;
   font-size: 13px;
   font-weight: 600;
   color: var(--theme-text);
   margin-bottom: 6px;
 }
-.vrcx-input {
+.vrcdog-input {
   width: 100%;
   padding: 10px 14px;
   border: 1px solid var(--theme-border-soft);
@@ -894,8 +894,8 @@ onUnmounted(() => {
   outline: none;
   transition: border-color 0.15s;
 }
-.vrcx-input:focus { border-color: var(--theme-primary); }
-.vrcx-checkbox-row {
+.vrcdog-input:focus { border-color: var(--theme-primary); }
+.vrcdog-checkbox-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -905,7 +905,7 @@ onUnmounted(() => {
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */
-.vrcx-btn-primary {
+.vrcdog-btn-primary {
   padding: 8px 18px;
   border-radius: 8px;
   background: var(--theme-text);
@@ -916,9 +916,9 @@ onUnmounted(() => {
   cursor: pointer;
   transition: opacity 0.15s;
 }
-.vrcx-btn-primary:hover { opacity: 0.85; }
-.vrcx-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.vrcx-btn-secondary {
+.vrcdog-btn-primary:hover { opacity: 0.85; }
+.vrcdog-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.vrcdog-btn-secondary {
   padding: 8px 18px;
   border-radius: 8px;
   background: transparent;
@@ -928,10 +928,10 @@ onUnmounted(() => {
   border: 1px solid var(--theme-border-soft);
   cursor: pointer;
 }
-.vrcx-btn-secondary:hover { background: var(--theme-surface-hover); }
+.vrcdog-btn-secondary:hover { background: var(--theme-surface-hover); }
 
 /* ── Tab pills (stable / beta) ───────────────────────────── */
-.vrcx-tab-group {
+.vrcdog-tab-group {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px;
@@ -941,7 +941,7 @@ onUnmounted(() => {
   border: 1px solid var(--theme-border-soft);
   margin-bottom: 8px;
 }
-.vrcx-tab-pill {
+.vrcdog-tab-pill {
   padding: 10px 16px;
   border-radius: 8px;
   background: transparent;
@@ -952,13 +952,13 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.vrcx-tab-pill.active {
+.vrcdog-tab-pill.active {
   background: var(--theme-surface);
   color: var(--theme-text);
 }
 
 /* ── Beta warning box ────────────────────────────────────── */
-.vrcx-warning-box {
+.vrcdog-warning-box {
   display: flex;
   gap: 12px;
   padding: 12px 14px;
@@ -967,12 +967,12 @@ onUnmounted(() => {
   border: 1px solid rgba(239, 68, 68, 0.4);
   margin-top: 12px;
 }
-.vrcx-warning-icon { color: #ef4444; flex-shrink: 0; margin-top: 2px; }
-.vrcx-warning-title { font-weight: 600; color: #ef4444; font-size: 14px; }
-.vrcx-warning-desc { color: #ef4444; font-size: 13px; opacity: 0.85; margin-top: 2px; line-height: 1.4; }
+.vrcdog-warning-icon { color: #ef4444; flex-shrink: 0; margin-top: 2px; }
+.vrcdog-warning-title { font-weight: 600; color: #ef4444; font-size: 14px; }
+.vrcdog-warning-desc { color: #ef4444; font-size: 13px; opacity: 0.85; margin-top: 2px; line-height: 1.4; }
 
 /* ── Version dropdown ────────────────────────────────────── */
-.vrcx-version-trigger {
+.vrcdog-version-trigger {
   width: 100%;
   display: flex;
   align-items: center;
@@ -985,8 +985,8 @@ onUnmounted(() => {
   font-size: 14px;
   cursor: pointer;
 }
-.vrcx-version-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
-.vrcx-version-list {
+.vrcdog-version-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+.vrcdog-version-list {
   position: absolute;
   top: 44px;
   left: 0;
@@ -1000,7 +1000,7 @@ onUnmounted(() => {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
   padding: 4px 0;
 }
-.vrcx-version-item {
+.vrcdog-version-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1013,23 +1013,23 @@ onUnmounted(() => {
   cursor: pointer;
   text-align: left;
 }
-.vrcx-version-item:hover { background: var(--theme-surface-hover); }
-.vrcx-version-item.active { color: var(--theme-primary); }
+.vrcdog-version-item:hover { background: var(--theme-surface-hover); }
+.vrcdog-version-item.active { color: var(--theme-primary); }
 
-.vrcx-update-status {
+.vrcdog-update-status {
   margin-top: 12px;
   font-size: 13px;
   color: var(--theme-text-muted);
 }
 
 /* ── Transitions ────────────────────────────────────────── */
-.vrcx-modal-enter-active, .vrcx-modal-leave-active { transition: opacity 0.18s; }
-.vrcx-modal-enter-from, .vrcx-modal-leave-to { opacity: 0; }
-.vrcx-modal-enter-active .vrcx-dialog-panel,
-.vrcx-modal-leave-active .vrcx-dialog-panel { transition: transform 0.18s; }
-.vrcx-modal-enter-from .vrcx-dialog-panel { transform: scale(0.96); }
-.vrcx-modal-leave-to .vrcx-dialog-panel { transform: scale(0.96); }
+.vrcdog-modal-enter-active, .vrcdog-modal-leave-active { transition: opacity 0.18s; }
+.vrcdog-modal-enter-from, .vrcdog-modal-leave-to { opacity: 0; }
+.vrcdog-modal-enter-active .vrcdog-dialog-panel,
+.vrcdog-modal-leave-active .vrcdog-dialog-panel { transition: transform 0.18s; }
+.vrcdog-modal-enter-from .vrcdog-dialog-panel { transform: scale(0.96); }
+.vrcdog-modal-leave-to .vrcdog-dialog-panel { transform: scale(0.96); }
 
-.vrcx-menu-enter-active, .vrcx-menu-leave-active { transition: opacity 0.12s, transform 0.12s; }
-.vrcx-menu-enter-from, .vrcx-menu-leave-to { opacity: 0; transform: translateY(-4px); }
+.vrcdog-menu-enter-active, .vrcdog-menu-leave-active { transition: opacity 0.12s, transform 0.12s; }
+.vrcdog-menu-enter-from, .vrcdog-menu-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>

@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **VrcDog** 是一款基于 **Tauri 2 + Vue 3 + Rust** 构建的跨平台 VRChat 伴侣应用。  
-它融合了 **VRCX**（好友管理/数据分析）、**VRCT**（语音识别翻译）、**OVR Overlay Translator**（VR 空间 OCR 翻译）三大参考项目的核心功能于一体，为 VRChat 玩家提供从桌面管理到 VR 沉浸式翻译的一站式体验。
+它融合了 **VrcDog**（好友管理/数据分析）、**VRCT**（语音识别翻译）、**OVR Overlay Translator**（VR 空间 OCR 翻译）三大参考项目的核心功能于一体，为 VRChat 玩家提供从桌面管理到 VR 沉浸式翻译的一站式体验。
 
 </div>
 
@@ -16,7 +16,7 @@
 
 ## ✨ 核心功能清单
 
-### 📊 社交管理与数据面板（源自 VRCX）
+### 📊 社交管理与数据面板（源自 VrcDog）
 
 | 功能模块 | 说明 | 对应组件 |
 |---------|------|---------|
@@ -105,7 +105,7 @@ VrcDog/
 │       └── gamelog.rs            # 游戏日志解析
 ├── src-python/                   # Python 音频捕获模块
 │   └── vrcdog_audio.py           # 系统音频/麦克风捕获与 Whisper 识别
-└── OVR/ VRCT/ VRCX/             # 参考项目源码（仅供设计参考）
+└── OVR/ VRCT/ VrcDog/             # 参考项目源码（仅供设计参考）
 ```
 
 ### 核心技术栈
@@ -180,7 +180,7 @@ VrcDog 完整支持三种语言，覆盖全部 31 个组件的所有界面文本
 | `src-python/` | Python 音频处理模块（可选） |
 | `OVR/` | OVR Overlay Translator 参考资料 |
 | `VRCT/` | VRCT 语音翻译参考源码 |
-| `VRCX/` | VRCX 伴侣应用参考源码 |
+| `VrcDog/` | VrcDog 伴侣应用参考源码 |
 | `public/` | 静态资源 |
 | `.vscode/` | VS Code 编辑器配置 |
 
@@ -188,9 +188,9 @@ VrcDog 完整支持三种语言，覆盖全部 31 个组件的所有界面文本
 
 ## 📋 功能集成对照表
 
-### vs VRCX
+### vs VrcDog
 
-| VRCX 功能 | VrcDog 状态 | 备注 |
+| VrcDog 功能 | VrcDog 状态 | 备注 |
 |-----------|------------|------|
 | 好友列表管理 | ✅ 已集成 | 含在线/离线分组、加好友/删好友 |
 | 好友活动监控 | ✅ 已集成 | WebSocket 实时推送 + Feed |

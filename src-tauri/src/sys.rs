@@ -148,7 +148,7 @@ pub async fn sys_register_url_scheme(enable: bool) -> crate::AppResult<()> {
         use winreg::RegKey;
 
         let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
-        let scheme = "vrcx";
+        let scheme = "vrcdog";
 
         if enable {
             let (key, _) = hkcr.create_subkey(scheme).map_err(|e| e.to_string())?;

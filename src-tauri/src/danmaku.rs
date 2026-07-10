@@ -2,9 +2,11 @@ use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 use brotli::Decompressor as BrotliDecompressor;
 use flate2::read::ZlibDecoder;
 use futures_util::{SinkExt, StreamExt};
+use openvr_sys as vr_sys;
 use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::ffi::{CStr, CString};
 use std::io::Read;
 use std::net::UdpSocket as StdUdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -25,6 +27,8 @@ const BILI_OP_HEARTBEAT_REPLY: u32 = 3;
 const BILI_OP_MESSAGE: u32 = 5;
 const BILI_OP_AUTH: u32 = 7;
 const BILI_OP_AUTH_REPLY: u32 = 8;
+const DANMAKU_OVERLAY_WIDTH: u32 = 640;
+const DANMAKU_OVERLAY_HEIGHT: u32 = 720;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DanmakuMessage {
@@ -75,6 +79,8 @@ pub struct DanmakuConfig {
     pub enable_vr_overlay: bool,
     #[serde(default = "default_true")]
     pub overlay_visible: bool,
+    #[serde(default)]
+    pub vr_menu_visible: bool,
     #[serde(default = "default_attach_mode")]
     pub attach_mode: String,
     #[serde(default = "default_toggle_hand")]
@@ -117,6 +123,8 @@ pub struct DanmakuConfig {
     pub show_guard: bool,
     #[serde(default = "default_true")]
     pub show_sc: bool,
+    #[serde(default)]
+    pub vr_input_text: String,
 }
 
 impl Default for DanmakuConfig {
@@ -138,6 +146,7 @@ impl Default for DanmakuConfig {
             chatbox_interval_ms: default_chatbox_interval_ms(),
             enable_vr_overlay: true,
             overlay_visible: true,
+            vr_menu_visible: false,
             attach_mode: default_attach_mode(),
             toggle_hand: default_toggle_hand(),
             x: default_overlay_x(),
@@ -159,6 +168,7 @@ impl Default for DanmakuConfig {
             show_follow: true,
             show_guard: true,
             show_sc: true,
+            vr_input_text: String::new(),
         }
     }
 }
@@ -170,11 +180,14 @@ pub struct DanmakuStatus {
     pub osc_input_running: bool,
     pub vr_initialized: bool,
     pub overlay_visible: bool,
+    pub vr_menu_visible: bool,
     pub room_id: u64,
     pub online: u64,
     pub message_count: usize,
     pub last_error: String,
     pub last_event: String,
+    pub vr_input_text: String,
+    pub vr_keyboard_open: bool,
 }
 
 pub struct DanmakuState {
@@ -336,7 +349,9 @@ pub async fn danmaku_set_config(
     {
         if let Ok(mut status) = state.status.lock() {
             status.overlay_visible = config.overlay_visible;
+            status.vr_menu_visible = config.vr_menu_visible;
             status.room_id = config.room_id;
+            status.vr_input_text = config.vr_input_text.clone();
         }
     }
     emit_status(&app, &state.status);
@@ -364,7 +379,9 @@ pub async fn danmaku_start(
             *status = DanmakuStatus {
                 running: true,
                 overlay_visible: config.overlay_visible,
+                vr_menu_visible: config.vr_menu_visible,
                 room_id: config.room_id,
+                vr_input_text: config.vr_input_text.clone(),
                 last_event: "started".to_string(),
                 ..DanmakuStatus::default()
             };
@@ -464,10 +481,16 @@ pub fn danmaku_set_overlay_visible(
             .lock()
             .map_err(|_| crate::AppError::from("danmaku config lock poisoned"))?;
         cfg.overlay_visible = visible;
+        if !visible {
+            cfg.vr_menu_visible = false;
+        }
     }
     {
         if let Ok(mut status) = state.status.lock() {
             status.overlay_visible = visible;
+            if !visible {
+                status.vr_menu_visible = false;
+            }
             status.last_event = if visible {
                 "overlay_visible".to_string()
             } else {
@@ -477,6 +500,62 @@ pub fn danmaku_set_overlay_visible(
     }
     emit_status(&app, &state.status);
     danmaku_get_status(state)
+}
+
+#[tauri::command]
+pub fn danmaku_set_vr_input_text(
+    app: AppHandle,
+    state: State<'_, DanmakuState>,
+    text: String,
+) -> crate::AppResult<DanmakuStatus> {
+    let text = sanitize_text(&text, 80);
+    {
+        let mut cfg = state
+            .config
+            .lock()
+            .map_err(|_| crate::AppError::from("danmaku config lock poisoned"))?;
+        cfg.vr_input_text = text.clone();
+    }
+    {
+        if let Ok(mut status) = state.status.lock() {
+            status.vr_input_text = text;
+            status.last_event = "vr_input_updated".to_string();
+        }
+    }
+    emit_config(
+        &app,
+        &state
+            .config
+            .lock()
+            .map(|cfg| cfg.clone())
+            .unwrap_or_default(),
+    );
+    emit_status(&app, &state.status);
+    danmaku_get_status(state)
+}
+
+#[tauri::command]
+pub fn danmaku_submit_vr_input(
+    app: AppHandle,
+    state: State<'_, DanmakuState>,
+    text: Option<String>,
+) -> crate::AppResult<DanmakuMessage> {
+    let runtime = state.runtime(app);
+    let input = text
+        .as_deref()
+        .map(|value| sanitize_text(value, 80))
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            runtime
+                .config
+                .lock()
+                .ok()
+                .map(|cfg| sanitize_text(&cfg.vr_input_text, 80))
+                .filter(|value| !value.trim().is_empty())
+        })
+        .ok_or_else(|| crate::AppError::from("VR input is empty"))?;
+
+    Ok(submit_vr_input_message(&runtime, &input))
 }
 
 #[tauri::command]
@@ -505,6 +584,53 @@ pub fn danmaku_send_test(
     let _ = app.emit("danmaku_message", &msg);
     emit_status(&app, &state.status);
     Ok(msg)
+}
+
+fn submit_vr_input_message(runtime: &DanmakuRuntime, text: &str) -> DanmakuMessage {
+    let msg = make_message(runtime, "vr", "input", "VR杈撳叆", text);
+    let config = runtime
+        .config
+        .lock()
+        .map(|cfg| cfg.clone())
+        .unwrap_or_default();
+
+    {
+        if let Ok(mut cfg) = runtime.config.lock() {
+            cfg.vr_input_text = msg.text.clone();
+        }
+    }
+    {
+        if let Ok(mut messages) = runtime.messages.lock() {
+            messages.push_back(msg.clone());
+            trim_messages(&mut messages, config.max_messages.max(10));
+        }
+    }
+    {
+        if let Ok(mut status) = runtime.status.lock() {
+            status.message_count += 1;
+            status.vr_input_text = msg.text.clone();
+            status.vr_keyboard_open = false;
+            status.last_event = "vr_input_submitted".to_string();
+        }
+    }
+
+    let _ = runtime.app.emit("danmaku_message", &msg);
+    emit_config(&runtime.app, &config);
+    emit_status(&runtime.app, &runtime.status);
+
+    if config.enable_vrc_chatbox {
+        let packet = OscPacket::Message(OscMessage {
+            addr: "/chatbox/input".to_string(),
+            args: vec![
+                OscType::String(clip_for_chatbox(&msg.text, 140)),
+                OscType::Bool(true),
+                OscType::Bool(false),
+            ],
+        });
+        let _ = send_osc_packet(&config.osc_output_host, config.vrc_chatbox_port, packet);
+    }
+
+    msg
 }
 
 async fn stop_state(state: &DanmakuState) {
@@ -544,6 +670,9 @@ async fn stop_state(state: &DanmakuState) {
         status.bili_connected = false;
         status.osc_input_running = false;
         status.vr_initialized = false;
+        status.overlay_visible = false;
+        status.vr_menu_visible = false;
+        status.vr_keyboard_open = false;
         status.last_event = "stopped".to_string();
     }
 }
@@ -570,6 +699,15 @@ async fn aggregate_messages(
         {
             if let Ok(mut messages) = runtime.messages.lock() {
                 if should_skip_duplicate(&messages, &message) {
+                    continue;
+                }
+                if merge_recent_gift(&mut messages, &message) {
+                    if let Ok(mut status) = runtime.status.lock() {
+                        status.last_event = "message:gift_merged".to_string();
+                    }
+                    let _ = runtime.app.emit("danmaku_message", &message);
+                    emit_status(&runtime.app, &runtime.status);
+                    send_external_osc_outputs(&config, &message, &mut last_chatbox_sent);
                     continue;
                 }
                 messages.push_back(message.clone());
@@ -615,14 +753,46 @@ fn should_skip_duplicate(messages: &VecDeque<DanmakuMessage>, message: &DanmakuM
     })
 }
 
+fn merge_recent_gift(messages: &mut VecDeque<DanmakuMessage>, message: &DanmakuMessage) -> bool {
+    if message.source != "bilibili" || message.message_type != "gift" {
+        return false;
+    }
+    let Some((gift_name, count)) = parse_gift_text(&message.text) else {
+        return false;
+    };
+    for previous in messages.iter_mut().rev().take(12) {
+        if previous.source == "bilibili"
+            && previous.message_type == "gift"
+            && previous.user == message.user
+            && (message.timestamp_ms - previous.timestamp_ms).abs() <= 5_000
+        {
+            if let Some((previous_gift, previous_count)) = parse_gift_text(&previous.text) {
+                if previous_gift == gift_name {
+                    let next_count = previous_count.saturating_add(count).max(count);
+                    previous.text = format!("{gift_name} x{next_count}");
+                    previous.gift_count = Some(next_count);
+                    previous.timestamp_ms = message.timestamp_ms;
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn parse_gift_text(text: &str) -> Option<(String, u32)> {
+    let (name, count) = text.rsplit_once(" x")?;
+    let count = count.parse::<u32>().ok()?;
+    Some((name.to_string(), count))
+}
+
 async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<DanmakuMessage>) {
     let mut reconnect_count = 0u32;
 
     while !runtime.stop.load(Ordering::Acquire) {
         match run_bilibili_once(runtime.clone(), tx.clone()).await {
             Ok(()) => {
-                // 连接正常关闭（非错误），但未被要求停止
-                // 需要短暂等待并标记断开，避免立即重连造成空转
+                // 杩炴帴姝ｅ父鍏抽棴锛堥潪閿欒锛夛紝浣嗘湭琚姹傚仠姝?                // 闇€瑕佺煭鏆傜瓑寰呭苟鏍囪鏂紑锛岄伩鍏嶇珛鍗抽噸杩為€犳垚绌鸿浆
                 reconnect_count += 1;
                 set_status(&runtime, |status| {
                     status.bili_connected = false;
@@ -670,7 +840,13 @@ async fn run_bilibili_once(
     }
 
     let client = reqwest::Client::new();
-    let real_room_id = resolve_bili_room_id(&client, cfg.room_id, &cfg.bili_sessdata).await?;
+    let room_info = resolve_bili_room_id(&client, cfg.room_id, &cfg.bili_sessdata).await?;
+    let real_room_id = room_info.room_id;
+    if room_info.live_status == 0 {
+        return Err(format!(
+            "鐩存挱闂?{real_room_id} 褰撳墠鏈紑鎾紝Bilibili 寮瑰箷鏈嶅姟鍣ㄥ彲鑳戒細鎷掔粷杩炴帴"
+        ));
+    }
     let (token, host, port) =
         get_bili_danmaku_endpoint(&client, real_room_id, &cfg.bili_sessdata).await?;
     let url = format!("wss://{host}:{port}/sub");
@@ -709,6 +885,7 @@ async fn run_bilibili_once(
         "protover": 3,
         "platform": "web",
         "type": 2,
+        "buvid": make_bili_buvid(),
         "key": token,
     });
     let auth = encode_bili_packet(BILI_OP_AUTH, 1, auth_body.to_string().as_bytes());
@@ -771,11 +948,16 @@ async fn run_bilibili_once(
     Ok(())
 }
 
+struct BiliRoomInfo {
+    room_id: u64,
+    live_status: i64,
+}
+
 async fn resolve_bili_room_id(
     client: &reqwest::Client,
     room_id: u64,
     sessdata: &str,
-) -> Result<u64, String> {
+) -> Result<BiliRoomInfo, String> {
     let url = format!("https://api.live.bilibili.com/room/v1/Room/room_init?id={room_id}");
     let body: serde_json::Value = client
         .get(url)
@@ -794,7 +976,10 @@ async fn resolve_bili_room_id(
             .to_string());
     }
 
-    Ok(body["data"]["room_id"].as_u64().unwrap_or(room_id))
+    Ok(BiliRoomInfo {
+        room_id: body["data"]["room_id"].as_u64().unwrap_or(room_id),
+        live_status: body["data"]["live_status"].as_i64().unwrap_or(1),
+    })
 }
 
 async fn get_bili_danmaku_endpoint(
@@ -897,14 +1082,18 @@ fn extract_bili_endpoint(
     let mut port = 443u64;
 
     if let Some(hosts) = data[host_list_key].as_array() {
-        if let Some(first) = hosts.first() {
-            host = first["host"]
+        let selected = hosts
+            .iter()
+            .find(|item| item["host"].as_str() == Some(DEFAULT_BILI_WS_HOST))
+            .or_else(|| hosts.first());
+        if let Some(selected) = selected {
+            host = selected["host"]
                 .as_str()
                 .unwrap_or(DEFAULT_BILI_WS_HOST)
                 .to_string();
-            port = first["wss_port"]
+            port = selected["wss_port"]
                 .as_u64()
-                .or_else(|| first["ws_port"].as_u64())
+                .or_else(|| selected["ws_port"].as_u64())
                 .unwrap_or(443);
         }
     } else if let Some(value) = data["host"].as_str() {
@@ -916,6 +1105,16 @@ fn extract_bili_endpoint(
     }
 
     Ok((token, host, port))
+}
+
+fn make_bili_buvid() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or_default();
+    let seed = format!("vrcdog-{now}-{}", std::process::id());
+    let digest = md5::compute(seed.as_bytes());
+    format!("XY{:X}", digest)
 }
 
 #[derive(Debug)]
@@ -1069,27 +1268,44 @@ async fn handle_bili_value(
                 .replace("<%", "")
                 .replace("%>", "");
             if !text.trim().is_empty() {
-                let _ = tx.send(make_message(
-                    runtime,
-                    "bilibili",
-                    "vip_enter",
-                    "Captain",
-                    &text,
-                ));
+                let _ = tx.send(make_message(runtime, "bilibili", "vip_enter", &text, ""));
             }
         }
         "WARNING" | "CUT_OFF" | "ROOM_LOCK" => {
             let text = value["data"]["data"]["msg"]
                 .as_str()
                 .or_else(|| value["data"]["msg"].as_str())
-                .unwrap_or(cmd);
-            let _ = tx.send(make_message(runtime, "bilibili", "warning", "System", text));
+                .unwrap_or_else(|| match cmd {
+                    "CUT_OFF" => "Live stream cut off",
+                    "ROOM_LOCK" => "Room locked",
+                    _ => "Live room warning",
+                });
+            let user = match cmd {
+                "CUT_OFF" => "CutOff",
+                "ROOM_LOCK" => "RoomLock",
+                _ => "Warning",
+            };
+            let _ = tx.send(make_message(runtime, "bilibili", "warning", user, text));
         }
         "GUARD_BUY" => {
             let data = &value["data"]["data"];
             let user = data["username"].as_str().unwrap_or("???");
-            let gift = data["gift_name"].as_str().unwrap_or("Guard");
-            let _ = tx.send(make_message(runtime, "bilibili", "guard", user, gift));
+            let guard_level = data["guard_level"].as_u64().unwrap_or(0);
+            let guard = match guard_level {
+                1 => "Governor",
+                2 => "Admiral",
+                3 => "Captain",
+                _ => data["gift_name"].as_str().unwrap_or("Captain"),
+            };
+            let mut msg = make_message(
+                runtime,
+                "bilibili",
+                "guard",
+                user,
+                &format!("opened {guard}"),
+            );
+            msg.guard_level = Some(guard_level as u32);
+            let _ = tx.send(msg);
         }
         "ONLINE_RANK_COUNT" => {
             if let Some(count) = value["data"]["data"]["count"].as_u64() {
@@ -1106,6 +1322,30 @@ async fn handle_bili_value(
                 });
                 emit_status(&runtime.app, &runtime.status);
             }
+        }
+        "ROOM_REAL_TIME_MESSAGE_UPDATE" => {
+            if let Some(count) = value["data"]["watched_show"]["num"]
+                .as_u64()
+                .or_else(|| value["data"]["fans"].as_u64())
+            {
+                set_status(runtime, |status| {
+                    status.online = count;
+                });
+                emit_status(&runtime.app, &runtime.status);
+            }
+        }
+        "POPULARITY_RED_POCKET_START" => {
+            let text = value["data"]["data"]["lot_name"]
+                .as_str()
+                .or_else(|| value["data"]["lot_name"].as_str())
+                .unwrap_or("Red pocket started");
+            let _ = tx.send(make_message(
+                runtime,
+                "bilibili",
+                "warning",
+                "RedPocket",
+                text,
+            ));
         }
         _ => {}
     }
@@ -1141,8 +1381,12 @@ fn parse_bili_danmaku(
 fn parse_bili_gift(runtime: &DanmakuRuntime, value: &serde_json::Value) -> Option<DanmakuMessage> {
     let data = &value["data"]["data"];
     let user = data["uname"].as_str().unwrap_or("???");
-    let gift = data["giftName"].as_str().unwrap_or("Gift");
-    let count = data["num"].as_u64().unwrap_or(1) as u32;
+    let gift = data["giftName"].as_str().unwrap_or("绀肩墿");
+    let count = data["combo_num"]
+        .as_u64()
+        .or_else(|| data["batch_combo_num"].as_u64())
+        .or_else(|| data["num"].as_u64())
+        .unwrap_or(1) as u32;
     let mut msg = make_message(
         runtime,
         "bilibili",
@@ -1487,7 +1731,7 @@ fn make_test_message(
             "test",
             "danmaku",
             "TestUser",
-            custom_text.unwrap_or("VRDanmaku is now integrated into VrcDog."),
+            custom_text.unwrap_or("直播姬 is now integrated into VrcDog."),
         ),
     }
 }
@@ -1515,7 +1759,7 @@ fn format_message_for_chatbox(msg: &DanmakuMessage) -> String {
         "sc" => format!(
             "[SC{}] {}: {}",
             msg.price
-                .map(|price| format!(" ¥{price:.0}"))
+                .map(|price| format!(" 楼{price:.0}"))
                 .unwrap_or_default(),
             msg.user,
             msg.text
@@ -1544,6 +1788,10 @@ fn emit_status(app: &AppHandle, status: &Arc<Mutex<DanmakuStatus>>) {
     }
 }
 
+fn emit_config(app: &AppHandle, config: &DanmakuConfig) {
+    let _ = app.emit("danmaku_config", config.clone());
+}
+
 fn emit_log(app: &AppHandle, message: &str) {
     let _ = app.emit("danmaku_log", message.to_string());
 }
@@ -1555,11 +1803,13 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
         Ok(Ok(context)) => context,
         Ok(Err(err)) => {
             let err_str = format!("{err:?}");
-            // 检测 OpenVR 是否已被 OVR 翻译器初始化（同一进程只能 init 一次）
-            let msg = if err_str.to_lowercase().contains("init") && !err_str.to_lowercase().contains("not")
+            // 妫€娴?OpenVR 鏄惁宸茶 OVR 缈昏瘧鍣ㄥ垵濮嬪寲锛堝悓涓€杩涚▼鍙兘 init 涓€娆★級
+            let msg = if err_str.to_lowercase().contains("init")
+                && !err_str.to_lowercase().contains("not")
                 || err_str.to_lowercase().contains("already")
             {
-                "SteamVR overlay is already initialized by OVR Translator; release and retry".to_string()
+                "SteamVR overlay is already initialized by OVR Translator; release and retry"
+                    .to_string()
             } else {
                 format!("OpenVR init failed: {err_str}")
             };
@@ -1567,7 +1817,10 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
                 status.vr_initialized = false;
                 status.last_error = msg;
             });
-            emit_log(&runtime.app, &format!("[VR Overlay] OpenVR init error: {err_str}"));
+            emit_log(
+                &runtime.app,
+                &format!("[VR Overlay] OpenVR init error: {err_str}"),
+            );
             emit_status(&runtime.app, &runtime.status);
             return;
         }
@@ -1575,9 +1828,13 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             set_status(&runtime, |status| {
                 status.vr_initialized = false;
                 status.last_error =
-                    "SteamVR overlay is already initialized by OVR Translator; release and retry".to_string();
+                    "SteamVR overlay is already initialized by OVR Translator; release and retry"
+                        .to_string();
             });
-            emit_log(&runtime.app, "[VR Overlay] OpenVR already initialized (panic path)");
+            emit_log(
+                &runtime.app,
+                "[VR Overlay] OpenVR already initialized (panic path)",
+            );
             emit_status(&runtime.app, &runtime.status);
             return;
         }
@@ -1618,6 +1875,18 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             return;
         }
     };
+    let menu_handle = match overlay.create_overlay("vrcdog.danmaku.menu\0", "VrcDog Danmaku Menu\0")
+    {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            emit_log(
+                &runtime.app,
+                &format!("[VR Overlay] Create menu overlay failed: {err:?}"),
+            );
+            None
+        }
+    };
+    let raw_overlay = load_raw_openvr_overlay();
 
     set_status(&runtime, |status| {
         status.vr_initialized = true;
@@ -1628,6 +1897,9 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
     emit_log(&runtime.app, "SteamVR danmaku overlay initialized");
 
     let mut previous_pressed = 0u64;
+    let mut last_config_emit = Instant::now()
+        .checked_sub(Duration::from_secs(1))
+        .unwrap_or_else(Instant::now);
     while !runtime.stop.load(Ordering::Acquire) {
         let cfg = runtime
             .config
@@ -1651,20 +1923,18 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
         apply_overlay_transform(&context, &mut overlay, handle, &cfg);
 
         if let Ok(sys) = context.system() {
-            let pressed = controller_pressed_for_toggle(&sys, &cfg);
-            let grip_mask = 1u64 << openvr::button_id::GRIP;
-            if pressed & grip_mask != 0 && previous_pressed & grip_mask == 0 {
-                let next_visible = !cfg.overlay_visible;
-                if let Ok(mut current) = runtime.config.lock() {
-                    current.overlay_visible = next_visible;
-                }
-                set_status(&runtime, |status| {
-                    status.overlay_visible = next_visible;
-                    status.last_event = "overlay_toggled_by_controller".to_string();
-                });
-                emit_status(&runtime.app, &runtime.status);
-            }
-            previous_pressed = pressed;
+            handle_vr_controller_controls(
+                &sys,
+                &runtime,
+                &cfg,
+                &mut previous_pressed,
+                &mut last_config_emit,
+                raw_overlay,
+                menu_handle.or(Some(handle)),
+            );
+        }
+        if let Some(raw_overlay) = raw_overlay {
+            poll_vr_keyboard_events(&runtime, raw_overlay, menu_handle.or(Some(handle)));
         }
 
         let visible = runtime
@@ -1673,9 +1943,34 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             .map(|cfg| cfg.overlay_visible || cfg.toggle_hand == "always_on")
             .unwrap_or(true);
 
-        let pixels = render_danmaku_overlay(&font, &messages, &cfg, &status_snapshot);
-        let _ = overlay.set_raw_data(handle, &pixels, 640, 420, 4);
+        let pixels = render_live_panel_overlay_clean(&font, &messages, &cfg, &status_snapshot);
+        let _ = overlay.set_raw_data(
+            handle,
+            &pixels,
+            DANMAKU_OVERLAY_WIDTH as usize,
+            DANMAKU_OVERLAY_HEIGHT as usize,
+            4,
+        );
         let _ = overlay.set_visibility(handle, visible);
+        if let Some(menu_handle) = menu_handle {
+            let menu_visible = runtime
+                .config
+                .lock()
+                .map(|cfg| {
+                    cfg.vr_menu_visible && (cfg.overlay_visible || cfg.toggle_hand == "always_on")
+                })
+                .unwrap_or(false);
+            let _ = overlay.set_width(menu_handle, 0.52);
+            let _ = overlay.set_opacity(menu_handle, 0.96);
+            let _ = overlay.set_sort_order(menu_handle, 60);
+            apply_menu_transform(&mut overlay, menu_handle);
+            let pixels = render_danmaku_menu_overlay(&font, &cfg, &status_snapshot);
+            let _ = overlay.set_raw_data(menu_handle, &pixels, 640, 520, 4);
+            let _ = overlay.set_visibility(menu_handle, menu_visible);
+            set_status(&runtime, |status| {
+                status.vr_menu_visible = menu_visible;
+            });
+        }
         set_status(&runtime, |status| {
             status.overlay_visible = visible;
         });
@@ -1684,23 +1979,274 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
     }
 
     let _ = overlay.set_visibility(handle, false);
+    if let Some(menu_handle) = menu_handle {
+        let _ = overlay.set_visibility(menu_handle, false);
+    }
     set_status(&runtime, |status| {
         status.vr_initialized = false;
         status.overlay_visible = false;
+        status.vr_menu_visible = false;
     });
     emit_status(&runtime.app, &runtime.status);
 }
 
-fn controller_pressed_for_toggle(sys: &openvr::System, cfg: &DanmakuConfig) -> u64 {
+fn handle_vr_controller_controls(
+    sys: &openvr::System,
+    runtime: &DanmakuRuntime,
+    cfg_snapshot: &DanmakuConfig,
+    previous_pressed: &mut u64,
+    last_config_emit: &mut Instant,
+    raw_overlay: Option<&'static vr_sys::VR_IVROverlay_FnTable>,
+    keyboard_handle: Option<openvr::overlay::OverlayHandle>,
+) {
+    let Some(state) = selected_controller_state(sys, cfg_snapshot) else {
+        *previous_pressed = 0;
+        return;
+    };
+    let pressed = state.button_pressed;
+    let grip_mask = 1u64 << openvr::button_id::GRIP;
+    let menu_mask = 1u64 << openvr::button_id::APPLICATION_MENU;
+    let trigger_mask = 1u64 << openvr::button_id::STEAM_VR_TRIGGER;
+    let axis_mask = 1u64 << openvr::button_id::AXIS0;
+    let grip_rising = pressed & grip_mask != 0 && *previous_pressed & grip_mask == 0;
+    let menu_rising = pressed & menu_mask != 0 && *previous_pressed & menu_mask == 0;
+    let trigger_rising = pressed & trigger_mask != 0 && *previous_pressed & trigger_mask == 0;
+    let axis_active = pressed & axis_mask != 0 || state.button_touched & axis_mask != 0;
+    let trigger_active = pressed & trigger_mask != 0;
+    let axis = state.axis[0];
+    let mut next_config = None;
+    let mut last_event = None;
+    let mut axis_adjusted = false;
+    let mut open_keyboard = false;
+
+    if let Ok(mut current) = runtime.config.lock() {
+        if grip_rising {
+            current.overlay_visible = !current.overlay_visible;
+            if !current.overlay_visible {
+                current.vr_menu_visible = false;
+            }
+            last_event = Some("overlay_toggled_by_controller");
+        }
+        if menu_rising {
+            current.vr_menu_visible = !current.vr_menu_visible;
+            if current.vr_menu_visible {
+                current.overlay_visible = true;
+            }
+            last_event = Some("vr_menu_toggled_by_controller");
+        }
+        if current.vr_menu_visible
+            && trigger_rising
+            && !axis_active
+            && raw_overlay.is_some()
+            && keyboard_handle.is_some()
+        {
+            open_keyboard = true;
+            last_event = Some("vr_keyboard_requested");
+        }
+        if current.vr_menu_visible && axis_active && (axis.x.abs() > 0.12 || axis.y.abs() > 0.12) {
+            let hand_mode = current.attach_mode == "hand" || current.attach_mode == "left_hand";
+            if trigger_active {
+                let z_step = if hand_mode { 0.004 } else { 0.018 };
+                current.z += axis.y * z_step;
+                current.overlay_width_m += axis.x * 0.01;
+            } else {
+                let xy_step = if hand_mode { 0.003 } else { 0.018 };
+                current.x += axis.x * xy_step;
+                current.y += axis.y * xy_step;
+            }
+            clamp_vr_danmaku_config(&mut current);
+            axis_adjusted = true;
+            last_event = Some("vr_menu_position_adjusted");
+        }
+        if grip_rising || menu_rising || axis_adjusted || open_keyboard {
+            next_config = Some(current.clone());
+        }
+    }
+
+    if open_keyboard {
+        if let (Some(raw_overlay), Some(handle)) = (raw_overlay, keyboard_handle) {
+            let existing = runtime
+                .config
+                .lock()
+                .map(|cfg| cfg.vr_input_text.clone())
+                .unwrap_or_default();
+            show_vr_keyboard(runtime, raw_overlay, handle, &existing);
+        }
+    }
+
+    if let Some(config) = next_config {
+        let should_emit =
+            !axis_adjusted || last_config_emit.elapsed() >= Duration::from_millis(120);
+        set_status(runtime, |status| {
+            status.overlay_visible = config.overlay_visible || config.toggle_hand == "always_on";
+            status.vr_menu_visible = config.vr_menu_visible && status.overlay_visible;
+            if let Some(event) = last_event {
+                status.last_event = event.to_string();
+            }
+        });
+        emit_status(&runtime.app, &runtime.status);
+        if should_emit {
+            emit_config(&runtime.app, &config);
+            *last_config_emit = Instant::now();
+        }
+    }
+    *previous_pressed = pressed;
+}
+
+fn load_raw_openvr_overlay() -> Option<&'static vr_sys::VR_IVROverlay_FnTable> {
+    let mut name = Vec::from(b"FnTable:".as_ref());
+    name.extend(vr_sys::IVROverlay_Version);
+    let mut error = vr_sys::EVRInitError_VRInitError_None;
+    let ptr = unsafe { vr_sys::VR_GetGenericInterface(name.as_ptr() as *const i8, &mut error) };
+    if error != vr_sys::EVRInitError_VRInitError_None || ptr == 0 {
+        return None;
+    }
+    Some(unsafe { &*(ptr as *const vr_sys::VR_IVROverlay_FnTable) })
+}
+
+fn show_vr_keyboard(
+    runtime: &DanmakuRuntime,
+    overlay: &'static vr_sys::VR_IVROverlay_FnTable,
+    handle: openvr::overlay::OverlayHandle,
+    existing_text: &str,
+) {
+    let Some(show_keyboard) = overlay.ShowKeyboardForOverlay else {
+        set_status(runtime, |status| {
+            status.last_error = "SteamVR keyboard API is unavailable".to_string();
+        });
+        emit_status(&runtime.app, &runtime.status);
+        return;
+    };
+
+    let description = CString::new("VR弹幕输入（可用系统输入法切换中文/EN）")
+        .unwrap_or_else(|_| CString::new("VR input").unwrap());
+    let existing =
+        CString::new(existing_text.replace('\0', "")).unwrap_or_else(|_| CString::new("").unwrap());
+    let flags = (vr_sys::EKeyboardFlags_KeyboardFlag_Modal
+        | vr_sys::EKeyboardFlags_KeyboardFlag_ShowArrowKeys) as u32;
+    let err = unsafe {
+        show_keyboard(
+            handle.0,
+            vr_sys::EGamepadTextInputMode_k_EGamepadTextInputModeNormal,
+            vr_sys::EGamepadTextInputLineMode_k_EGamepadTextInputLineModeSingleLine,
+            flags,
+            description.as_ptr() as *mut _,
+            80,
+            existing.as_ptr() as *mut _,
+            0,
+        )
+    };
+
+    if err == vr_sys::EVROverlayError_VROverlayError_None {
+        set_status(runtime, |status| {
+            status.vr_keyboard_open = true;
+            status.last_error.clear();
+            status.last_event = "vr_keyboard_opened".to_string();
+        });
+    } else {
+        set_status(runtime, |status| {
+            status.vr_keyboard_open = false;
+            status.last_error = format!("SteamVR keyboard failed: {err}");
+        });
+    }
+    emit_status(&runtime.app, &runtime.status);
+}
+
+fn poll_vr_keyboard_events(
+    runtime: &DanmakuRuntime,
+    overlay: &'static vr_sys::VR_IVROverlay_FnTable,
+    handle: Option<openvr::overlay::OverlayHandle>,
+) {
+    let (Some(handle), Some(poll)) = (handle, overlay.PollNextOverlayEvent) else {
+        return;
+    };
+
+    loop {
+        let mut event: vr_sys::VREvent_t = unsafe { std::mem::zeroed() };
+        let has_event = unsafe {
+            poll(
+                handle.0,
+                &mut event,
+                std::mem::size_of::<vr_sys::VREvent_t>() as u32,
+            )
+        };
+        if !has_event {
+            break;
+        }
+
+        match event.eventType {
+            event if event == vr_sys::EVREventType_VREvent_KeyboardDone as u32 => {
+                if let Some(text) = get_vr_keyboard_text(overlay) {
+                    let clean = sanitize_text(&text, 80);
+                    if !clean.is_empty() {
+                        submit_vr_input_message(runtime, &clean);
+                    } else {
+                        set_status(runtime, |status| {
+                            status.vr_keyboard_open = false;
+                            status.last_event = "vr_keyboard_empty".to_string();
+                        });
+                        emit_status(&runtime.app, &runtime.status);
+                    }
+                }
+            }
+            event
+                if event == vr_sys::EVREventType_VREvent_KeyboardClosed as u32
+                    || event == vr_sys::EVREventType_VREvent_KeyboardClosed_Global as u32 =>
+            {
+                set_status(runtime, |status| {
+                    status.vr_keyboard_open = false;
+                    status.last_event = "vr_keyboard_closed".to_string();
+                });
+                emit_status(&runtime.app, &runtime.status);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn get_vr_keyboard_text(overlay: &'static vr_sys::VR_IVROverlay_FnTable) -> Option<String> {
+    let get_text = overlay.GetKeyboardText?;
+    let mut buf = vec![0i8; 512];
+    let len = unsafe { get_text(buf.as_mut_ptr(), buf.len() as u32) };
+    if len == 0 {
+        return Some(String::new());
+    }
+    let text = unsafe { CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .to_string();
+    Some(text)
+}
+
+fn selected_controller_state(
+    sys: &openvr::System,
+    cfg: &DanmakuConfig,
+) -> Option<openvr::ControllerState> {
     let role = match cfg.toggle_hand.as_str() {
         "right" => openvr::TrackedControllerRole::RightHand,
-        "always_on" => return 0,
         _ => openvr::TrackedControllerRole::LeftHand,
     };
     sys.tracked_device_index_for_controller_role(role)
         .and_then(|index| sys.controller_state(index))
-        .map(|state| state.button_pressed)
-        .unwrap_or(0)
+}
+
+fn clamp_vr_danmaku_config(cfg: &mut DanmakuConfig) {
+    let hand_mode = cfg.attach_mode == "hand" || cfg.attach_mode == "left_hand";
+    if hand_mode {
+        cfg.x = cfg.x.clamp(-0.1, 0.1);
+        cfg.y = cfg.y.clamp(0.0, 0.15);
+        cfg.z = cfg.z.clamp(-0.1, 0.1);
+    } else {
+        cfg.x = cfg.x.clamp(-1.0, 1.0);
+        cfg.y = cfg.y.clamp(-0.8, 0.8);
+        cfg.z = cfg.z.clamp(-1.5, -0.3);
+    }
+    cfg.pitch = cfg.pitch.clamp(-30.0, 30.0);
+    cfg.yaw = cfg.yaw.clamp(-30.0, 30.0);
+    cfg.roll = cfg.roll.clamp(-20.0, 20.0);
+    cfg.overlay_width_m = cfg.overlay_width_m.clamp(0.15, 0.8);
+    cfg.overlay_alpha = cfg.overlay_alpha.clamp(0.3, 1.0);
+    cfg.bg_alpha = cfg.bg_alpha.clamp(0.0, 1.0);
+    cfg.font_size = cfg.font_size.clamp(10.0, 20.0);
 }
 
 fn apply_overlay_transform(
@@ -1723,6 +2269,15 @@ fn apply_overlay_transform(
             }
         }
     }
+    let _ = overlay.set_transform_tracked_device_relative(
+        handle,
+        openvr::TrackedDeviceIndex(0),
+        &transform,
+    );
+}
+
+fn apply_menu_transform(overlay: &mut openvr::Overlay, handle: openvr::overlay::OverlayHandle) {
+    let transform = euler_transform(0.0, -0.28, -0.72, -12.0, 0.0, 0.0);
     let _ = overlay.set_transform_tracked_device_relative(
         handle,
         openvr::TrackedDeviceIndex(0),
@@ -1777,18 +2332,18 @@ fn load_danmaku_font() -> Option<FontVec> {
     None
 }
 
-fn render_danmaku_overlay(
+fn render_live_panel_overlay_clean(
     font: &FontVec,
     messages: &[DanmakuMessage],
     cfg: &DanmakuConfig,
     status: &DanmakuStatus,
 ) -> Vec<u8> {
-    let width = 640u32;
-    let height = 420u32;
+    let width = DANMAKU_OVERLAY_WIDTH;
+    let height = DANMAKU_OVERLAY_HEIGHT;
     let mut pixels = vec![0u8; (width * height * 4) as usize];
-    let bg = parse_hex_rgb(&cfg.bg_color, [16, 20, 31]);
-    let text = parse_hex_rgb(&cfg.text_color, [255, 255, 255]);
-    fill_rect(
+    let panel_alpha = ((cfg.bg_alpha.clamp(0.72, 1.0) * 255.0).round() as u8).max(210);
+
+    fill_rounded_rect(
         &mut pixels,
         width,
         height,
@@ -1796,144 +2351,891 @@ fn render_danmaku_overlay(
         0,
         width,
         height,
-        [
-            bg[0],
-            bg[1],
-            bg[2],
-            (cfg.bg_alpha.clamp(0.0, 1.0) * 255.0) as u8,
-        ],
+        14,
+        [24, 25, 30, panel_alpha],
+    );
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        14,
+        0,
+        width - 28,
+        72,
+        [27, 28, 33, panel_alpha],
     );
     fill_rect(
         &mut pixels,
         width,
         height,
         0,
-        0,
+        14,
         width,
-        44,
-        [24, 30, 45, 230],
+        58,
+        [27, 28, 33, panel_alpha],
+    );
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        0,
+        72,
+        width,
+        1,
+        [48, 50, 57, 230],
+    );
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        0,
+        144,
+        width,
+        1,
+        [48, 50, 57, 220],
+    );
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        0,
+        302,
+        width,
+        1,
+        [40, 42, 49, 210],
     );
 
-    let scale = PxScale::from(cfg.font_size.clamp(12.0, 34.0));
-    let small = PxScale::from((cfg.font_size * 0.72).clamp(10.0, 22.0));
-    let header = format!(
-        "VrcDog 直播弹幕  房间 #{}  观众 {}",
-        status.room_id, status.online
+    let title = PxScale::from(22.0);
+    let normal = PxScale::from(17.0);
+    let small = PxScale::from(14.0);
+    let hint = PxScale::from(15.0);
+    let message_scale = PxScale::from(cfg.font_size.clamp(14.0, 22.0));
+    let line_height = (cfg.font_size * 1.65).clamp(28.0, 42.0);
+    let default_text = parse_hex_rgb(&cfg.text_color, [224, 226, 232]);
+
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Live Interaction",
+        22.0,
+        40.0,
+        title,
+        [244, 245, 248],
+    );
+    draw_live_panel_icons(&mut pixels, width, height);
+    draw_eye_icon(&mut pixels, width, height, 28, 106, [139, 143, 153, 230]);
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        &status.online.to_string(),
+        44.0,
+        116.0,
+        small,
+        [168, 171, 181],
     );
     draw_text_line(
         font,
         &mut pixels,
         width,
         height,
-        &header,
-        16.0,
-        29.0,
+        "Like 0",
+        112.0,
+        116.0,
         small,
-        [225, 231, 255],
+        [168, 171, 181],
     );
 
-    let state = if status.bili_connected {
-        "B站已连接"
-    } else if status.osc_input_running {
-        "OSC"
+    let revenue = messages.iter().filter_map(|msg| msg.price).sum::<f64>();
+    let revenue_text = if revenue > 0.0 {
+        format!("RMB {:.0}", revenue)
     } else {
-        "待机"
+        "RMB 0".to_string()
     };
     draw_text_line(
         font,
         &mut pixels,
         width,
         height,
-        state,
-        560.0,
-        29.0,
+        &revenue_text,
+        178.0,
+        116.0,
         small,
-        if status.bili_connected || status.osc_input_running {
+        [168, 171, 181],
+    );
+    draw_text_right(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Hide amount",
+        width as f32 - 20.0,
+        116.0,
+        small,
+        [223, 225, 232],
+    );
+
+    let mut pill_x = 16u32;
+    pill_x = draw_live_pill(font, &mut pixels, width, height, "Gift", pill_x, 162);
+    pill_x = draw_live_pill(font, &mut pixels, width, height, "Guard", pill_x + 10, 162);
+    let _ = draw_live_pill(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Super Chat",
+        pill_x + 10,
+        162,
+    );
+    draw_text_right(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Filters",
+        width as f32 - 20.0,
+        184.0,
+        normal,
+        [244, 245, 248],
+    );
+    draw_text_centered(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Gifts, Super Chats and guard messages appear here",
+        260.0,
+        hint,
+        [135, 138, 148],
+    );
+
+    let filtered = messages
+        .iter()
+        .rev()
+        .filter(|msg| should_show_message(cfg, msg))
+        .take(10)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if filtered.is_empty() {
+        draw_live_spinner(&mut pixels, width, height, width as i32 / 2, 304);
+        draw_text_centered(
+            font,
+            &mut pixels,
+            width,
+            height,
+            "Waiting for live danmaku messages",
+            432.0,
+            normal,
+            [135, 138, 148],
+        );
+        if !status.running {
+            draw_text_centered(
+                font,
+                &mut pixels,
+                width,
+                height,
+                "Start the danmaku service to sync messages",
+                470.0,
+                small,
+                [103, 107, 118],
+            );
+        }
+    } else {
+        let mut y = 332.0f32;
+        for msg in filtered.into_iter().rev() {
+            if y > 610.0 {
+                break;
+            }
+
+            let color = live_message_color(&msg, default_text);
+            let user = truncate_chars(&msg.user, 16);
+            let body = truncate_chars(&msg.text, 120);
+            let label = live_message_label(&msg);
+            let line = if label.is_empty() {
+                format!("{user}: {body}")
+            } else if body.is_empty() {
+                format!("[{label}] {user}")
+            } else {
+                format!("[{label}] {user}: {body}")
+            };
+
+            if msg.message_type == "sc" {
+                fill_rounded_rect(
+                    &mut pixels,
+                    width,
+                    height,
+                    20,
+                    y as u32 - 22,
+                    width - 40,
+                    (line_height + 18.0) as u32,
+                    8,
+                    [53, 44, 34, 230],
+                );
+                fill_rect(
+                    &mut pixels,
+                    width,
+                    height,
+                    20,
+                    y as u32 - 22,
+                    4,
+                    (line_height + 18.0) as u32,
+                    [224, 150, 64, 245],
+                );
+            }
+
+            y = draw_wrapped_text(
+                font,
+                &mut pixels,
+                width,
+                height,
+                &line,
+                30.0,
+                y,
+                width as f32 - 60.0,
+                message_scale,
+                color,
+                line_height,
+            );
+            y += 8.0;
+        }
+    }
+
+    fill_rounded_rect(
+        &mut pixels,
+        width,
+        height,
+        18,
+        height - 72,
+        width - 36,
+        56,
+        10,
+        [49, 52, 58, 245],
+    );
+    let input_text = truncate_chars(&cfg.vr_input_text, 36);
+    let placeholder = if status.vr_keyboard_open {
+        "SteamVR keyboard is open..."
+    } else {
+        "Open menu, tap trigger to type"
+    };
+    let display_text = if input_text.is_empty() {
+        placeholder
+    } else {
+        &input_text
+    };
+    let input_color = if input_text.is_empty() {
+        [143, 147, 157]
+    } else {
+        [234, 236, 244]
+    };
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        display_text,
+        36.0,
+        height as f32 - 38.0,
+        small,
+        input_color,
+    );
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        &format!("{}/80", cfg.vr_input_text.chars().count().min(80)),
+        width as f32 - 122.0,
+        height as f32 - 38.0,
+        small,
+        [107, 111, 121],
+    );
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Send",
+        width as f32 - 70.0,
+        height as f32 - 38.0,
+        small,
+        [211, 68, 126],
+    );
+
+    pixels
+}
+
+#[allow(dead_code)]
+fn live_message_label(msg: &DanmakuMessage) -> &'static str {
+    match msg.message_type.as_str() {
+        "sc" => "SC",
+        "gift" => "Gift",
+        "enter" => "Enter",
+        "follow" => "Follow",
+        "guard" | "vip_enter" => "Guard",
+        "warning" => "Warning",
+        "osc" => "OSC",
+        "input" => "Input",
+        _ => "",
+    }
+}
+
+fn live_message_color(msg: &DanmakuMessage, default: [u8; 3]) -> [u8; 3] {
+    match msg.message_type.as_str() {
+        "sc" => [255, 224, 138],
+        "gift" => [255, 130, 174],
+        "enter" => [139, 220, 176],
+        "follow" => [244, 114, 182],
+        "guard" | "vip_enter" => [250, 204, 21],
+        "warning" => [248, 113, 113],
+        "osc" => [125, 211, 252],
+        _ => default,
+    }
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars();
+    for _ in 0..max_chars {
+        if let Some(ch) = chars.next() {
+            out.push(ch);
+        } else {
+            return out;
+        }
+    }
+    if chars.next().is_some() {
+        out.push_str("...");
+    }
+    out
+}
+
+fn draw_live_panel_icons(pixels: &mut [u8], width: u32, height: u32) {
+    let color = [139, 143, 153, 230];
+    draw_lock_icon(pixels, width, height, 356, 22, color);
+    draw_mic_icon(pixels, width, height, 412, 18, color);
+    draw_circle_outline(pixels, width, height, 476, 31, 13, color);
+    draw_circle_outline(pixels, width, height, 532, 31, 12, color);
+    draw_line(pixels, width, height, 576, 20, 602, 46, color);
+    draw_line(pixels, width, height, 602, 20, 576, 46, color);
+}
+
+fn draw_live_pill(
+    font: &FontVec,
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    label: &str,
+    x: u32,
+    y: u32,
+) -> u32 {
+    let scale = PxScale::from(15.0);
+    let pill_w = (measure_text_width(font, label, scale) + 24.0).ceil() as u32;
+    fill_rounded_rect(
+        pixels,
+        width,
+        height,
+        x,
+        y,
+        pill_w,
+        30,
+        15,
+        [103, 35, 65, 235],
+    );
+    draw_text_line(
+        font,
+        pixels,
+        width,
+        height,
+        label,
+        x as f32 + 12.0,
+        y as f32 + 21.0,
+        scale,
+        [255, 105, 166],
+    );
+    x + pill_w
+}
+
+fn draw_text_centered(
+    font: &FontVec,
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    text: &str,
+    y: f32,
+    scale: PxScale,
+    color: [u8; 3],
+) {
+    let x = ((width as f32 - measure_text_width(font, text, scale)) / 2.0).max(8.0);
+    draw_text_line(font, pixels, width, height, text, x, y, scale, color);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_text_right(
+    font: &FontVec,
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    text: &str,
+    right: f32,
+    y: f32,
+    scale: PxScale,
+    color: [u8; 3],
+) {
+    let x = (right - measure_text_width(font, text, scale)).max(8.0);
+    draw_text_line(font, pixels, width, height, text, x, y, scale, color);
+}
+
+fn measure_text_width(font: &FontVec, text: &str, scale: PxScale) -> f32 {
+    let scaled = font.as_scaled(scale);
+    text.chars()
+        .map(|ch| scaled.h_advance(font.glyph_id(ch)))
+        .sum()
+}
+
+fn draw_lock_icon(pixels: &mut [u8], width: u32, height: u32, x: i32, y: i32, color: [u8; 4]) {
+    draw_rect_outline(pixels, width, height, x + 2, y + 12, 22, 18, color);
+    draw_line(pixels, width, height, x + 7, y + 12, x + 7, y + 7, color);
+    draw_line(pixels, width, height, x + 7, y + 7, x + 18, y + 7, color);
+    draw_line(pixels, width, height, x + 18, y + 7, x + 18, y + 12, color);
+    draw_line(pixels, width, height, x + 13, y + 18, x + 13, y + 24, color);
+}
+
+fn draw_mic_icon(pixels: &mut [u8], width: u32, height: u32, x: i32, y: i32, color: [u8; 4]) {
+    draw_rect_outline(pixels, width, height, x + 9, y + 2, 12, 22, color);
+    draw_line(pixels, width, height, x + 5, y + 15, x + 5, y + 22, color);
+    draw_line(pixels, width, height, x + 5, y + 22, x + 25, y + 22, color);
+    draw_line(pixels, width, height, x + 25, y + 15, x + 25, y + 22, color);
+    draw_line(pixels, width, height, x + 15, y + 24, x + 15, y + 32, color);
+    draw_line(pixels, width, height, x + 9, y + 32, x + 21, y + 32, color);
+}
+
+fn draw_eye_icon(pixels: &mut [u8], width: u32, height: u32, cx: i32, cy: i32, color: [u8; 4]) {
+    draw_line(pixels, width, height, cx - 12, cy, cx - 5, cy - 6, color);
+    draw_line(pixels, width, height, cx - 5, cy - 6, cx + 5, cy - 6, color);
+    draw_line(pixels, width, height, cx + 5, cy - 6, cx + 12, cy, color);
+    draw_line(pixels, width, height, cx - 12, cy, cx - 5, cy + 6, color);
+    draw_line(pixels, width, height, cx - 5, cy + 6, cx + 5, cy + 6, color);
+    draw_line(pixels, width, height, cx + 5, cy + 6, cx + 12, cy, color);
+    draw_circle_outline(pixels, width, height, cx, cy, 3, color);
+}
+
+fn draw_live_spinner(pixels: &mut [u8], width: u32, height: u32, cx: i32, cy: i32) {
+    let dots = [
+        (0, -9, 230),
+        (6, -6, 205),
+        (9, 0, 180),
+        (6, 6, 155),
+        (0, 9, 130),
+        (-6, 6, 105),
+        (-9, 0, 90),
+        (-6, -6, 75),
+    ];
+    for (dx, dy, alpha) in dots {
+        fill_circle(
+            pixels,
+            width,
+            height,
+            cx + dx,
+            cy + dy,
+            2,
+            [122, 125, 135, alpha],
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fill_rounded_rect(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    radius: u32,
+    color: [u8; 4],
+) {
+    let x2 = (x + w).min(width);
+    let y2 = (y + h).min(height);
+    let r = radius.min(w / 2).min(h / 2) as i32;
+    let ru = r as u32;
+    let r2 = r * r;
+
+    for py in y..y2 {
+        for px in x..x2 {
+            let mut dx = 0i32;
+            let mut dy = 0i32;
+            if px < x + ru {
+                dx = x as i32 + r - px as i32;
+            } else if px >= x2.saturating_sub(ru) {
+                dx = px as i32 - (x2 as i32 - r - 1);
+            }
+            if py < y + ru {
+                dy = y as i32 + r - py as i32;
+            } else if py >= y2.saturating_sub(ru) {
+                dy = py as i32 - (y2 as i32 - r - 1);
+            }
+
+            if dx * dx + dy * dy <= r2 {
+                let idx = ((py * width + px) * 4) as usize;
+                pixels[idx..idx + 4].copy_from_slice(&color);
+            }
+        }
+    }
+}
+
+fn fill_circle(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    color: [u8; 4],
+) {
+    let r2 = radius * radius;
+    for y in (cy - radius)..=(cy + radius) {
+        for x in (cx - radius)..=(cx + radius) {
+            let d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            if d <= r2 {
+                set_pixel(pixels, width, height, x, y, color);
+            }
+        }
+    }
+}
+
+fn draw_rect_outline(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: [u8; 4],
+) {
+    draw_line(pixels, width, height, x, y, x + w, y, color);
+    draw_line(pixels, width, height, x, y + h, x + w, y + h, color);
+    draw_line(pixels, width, height, x, y, x, y + h, color);
+    draw_line(pixels, width, height, x + w, y, x + w, y + h, color);
+}
+
+fn draw_circle_outline(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    color: [u8; 4],
+) {
+    let outer = radius * radius;
+    let inner_radius = (radius - 2).max(0);
+    let inner = inner_radius * inner_radius;
+    for y in (cy - radius)..=(cy + radius) {
+        for x in (cx - radius)..=(cx + radius) {
+            let d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            if d <= outer && d >= inner {
+                set_pixel(pixels, width, height, x, y, color);
+            }
+        }
+    }
+}
+
+fn draw_line(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    mut x0: i32,
+    mut y0: i32,
+    x1: i32,
+    y1: i32,
+    color: [u8; 4],
+) {
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    loop {
+        set_pixel(pixels, width, height, x0, y0, color);
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = err * 2;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+fn set_pixel(pixels: &mut [u8], width: u32, height: u32, x: i32, y: i32, color: [u8; 4]) {
+    if x >= 0 && y >= 0 && (x as u32) < width && (y as u32) < height {
+        let idx = (((y as u32) * width + x as u32) * 4) as usize;
+        pixels[idx..idx + 4].copy_from_slice(&color);
+    }
+}
+
+#[allow(dead_code)]
+fn render_danmaku_menu_overlay(
+    font: &FontVec,
+    cfg: &DanmakuConfig,
+    status: &DanmakuStatus,
+) -> Vec<u8> {
+    let width = 640u32;
+    let height = 520u32;
+    let mut pixels = vec![0u8; (width * height * 4) as usize];
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        0,
+        0,
+        width,
+        height,
+        [8, 10, 14, 236],
+    );
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        0,
+        0,
+        width,
+        58,
+        [18, 25, 38, 250],
+    );
+    fill_rect(
+        &mut pixels,
+        width,
+        height,
+        0,
+        58,
+        width,
+        1,
+        [56, 189, 248, 190],
+    );
+
+    let title = PxScale::from(22.0);
+    let normal = PxScale::from(16.0);
+    let small = PxScale::from(13.0);
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "直播姬 Menu",
+        22.0,
+        36.0,
+        title,
+        [245, 249, 255],
+    );
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        if status.bili_connected {
+            "Bilibili connected"
+        } else {
+            "Waiting for danmaku / test messages"
+        },
+        396.0,
+        36.0,
+        small,
+        if status.bili_connected {
             [74, 222, 128]
         } else {
             [148, 163, 184]
         },
     );
 
-    let mut y = 62.0f32;
-    let line_height = (cfg.font_size * 1.42).clamp(24.0, 46.0);
-    let filtered = messages
-        .iter()
-        .rev()
-        .filter(|msg| should_show_message(cfg, msg))
-        .take(12)
-        .cloned()
-        .collect::<Vec<_>>();
+    let mode = if cfg.attach_mode == "hand" || cfg.attach_mode == "left_hand" {
+        "Left hand"
+    } else if cfg.attach_mode == "right_hand" {
+        "Right hand"
+    } else {
+        "HMD"
+    };
+    let hand = match cfg.toggle_hand.as_str() {
+        "right" => "right controller",
+        "always_on" => "always on",
+        _ => "left controller",
+    };
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        &format!(
+            "Attach: {mode}  |  Toggle: {hand}  |  Room #{}",
+            status.room_id
+        ),
+        22.0,
+        84.0,
+        normal,
+        [226, 232, 240],
+    );
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "App menu: show/hide menu    Grip: show/hide danmaku panel",
+        22.0,
+        112.0,
+        small,
+        [186, 230, 253],
+    );
+    draw_text_line(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Stick/touchpad: move panel    Hold trigger: distance/size    Tap trigger: keyboard",
+        22.0,
+        136.0,
+        small,
+        [186, 230, 253],
+    );
 
-    if filtered.is_empty() {
-        let hint = if status.running {
-            "弹幕窗口已就绪，等待 Bilibili / OSC 消息..."
-        } else {
-            "弹幕服务未启动。启动后可在这里显示直播弹幕。"
-        };
-        draw_text_line(
-            font,
-            &mut pixels,
-            width,
-            height,
-            hint,
-            20.0,
-            y + 20.0,
-            scale,
-            [148, 163, 184],
-        );
-        draw_text_line(
-            font,
-            &mut pixels,
-            width,
-            height,
-            "可点击桌面端“测试弹幕 / 测试 SC / 测试礼物”确认 VR 内显示。",
-            20.0,
-            y + 54.0,
-            small,
-            [196, 181, 253],
-        );
-        return pixels;
-    }
-
-    for msg in filtered.into_iter().rev() {
-        if y > height as f32 - line_height {
-            break;
-        }
-
-        let color = message_color(&msg, text);
-        if msg.message_type == "sc" {
-            fill_rect(
-                &mut pixels,
-                width,
-                height,
-                12,
-                y as u32 - 6,
-                width - 24,
-                line_height as u32 + 14,
-                [74, 54, 20, 210],
-            );
-        }
-
-        let prefix = message_prefix(&msg);
-        let line = format!("{}{}: {}", prefix, msg.user, msg.text);
-        y = draw_wrapped_text(
-            font,
-            &mut pixels,
-            width,
-            height,
-            &line,
-            20.0,
-            y,
-            width as f32 - 40.0,
-            scale,
-            color,
-            line_height,
-        );
-        y += 4.0;
-    }
+    let mut y = 176u32;
+    draw_menu_value(font, &mut pixels, width, height, "X", cfg.x, -1.0, 1.0, y);
+    y += 38;
+    draw_menu_value(font, &mut pixels, width, height, "Y", cfg.y, -0.8, 0.8, y);
+    y += 38;
+    draw_menu_value(font, &mut pixels, width, height, "Z", cfg.z, -1.5, -0.3, y);
+    y += 38;
+    draw_menu_value(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Pitch",
+        cfg.pitch,
+        -30.0,
+        30.0,
+        y,
+    );
+    y += 38;
+    draw_menu_value(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Yaw",
+        cfg.yaw,
+        -30.0,
+        30.0,
+        y,
+    );
+    y += 38;
+    draw_menu_value(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Roll",
+        cfg.roll,
+        -20.0,
+        20.0,
+        y,
+    );
+    y += 38;
+    draw_menu_value(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Size",
+        cfg.overlay_width_m,
+        0.15,
+        0.8,
+        y,
+    );
+    y += 38;
+    draw_menu_value(
+        font,
+        &mut pixels,
+        width,
+        height,
+        "Background",
+        cfg.bg_alpha,
+        0.0,
+        1.0,
+        y,
+    );
 
     pixels
+}
+
+fn draw_menu_value(
+    font: &FontVec,
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    label: &str,
+    value: f32,
+    min: f32,
+    max: f32,
+    y: u32,
+) {
+    let scale = PxScale::from(14.0);
+    draw_text_line(
+        font,
+        pixels,
+        width,
+        height,
+        label,
+        28.0,
+        y as f32 + 17.0,
+        scale,
+        [226, 232, 240],
+    );
+    draw_text_line(
+        font,
+        pixels,
+        width,
+        height,
+        &format!("{value:.2}"),
+        532.0,
+        y as f32 + 17.0,
+        scale,
+        [245, 249, 255],
+    );
+    let bar_x = 130u32;
+    let bar_y = y + 6;
+    let bar_w = 370u32;
+    fill_rect(
+        pixels,
+        width,
+        height,
+        bar_x,
+        bar_y,
+        bar_w,
+        10,
+        [39, 45, 58, 230],
+    );
+    let ratio = ((value - min) / (max - min)).clamp(0.0, 1.0);
+    fill_rect(
+        pixels,
+        width,
+        height,
+        bar_x,
+        bar_y,
+        (bar_w as f32 * ratio) as u32,
+        10,
+        [14, 165, 233, 235],
+    );
 }
 
 fn should_show_message(cfg: &DanmakuConfig, msg: &DanmakuMessage) -> bool {
@@ -1948,19 +3250,22 @@ fn should_show_message(cfg: &DanmakuConfig, msg: &DanmakuMessage) -> bool {
     }
 }
 
+#[allow(dead_code)]
 fn message_prefix(msg: &DanmakuMessage) -> &'static str {
     match msg.message_type.as_str() {
         "sc" => "[SC] ",
-        "gift" => "[礼物] ",
-        "enter" => "[进入] ",
-        "follow" => "[关注] ",
-        "guard" | "vip_enter" => "[舰长] ",
-        "warning" => "[警告] ",
+        "gift" => "[Gift] ",
+        "enter" => "[Enter] ",
+        "follow" => "[Follow] ",
+        "guard" | "vip_enter" => "[Guard] ",
+        "warning" => "[Warning] ",
         "osc" => "[OSC] ",
+        "input" => "[Input] ",
         _ => "",
     }
 }
 
+#[allow(dead_code)]
 fn message_color(msg: &DanmakuMessage, default: [u8; 3]) -> [u8; 3] {
     match msg.message_type.as_str() {
         "sc" => [255, 224, 138],

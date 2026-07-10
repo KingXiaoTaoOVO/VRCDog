@@ -1,14 +1,14 @@
-# VRCX 一比一复刻完整开发文档
+# VrcDog 一比一复刻完整开发文档
 
-参考源：`禁止移除！/VRCX/`（MIT 协议，pypy-vrc / Natsumi-sama / Map1en 等贡献者）
-我们的目标：在 Tauri + Vue 3 架构下一比一复刻 VRCX 的全部界面与核心功能，使用我们自己的主题、i18n、Tauri 后端命令和 SQLite 数据层。
+参考源：`禁止移除！/VrcDog/`（MIT 协议，pypy-vrc / Natsumi-sama / Map1en 等贡献者）
+我们的目标：在 Tauri + Vue 3 架构下一比一复刻 VrcDog 的全部界面与核心功能，使用我们自己的主题、i18n、Tauri 后端命令和 SQLite 数据层。
 
 ---
 
 ## 目录
 
 1. [架构总览](#1-架构总览)
-2. [VRCX 完整模块清单](#2-vrcx-完整模块清单)
+2. [VrcDog 完整模块清单](#2-vrcdog-完整模块清单)
 3. [API 层（VRChat 接口）](#3-api-层vrchat-接口)
 4. [Stores 层（状态管理）](#4-stores-层状态管理)
 5. [Coordinators 层（业务逻辑）](#5-coordinators-层业务逻辑)
@@ -29,7 +29,7 @@
 
 ## 1. 架构总览
 
-VRCX 是 Vue 3 + Pinia + Vue Router + Vue I18n + ECharts + Reka UI（shadcn 风格）的桌面应用，原生层用 .NET（Windows）或 Electron（跨平台）。我们用 Tauri 2 + Rust 替代原生层。
+VrcDog 是 Vue 3 + Pinia + Vue Router + Vue I18n + ECharts + Reka UI（shadcn 风格）的桌面应用，原生层用 .NET（Windows）或 Electron（跨平台）。我们用 Tauri 2 + Rust 替代原生层。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -65,9 +65,9 @@ VRCX 是 Vue 3 + Pinia + Vue Router + Vue I18n + ECharts + Reka UI（shadcn 风�
 
 ---
 
-## 2. VRCX 完整模块清单
+## 2. VrcDog 完整模块清单
 
-下表是 VRCX 全部源码模块（src/ 下的目录）的职责。
+下表是 VrcDog 全部源码模块（src/ 下的目录）的职责。
 
 | 顶级目录 | 文件数（约） | 职责 |
 |---|---|---|
@@ -138,7 +138,7 @@ VRCX 是 Vue 3 + Pinia + Vue Router + Vue I18n + ECharts + Reka UI（shadcn 风�
 
 ## 4. Stores 层（状态管理）
 
-VRCX 有 **30+ 个 store**，全部基于 Pinia setup-style。
+VrcDog 有 **30+ 个 store**，全部基于 Pinia setup-style。
 
 ### 核心 store
 
@@ -185,8 +185,8 @@ VRCX 有 **30+ 个 store**，全部基于 Pinia setup-style。
 | `search.js` + `searchIndex.js` | 全局搜索 |
 | `sharedFeed.js` | 共享动态（feed + friendLog + gameLog 合并视图） |
 | `vr.js` | VR 模式状态 |
-| `vrcx.js` | VRCX 应用本身的运行状态 |
-| `vrcxUpdater.js` | 应用更新检查 |
+| `vrcdog.js` | VrcDog 应用本身的运行状态 |
+| `vrcdogUpdater.js` | 应用更新检查 |
 | `photon.js` | Photon 网络包嗅探（高级功能） |
 | `activity.js` | 活动数据（用户对话框活动 tab） |
 | `avatarProvider.js` | 头像数据库（社区） |
@@ -198,7 +198,7 @@ VRCX 有 **30+ 个 store**，全部基于 Pinia setup-style。
 
 ## 5. Coordinators 层（业务逻辑）
 
-24 个 coordinator，每个负责一类业务流程。这是 VRCX **最重要**的架构层 —— 所有"做事情"的逻辑都在这里。
+24 个 coordinator，每个负责一类业务流程。这是 VrcDog **最重要**的架构层 —— 所有"做事情"的逻辑都在这里。
 
 | Coordinator | 职责 |
 |---|---|
@@ -225,7 +225,7 @@ VRCX 有 **30+ 个 store**，全部基于 Pinia setup-style。
 | `searchIndexCoordinator.js` | 搜索索引构建（玩家/世界/头像/群组） |
 | `imageUploadCoordinator.js` | 图片上传流程 |
 | `memoCoordinator.js` | 备忘录增删改 |
-| `vrcxCoordinator.js` | VRCX 自身（自启动、托盘、深度链接、URL Scheme） |
+| `vrcdogCoordinator.js` | VrcDog 自身（自启动、托盘、深度链接、URL Scheme） |
 
 ---
 
@@ -331,14 +331,14 @@ VRCX 有 **30+ 个 store**，全部基于 Pinia setup-style。
 
 ## 9. UI 组件库
 
-VRCX 用 Reka UI（Vue 3 版的 shadcn）构建了完整的设计系统，60+ 个原子组件。结构都是 `XxxRoot.vue / XxxItem.vue / XxxContent.vue / XxxTrigger.vue` 模式。
+VrcDog 用 Reka UI（Vue 3 版的 shadcn）构建了完整的设计系统，60+ 个原子组件。结构都是 `XxxRoot.vue / XxxItem.vue / XxxContent.vue / XxxTrigger.vue` 模式。
 
 | 组件类别 | 组件 |
 |---|---|
 | 布局 | Card / Sheet / Sidebar / ScrollArea / Resizable / Separator / Skeleton |
 | 输入 | Input / InputGroup / InputOTP / Textarea / Checkbox / RadioGroup / Switch / Slider / Toggle / ToggleGroup / NumberField / TagsInput / NativeSelect / Select / VirtualCombobox |
 | 反馈 | Alert / AlertDialog / Dialog / Sonner（toast）/ Spinner / Progress / Tooltip / HoverCard |
-| 导航 | Tabs / TabsUnderline（VRCX 自定义下划线版本）/ Breadcrumb / Pagination |
+| 导航 | Tabs / TabsUnderline（VrcDog 自定义下划线版本）/ Breadcrumb / Pagination |
 | 菜单 | DropdownMenu / ContextMenu / Command（Cmd+K 风格搜索） / Popover |
 | 数据展示 | Avatar（含 Image/Fallback）/ Badge / Item（list-style）/ Table / DataTable / Tree / Calendar / RangeCalendar |
 | 表单 | Form / Field / Label / Kbd（键盘快捷键）/ Empty（空状态）|
@@ -350,7 +350,7 @@ VRCX 用 Reka UI（Vue 3 版的 shadcn）构建了完整的设计系统，60+ �
 
 ## 10. 对话框系统（Dialogs）
 
-VRCX 把所有"全局浮层"叫 dialog。统一通过 `MainDialogContainer.vue` 装载，通过 `modalStore` 控制生命周期。
+VrcDog 把所有"全局浮层"叫 dialog。统一通过 `MainDialogContainer.vue` 装载，通过 `modalStore` 控制生命周期。
 
 ### 顶层独立对话框（13 个）
 
@@ -368,7 +368,7 @@ VRCX 把所有"全局浮层"叫 dialog。统一通过 `MainDialogContainer.vue` 
 | `SendBoopDialog.vue` | Boop（戳一戳） |
 | `SortableTreeNode.vue` | 可拖拽树节点 |
 | `TableLimitsDialog.vue` | 数据表行数限制 |
-| `VRCXUpdateDialog.vue` | VRCX 自身更新 |
+| `VrcDogUpdateDialog.vue` | VrcDog 自身更新 |
 
 ### UserDialog 子对话框（10 个）
 
@@ -530,7 +530,7 @@ VRCX 把所有"全局浮层"叫 dialog。统一通过 `MainDialogContainer.vue` 
 
 独立 entry：`vr.html` + `vr/Vr.vue` + `vr/vr.js` + `vr/components/` + `vr/vr.css`
 
-VRCX 在 SteamVR 里渲染了独立的叠加层（OpenVR API），用户能在 VR 里看好友列表、通知、当前实例。我们已实现 OvrApi 的 Tauri 后端，前端 VR 入口可参考。
+VrcDog 在 SteamVR 里渲染了独立的叠加层（OpenVR API），用户能在 VR 里看好友列表、通知、当前实例。我们已实现 OvrApi 的 Tauri 后端，前端 VR 入口可参考。
 
 ---
 
@@ -545,7 +545,7 @@ VRCX 在 SteamVR 里渲染了独立的叠加层（OpenVR API），用户能在 V
 
 ## 14. 国际化
 
-VRCX 支持 14 种语言：
+VrcDog 支持 14 种语言：
 
 ```
 cs / en / es / fr / hu / ja / ko / pl / pt / ru / th / vi / zh-CN / zh-TW
@@ -559,9 +559,9 @@ cs / en / es / fr / hu / ja / ko / pl / pt / ru / th / vi / zh-CN / zh-TW
 
 ## 15. 后端 IPC（Tauri 命令映射）
 
-VRCX 用 .NET（Windows）或 Electron 桥接到原生层。我们用 Tauri 2 + Rust 替代。下表是必须的后端能力映射：
+VrcDog 用 .NET（Windows）或 Electron 桥接到原生层。我们用 Tauri 2 + Rust 替代。下表是必须的后端能力映射：
 
-| VRCX 能力 | VRCX 调用方式 | 我们的 Tauri 命令 | 状态 |
+| VrcDog 能力 | VrcDog 调用方式 | 我们的 Tauri 命令 | 状态 |
 |---|---|---|---|
 | HTTP（cookie 自动带） | `WebApi.execute` (.NET) | `vrc_execute` | ✅ |
 | Cookie 持久化 | `AppApi.GetVRChatCookies` | `db_save_auth` / `db_get_auth` | ✅ |
@@ -576,19 +576,19 @@ VRCX 用 .NET（Windows）或 Electron 桥接到原生层。我们用 Tauri 2 + 
 | SQLite | EF Core | `rusqlite`（直接） | ✅ |
 | 系统通知 | .NET ToastNotification | `tauri-plugin-notification`（todo） | ⚠️ 待接 |
 | 文件下载 | `AppApi.DownloadFile` | `bili_download_video` 等 | ✅ |
-| URL Scheme（vrcx:// vrchat://） | C# URI handler | `sys_register_url_scheme` + 启动参数 | ✅ |
+| URL Scheme（vrcdog:// vrchat://） | C# URI handler | `sys_register_url_scheme` + 启动参数 | ✅ |
 | 主密码加密 | C# Aes | `tauri-plugin-stronghold`（todo） | ⚠️ 待接 |
 
 ---
 
 ## 16. 复刻路线图（按优先级）
 
-> **重要修订（v4.0，2026-05-17）**：本节以前是按 VRCX 的目录结构（`components/dialogs/UserDialog/` 19 个文件等）描述阶段的，与 vrcdog 实际架构（`components/*View.vue` 平铺 + 单文件 `UserProfileModal.vue`）不一致，导致"已完成"标记产生歧义。本节现已重写为 **以功能为单位** 的路线图，状态严格对齐 `src/` 真实代码。架构层差异（views/coordinators/services 分层）单独列在阶段 **Z** 里讨论。
+> **重要修订（v4.0，2026-05-17）**：本节以前是按 VrcDog 的目录结构（`components/dialogs/UserDialog/` 19 个文件等）描述阶段的，与 vrcdog 实际架构（`components/*View.vue` 平铺 + 单文件 `UserProfileModal.vue`）不一致，导致"已完成"标记产生歧义。本节现已重写为 **以功能为单位** 的路线图，状态严格对齐 `src/` 真实代码。架构层差异（views/coordinators/services 分层）单独列在阶段 **Z** 里讨论。
 
 ### 状态图例
 
 - ✅ 已实现（功能在 `src/` 中可见、可跑通）
-- 🟡 部分实现（核心可用，但 VRCX 同位功能还有缺口）
+- 🟡 部分实现（核心可用，但 VrcDog 同位功能还有缺口）
 - ⏳ 未实现
 - 🛠 仅后端就绪（Tauri 命令存在，前端 UI 缺）
 
@@ -622,23 +622,23 @@ VRCX 用 .NET（Windows）或 Electron 桥接到原生层。我们用 Tauri 2 + 
 | **V — 笔记 / 备忘** | 用户备注 + 本地备忘 | `NotesView.vue` + 用户面板内联编辑 | ✅ |
 | **W — i18n 完整化** | 14 种语言完整翻译（当前 zh-CN/en-US/ja-JP 真实，其余 10 种为同一份英文骨架） | `src/i18n/locales/*.json` | 🟡 见 W 详细 |
 | **X — 环境管理** | Unity Hub / Unity 2022 / VCC / ALCOM 一键安装 | `EnvView.vue` (662 行) | ✅ |
-| **Y — API 模块对齐** | 对齐 VRCX 22 个 API 模块 | `src/api/*.ts` 已补 avatarModeration / inviteMessages / inventory / prop / misc / VRC+ 等主要模块；queryRequest 仍待独立化 | 🟡 见 Y 详细 |
+| **Y — API 模块对齐** | 对齐 VrcDog 22 个 API 模块 | `src/api/*.ts` 已补 avatarModeration / inviteMessages / inventory / prop / misc / VRC+ 等主要模块；queryRequest 仍待独立化 | 🟡 见 Y 详细 |
 | **Z — 架构层迁移** | 将 `components/*View.vue` 平铺迁到 `views/Xxx/` + 抽离 `coordinators/` / `services/` 层 | 全工程 | ⏳ 待评估 |
 
 ### A — UserDialog 详细状态
 
-VRCX 在 `components/dialogs/UserDialog/` 里有 19 个文件，vrcdog 用单一 `UserProfileModal.vue` (2647 行) + `userProfile.ts` (Pinia store) 承载。功能不是按文件而是按面板分块的。
+VrcDog 在 `components/dialogs/UserDialog/` 里有 19 个文件，vrcdog 用单一 `UserProfileModal.vue` (2647 行) + `userProfile.ts` (Pinia store) 承载。功能不是按文件而是按面板分块的。
 
 | 子功能 | 状态 | 真实承载 |
 |---|---|---|
 | 用户头像 + profilePicOverride 优先 + 状态点 | ✅ | `UserProfileModal.vue` Header |
 | DisplayName + 信任色 + Username 副名 | ✅ | Header |
 | 国旗 + 平台徽章（PC/Quest/iOS） | ✅ | Header |
-| Trust 徽章 / 18+ / 共同好友 / Discord 等 | 🟡 | Header（部分 VRCX 标记不全） |
+| Trust 徽章 / 18+ / 共同好友 / Discord 等 | 🟡 | Header（部分 VrcDog 标记不全） |
 | 曾用名下拉（previousDisplayNames） | ✅ | Header 已显示历史名称下拉 |
 | VRChat 官方徽章 + popover + 隐藏/展示开关 | ✅ | Header badges popover + `updateBadge` |
 | Bio 翻译按钮 | 🟡 | OvrApi.translate 后端就绪，按钮看实现 |
-| bioLinks favicon 列表 | 🟡 | `socialLinks` computed 解析 bio 文本，VRCX 是 bioLinks 数组字段 |
+| bioLinks favicon 列表 | 🟡 | `socialLinks` computed 解析 bio 文本，VrcDog 是 bioLinks 数组字段 |
 | userIcon 独立全屏预览 | ✅ | Header 右侧 userIcon 点击预览 |
 | More 菜单（自己 vs 他人双语境） | 🟡 | 邀请/请求邀请/群组邀请/编辑器动作已接入，仍有部分高级动作待补 |
 | **Info Tab — 当前实例卡片** | 🟡 | 基础实现 |
@@ -664,9 +664,9 @@ VRCX 在 `components/dialogs/UserDialog/` 里有 19 个文件，vrcdog 用单一
 | **Activity Tab — 每日游戏时长** | 🟡 | game logs 解析已就绪 |
 | **Activity Tab — 最常去的世界** | 🟡 | game logs 聚合已就绪 |
 | **Activity Tab — 排除主世界开关** | ✅ | `excludeHomeWorld` |
-| **Activity Tab — 重叠度计算（仅看他人）** | ⏳ | VRCX 高级功能，未实现 |
+| **Activity Tab — 重叠度计算（仅看他人）** | ⏳ | VrcDog 高级功能，未实现 |
 | **JSON Tab** | ✅ | `JsonTree.vue` 已挂入用户面板 |
-| **导航历史（面包屑）** | ✅ | `navHistory` + `goBack`（vrcdog 自创，VRCX 没有） |
+| **导航历史（面包屑）** | ✅ | `navHistory` + `goBack`（vrcdog 自创，VrcDog 没有） |
 | **A8a — BioDialog**（512 字 + bioLinks 数组） | ✅ | `UserProfileModal.vue` 内联编辑器，功能等价 |
 | **A8a — EditNoteAndMemoDialog** | 🟡 | 内联编辑了，但没独立 dialog |
 | **A8a — PronounsDialog** | ✅ | 内联编辑器，接 `saveCurrentUser` |
@@ -699,9 +699,9 @@ VRCX 在 `components/dialogs/UserDialog/` 里有 19 个文件，vrcdog 用单一
 
 ### Y — API 模块对齐
 
-VRCX 有 22 个 API 模块，vrcdog 当前 13 个：
+VrcDog 有 22 个 API 模块，vrcdog 当前 13 个：
 
-| VRCX | vrcdog 状态 |
+| VrcDog | vrcdog 状态 |
 |---|---|
 | auth / user / friend / world / avatar / group / notification / favorite | ✅ 已对齐 |
 | file / request | ✅ 已对齐（vrcdog 多了 `gamelogWatcher` / `websocket` / `index` 聚合） |
@@ -713,7 +713,7 @@ VRCX 有 22 个 API 模块，vrcdog 当前 13 个：
 
 ### Z — 架构层迁移（评估中）
 
-VRCX 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 分层；vrcdog 当前是 `components/*View.vue` 平铺 + 业务逻辑混在 `stores/` 里 + 单 `composables/useToast.ts`。
+VrcDog 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 分层；vrcdog 当前是 `components/*View.vue` 平铺 + 业务逻辑混在 `stores/` 里 + 单 `composables/useToast.ts`。
 
 迁移影响面：
 - 44 个 `*.vue` 文件移动 + 改 import
@@ -769,7 +769,7 @@ VRCX 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 
 
 ## 17. 当前进度
 
-> **重要修订（v4.0，2026-05-17）**：以前版本声称"UserDialog 整体 ~98% 完工"，是按 VRCX 文件结构对照得出的。重新审计 `src/` 后发现：vrcdog 是**单文件 `UserProfileModal.vue` (2647 行) + `userProfile.ts` (Pinia store)** 承载，与 VRCX 的 19 文件分层差异巨大，原"已完成"标记有歧义。本节按真实文件 + 真实功能重新统计。
+> **重要修订（v4.0，2026-05-17）**：以前版本声称"UserDialog 整体 ~98% 完工"，是按 VrcDog 文件结构对照得出的。重新审计 `src/` 后发现：vrcdog 是**单文件 `UserProfileModal.vue` (2647 行) + `userProfile.ts` (Pinia store)** 承载，与 VrcDog 的 19 文件分层差异巨大，原"已完成"标记有歧义。本节按真实文件 + 真实功能重新统计。
 
 ### 已确认实现（基于实际代码 grep）
 
@@ -780,10 +780,10 @@ VRCX 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 
 - `ModeSelect.vue` — PC/VR 模式选择
 - `authStore.ts` — 心跳保活 + 自动登录 + 服务端 ban/kick/freeze 监听 + 好友/通知冷启动同步
 - F12 / Ctrl+Shift+I / 右键菜单 生产环境屏蔽
-- vrcx:// / vrchat:// URL Scheme 启动参数处理
+- vrcdog:// / vrchat:// URL Scheme 启动参数处理
 
 **用户面板（A 阶段）**
-- `UserProfileModal.vue` + `userProfile.ts`：用户基本信息、共同好友、共同群组、加入的群组、创建的世界、收藏的世界、创建的形象、本地备注、收藏切换、bio 社交链接解析（twitter/x/youtube/twitch/discord/github/patreon）、活动日志、导航历史面包屑（vrcdog 自创，VRCX 没有）
+- `UserProfileModal.vue` + `userProfile.ts`：用户基本信息、共同好友、共同群组、加入的群组、创建的世界、收藏的世界、创建的形象、本地备注、收藏切换、bio 社交链接解析（twitter/x/youtube/twitch/discord/github/patreon）、活动日志、导航历史面包屑（vrcdog 自创，VrcDog 没有）
 - 乐观加载（先读 `db_api_cache`，再后台拉取覆盖）
 
 **实体面板**
@@ -836,7 +836,7 @@ VRCX 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 
 - 13 个模块：auth / avatar / favorite / file / friend / gamelogWatcher / group / index / notification / request / user / websocket / world
 - `VrcApi` 聚合对象兼容旧调用，`DbApi` 暴露 SQLite，`SysApi` 暴露 Tauri 系统命令，`OvrApi` 暴露 OpenVR 接口，`GalleryApi` / `GamelogApi` 单独命名
 
-### 与 VRCX 对照下的明确缺口
+### 与 VrcDog 对照下的明确缺口
 
 | 功能 | 状态 | 说明 |
 |---|---|---|
@@ -847,15 +847,15 @@ VRCX 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 
 | **VRChat 官方徽章 popover** | ✅ | UserDialog Header 已补 |
 | **JSON Tab** | ✅ | `JsonTree.vue` 已挂入用户面板 |
 | **Sidebar 好友区** | ⏳ | 当前 sidebar 仅路由按钮，无好友按状态分组折叠 |
-| **Dashboard 可编辑布局** | ⏳ | 当前固定，VRCX 是 widget 拖拽 |
+| **Dashboard 可编辑布局** | ⏳ | 当前固定，VrcDog 是 widget 拖拽 |
 | **邀请消息模板管理** | ✅ | `UserProfileModal.vue` 支持 invite/request 发送时编辑；`ToolsView.vue` 支持 message/request/response/requestResponse 四类 4 槽管理 |
-| **Photon 嗅探设置** | ⏳ | VRCX 高级功能 |
+| **Photon 嗅探设置** | ⏳ | VrcDog 高级功能 |
 | **Discord RPC 详细映射** | 🟡 | 后端 `setDiscordRpc` 在，UI 未做类型映射 |
-| **注册表备份** | ⏳ | VRCX 工具页有 |
+| **注册表备份** | ⏳ | VrcDog 工具页有 |
 | **VRC+ 图库管理** | 🟡 | `gallery_get_images` 后端在，Gallery.vue 看实现 |
-| **群组日历** | ⏳ | VRCX 有月历视图 |
-| **截图元数据查看** | ⏳ | VRCX 有 |
-| **拓扑图（共同好友 graph）** | ⏳ | VRCX 用 force layout |
+| **群组日历** | ⏳ | VrcDog 有月历视图 |
+| **截图元数据查看** | ⏳ | VrcDog 有 |
+| **拓扑图（共同好友 graph）** | ⏳ | VrcDog 用 force layout |
 | **缺失 API 模块** | 🟡 | 主要模块已补；queryRequest 仍待独立化 |
 
 ### 下一步建议（按优先级）
@@ -869,7 +869,7 @@ VRCX 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/` 
 
 ### 总目标
 
-按 VRCX 的功能清单一比一复刻**功能**，不强求文件结构一致。每个功能用真实 VRChat API + 本地 SQLite，不出现假占位数据。当 vrcdog 的实现路径与 VRCX 不同（例如单文件 vs 19 文件），以**功能等价**为准。
+按 VrcDog 的功能清单一比一复刻**功能**，不强求文件结构一致。每个功能用真实 VRChat API + 本地 SQLite，不出现假占位数据。当 vrcdog 的实现路径与 VrcDog 不同（例如单文件 vs 19 文件），以**功能等价**为准。
 
 ---
 
@@ -905,7 +905,7 @@ views/Dashboard/
 
 ### 数据流
 - 配置存储在 `dashboardStore.value`（Pinia），结构 `{ rows: [{ height, panels: [{ id, type, props }] }] }`
-- 持久化到 `configRepository.setString('VRCX_dashboardLayout', JSON.stringify(...))`
+- 持久化到 `configRepository.setString('VrcDog_dashboardLayout', JSON.stringify(...))`
 - 编辑模式开关 `dashboardStore.editing`，切到 true 时 panel 上出现拖拽手柄和删除按钮
 - widget 数据来源于其他 store：`feedStore.feedTable` / `gameLogStore.gameLogTable` / `locationStore.lastLocation` 等
 
@@ -1205,7 +1205,7 @@ views/Notifications/
 └── dialogs/                # 通知相关弹窗（如群组邀请处理）
 ```
 
-### 通知分类（VRCX 标准）
+### 通知分类（VrcDog 标准）
 - `friendRequest` — 好友请求
 - `invite` — 邀请
 - `requestInvite` — 邀请请求
@@ -1260,7 +1260,7 @@ views/Search/
 ### 搜索类型
 - **用户**：`POST /users` 搜索 displayName，结果分页
 - **世界**：`GET /worlds?search=X`，可选过滤（platform / featured / sort）
-- **头像**：第三方头像数据库（VRCX 用的是社区源，需要 avatarProviderStore 配置）
+- **头像**：第三方头像数据库（VrcDog 用的是社区源，需要 avatarProviderStore 配置）
 - **群组**：`GET /groups?query=X`
 
 ### Search.vue UI
@@ -1365,7 +1365,7 @@ views/Favorites/
 - 操作：移除 / 跳到详情 / 批量选择
 
 ### 本地补充
-VRCX 还在本地维护一个"Local Favorites"分组（突破 VRChat 收藏数量限制），存在 SQLite。
+VrcDog 还在本地维护一个"Local Favorites"分组（突破 VRChat 收藏数量限制），存在 SQLite。
 
 ---
 
@@ -1455,7 +1455,7 @@ views/Settings/
 - Discord RPC 开关 + 详情/状态文本 + 各事件类型映射
 - OSC 监听端口 / 发送端口 + 静音同步
 - VRChat 启动参数（LaunchOptionsDialog）
-- URL Scheme 注册（vrcx://）
+- URL Scheme 注册（vrcdog://）
 
 ### AdvancedTab
 - Photon 嗅探（PhotonSettings.vue）
@@ -1697,10 +1697,10 @@ views/Tools/
 - 备忘录 CRUD
 - 同步到本地 SQLite
 
-## B.24 vrcxCoordinator
+## B.24 vrcdogCoordinator
 - 自启动注册
 - 系统托盘
-- URL Scheme 处理（vrcx://launch/wrld_xxx）
+- URL Scheme 处理（vrcdog://launch/wrld_xxx）
 - VRChat URL 处理（vrchat://launch/wrld_xxx）
 
 ---
@@ -1847,7 +1847,7 @@ views/Tools/
 # 附录 D：UI 组件库的实现细节
 
 ## D.1 TabsUnderline.vue
-VRCX 自定义的 Tabs 变体：
+VrcDog 自定义的 Tabs 变体：
 - 用下划线高亮 active tab（不是背景色）
 - 支持 `unmount-on-hide` 控制卸载策略（影响数据保留/重新加载）
 - 支持 `fill` 模式（撑满宽度）
@@ -1872,13 +1872,13 @@ VRCX 自定义的 Tabs 变体：
 - 完成后自动提交（可选）
 
 ## D.5 TooltipWrapper
-含 side / content / disabled 的统一 tooltip 封装。VRCX 处处用，复刻时建议先做这个再继续别的。
+含 side / content / disabled 的统一 tooltip 封装。VrcDog 处处用，复刻时建议先做这个再继续别的。
 
 ---
 
 # 附录 E：UserDialog 命令系统（useUserDialogCommands）
 
-VRCX 把 UserDialog 的所有动作集中在 `useUserDialogCommands.js` composable，返回一个 `userDialogCommand` 对象，子组件通过 `:user-dialog-command="userDialogCommand"` 透传，避免 prop drilling。
+VrcDog 把 UserDialog 的所有动作集中在 `useUserDialogCommands.js` composable，返回一个 `userDialogCommand` 对象，子组件通过 `:user-dialog-command="userDialogCommand"` 透传，避免 prop drilling。
 
 ### 命令清单（25+ 个）
 - 邀请类：`invite()` / `requestInvite()` / `inviteToInstance()` / `dropInvitePortal()`
@@ -1901,7 +1901,7 @@ VRCX 把 UserDialog 的所有动作集中在 `useUserDialogCommands.js` composab
 
 # 附录 F：完整文件清单（src/ 下 200+ 文件）
 
-为了完全理解 VRCX，下面给出**全部源码文件**的扁平清单（不展开测试文件）。
+为了完全理解 VrcDog，下面给出**全部源码文件**的扁平清单（不展开测试文件）。
 
 ### api/（22 个）
 auth, avatar, avatarModeration, favorite, friend, group, image, index, instance, inventory, inviteMessages, misc, notification, playerModeration, prop, queryRequest, user, vrcPlusIcon, vrcPlusImage, world, queryRequest
@@ -1910,7 +1910,7 @@ auth, avatar, avatarModeration, favorite, friend, group, image, index, instance,
 AvatarInfo, BackToTop, CountdownTimer, DeprecationAlert, DisplayName, Emoji, FullscreenImagePreview, InstanceActionBar, Location, LocationWorld, MacOSTitleBar, PresetColorPicker, QuickSearchDialog, QuickSearchSync, StatusBar, statusBarUtils, Timer, UserContextMenu, WorldActionMenuItems
 
 ### components/dialogs/ 顶层（13 个）
-ChooseFavoriteGroupDialog, CustomNavDialog, DatabaseUpgradeDialog, DialogJsonTab, ImageCropDialog, InviteGroupDialog, LaunchDialog, MainDialogContainer, ModerateGroupDialog, SendBoopDialog, SortableTreeNode, TableLimitsDialog, VRCXUpdateDialog
+ChooseFavoriteGroupDialog, CustomNavDialog, DatabaseUpgradeDialog, DialogJsonTab, ImageCropDialog, InviteGroupDialog, LaunchDialog, MainDialogContainer, ModerateGroupDialog, SendBoopDialog, SortableTreeNode, TableLimitsDialog, VrcDogUpdateDialog
 
 ### components/dialogs/AvatarDialog/（4）
 AvatarDialog, SetAvatarStylesDialog, SetAvatarTagsDialog, useAvatarDialogCommands
@@ -1940,7 +1940,7 @@ alert, alert-dialog, avatar, badge, breadcrumb, button, button-group, calendar, 
 useImageCropper, useInviteChecks, useMainLayoutResizable, useOptionKeySelect, useRecentActions, useToolActions, useToolNavPinning, useUserDisplay
 
 ### coordinators/（24）
-authAutoLoginCoordinator, authCoordinator, avatarCoordinator, cacheCoordinator, dateCoordinator, favoriteCoordinator, friendPresenceCoordinator, friendRelationshipCoordinator, friendSyncCoordinator, gameCoordinator, gameLogCoordinator, groupCoordinator, imageUploadCoordinator, instanceCoordinator, inviteCoordinator, locationCoordinator, memoCoordinator, moderationCoordinator, searchIndexCoordinator, userCoordinator, userEventCoordinator, userSessionCoordinator, vrcxCoordinator, worldCoordinator
+authAutoLoginCoordinator, authCoordinator, avatarCoordinator, cacheCoordinator, dateCoordinator, favoriteCoordinator, friendPresenceCoordinator, friendRelationshipCoordinator, friendSyncCoordinator, gameCoordinator, gameLogCoordinator, groupCoordinator, imageUploadCoordinator, instanceCoordinator, inviteCoordinator, locationCoordinator, memoCoordinator, moderationCoordinator, searchIndexCoordinator, userCoordinator, userEventCoordinator, userSessionCoordinator, vrcdogCoordinator, worldCoordinator
 
 ### services/（11 + database/）
 appConfig, config, confusables, gameLog, jsonStorage, request, security, sqlite, watchState, webapi, websocket, database/
@@ -1952,7 +1952,7 @@ accessType, api, dashboard, discord, emoji, feedFilters, fonts, group, index, in
 _utils, activityEngine, appActions, avatar, avatarTransforms, cacheUtils, chart, common, compare, csv, discordPresence, entityTransforms, fileUtils, friend, gallery, gameLog, group, groupTransforms, imageUpload, index, instance, instanceTransforms, invite, localizationHelperCLI, location, locationParser, notificationCategory, notificationMessage, notificationTransforms, overlapCalculator, platformUtils, quickSearchUtils, resolveRef, retry, setting, throttle, urlUtils, user, userTransforms, world, worldTransforms, base/
 
 ### stores/ 顶层（30）
-activity, auth, avatar, avatarProvider, charts, dashboard, favorite, feed, friend, gallery, game, group, index, instance, invite, launch, location, modal, moderation, photon, quickSearch, quickSearchWorker, search, searchIndex, sharedFeed, tools, ui, updateLoop, user, vr, vrcStatus, vrcx, vrcxUpdater, world
+activity, auth, avatar, avatarProvider, charts, dashboard, favorite, feed, friend, gallery, game, group, index, instance, invite, launch, location, modal, moderation, photon, quickSearch, quickSearchWorker, search, searchIndex, sharedFeed, tools, ui, updateLoop, user, vr, vrcStatus, vrcdog, vrcdogUpdater, world
 
 ### stores/settings/（6）
 advanced, appearance, discordPresence, general, notifications, wristOverlay
@@ -1998,7 +1998,7 @@ App.vue, app.js, vite.config.js, index.html, vr.html
 3. **写 coordinator** — 把业务逻辑（API 调用 + store 写入 + toast）封装成函数
 4. **写组件** — 模板 + 样式 + 把 coordinator 调用绑到事件
 5. **跑诊断** — `getDiagnostics` 确认编译通过
-6. **手动测试** — 在 dev server 跑起来，对照 VRCX 截图验收
+6. **手动测试** — 在 dev server 跑起来，对照 VrcDog 截图验收
 7. **更新本文档** — 在对应 tab/对话框的 [x] 打勾
 
 每完成一个阶段（A1 到 T），同步更新第 16 节"复刻路线图"和第 17 节"当前进度"。

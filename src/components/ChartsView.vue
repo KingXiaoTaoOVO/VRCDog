@@ -108,7 +108,7 @@ onMounted(() => fetchAll());
 
 const maxWeekly = computed(() => Math.max(1, ...weeklyActivity.value));
 
-// --- 共同好友拓扑图逻辑 (参考 VRCX) ---
+// --- 共同好友拓扑图逻辑 (参考 VrcDog) ---
 const cssVar = (name: string, fallback: string) => {
   if (typeof window === 'undefined') return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -237,7 +237,7 @@ const fetchMutualFriends = async () => {
       console.warn(t('auto_b0a0215c'), friend.displayName);
     }
     mutualFetchProgress.value.current = i + 1;
-    // 速率限制，VRCX 设置的是每秒5次，我们保守一点，每次请求间隔 250ms
+    // 速率限制，VrcDog 设置的是每秒5次，我们保守一点，每次请求间隔 250ms
     await new Promise(r => setTimeout(r, 250));
   }
   
@@ -265,7 +265,7 @@ const renderNetworkChart = () => {
     chartInstance = echarts.init(networkChartRef.value, undefined, { renderer: 'canvas' });
   }
 
-  // 渲染 VRCX 风格的相互图
+  // 渲染 VrcDog 风格的相互图
   const c = themeColors();
   const palette = graphPalette();
   const graphNodes = mutualGraphNodes.value.map((node) => ({

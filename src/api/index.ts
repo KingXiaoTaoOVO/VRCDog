@@ -28,6 +28,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       osc_input_running: false,
       vr_initialized: false,
       overlay_visible: true,
+      vr_menu_visible: false,
       room_id: 0,
       online: 0,
       message_count: 0,
@@ -52,6 +53,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       chatbox_interval_ms: 1600,
       enable_vr_overlay: true,
       overlay_visible: true,
+      vr_menu_visible: false,
       attach_mode: 'hmd',
       toggle_hand: 'left',
       x: -0.4,
@@ -73,6 +75,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       show_follow: true,
       show_guard: true,
       show_sc: true,
+      vr_input_text: '',
     };
     if (cmd === 'vrc_execute') return Promise.resolve({ status: 200, data: '{}' }) as any;
     if (cmd === 'vrc_get_server_status') return Promise.resolve({ status: { description: 'All Systems Operational' } }) as any;
@@ -90,7 +93,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     if (cmd === 'danmaku_get_messages') return Promise.resolve([]) as any;
     if (cmd === 'danmaku_set_config') {
       const config = (args?.config || mockDanmakuConfig) as any;
-      return Promise.resolve(mockDanmakuStatus({ overlay_visible: config.overlay_visible, room_id: config.room_id })) as any;
+      return Promise.resolve(mockDanmakuStatus({ overlay_visible: config.overlay_visible, vr_menu_visible: config.vr_menu_visible, room_id: config.room_id })) as any;
     }
     if (cmd === 'danmaku_start') {
       const config = (args?.config || mockDanmakuConfig) as any;
@@ -99,6 +102,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
         osc_input_running: Boolean(config.enable_osc_input),
         vr_initialized: Boolean(config.enable_vr_overlay),
         overlay_visible: config.overlay_visible !== false,
+        vr_menu_visible: Boolean(config.vr_menu_visible),
         room_id: config.room_id || 0,
         last_event: 'browser_preview_started',
       })) as any;
@@ -106,13 +110,29 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     if (cmd === 'danmaku_stop') return Promise.resolve(mockDanmakuStatus({ last_event: 'browser_preview_stopped' })) as any;
     if (cmd === 'danmaku_clear_messages') return Promise.resolve(undefined) as any;
     if (cmd === 'danmaku_set_overlay_visible') return Promise.resolve(mockDanmakuStatus({ overlay_visible: Boolean(args?.visible) })) as any;
+    if (cmd === 'danmaku_set_vr_input_text') return Promise.resolve(mockDanmakuStatus({ vr_input_text: String(args?.text || '') })) as any;
+    if (cmd === 'danmaku_submit_vr_input') {
+      return Promise.resolve({
+        id: Date.now(),
+        source: 'browser',
+        message_type: 'input',
+        user: 'VR输入',
+        text: String(args?.text || mockDanmakuConfig.vr_input_text || '测试输入'),
+        price: null,
+        gift_count: null,
+        medal_name: null,
+        medal_level: null,
+        guard_level: null,
+        timestamp_ms: Date.now(),
+      }) as any;
+    }
     if (cmd === 'danmaku_send_test') {
       return Promise.resolve({
         id: Date.now(),
         source: 'browser',
         message_type: String(args?.messageType || 'danmaku'),
         user: 'PreviewUser',
-        text: String(args?.text || 'VRDanmaku browser preview message.'),
+        text: String(args?.text || '直播姬 browser preview message.'),
         price: null,
         gift_count: null,
         medal_name: null,
@@ -159,7 +179,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
 }
 
 /**
- * [VRCX 对齐] VRChat API 核心导出
+ * [VrcDog 对齐] VRChat API 核心导出
  * 全部重构为模块化 API，同时保持 VrcApi 对象兼容性
  */
 export const VrcApi = {
@@ -505,6 +525,7 @@ export interface DanmakuConfig {
   chatbox_interval_ms: number;
   enable_vr_overlay: boolean;
   overlay_visible: boolean;
+  vr_menu_visible: boolean;
   attach_mode: string;
   toggle_hand: string;
   x: number;
@@ -526,6 +547,7 @@ export interface DanmakuConfig {
   show_follow: boolean;
   show_guard: boolean;
   show_sc: boolean;
+  vr_input_text: string;
 }
 
 export interface DanmakuStatus {
@@ -534,11 +556,14 @@ export interface DanmakuStatus {
   osc_input_running: boolean;
   vr_initialized: boolean;
   overlay_visible: boolean;
+  vr_menu_visible: boolean;
   room_id: number;
   online: number;
   message_count: number;
   last_error: string;
   last_event: string;
+  vr_input_text: string;
+  vr_keyboard_open: boolean;
 }
 
 export interface DanmakuMessage {
@@ -564,6 +589,8 @@ export const DanmakuApi = {
   stop: () => safeInvoke<DanmakuStatus>('danmaku_stop'),
   clearMessages: () => safeInvoke<void>('danmaku_clear_messages'),
   setOverlayVisible: (params: { visible: boolean }) => safeInvoke<DanmakuStatus>('danmaku_set_overlay_visible', params),
+  setVrInputText: (params: { text: string }) => safeInvoke<DanmakuStatus>('danmaku_set_vr_input_text', params),
+  submitVrInput: (params: { text?: string }) => safeInvoke<DanmakuMessage>('danmaku_submit_vr_input', params),
   sendTest: (params: { messageType: string; text?: string }) => safeInvoke<DanmakuMessage>('danmaku_send_test', params),
 };
 

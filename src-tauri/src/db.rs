@@ -154,6 +154,14 @@ impl DbState {
             "ALTER TABLE status_presets ADD COLUMN name TEXT NOT NULL DEFAULT ''",
             [],
         );
+        let _ = conn.execute(
+            "DELETE FROM notifications
+             WHERE COALESCE(TRIM(message), '') = ''
+               AND COALESCE(TRIM(details), '') IN ('', '{}', 'null')
+               AND COALESCE(TRIM(sender_username), '') = ''
+               AND type NOT IN ('friendRequest', 'invite', 'requestInvite', 'group.invite', 'group.request', 'friend-online', 'friend-offline')",
+            [],
+        );
 
         Self {
             conn: Arc::new(StdMutex::new(conn)),

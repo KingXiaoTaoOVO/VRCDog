@@ -25,8 +25,59 @@ export const useAuthStore = defineStore('auth', () => {
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let consecutiveFailures = 0;
   let isFetchingHeartbeat = false;
+  let serverEventsRegistered = false;
 
   const getBaseUrl = () => clientServerUrl.value.replace(/\/+$/, '');
+
+  const normalizeServerEventUserId = (payload: any): string => {
+    if (typeof payload === 'string') return payload;
+    return payload?.user_id || payload?.userId || '';
+  };
+
+  const isCurrentClientEvent = (payload: any): boolean => {
+    const userId = normalizeServerEventUserId(payload);
+    const currentId = currentUser.value?.id || currentUser.value?.displayName || '';
+    return appRole.value === 'client' && Boolean(userId) && Boolean(currentId) && (userId === currentId || userId === currentUser.value?.displayName);
+  };
+
+  const normalizeNotificationForDb = (notif: any) => {
+    const createdAt = notif.created_at || notif.createdAt || (notif.createdAtMs ? new Date(Number(notif.createdAtMs)).toISOString() : '');
+    return {
+      id: notif.id,
+      type: notif.type || 'notification',
+      senderUserId: notif.senderUserId || null,
+      senderUsername: notif.senderUsername || notif.senderDisplayName || '',
+      receiverUserId: notif.receiverUserId || null,
+      message: notif.message || notif.title || '',
+      details: typeof notif.details === 'object' ? JSON.stringify(notif.details || {}) : (notif.details || ''),
+      created_at: createdAt || new Date().toISOString()
+    };
+  };
+
+  const ensureServerEventListeners = async () => {
+    if (!isTauri() || serverEventsRegistered) return;
+    serverEventsRegistered = true;
+    const { listen } = await import('@tauri-apps/api/event');
+
+    await listen('client_kicked', (e: any) => {
+      if (isCurrentClientEvent(e.payload)) {
+        banMessage.value = t('auto_e1b5d9e2');
+        handleLogout(true);
+      }
+    });
+    await listen('client_frozen', (e: any) => {
+      if (isCurrentClientEvent(e.payload)) {
+        banMessage.value = `Account Frozen! Reason: ${e.payload?.reason || t('auto_1622dc9b')}`;
+        handleLogout(true);
+      }
+    });
+    await listen('client_banned', (e: any) => {
+      if (isCurrentClientEvent(e.payload)) {
+        banMessage.value = `Account Banned! Reason: ${e.payload?.reason || t('auto_1622dc9b')}`;
+        handleLogout(true);
+      }
+    });
+  };
 
   const disconnectFromServer = async () => {
     if (!clientServerUrl.value || !currentUser.value) return;
@@ -151,6 +202,8 @@ export const useAuthStore = defineStore('auth', () => {
         } else if (data.status === 'kicked') {
           banMessage.value = t('auto_e1b5d9e2');
           handleLogout(true);
+        } else if (data.status === 'register_required') {
+          await registerWithServer(currentUser.value);
         }
       } catch (err) {
         console.warn(t('auto_a46150ae'), err);
@@ -193,7 +246,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const notifs = await VrcApi.getNotifications({ n: 100, offset: 0 });
       if (notifs && notifs.length > 0 && isTauri()) {
-        await DbApi.batchSaveNotifications({ notificationsJson: JSON.stringify(notifs) });
+        await DbApi.batchSaveNotifications({ notificationsJson: JSON.stringify(notifs.map(normalizeNotificationForDb)) });
       }
       window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));
     } catch (err) {
@@ -213,29 +266,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (allowed === false) { currentUser.value = null; return; }
     isLoggedIn.value = true;
     startHeartbeat();
-
-    if (isTauri()) {
-      import('@tauri-apps/api/event').then(({ listen }) => {
-        listen('client_kicked', (e: any) => {
-          if (e.payload?.user_id === (currentUser.value?.id || currentUser.value?.displayName)) {
-            banMessage.value = t('auto_e1b5d9e2');
-            handleLogout(true);
-          }
-        });
-        listen('client_frozen', (e: any) => {
-          if (e.payload?.user_id === (currentUser.value?.id || currentUser.value?.displayName)) {
-            banMessage.value = `Account Frozen! Reason: ${e.payload.reason || t('auto_1622dc9b')}`;
-            handleLogout(true);
-          }
-        });
-        listen('client_banned', (e: any) => {
-          if (e.payload?.user_id === (currentUser.value?.id || currentUser.value?.displayName)) {
-            banMessage.value = `Account Banned! Reason: ${e.payload.reason || t('auto_1622dc9b')}`;
-            handleLogout(true);
-          }
-        });
-      });
-    }
+    await ensureServerEventListeners();
 
     await uiStore.fetchServerFeatures(getBaseUrl(), user);
     await initWebsocket();
@@ -281,6 +312,7 @@ export const useAuthStore = defineStore('auth', () => {
         if (allowed === false) { currentUser.value = null; autoLoginLoading.value = false; return; }
         isLoggedIn.value = true;
         startHeartbeat();
+        await ensureServerEventListeners();
         await uiStore.fetchServerFeatures(getBaseUrl(), autoLoginUser);
         
         if (res.auth_cookie) {
@@ -303,6 +335,7 @@ export const useAuthStore = defineStore('auth', () => {
               isLoggedIn.value = true;
               registerWithServer(cachedData.user);
               startHeartbeat();
+              await ensureServerEventListeners();
               await uiStore.fetchServerFeatures(getBaseUrl(), cachedData.user);
               await initWebsocket();
               initGamelogWatcher();
@@ -333,6 +366,7 @@ export const useAuthStore = defineStore('auth', () => {
             isLoggedIn.value = true;
             registerWithServer(cachedData.user);
             startHeartbeat();
+            await ensureServerEventListeners();
             await initWebsocket();
             initGamelogWatcher();
             syncInitialFriends();

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2 } from "lucide-vue-next";
@@ -271,7 +271,7 @@ function getHeatmapColor(dayIdx: number, hour: number): string {
   if (val === 0) return 'var(--theme-surface-hover)';
   const maxVal = Math.max(...heatmapData.value.flat(), 1);
   const intensity = Math.min(val / maxVal, 1);
-  // Green gradient like VRCX
+  // Green gradient like VrcDog
   const alpha = 0.2 + intensity * 0.8;
   return `rgba(34, 197, 94, ${alpha})`;
 }
@@ -290,7 +290,7 @@ async function refreshActivityData() {
   const now = Date.now();
   const cutoff = now - periodDays * 24 * 60 * 60 * 1000;
 
-  // ── 热力图：看自己用 db_get_heatmap（基于 friend_activity 表，VRCX 等价）
+  // ── 热力图：看自己用 db_get_heatmap（基于 friend_activity 表，VrcDog 等价）
   //         看他人用 activityLogs 估算 ──
   try {
     const newHeatmap = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -456,7 +456,7 @@ const trustInfo = computed(() => {
   return { label: "Visitor", color: "#9e9e9e" };
 });
 
-// ========== Language Flags (VRCX 对齐) ==========
+// ========== Language Flags (VrcDog 对齐) ==========
 // 映射 VRChat 语言代码 → ISO 国家代码（用于 flagcdn SVG）
 const languageToCountryCode: Record<string, string> = {
   eng: 'us', kor: 'kr', rus: 'ru', spa: 'es', por: 'pt',
@@ -488,7 +488,7 @@ const userLanguageFlags = computed(() => {
   return flags;
 });
 
-// ========== Platform Detection (VRCX 对齐) ==========
+// ========== Platform Detection (VrcDog 对齐) ==========
 const userPlatform = computed(() => {
   const info = profileStore.baseInfo as any;
   if (!info) return '';
@@ -499,7 +499,7 @@ const userPlatform = computed(() => {
   return platform || '';
 });
 
-// ========== Age Verification (VRCX 对齐) ==========
+// ========== Age Verification (VrcDog 对齐) ==========
 // VRChat API: ageVerified (bool) + ageVerificationStatus ('18+' / 'verified' / null)
 const ageVerificationLabel = computed(() => {
   const info = profileStore.baseInfo as any;
@@ -510,7 +510,7 @@ const ageVerificationLabel = computed(() => {
   return '';
 });
 
-// ========== VRChat 官方团队 (VRCX 对齐：检测 admin_* / moderator 标签) ==========
+// ========== VRChat 官方团队 (VrcDog 对齐：检测 admin_* / moderator 标签) ==========
 const isVrchatTeam = computed(() => {
   const tags = profileStore.baseInfo?.tags || [];
   return tags.some(t => t === 'admin_moderator' || t === 'admin_official_thumbnail' || t.startsWith('admin_'));
@@ -519,7 +519,7 @@ const isVrchatTeam = computed(() => {
 // ========== 打开 Discord 个人页 ==========
 function openDiscord(discordId: string) {
   if (!discordId) return;
-  // VRCX 标准: 优先打开 discord:// 协议，浏览器降级到网页版
+  // VrcDog 标准: 优先打开 discord:// 协议，浏览器降级到网页版
   const url = `https://discord.com/users/${encodeURIComponent(discordId)}`;
   window.open(url, '_blank');
 }
@@ -551,7 +551,7 @@ const statusTooltip = computed(() => {
     : status === 'ask me' ? t('user_profile.status.ask_me')
     : status === 'busy' ? t('user_profile.status.busy')
     : t('user_profile.status.offline');
-  // VRCX 风格："活跃 (来加入我)"
+  // VrcDog 风格："活跃 (来加入我)"
   if (stateText && status && status !== 'active') return `${stateText} (${statusText})`;
   return stateText || statusText;
 });
@@ -660,7 +660,7 @@ function timeToText(ms: number): string {
   return t('user_profile.duration.second', { sec });
 }
 
-// 在线时长 / 离线时长（VRCX userOnlineFor 等价）
+// 在线时长 / 离线时长（VrcDog userOnlineFor 等价）
 const onlineForText = computed(() => {
   const info = profileStore.baseInfo as any;
   if (!info) return '—';
@@ -1225,7 +1225,7 @@ const executeAction = async (action: string) => {
       case "mute": await VrcApi.moderateUser({ moderated: userId, type: "mute" }); toast.success(t("user_profile.actions.mute_success")); break;
       case "show_avatar": await VrcApi.moderateUser({ moderated: userId, type: "showAvatar" }); toast.success(t("user_profile.actions.show_avatar_success")); break;
       case "hide_avatar": await VrcApi.moderateUser({ moderated: userId, type: "hideAvatar" }); toast.success(t("user_profile.actions.hide_avatar_success")); break;
-      // ── 看自己时的菜单（VRCX 对齐，先 toast 占位，子对话框后续实现）──
+      // ── 看自己时的菜单（VrcDog 对齐，先 toast 占位，子对话框后续实现）──
       case "show_avatar_info": {
         const info = profileStore.baseInfo as any;
         const url = info?.currentAvatarImageUrl;
@@ -1477,7 +1477,7 @@ const closeMenus = (e: MouseEvent) => {
   }
 };
 
-// ── Location / Instance info (like VRCX) ──────────────────────────
+// ── Location / Instance info (like VrcDog) ──────────────────────────
 const locationWorldName = ref<string>('');
 const locationInstanceInfo = ref<string>('');
 const locationRegionFlag = ref<string>('');
@@ -1514,7 +1514,7 @@ const fetchAvatarName = async () => {
   }
 };
 
-// Relative time formatting (like VRCX: "15秒", "18分钟", "2小时")
+// Relative time formatting (like VrcDog: "15秒", "18分钟", "2小时")
 const relativeTime = (dateStr?: string) => {
   if (!dateStr) return "—";
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -1728,7 +1728,7 @@ watch(activeTab, (tab) => {
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                   {{ trustInfo.label }}
                 </span>
-                <!-- 18+ 验证（基于 ageVerified 字段，VRCX 标准）-->
+                <!-- 18+ 验证（基于 ageVerified 字段，VrcDog 标准）-->
                 <span v-if="ageVerificationLabel" class="badge" style="color:#3b82f6; border-color:#3b82f6; background:#3b82f615;" title="Age Verified">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/></svg>
                   {{ ageVerificationLabel }}
@@ -1875,7 +1875,7 @@ watch(activeTab, (tab) => {
                       <button class="dropdown-item" @click="executeAction('refresh')"><RefreshCcw :size="14" class="mr-2"/>{{ t('user_profile.menu.refresh') }}</button>
                       <button class="dropdown-item" @click="executeAction('copy_url')"><Share2 :size="14" class="mr-2"/>{{ t('user_profile.menu.share') }}</button>
 
-                      <!-- 看自己时的菜单（VRCX 对齐） -->
+                      <!-- 看自己时的菜单（VrcDog 对齐） -->
                       <template v-if="isSelf">
                         <button class="dropdown-item" @click="executeAction('show_avatar_info')"><User :size="14" class="mr-2"/>{{ t('user_profile.menu.show_avatar_info') }}</button>
                         <button class="dropdown-item" @click="executeAction('show_fallback_avatar_info')"><User :size="14" class="mr-2"/>{{ t('user_profile.menu.show_fallback_avatar_info') }}</button>
@@ -1887,7 +1887,7 @@ watch(activeTab, (tab) => {
                         <button class="dropdown-item" @click="executeAction('edit_note_memo')"><PencilLine :size="14" class="mr-2"/>{{ t('user_profile.menu.note_memo') }}</button>
                       </template>
 
-                      <!-- 看别人时的菜单（VRCX 对齐） -->
+                      <!-- 看别人时的菜单（VrcDog 对齐） -->
                       <template v-else>
                         <button class="dropdown-item" @click="executeAction('request_invite')"><LogIn :size="14" class="mr-2"/>{{ t('user_profile.menu.request_invite') }}</button>
                         <button class="dropdown-item" @click="executeAction('invite')"><Mail :size="14" class="mr-2"/>{{ t('user_profile.menu.invite') }}</button>
@@ -1931,7 +1931,7 @@ watch(activeTab, (tab) => {
                 <RefreshCcw class="animate-spin" :size="24" />
               </div>
               <div v-else class="space-y-0">
-                <!-- Location (VRCX style: world name + instance info + players) -->
+                <!-- Location (VrcDog style: world name + instance info + players) -->
                 <div v-if="locationWorldName" class="info-section mb-3 p-3 rounded-xl" style="background: var(--theme-surface); border: 1px solid var(--theme-border-soft);">
                   <div class="flex items-center gap-2 text-sm font-bold" style="color: var(--theme-text-strong);">
                     <MapPin :size="14" style="color: var(--theme-primary);" />
@@ -2037,7 +2037,7 @@ watch(activeTab, (tab) => {
                   </div>
                 </div>
 
-                <!-- Stats grid (VRCX 对齐：15 块信息) -->
+                <!-- Stats grid (VrcDog 对齐：15 块信息) -->
                 <div class="grid grid-cols-3 gap-x-4 gap-y-3 mt-3 pt-3" style="border-top: 1px solid var(--theme-border-soft);">
                   <!-- 看他人时显示 -->
                   <div v-if="!isSelf">
@@ -3065,7 +3065,7 @@ watch(activeTab, (tab) => {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* ── Badge Popover (VRCX 对齐) ────────────────────────────────── */
+/* ── Badge Popover (VrcDog 对齐) ────────────────────────────────── */
 .badge-popover {
   position: absolute;
   top: 36px;

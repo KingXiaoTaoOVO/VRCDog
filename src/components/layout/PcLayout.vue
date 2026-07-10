@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, markRaw } from 'vue';
+import { ref, onMounted, computed, markRaw, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -8,7 +8,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { wsState } from '../../api/websocket';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
 import VrcAvatar from '../VrcAvatar.vue';
-import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert } from 'lucide-vue-next';
+import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert, Check } from 'lucide-vue-next';
 import CustomNavModal from '../CustomNavModal.vue';
 
 const { t } = useI18n();
@@ -19,7 +19,7 @@ const {
   activeTab, 
   activeSidebarTabs, 
   filteredThemes, 
-  showVrcxMenu, 
+  showVrcDogMenu, 
   showCustomNavModal,
   editableNavConfig,
   vrcServerStatus 
@@ -31,9 +31,52 @@ const appVersion = ref('');
 onMounted(async () => {
   try { appVersion.value = await getVersion(); } catch(e) {}
 });
+const logoLoadFailed = ref(false);
+watch(() => currentTheme.value.id, () => {
+  logoLoadFailed.value = false;
+});
+
+type DensityMode = 'compact' | 'normal' | 'comfortable';
+
+const menuOpenSection = ref<'theme' | 'density' | null>(null);
+const densityMode = ref<DensityMode>('normal');
+const densityOptions: { key: DensityMode; label: string; navClass: string; childClass: string; menuClass: string }[] = [
+  { key: 'compact', label: '紧凑', navClass: 'py-1.5', childClass: 'py-1', menuClass: 'py-1.5' },
+  { key: 'normal', label: '标准', navClass: 'py-2', childClass: 'py-1.5', menuClass: 'py-2' },
+  { key: 'comfortable', label: '宽松', navClass: 'py-2.5', childClass: 'py-2', menuClass: 'py-2.5' },
+];
+
+const currentDensity = computed(() => densityOptions.find(option => option.key === densityMode.value) || densityOptions[1]);
+const menuSurfaceColor = computed(() => currentTheme.value.colors.bgMain);
+const menuSectionBg = computed(() => {
+  switch (currentTheme.value.id) {
+    case 'cat': return '#f5fff8';
+    case 'helmet': return '#fff6f7';
+    case 'mono': return '#ffffff';
+    default: return '#fffaf0';
+  }
+});
+
+watch(showVrcDogMenu, (visible) => {
+  if (!visible) {
+    menuOpenSection.value = null;
+  }
+});
 
 const handleSaveCustomNavConfig = async (newConfig: any[] | null) => {
   await uiStore.saveCustomNavConfig(newConfig);
+};
+
+const toggleMenuSection = (section: 'theme' | 'density') => {
+  menuOpenSection.value = menuOpenSection.value === section ? null : section;
+};
+
+const selectThemeFromMenu = (themeId: ThemeId) => {
+  setTheme(themeId);
+};
+
+const selectDensity = (mode: DensityMode) => {
+  densityMode.value = mode;
 };
 
 const getStatusColor = (status: string) => {
@@ -46,7 +89,7 @@ const getStatusColor = (status: string) => {
   }
 }
 
-// ── VRCX 风格折叠子菜单 ──────────────────────────────────────────
+// ── VrcDog 风格折叠子菜单 ──────────────────────────────────────────
 // 定义哪些 tab 有子菜单
 const subMenuGroups: Record<string, { key: string; label: string; icon: any }[]> = {
   social: [
@@ -131,9 +174,18 @@ const themeStyles = computed(() => {
           :style="{ borderColor: currentTheme.colors.borderStrong }"
         >
           <img
+            v-if="!logoLoadFailed"
             :src="currentTheme.logo"
             class="w-full h-full object-cover"
+            alt=""
+            @error="logoLoadFailed = true"
           >
+          <Monitor
+            v-else
+            :size="20"
+            class="m-auto"
+            :style="{ color: currentTheme.colors.textSoft }"
+          />
         </div>
         <div>
           <h2
@@ -173,7 +225,8 @@ const themeStyles = computed(() => {
           <!-- 父级 tab（带子菜单） -->
           <div v-if="isGroupParent(tab.key)">
             <button
-              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg font-bold transition-all text-left text-[13px]"
+              class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px]"
+              :class="currentDensity.navClass"
               :style="activeTab === tab.key || subMenuGroups[tab.key]?.some(c => c.key === activeTab)
                 ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
                 : { color: currentTheme.colors.textSoft }"
@@ -189,11 +242,12 @@ const themeStyles = computed(() => {
             </button>
             <!-- 子菜单 -->
             <transition name="submenu">
-              <div v-if="expandedGroups[tab.key]" class="ml-3 mt-0.5 space-y-0.5 pl-3" :style="{ borderLeft: `2px solid ${currentTheme.colors.borderStrong}` }">
+              <div v-if="expandedGroups[tab.key]" class="ml-3 mt-0.5 space-y-0.5 pl-3">
                 <button
                   v-for="child in subMenuGroups[tab.key]"
                   :key="child.key"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg font-medium transition-all text-left text-[12px]"
+                  class="w-full flex items-center gap-2.5 px-3 rounded-lg font-medium transition-all text-left text-[12px]"
+                  :class="currentDensity.childClass"
                   :style="activeTab === child.key
                     ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
                     : { color: currentTheme.colors.textSoft }"
@@ -209,7 +263,8 @@ const themeStyles = computed(() => {
           <!-- 普通 tab -->
           <button
             v-else
-            class="w-full flex items-center gap-3 px-3 py-2 rounded-lg font-bold transition-all text-left text-[13px]"
+            class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px]"
+            :class="currentDensity.navClass"
             :style="activeTab === tab.key
               ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
               : { color: currentTheme.colors.textSoft }"
@@ -223,12 +278,12 @@ const themeStyles = computed(() => {
 
       <!-- 用户信息 + 退出 -->
       <div
-        class="mt-auto pt-3 border-t space-y-2 relative"
-        :style="{ borderColor: currentTheme.colors.borderSoft }"
+        class="mt-auto pt-3 space-y-2 relative"
+        :style="{ boxShadow: 'inset 0 1px 0 ' + currentTheme.colors.borderSoft }"
       >
         <div 
           class="flex items-center gap-2.5 cursor-pointer hover:bg-background/5 p-1.5 -ml-1.5 rounded-xl transition-colors relative"
-          @click="showVrcxMenu = !showVrcxMenu"
+          @click="showVrcDogMenu = !showVrcDogMenu"
         >
           <VrcAvatar
             :user="currentUser"
@@ -301,56 +356,116 @@ const themeStyles = computed(() => {
 
         <div class="flex gap-2 mt-1">
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-orange-500 hover:bg-orange-50 font-bold text-xs transition-colors border border-transparent hover:border-orange-100"
+            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-orange-500 hover:bg-orange-50 font-bold text-xs transition-colors"
             @click="uiStore.appMode = null"
           >
             <Monitor :size="14" /> {{ $t('app.reselect_mode') }}
           </button>
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs transition-colors border border-transparent hover:border-red-100"
+            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs transition-colors"
             @click="() => authStore.handleLogout(false)"
           >
             <LogOut :size="14" /> {{ $t('app.logout') }}
           </button>
         </div>
 
-        <!-- VRCX-like Settings Menu -->
+        <!-- VrcDog-like Settings Menu -->
         <div 
-          v-if="showVrcxMenu" 
-          class="absolute bottom-full left-0 mb-3 w-[220px] glass-panel border border-white/10 shadow-2xl rounded-xl overflow-hidden text-text-muted z-50 animate-fade-in"
+          v-if="showVrcDogMenu" 
+          class="absolute bottom-full left-0 mb-3 w-[232px] shadow-2xl rounded-xl overflow-hidden z-50 animate-fade-in isolate"
+          :style="{ backgroundColor: menuSurfaceColor, boxShadow: '0 18px 45px rgba(15, 23, 42, 0.18), 0 0 0 1px ' + currentTheme.colors.borderSoft }"
         >
-          <div class="p-3 flex items-center justify-between border-b border-white/5 bg-surface-hover">
+          <div class="p-3 flex items-center justify-between" :style="{ backgroundColor: menuSectionBg }">
             <div class="flex items-center gap-2">
               <MessageSquare class="w-4 h-4" :style="{ color: currentTheme.colors.textStrong }" />
-              <span class="font-bold text-[13px]" :style="{ color: currentTheme.colors.textStrong }">{{ $t('app.vrcx_menu') }}</span>
+              <span class="font-bold text-[13px]" :style="{ color: currentTheme.colors.textStrong }">{{ $t('app.vrcdog_menu') }}</span>
             </div>
-            <span class="text-[11px]" :style="{ color: currentTheme.colors.textSoft }">2026.05.10</span>
+            <span v-if="appVersion" class="text-[11px]" :style="{ color: currentTheme.colors.textSoft }">v{{ appVersion }}</span>
           </div>
           <div class="py-1">
-            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }" @click="uiStore.activeTab='settings'; showVrcxMenu=false">{{ $t('auto_e366ccf1') }}</button>
-            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }">
-              {{ $t('app.theme') }} <ChevronRight class="w-4 h-4 opacity-50" />
+            <button
+              class="w-full min-h-9 flex items-center text-left px-4 text-[13px] leading-none transition-colors hover:brightness-95"
+              :class="currentDensity.menuClass"
+              :style="{ color: currentTheme.colors.textSoft }"
+              @click="uiStore.activeTab='settings'; showVrcDogMenu=false"
+            >
+              <span class="truncate">{{ $t('sidebar.settings') }}</span>
             </button>
-            <button class="w-full flex justify-between items-center px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }">
-              {{ $t('app.line_density') }} <ChevronRight class="w-4 h-4 opacity-50" />
+
+            <button
+              class="w-full min-h-9 flex justify-between items-center px-4 text-[13px] leading-none transition-colors hover:brightness-95"
+              :class="currentDensity.menuClass"
+              :style="{ color: currentTheme.colors.textSoft }"
+              @click="toggleMenuSection('theme')"
+            >
+              <span class="truncate">{{ $t('app.theme') }}</span>
+              <ChevronRight class="w-4 h-4 opacity-50 transition-transform" :class="menuOpenSection === 'theme' ? 'rotate-90' : ''" />
             </button>
-            <button class="w-full text-left px-4 py-2 text-[13px] hover:bg-surface transition-colors" :style="{ color: currentTheme.colors.textSoft }" @click="showCustomNavModal = true; showVrcxMenu=false">
-              {{ $t('app.customize_navbar') }}
+            <div v-if="menuOpenSection === 'theme'" class="px-2 pb-1 space-y-0.5">
+              <button
+                v-for="theme in Object.values(filteredThemes)"
+                :key="theme.id"
+                class="w-full min-h-8 flex items-center justify-between gap-2 rounded-lg px-3 text-[12px] leading-none transition-colors hover:brightness-95"
+                :style="currentTheme.id === theme.id
+                  ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
+                  : { color: currentTheme.colors.textSoft }"
+                @click="selectThemeFromMenu(theme.id as ThemeId)"
+              >
+                <span class="truncate">{{ t(theme.name) }}</span>
+                <Check v-if="currentTheme.id === theme.id" class="w-3.5 h-3.5 flex-shrink-0" />
+              </button>
+            </div>
+
+            <button
+              class="w-full min-h-9 flex justify-between items-center px-4 text-[13px] leading-none transition-colors hover:brightness-95"
+              :class="currentDensity.menuClass"
+              :style="{ color: currentTheme.colors.textSoft }"
+              @click="toggleMenuSection('density')"
+            >
+              <span class="truncate">{{ $t('app.line_density') }}</span>
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-[11px] opacity-60 truncate">{{ currentDensity.label }}</span>
+                <ChevronRight class="w-4 h-4 opacity-50 transition-transform" :class="menuOpenSection === 'density' ? 'rotate-90' : ''" />
+              </div>
+            </button>
+            <div v-if="menuOpenSection === 'density'" class="px-2 pb-1 space-y-0.5">
+              <button
+                v-for="option in densityOptions"
+                :key="option.key"
+                class="w-full min-h-8 flex items-center justify-between gap-2 rounded-lg px-3 text-[12px] leading-none transition-colors hover:brightness-95"
+                :style="densityMode === option.key
+                  ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
+                  : { color: currentTheme.colors.textSoft }"
+                @click="selectDensity(option.key)"
+              >
+                <span class="truncate">{{ option.label }}</span>
+                <Check v-if="densityMode === option.key" class="w-3.5 h-3.5 flex-shrink-0" />
+              </button>
+            </div>
+
+            <button
+              class="w-full min-h-9 flex items-center text-left px-4 text-[13px] leading-none transition-colors hover:brightness-95"
+              :class="currentDensity.menuClass"
+              :style="{ color: currentTheme.colors.textSoft }"
+              @click="showCustomNavModal = true; showVrcDogMenu=false"
+            >
+              <span class="truncate">{{ $t('app.customize_navbar') }}</span>
             </button>
           </div>
-          <div class="py-1 border-t border-white/5">
+          <div class="py-1" :style="{ boxShadow: 'inset 0 1px 0 ' + currentTheme.colors.borderSoft }">
             <button 
-              class="w-full text-left px-4 py-2 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
-              @click="authStore.handleLogout(false); showVrcxMenu=false"
+              class="w-full min-h-9 flex items-center text-left px-4 text-[13px] leading-none text-red-500 hover:bg-red-500/10 transition-colors"
+              :class="currentDensity.menuClass"
+              @click="authStore.handleLogout(false); showVrcDogMenu=false"
             >
-              {{ $t('app.logout') }}
+              <span class="truncate">{{ $t('app.logout') }}</span>
             </button>
           </div>
         </div>
 
         <div
-          class="text-center pt-2 mt-2 border-t"
-          :style="{ borderColor: currentTheme.colors.borderSoft }"
+          class="text-center pt-2 mt-2"
+          :style="{ boxShadow: 'inset 0 1px 0 ' + currentTheme.colors.borderSoft }"
         >
           <span
             class="text-[10px] font-mono font-bold tracking-wider opacity-40"
@@ -361,7 +476,7 @@ const themeStyles = computed(() => {
     </aside>
 
     <!-- 主内容区 -->
-    <main class="flex-1 relative z-10 overflow-y-auto shadow-2xl border-l border-white/5 bg-background" :style="{ backgroundColor: currentTheme.colors.surface }">
+    <main class="flex-1 relative z-10 overflow-y-auto shadow-2xl bg-background" :style="{ backgroundColor: currentTheme.colors.surface }">
       <div class="p-6 h-full overflow-hidden flex flex-col">
         <slot></slot>
       </div>

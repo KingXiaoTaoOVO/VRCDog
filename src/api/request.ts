@@ -59,7 +59,7 @@ export interface RequestOptions {
 }
 
 /**
- * 基础请求函数，对齐 VRCX 的 request.js 逻辑
+ * 基础请求函数，对齐 VrcDog 的 request.js 逻辑
  */
 export async function request<T = any>(url: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method || 'GET';
@@ -120,15 +120,20 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
       try { parsed = JSON.parse(res.data); } catch { parsed = res.data; }
     }
 
-    // 处理 401 自动重试 (对齐 VRCX handleAutoLogin 逻辑)
+    // 处理 401 自动重试 (对齐 VrcDog handleAutoLogin 逻辑)
     if (res.status === 401 && reqUrl.includes('api.vrchat.cloud') && !reqUrl.includes('/config')) {
+      // 先保存 401 响应中可能的 Set-Cookie（VRChat 有时会在 401 中下发刷新后的 cookie）
+      if (res.auth_cookie) {
+        try { await mergeCookiesAndSave(res.auth_cookie); } catch { /* ignore */ }
+      }
+
       // suppressAuthExpired=true 时不 dispatch vrc-auth-expired 事件，
       // 用于 WebSocket 断连重试时的 /auth 调用——/auth 401 不代表用户认证失效
       const fireAuthExpired = () => {
         if (!options.suppressAuthExpired) {
           window.dispatchEvent(new CustomEvent('vrc-auth-expired'));
         } else {
-          console.warn('[Request] 401 suppressed (suppressAuthExpired=true) — not dispatching vrc-auth-expired');
+          console.warn('[Request] 401 suppressed (suppressAuthExpired=true) - not dispatching vrc-auth-expired');
         }
       };
 

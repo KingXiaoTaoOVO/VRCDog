@@ -8,7 +8,7 @@ export const useUiStore = defineStore('ui', () => {
   const appMode = ref<'pc' | 'vr' | null>(null);
   const activeTab = ref<string>('dashboard');
   const showCustomNavModal = ref(false);
-  const showVrcxMenu = ref(false);
+  const showVrcDogMenu = ref(false);
   const customNavConfig = ref<any[]>([]);
 
   const serverMenuPerms = ref<Record<string, boolean>>({});
@@ -166,7 +166,7 @@ export const useUiStore = defineStore('ui', () => {
     appMode,
     activeTab,
     showCustomNavModal,
-    showVrcxMenu,
+    showVrcDogMenu,
     customNavConfig,
     serverMenuPerms,
     serverThemePerms,

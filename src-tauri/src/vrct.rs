@@ -106,12 +106,24 @@ fn default_true() -> bool {
 }
 
 fn normalize_lang(code: &str) -> String {
-    match code {
+    let normalized = code.trim().replace('_', "-");
+    match normalized.as_str() {
         "" => "auto".into(),
         "google" => "google_free".into(),
         "bing" => "microsoft".into(),
-        "lm_studio" => "lmstudio".into(),
-        "zh" => "zh-CN".into(),
+        "lm-studio" | "lm_studio" => "lmstudio".into(),
+        "zh" | "zh-Hans" | "zh-Hans-CN" => "zh-CN".into(),
+        "zh-TW" | "zh-Hant" | "zh-Hant-TW" => "zh-TW".into(),
+        "en-US" | "en-GB" | "en-AU" | "en-CA" => "en".into(),
+        "ja-JP" => "ja".into(),
+        "ko-KR" => "ko".into(),
+        "fr-FR" => "fr".into(),
+        "de-DE" => "de".into(),
+        "es-ES" => "es".into(),
+        "ru-RU" => "ru".into(),
+        "pt-PT" => "pt".into(),
+        "th-TH" => "th".into(),
+        "vi-VN" => "vi".into(),
         other => other.into(),
     }
 }

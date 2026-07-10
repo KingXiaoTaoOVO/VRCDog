@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { CheckCircle2, Download, Trash2, Loader2, AlertCircle } from 'lucide-vue-next';
+import { computed, ref, watch } from 'vue';
+import { CheckCircle2, Download, Trash2, Loader2, AlertCircle, Package } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
 
 export type ComponentStatus = 'checking' | 'not_installed' | 'installing' | 'installed' | 'error';
 
-defineProps<{
+const props = defineProps<{
   title: string;
   description: string;
   status: ComponentStatus;
@@ -18,6 +19,12 @@ defineProps<{
 }>();
 
 const emit = defineEmits(['install', 'uninstall', 'launch']);
+const iconFailed = ref(false);
+const showImageIcon = computed(() => Boolean(props.iconSrc) && !iconFailed.value);
+
+watch(() => props.iconSrc, () => {
+  iconFailed.value = false;
+});
 </script>
 
 <template>
@@ -38,11 +45,18 @@ const emit = defineEmits(['install', 'uninstall', 'launch']);
       <div class="flex items-start justify-between mb-4">
         <div class="flex items-center gap-3">
           <img
-            v-if="iconSrc"
+            v-if="showImageIcon"
             :src="iconSrc"
             class="w-8 h-8 object-contain drop-shadow-sm"
-            alt="Icon"
+            alt=""
+            @error="iconFailed = true"
           >
+          <div
+            v-else
+            class="w-8 h-8 rounded-xl bg-surface flex items-center justify-center ring-1 ring-border-soft text-text-muted"
+          >
+            <Package class="w-4 h-4" />
+          </div>
           <h3 class="text-xl font-extrabold text-text">
             {{ title }}
           </h3>

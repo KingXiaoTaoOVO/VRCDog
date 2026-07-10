@@ -128,7 +128,7 @@ onMounted(() => {
     </div>
 
     <!-- 主体：侧边栏 + 内容区 -->
-    <div class="flex-1 flex gap-6 overflow-hidden z-10">
+    <div class="flex-1 flex gap-6 overflow-visible min-h-0 z-10">
       <!-- 左侧收藏夹列表 -->
       <div class="w-56 flex-shrink-0 bg-surface/90 backdrop-blur-xl rounded-lg border border-border-soft shadow-sm p-2 overflow-y-auto flex flex-col gap-1 hide-scrollbar">
         <button
@@ -172,7 +172,7 @@ onMounted(() => {
       </div>
 
       <!-- 右侧内容区 -->
-      <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+      <div class="flex-1 overflow-y-auto overflow-x-visible pr-2 custom-scrollbar">
         <!-- Worlds Tab -->
         <div v-if="activeTab === 'worlds'">
           <div
@@ -201,7 +201,7 @@ onMounted(() => {
           </div>
           <div
             v-else
-            class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+            class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 overflow-visible"
           >
             <VrcResourceCard
               v-for="world in favoriteWorlds"
@@ -240,7 +240,7 @@ onMounted(() => {
           </div>
           <div
             v-else
-            class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-10"
+            class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-10 overflow-visible"
           >
             <VrcResourceCard
               v-for="avatar in favoriteAvatars"

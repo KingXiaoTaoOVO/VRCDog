@@ -2,7 +2,7 @@
 import { useToast } from "../composables/useToast";
 
 const toast = useToast();
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, onErrorCaptured } from 'vue';
 import { Settings, Save, Trash2, Globe, Monitor, Shield, HardDrive, Bell, Gamepad2, Check, DownloadCloud, Play, Rocket, Loader2, Zap, Radio, FileJson, AlertTriangle, Camera, AlertCircle, Eye, EyeOff, Lock, UserCheck, History, Smartphone, Laptop, Fingerprint, Activity, Layers, Sliders, Languages, Cpu, Info, ChevronRight, Glasses, Search } from 'lucide-vue-next';
 import { SysApi, DbApi } from '../api';
 import { useI18n } from 'vue-i18n';
@@ -14,6 +14,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import CustomSelect from './CustomSelect.vue';
 import { localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 import { setDebugLogEnabled } from '../api/debugConfig';
+import { setTheme, themes, currentThemeId, type ThemeId } from '../theme';
 
 const { t, locale } = useI18n();
 
@@ -45,6 +46,13 @@ const vrcConfigText = ref('');
 const vrcConfigError = ref('');
 const vrcConfigSuccess = ref(false);
 const vrcConfigSaving = ref(false);
+
+// 组件级别错误兜底，避免单个错误导致整个组件崩溃
+onErrorCaptured((err) => {
+  console.error('[SettingsView] Caught error:', err);
+  // 不阻止错误继续传播（阻止会隐藏深层子组件的问题），只做日志和兜底UI通知
+  return false;
+});
 
 const loadVrcConfig = async () => {
   try {
@@ -116,7 +124,7 @@ const config = ref({
   minimizeToTray: true,
   topWindow: false,
   language: 'zh-CN',
-  theme: 'light',
+  theme: 'dog',
   proxyEnabled: false,
   proxyUrl: 'http://127.0.0.1:7890',
   notifyFriendsOnline: true,
@@ -124,7 +132,7 @@ const config = ref({
   notifyStatusChange: false,
   notifyTts: false,
   notifyTtsCondition: 'always',
-  notifyDesktopCondition: 'never',
+  notifyDesktopCondition: 'always',
   notifyShowWhenAfk: false,
   notifyTtsVolume: 50,
   notifyTtsVoice: '',
@@ -150,7 +158,7 @@ const config = ref({
   hardwareAcceleration: true,
   customUrlScheme: true,
   oscAutomation: false,
-  openLocalFilesWithVrcx: false,
+  openLocalFilesWithVrcDog: false,
   clearCacheOnExit: false,
   enableDebugConsole: false,
   vrOverlayEnabled: true,
@@ -179,7 +187,41 @@ const config = ref({
   gripPressureThreshold: 0.5,
   killAppsOnExit: false,
   autoLaunchApps: [] as string[],
-  vrchatLaunchArgs: ''
+  vrchatLaunchArgs: '',
+  // --- 界面设置 (Interface tab) ---
+  density: 'normal',
+  fontFamily: 'Inter / Noto Sans CJK',
+  zoomLevel: 100,
+  showTrayNotifications: true,
+  showVrcPlusIcon: true,
+  showRoomId: false,
+  showLocalFriendNotes: true,
+  showAgeRestrictedRooms: false,
+  zebraTableMode: false,
+  accessibleStatusIndicator: false,
+  useInGameStatusColors: true,
+  showNewDashboardButton: true,
+  favoriteSortOrder: 'name',
+  roomPlayerSortOrder: 'time',
+  timeFormat: '24h',
+  forceIsoTimeFormat: false,
+  firstDayOfWeek: 'monday',
+  showOnlineNotes: true,
+  showLocalNotes: true,
+  hideFriendDeleteEvents: false,
+  randomFriendNameColors: true,
+  friendColorGuest: '#CCCCCC',
+  friendColorNewUser: '#1778FF',
+  friendColorUser: '#2BCF5C',
+  friendColorKnown: '#FF7B42',
+  friendColorTrusted: '#B18FFF',
+  friendColorVeteran: '#FF2826',
+  friendColorLegend: '#7B2F2F'
+});
+
+// 主题切换立即生效
+watch(() => config.value.theme, (newTheme) => {
+  setTheme(newTheme as ThemeId);
 });
 
 const parsedAutoLaunchApps = computed({
@@ -217,6 +259,10 @@ const loadSettings = async () => {
           }
         }
       }
+    }
+    // 应用已保存的主题
+    if (config.value.theme && themes[config.value.theme as ThemeId]) {
+      setTheme(config.value.theme as ThemeId);
     }
   } catch (err) {
     console.warn('Failed to load settings:', err);
@@ -368,6 +414,18 @@ const checkForUpdates = async (silent = false) => {
   }
 };
 
+// 重置列表/表格布局（后续可扩展为实际的布局重置逻辑）
+const resetListLayout = () => {
+  config.value.density = 'normal';
+  config.value.favoriteSortOrder = 'name';
+  config.value.roomPlayerSortOrder = 'time';
+  toast.info('List layout reset to defaults');
+};
+
+const resetTableLayout = () => {
+  toast.info('Table layout reset to defaults');
+};
+
 onMounted(async () => {
   await loadSettings();
   try {
@@ -392,7 +450,7 @@ const testNotification = () => {
 };
 </script>
 <template>
-  <div class="h-full flex bg-[var(--theme-bg-main)] backdrop-blur-md relative overflow-hidden text-[var(--theme-text)]">
+  <div class="settings-view h-full flex bg-[var(--theme-bg-main)] backdrop-blur-md relative overflow-hidden text-[var(--theme-text)]">
     <!-- Sidebar Menu -->
     <div class="w-64 shrink-0 flex flex-col gap-2 p-4 bg-[var(--theme-surface)] backdrop-blur-3xl border-r border-[var(--theme-border-soft)] overflow-y-auto custom-scrollbar z-20">
       <div class="text-[10px] font-black text-[var(--theme-text-muted)] mb-4 px-2 uppercase tracking-widest mt-2 opacity-50">{{ t('settings.title') || 'Settings' }}</div>
@@ -402,14 +460,10 @@ const testNotification = () => {
         :key="tab.id"
         class="w-full text-left px-4 py-3 rounded-xl transition-all duration-300 flex items-center gap-3 relative group overflow-hidden"
         :class="activeTab === tab.id 
-          ? 'bg-[var(--theme-primary)]/20 text-[var(--theme-primary)] shadow-lg shadow-[var(--theme-primary)]/10' 
+          ? 'bg-[var(--theme-primary)]/18 text-[var(--theme-primary)] shadow-sm ring-1 ring-[var(--theme-primary)]/25'
           : 'text-[var(--theme-text-soft)] hover:bg-[var(--theme-surface-hover)] hover:text-[var(--theme-primary)]'"
         @click="activeTab = tab.id"
       >
-        <div 
-          v-if="activeTab === tab.id"
-          class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[var(--theme-primary)] rounded-r-full animate-in slide-in-from-left-full duration-300"
-        />
         <component :is="tab.icon" class="w-5 h-5 shrink-0 transition-transform group-hover:scale-110" />
         <span class="font-medium text-sm">{{ t(tab.label) }}</span>
       </button>
@@ -465,31 +519,33 @@ const testNotification = () => {
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_8456bc40') }}</div>
-                <CustomSelect :options="[
-                  { label: 'Inter / Noto Sans CJK', value: 'Inter / Noto Sans CJK' }
+                <CustomSelect v-model="config.fontFamily" :options="[
+                  { label: 'Inter / Noto Sans CJK', value: 'Inter / Noto Sans CJK' },
+                  { label: 'Segoe UI', value: 'Segoe UI' },
+                  { label: 'System Default', value: 'system-ui' }
                 ]" />
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_b560fcfe') }}</div>
                 <div class="flex items-center gap-3">
-                  <button class="w-7 h-7 rounded bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft flex items-center justify-center transition-colors">-</button>
-                  <span class="text-[13px] w-8 text-center font-bold">100%</span>
-                  <button class="w-7 h-7 rounded bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft flex items-center justify-center transition-colors">+</button>
+                  <button class="w-7 h-7 rounded bg-[var(--theme-surface)]/60 hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] flex items-center justify-center transition-colors" @click="config.zoomLevel = Math.max(50, config.zoomLevel - 10)">-</button>
+                  <span class="text-[13px] w-8 text-center font-bold">{{ config.zoomLevel }}%</span>
+                  <button class="w-7 h-7 rounded bg-[var(--theme-surface)]/60 hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] flex items-center justify-center transition-colors" @click="config.zoomLevel = Math.min(200, config.zoomLevel + 10)">+</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showTrayNotifications = !config.showTrayNotifications">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_3cb107a8') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showTrayNotifications ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showTrayNotifications ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showVrcPlusIcon = !config.showVrcPlusIcon">
                 <div>
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_028b9138') }}</div>
                   <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_2617405c') }}</div>
                 </div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showVrcPlusIcon ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showVrcPlusIcon ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
             </div>
@@ -499,40 +555,40 @@ const testNotification = () => {
           <div>
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_91836294') }}</h2>
             <div class="space-y-1">
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showRoomId = !config.showRoomId">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_31c09df9') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showRoomId ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showRoomId ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showLocalFriendNotes = !config.showLocalFriendNotes">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_56f57fac') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showLocalFriendNotes ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showLocalFriendNotes ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showAgeRestrictedRooms = !config.showAgeRestrictedRooms">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_ff97bc7a') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showAgeRestrictedRooms ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showAgeRestrictedRooms ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.zebraTableMode = !config.zebraTableMode">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_2f0ac118') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.zebraTableMode ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.zebraTableMode ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.accessibleStatusIndicator = !config.accessibleStatusIndicator">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_7a5da35b') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.accessibleStatusIndicator ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.accessibleStatusIndicator ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.useInGameStatusColors = !config.useInGameStatusColors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_e2eadb04') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.useInGameStatusColors ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.useInGameStatusColors ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
             </div>
@@ -542,10 +598,10 @@ const testNotification = () => {
           <div>
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_056f2d7d') }}</h2>
             <div class="space-y-1">
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showNewDashboardButton = !config.showNewDashboardButton">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_9fcce8ae') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showNewDashboardButton ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showNewDashboardButton ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
             </div>
@@ -558,24 +614,31 @@ const testNotification = () => {
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_5a9170fe') }}</div>
                 <div class="flex bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded p-1 gap-1">
-                   <button class="px-3 py-1 text-[12px] bg-primary text-white rounded shadow-sm transition-colors">{{ $t('auto_d7ec2d3f') }}</button>
-                   <button class="px-3 py-1 text-[12px] text-border-strong hover:text-[var(--theme-text-muted)] transition-colors">{{ $t('auto_19fcb9eb') }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.favoriteSortOrder === 'name' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.favoriteSortOrder = 'name'">{{ $t('auto_d7ec2d3f') }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.favoriteSortOrder === 'time' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.favoriteSortOrder = 'time'">{{ $t('auto_19fcb9eb') }}</button>
                 </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_162a0560') }}</div>
                 <div class="flex bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded p-1 gap-1">
-                   <button class="px-3 py-1 text-[12px] bg-primary text-white rounded shadow-sm transition-colors">{{ $t('auto_19fcb9eb') }}</button>
-                   <button class="px-3 py-1 text-[12px] text-border-strong hover:text-[var(--theme-text-muted)] transition-colors">{{ $t('auto_078e09ab') }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.roomPlayerSortOrder === 'time' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.roomPlayerSortOrder = 'time'">{{ $t('auto_19fcb9eb') }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.roomPlayerSortOrder === 'alphabetical' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.roomPlayerSortOrder = 'alphabetical'">{{ $t('auto_078e09ab') }}</button>
+                </div>
+              </div>
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
+                <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('app.line_density') }}</div>
+                <div class="flex bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded p-1 gap-1">
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.density === 'compact' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.density = 'compact'">{{ $t('settings.compact') || 'Compact' }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.density === 'normal' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.density = 'normal'">{{ $t('settings.normal') || 'Normal' }}</button>
                 </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_14d026fc') }}</div>
-                <button class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md border-border-soft rounded text-[13px] hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md transition-colors">{{ $t('auto_224e2ccd') }}</button>
+                <button class="px-4 py-1.5 bg-[var(--theme-surface)]/60 hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] rounded text-[13px] transition-colors" @click="resetListLayout()">{{ $t('auto_224e2ccd') }}</button>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_890497ec') }}</div>
-                <button class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md border-border-soft rounded text-[13px] hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md transition-colors">{{ $t('auto_224e2ccd') }}</button>
+                <button class="px-4 py-1.5 bg-[var(--theme-surface)]/60 hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] rounded text-[13px] transition-colors" @click="resetTableLayout()">{{ $t('auto_224e2ccd') }}</button>
               </div>
             </div>
           </div>
@@ -587,20 +650,20 @@ const testNotification = () => {
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_2ca9949e') }}</div>
                 <div class="flex bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded p-1 gap-1">
-                   <button class="px-3 py-1 text-[12px] text-border-strong hover:text-[var(--theme-text-muted)] transition-colors">{{ $t('auto_eafbd6a2') }}</button>
-                   <button class="px-3 py-1 text-[12px] bg-primary text-white rounded shadow-sm transition-colors">{{ $t('auto_1ba133f7') }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.timeFormat === '12h' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.timeFormat = '12h'">{{ $t('auto_eafbd6a2') }}</button>
+                   <button class="px-3 py-1 text-[12px] rounded shadow-sm transition-colors" :class="config.timeFormat === '24h' ? 'bg-primary text-white' : 'text-border-strong hover:text-[var(--theme-text-muted)]'" @click="config.timeFormat = '24h'">{{ $t('auto_1ba133f7') }}</button>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.forceIsoTimeFormat = !config.forceIsoTimeFormat">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_dc6b2bf6') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.forceIsoTimeFormat ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.forceIsoTimeFormat ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_f6e303f2') }}</div>
-                <CustomSelect :options="[
-                  { label: $t('auto_5ce43821'), value: '1' }, { label: $t('auto_67b19578'), value: '2' }
+                <CustomSelect v-model="config.firstDayOfWeek" :options="[
+                  { label: $t('auto_5ce43821'), value: 'monday' }, { label: $t('auto_67b19578'), value: 'sunday' }
                 ]" />
               </div>
             </div>
@@ -610,16 +673,16 @@ const testNotification = () => {
           <div>
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_08d8cee2') }}</h2>
             <div class="space-y-1">
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showOnlineNotes = !config.showOnlineNotes">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_e72dfb69') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-primary transition-colors">
-                  <div class="absolute right-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showOnlineNotes ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showOnlineNotes ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showLocalNotes = !config.showLocalNotes">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_f450eeea') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showLocalNotes ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showLocalNotes ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
             </div>
@@ -629,10 +692,10 @@ const testNotification = () => {
           <div>
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_dc67c65a') }}</h2>
             <div class="space-y-1">
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.hideFriendDeleteEvents = !config.hideFriendDeleteEvents">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_5a972d68') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.hideFriendDeleteEvents ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.hideFriendDeleteEvents ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
             </div>
@@ -642,65 +705,67 @@ const testNotification = () => {
           <div>
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_7e0ec2cc') }}</h2>
             <div class="space-y-1">
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer">
+              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.randomFriendNameColors = !config.randomFriendNameColors">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_2c115035') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full bg-[var(--theme-surface)]-active transition-colors">
-                  <div class="absolute left-1 top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-transform"></div>
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.randomFriendNameColors ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
+                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.randomFriendNameColors ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
               
+              <template v-if="!config.randomFriendNameColors">
               <!-- Color Grid -->
               <div class="grid grid-cols-2 gap-x-10 gap-y-4 mt-4 px-3">
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_21b0ef59') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#CCCCCC" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#CCCCCC" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorGuest" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorGuest" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_98eb6857') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#1778FF" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#1778FF" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorNewUser" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorNewUser" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_069a4b89') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#2BCF5C" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#2BCF5C" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorUser" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorUser" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_ea381c63') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#FF7B42" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#FF7B42" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorKnown" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorKnown" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_a1f33b77') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#B18FFF" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#B18FFF" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorTrusted" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorTrusted" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_62d39b03') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#FF2826" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#FF2826" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorVeteran" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorVeteran" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[12px] text-border-strong font-bold">{{ $t('auto_0b045b6c') }}</span>
                   <div class="flex items-center gap-2">
-                    <input type="color" value="#7B2F2F" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
-                    <input type="text" value="#7B2F2F" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none  font-mono text-[var(--theme-text-muted)]">
+                    <input type="color" v-model="config.friendColorLegend" class="w-8 h-8 rounded bg-transparent border-0 cursor-pointer p-0">
+                    <input v-model="config.friendColorLegend" type="text" class="bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] w-28 outline-none font-mono text-[var(--theme-text-muted)]">
                   </div>
                 </div>
               </div>
+              </template>
             </div>
           </div>
         </div>
@@ -856,7 +921,7 @@ const testNotification = () => {
                   </div>
                 </div>
 
-                <div v-if="config.notifyTts" class="flex flex-col p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors ml-6 border-l-2 border-primary">
+                <div v-if="config.notifyTts" class="flex flex-col p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors ml-6 bg-[var(--theme-primary)]/5 ring-1 ring-[var(--theme-primary)]/15">
                   <div class="flex items-center justify-between mb-2">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_aebf393e') }}</div>
                     <div class="text-[13px] font-bold text-primary">{{ config.notifyTtsVolume }}%</div>
@@ -904,7 +969,7 @@ const testNotification = () => {
                   </div>
                 </div>
 
-                <div v-if="config.proxyEnabled" class="p-3 ml-6 border-l-2 border-primary">
+                <div v-if="config.proxyEnabled" class="p-3 ml-6 rounded-xl bg-[var(--theme-primary)]/5 ring-1 ring-[var(--theme-primary)]/15">
                   <div class="text-[13px] text-[var(--theme-text-muted)] mb-2">{{ $t('auto_4a669973') }}</div>
                   <input
                     v-model="config.proxyUrl"
@@ -944,7 +1009,7 @@ const testNotification = () => {
                   <div v-if="actionError && activeTab === 'storage'" class="px-3 py-2 text-[12px] text-red-400 bg-red-400/10 rounded">{{ actionError }}</div>
                 </div>
 
-                <div class="p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors border-transparent">
+                <div class="p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                   <div class="flex items-center justify-between mb-2">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_fd9439f9') }}</div>
                     <div class="text-[13px] font-bold text-primary">{{ config.cacheLimit }} GB</div>
@@ -1069,7 +1134,7 @@ const testNotification = () => {
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.translationApiEnabled ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
-                <div v-if="config.translationApiEnabled" class="p-3 ml-6 border-l-2 border-primary">
+                <div v-if="config.translationApiEnabled" class="p-3 ml-6 rounded-xl bg-[var(--theme-primary)]/5 ring-1 ring-[var(--theme-primary)]/15">
                   <div class="text-[13px] text-[var(--theme-text-muted)] mb-2">{{ $t('auto_f49cefbb') }}</div>
                   <input
                     v-model="config.translationApiKey"
@@ -1094,7 +1159,7 @@ const testNotification = () => {
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.youtubeApiEnabled ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
-                <div v-if="config.youtubeApiEnabled" class="p-3 ml-6 border-l-2 border-primary">
+                <div v-if="config.youtubeApiEnabled" class="p-3 ml-6 rounded-xl bg-[var(--theme-primary)]/5 ring-1 ring-[var(--theme-primary)]/15">
                   <div class="text-[13px] text-[var(--theme-text-muted)] mb-2">{{ $t('auto_f49cefbb') }}</div>
                   <input
                     v-model="config.youtubeApiKey"
@@ -1585,11 +1650,135 @@ const testNotification = () => {
 </template>
 
 <style scoped>
+.settings-view :deep(input[type="range"]) {
+  width: 100%;
+  height: 18px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--theme-primary);
+}
 
+.settings-view :deep(input[type="range"]::-webkit-slider-runnable-track) {
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.14), rgba(255, 255, 255, 0.2)),
+    color-mix(in srgb, var(--theme-primary) 18%, var(--theme-bg-main));
+  box-shadow: inset 0 2px 5px rgba(69, 26, 3, 0.18), 0 1px 0 rgba(255, 255, 255, 0.58);
+}
+
+.settings-view :deep(input[type="range"]::-webkit-slider-thumb) {
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 999px;
+  border: 3px solid #fff;
+  background: var(--theme-primary);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--theme-primary) 34%, transparent), 0 0 0 1px color-mix(in srgb, var(--theme-primary) 52%, #000);
+}
+
+.settings-view :deep(input[type="range"]:hover::-webkit-slider-runnable-track) {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.26)),
+    color-mix(in srgb, var(--theme-primary) 28%, var(--theme-bg-main));
+}
+
+.settings-view :deep(input[type="range"]:hover::-webkit-slider-thumb) {
+  background: var(--theme-primary-hover);
+  transform: scale(1.08);
+}
+
+.settings-view :deep(input[type="range"]:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--theme-primary) 56%, transparent);
+  outline-offset: 4px;
+  border-radius: 999px;
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full),
+.settings-view :deep(.w-12.h-6.rounded-full.relative) {
+  box-sizing: border-box;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 80%, transparent) !important;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.12)),
+    color-mix(in srgb, var(--theme-bg-main) 74%, var(--theme-text-muted)) !important;
+  box-shadow: inset 0 2px 6px rgba(69, 26, 3, 0.2), 0 1px 0 rgba(255, 255, 255, 0.58);
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full) {
+  width: 38px !important;
+  height: 22px !important;
+}
+
+.settings-view :deep(.w-12.h-6.rounded-full.relative) {
+  width: 50px !important;
+  height: 26px !important;
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full.bg-primary),
+.settings-view :deep(.w-12.h-6.rounded-full.relative.bg-primary) {
+  border-color: color-mix(in srgb, var(--theme-primary) 75%, #000) !important;
+  background:
+    linear-gradient(180deg, var(--theme-primary), var(--theme-primary-hover)) !important;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.2), 0 5px 14px color-mix(in srgb, var(--theme-primary) 24%, transparent);
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full > .absolute.rounded-full),
+.settings-view :deep(.w-12.h-6.rounded-full.relative > .absolute.rounded-full) {
+  background: #fff !important;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 70%, #fff);
+  box-shadow: 0 2px 7px rgba(69, 26, 3, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full > .absolute.rounded-full) {
+  top: 2px !important;
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full > .absolute.rounded-full.left-1) {
+  left: 3px !important;
+  right: auto !important;
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full > .absolute.rounded-full.right-1) {
+  left: auto !important;
+  right: 3px !important;
+}
+
+.settings-view :deep(.w-12.h-6.rounded-full.relative > .absolute.rounded-full) {
+  top: 2px !important;
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.settings-view :deep(.w-12.h-6.rounded-full.relative > .absolute.rounded-full.left-1) {
+  left: 3px !important;
+}
+
+.settings-view :deep(.w-12.h-6.rounded-full.relative > .absolute.rounded-full.left-7) {
+  left: 25px !important;
+}
+
+.settings-view :deep(.relative.inline-block.w-8.h-4.rounded-full:not(.bg-primary) > .absolute.rounded-full),
+.settings-view :deep(.w-12.h-6.rounded-full.relative:not(.bg-primary) > .absolute.rounded-full) {
+  background: color-mix(in srgb, #fff 86%, var(--theme-primary)) !important;
+  border-color: color-mix(in srgb, var(--theme-border-strong) 86%, #fff);
+}
+
+:deep(.border-white\/5),
+:deep(.border-white\/10),
+:deep(.border-transparent) {
+  border-color: transparent !important;
+}
 
 
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
-

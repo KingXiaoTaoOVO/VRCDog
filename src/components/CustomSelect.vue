@@ -37,15 +37,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="relative" ref="containerRef">
+  <div class="relative min-w-0 w-full" ref="containerRef">
     <div 
-      class="flex items-center justify-between gap-2 px-3 py-1.5 bg-surface-hover/60 backdrop-blur-md border border-border-soft rounded-lg cursor-pointer hover:bg-surface-active/60 transition-colors"
+      class="flex items-center justify-between gap-2 px-3 py-1.5 bg-surface-hover/60 backdrop-blur-md border border-border-soft rounded-lg cursor-pointer hover:bg-surface-active/60 transition-colors min-w-0"
       @click="toggleOpen"
     >
-      <span class="text-[13px] text-text-strong">
+      <span class="text-[13px] text-text-strong truncate min-w-0" :title="String(options.find(o => o.value === modelValue)?.label || options[0]?.label || '')">
         {{ options.find(o => o.value === modelValue)?.label || options[0]?.label }}
       </span>
-      <ChevronDown :size="14" class="text-text-muted transition-transform duration-200" :class="{ 'rotate-180': isOpen }" />
+      <ChevronDown :size="14" class="text-text-muted transition-transform duration-200 shrink-0" :class="{ 'rotate-180': isOpen }" />
     </div>
 
     <Transition
@@ -58,17 +58,17 @@ onUnmounted(() => {
     >
       <div 
         v-if="isOpen"
-        class="absolute z-50 w-full min-w-[120px] right-0 mt-1 bg-surface/90 backdrop-blur-xl border border-border-soft rounded-lg shadow-xl overflow-hidden"
+        class="absolute z-50 w-full min-w-[180px] right-0 mt-1 bg-surface/90 backdrop-blur-xl border border-border-soft rounded-lg shadow-xl overflow-hidden"
       >
         <div class="max-h-60 overflow-y-auto custom-scrollbar p-1">
           <div 
             v-for="option in options" 
             :key="option.value ?? 'null'"
-            class="px-3 py-2 text-[13px] rounded-md cursor-pointer transition-colors flex items-center justify-between"
+            class="px-3 py-2 text-[13px] rounded-md cursor-pointer transition-colors flex items-center justify-between gap-2 min-w-0"
             :class="modelValue === option.value ? 'bg-primary/10 text-primary font-bold' : 'text-text-strong hover:bg-surface-active/60'"
             @click="selectOption(option.value)"
           >
-            {{ option.label }}
+            <span class="truncate" :title="String(option.label)">{{ option.label }}</span>
           </div>
         </div>
       </div>

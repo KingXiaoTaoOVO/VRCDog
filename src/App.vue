@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watchEffect } from 'vue';
+import { defineAsyncComponent, onMounted, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -30,37 +30,71 @@ import EntityDetailModals from './components/EntityDetailModals.vue';
 import GlobalSearchModal from './components/GlobalSearchModal.vue';
 import DebugConsole from './components/DebugConsole.vue';
 
-// PC Views
-import DashboardView from './components/DashboardView.vue';
-import FeedView from './components/FeedView.vue';
-import FriendLocationsView from './components/FriendLocationsView.vue';
-import ChartsView from './components/ChartsView.vue';
-import PlayerListView from './components/PlayerListView.vue';
-import GalleryView from './components/GalleryView.vue';
-import ModerationView from './components/ModerationView.vue';
-import SettingsView from './components/SettingsView.vue';
-import FriendsListView from './components/FriendsListView.vue';
-import SearchView from './components/SearchView.vue';
-import NotificationsView from './components/NotificationsView.vue';
-import MyAvatarsView from './components/MyAvatarsView.vue';
-import GroupsView from './components/GroupsView.vue';
-import FavoritesView from './components/FavoritesView.vue';
-import HeatmapView from './components/HeatmapView.vue';
-import NotesView from './components/NotesView.vue';
-import StatusPresetsView from './components/StatusPresetsView.vue';
-import BilidownView from './components/BilidownView.vue';
-import DanmakuView from './components/DanmakuView.vue';
-import ToolsView from './components/ToolsView.vue';
-import TranslatorView from './components/TranslatorView.vue';
-import OvrTranslatorView from './components/OvrTranslatorView.vue';
-import ExportView from './components/ExportView.vue';
-import EnvView from './components/EnvView.vue';
-import RemoteAssistView from './components/RemoteAssistView.vue';
-
 // Assets
 import dogImg from './assets/dog.jpg';
 import { Loader2 } from 'lucide-vue-next';
 import { setAppLocale } from './i18n';
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const isRecoverableViewLoadError = (error: unknown) => {
+  const message = String((error as any)?.message || error || '');
+  return /ERR_NETWORK_CHANGED|Failed to fetch dynamically imported module|Importing a module script failed|Load failed/i.test(message);
+};
+
+async function retryViewImport<T>(loader: () => Promise<T>, name: string): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      return await loader();
+    } catch (error) {
+      lastError = error;
+      if (!isRecoverableViewLoadError(error) || attempt === 5) break;
+      console.warn(`[ViewLoader] ${name} failed, retrying (${attempt}/5):`, error);
+      await sleep(250 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+const lazyView = (name: string, loader: () => Promise<any>) => defineAsyncComponent({
+  loader: () => retryViewImport(loader, name),
+  delay: 120,
+  timeout: 30000,
+  onError(error, retry, fail, attempts) {
+    if (isRecoverableViewLoadError(error) && attempts <= 5) {
+      window.setTimeout(retry, Math.min(250 * attempts, 1500));
+      return;
+    }
+    fail();
+  },
+});
+
+const DashboardView = lazyView('DashboardView', () => import('./components/DashboardView.vue'));
+const FeedView = lazyView('FeedView', () => import('./components/FeedView.vue'));
+const FriendLocationsView = lazyView('FriendLocationsView', () => import('./components/FriendLocationsView.vue'));
+const ChartsView = lazyView('ChartsView', () => import('./components/ChartsView.vue'));
+const PlayerListView = lazyView('PlayerListView', () => import('./components/PlayerListView.vue'));
+const GalleryView = lazyView('GalleryView', () => import('./components/GalleryView.vue'));
+const ModerationView = lazyView('ModerationView', () => import('./components/ModerationView.vue'));
+const SettingsView = lazyView('SettingsView', () => import('./components/SettingsView.vue'));
+const FriendsListView = lazyView('FriendsListView', () => import('./components/FriendsListView.vue'));
+const SearchView = lazyView('SearchView', () => import('./components/SearchView.vue'));
+const NotificationsView = lazyView('NotificationsView', () => import('./components/NotificationsView.vue'));
+const MyAvatarsView = lazyView('MyAvatarsView', () => import('./components/MyAvatarsView.vue'));
+const GroupsView = lazyView('GroupsView', () => import('./components/GroupsView.vue'));
+const FavoritesView = lazyView('FavoritesView', () => import('./components/FavoritesView.vue'));
+const HeatmapView = lazyView('HeatmapView', () => import('./components/HeatmapView.vue'));
+const NotesView = lazyView('NotesView', () => import('./components/NotesView.vue'));
+const StatusPresetsView = lazyView('StatusPresetsView', () => import('./components/StatusPresetsView.vue'));
+const BilidownView = lazyView('BilidownView', () => import('./components/BilidownView.vue'));
+const DanmakuView = lazyView('DanmakuView', () => import('./components/DanmakuView.vue'));
+const ToolsView = lazyView('ToolsView', () => import('./components/ToolsView.vue'));
+const TranslatorView = lazyView('TranslatorView', () => import('./components/TranslatorView.vue'));
+const OvrTranslatorView = lazyView('OvrTranslatorView', () => import('./components/OvrTranslatorView.vue'));
+const ExportView = lazyView('ExportView', () => import('./components/ExportView.vue'));
+const EnvView = lazyView('EnvView', () => import('./components/EnvView.vue'));
+const RemoteAssistView = lazyView('RemoteAssistView', () => import('./components/RemoteAssistView.vue'));
 
 const { t, locale } = useI18n({ useScope: 'global' });
 
@@ -131,6 +165,11 @@ onMounted(async () => {
   await uiStore.loadCustomNavConfig();
   
   if (isTauri()) {
+    await listen('tray_open_settings', () => {
+      uiStore.appMode = 'pc';
+      uiStore.activeTab = 'settings';
+    });
+
     try {
       const allSettings = await DbApi.getAllSettings();
       await applyProxyFromSettings(allSettings);
@@ -146,7 +185,7 @@ onMounted(async () => {
     setTimeout(async () => {
       try {
         const args = await SysApi.getLaunchArgs();
-        const urlArg = args.find(a => a.startsWith('vrcx://') || a.startsWith('vrchat://'));
+        const urlArg = args.find(a => a.startsWith('vrcdog://') || a.startsWith('vrchat://'));
         if (urlArg) {
           if (urlArg.includes('launch/')) {
             const worldId = urlArg.split('launch/')[1];
@@ -179,28 +218,6 @@ onMounted(async () => {
       authStore.syncInitialFriends(); 
     }
 
-    await listen('client_kicked', (event: any) => {
-      const kickedUserId = event.payload;
-      if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === kickedUserId || currentUser.value.displayName === kickedUserId)) {
-         authStore.banMessage = t('auto_e1b5d9e2');
-         authStore.handleLogout(true);
-      }
-    });
-    await listen('client_banned', (event: any) => {
-      const p = event.payload;
-      if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === p.user_id || currentUser.value.displayName === p.user_id)) {
-         authStore.banMessage = t('app.banned_message', { reason: p.reason, duration: p.duration_hours ? t('auto_edf6fe7c') + p.duration_hours + t('auto_2de0d491') : t('auto_6280ae83') });
-         authStore.handleLogout(true);
-      }
-    });
-
-    await listen('client_frozen', (event: any) => {
-      const p = event.payload;
-      if (appRole.value === 'client' && currentUser.value && (currentUser.value.id === p.user_id || currentUser.value.displayName === p.user_id)) {
-         authStore.banMessage = t('app.ban_message_prefix', { reason: p.reason }) || `Account Frozen: ${p.reason}`;
-         authStore.handleLogout(true);
-      }
-    });
   }
 });
 

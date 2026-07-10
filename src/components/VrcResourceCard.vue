@@ -78,12 +78,23 @@ const handleMouseEnter = () => {
     clearTimeout(closeMenuTimeout);
   }
 };
+
+const menuItems = computed(() => [
+  { key: 'copy', icon: Copy, label: t('card.copy_id'), action: copyId, visible: true },
+  { key: 'browser', icon: ExternalLink, label: t('card.open_browser'), action: openInBrowser, visible: true },
+  { key: 'favorite', icon: Star, label: t('card.favorite'), action: () => emit('favorite', props.data), visible: props.type !== 'group' },
+]);
+
+const runMenuAction = (action: () => void | Promise<void>) => {
+  void action();
+  showMenu.value = false;
+};
 </script>
 
 <template>
   <div 
     class="bg-surface backdrop-blur-md rounded-2xl shadow-sm relative group hover:shadow-lg transition-all cursor-pointer border"
-    :class="[minimal ? 'border-transparent hover:border-primary flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-primary flex-col ', showMenu ? 'overflow-visible z-50' : 'overflow-hidden']"
+    :class="[minimal ? 'border-transparent hover:border-primary flex items-center gap-3 p-2.5 bg-surface-hover hover:bg-surface' : 'border-border-soft hover:border-primary flex-col overflow-hidden', showMenu ? '!overflow-visible z-[80]' : '']"
     @click="emit('click', data)"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
@@ -138,33 +149,6 @@ const handleMouseEnter = () => {
          >
             <MoreVertical :size="16" />
           </button>
-          
-          <!-- Dropdown Menu -->
-          <div 
-            v-if="showMenu"
-            class="absolute top-10 right-0 w-40 bg-[var(--theme-bg-main)] backdrop-blur-xl rounded-xl shadow-2xl border border-border-soft overflow-hidden z-[999] py-1.5"
-            @click.stop
-          >
-            <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
-              @click.stop="copyId"
-            >
-              <Copy :size="14" /> {{ $t('card.copy_id') }}
-            </button>
-            <button
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-text hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
-              @click.stop="openInBrowser"
-            >
-              <ExternalLink :size="14" /> {{ $t('card.open_browser') }}
-            </button>
-            <button
-              v-if="type !== 'group'"
-              class="w-full text-left px-4 py-2.5 text-xs font-bold text-primary hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
-              @click.stop="emit('favorite', data)"
-            >
-              <Star :size="14" /> {{ $t('card.favorite') }}
-            </button>
-          </div>
         </div>
         
         <!-- Join/Launch Action for Worlds -->
@@ -199,6 +183,24 @@ const handleMouseEnter = () => {
           <Users :size="12" /> {{ data.memberCount }}
         </span>
       </div>
+    </div>
+
+    <!-- Dropdown Menu lives on the card root so the image crop cannot hide it. -->
+    <div
+      v-if="showMenu"
+      class="absolute right-3 top-12 w-44 bg-[var(--theme-bg-main)]/95 backdrop-blur-xl rounded-xl shadow-2xl ring-1 ring-border-soft overflow-hidden z-[100] py-1.5"
+      @mouseenter="handleMouseEnter"
+      @click.stop
+    >
+      <button
+        v-for="item in menuItems.filter(i => i.visible)"
+        :key="item.key"
+        class="w-full text-left px-4 py-2.5 text-xs font-bold text-text hover:bg-surface-hover hover:text-primary flex items-center gap-2.5 transition-colors"
+        @click.stop="runMenuAction(item.action)"
+      >
+        <component :is="item.icon" :size="14" />
+        <span class="truncate">{{ item.label }}</span>
+      </button>
     </div>
 
     <!-- Info Area -->

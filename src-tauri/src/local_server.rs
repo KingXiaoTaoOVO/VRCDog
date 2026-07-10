@@ -578,7 +578,7 @@ async fn handle_client_heartbeat(
         if let Some(client) = clients.get_mut(&req.user_id) {
             client.last_heartbeat = now;
         } else {
-            return Json(serde_json::json!({ "status": "kicked" }));
+            return Json(serde_json::json!({ "status": "register_required" }));
         }
     }
 
@@ -721,7 +721,13 @@ async fn handle_admin_kick(
             format!("[WARN] 管理员已踢出用户: {}", req.user_id),
         );
         let _ = state.app_handle.emit("clients_updated", "");
-        let _ = state.app_handle.emit("client_kicked", req.user_id.clone());
+        let _ = state.app_handle.emit(
+            "client_kicked",
+            serde_json::json!({
+                "user_id": req.user_id,
+                "reason": "admin_kick",
+            }),
+        );
         Json(AdminResponse {
             success: true,
             message: "已踢出".to_string(),
@@ -928,7 +934,13 @@ async fn handle_admin_remove(
         ),
     );
     let _ = state.app_handle.emit("clients_updated", "");
-    let _ = state.app_handle.emit("client_kicked", req.user_id.clone()); // remove acts like kick for active client
+    let _ = state.app_handle.emit(
+        "client_removed",
+        serde_json::json!({
+            "user_id": req.user_id,
+            "reason": "admin_remove",
+        }),
+    );
 
     Json(AdminResponse {
         success: true,

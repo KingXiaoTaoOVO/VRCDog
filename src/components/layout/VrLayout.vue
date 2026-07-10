@@ -1,21 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { storeToRefs } from 'pinia';
 import VrcAvatar from '../VrcAvatar.vue';
-import { Glasses, Users, Settings, LogOut, Monitor, Radio } from 'lucide-vue-next';
-import OvrTranslatorView from '../OvrTranslatorView.vue';
-import TranslatorView from '../TranslatorView.vue';
-import FriendsListView from '../FriendsListView.vue';
-import SettingsView from '../SettingsView.vue';
-import RemoteAssistView from '../RemoteAssistView.vue';
-import DanmakuView from '../DanmakuView.vue';
+import { Glasses, Users, Settings, LogOut, Monitor, Radio, Languages } from 'lucide-vue-next';
 import DebugConsole from '../DebugConsole.vue';
 import DirectOpenModal from '../DirectOpenModal.vue';
 import { getVersion } from '@tauri-apps/api/app';
-import { ref, onMounted } from 'vue';
 
 const { t } = useI18n();
 const uiStore = useUiStore();
@@ -23,6 +16,48 @@ const authStore = useAuthStore();
 
 const { activeTab } = storeToRefs(uiStore);
 const { currentUser, serverConnected, clientServerUrl, isLoggedIn } = storeToRefs(authStore);
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const isRecoverableViewLoadError = (error: unknown) => {
+  const message = String((error as any)?.message || error || '');
+  return /ERR_NETWORK_CHANGED|Failed to fetch dynamically imported module|Importing a module script failed|Load failed/i.test(message);
+};
+
+async function retryViewImport<T>(loader: () => Promise<T>, name: string): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      return await loader();
+    } catch (error) {
+      lastError = error;
+      if (!isRecoverableViewLoadError(error) || attempt === 5) break;
+      console.warn(`[VrViewLoader] ${name} failed, retrying (${attempt}/5):`, error);
+      await sleep(250 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+const lazyView = (name: string, loader: () => Promise<any>) => defineAsyncComponent({
+  loader: () => retryViewImport(loader, name),
+  delay: 120,
+  timeout: 30000,
+  onError(error, retry, fail, attempts) {
+    if (isRecoverableViewLoadError(error) && attempts <= 5) {
+      window.setTimeout(retry, Math.min(250 * attempts, 1500));
+      return;
+    }
+    fail();
+  },
+});
+
+const OvrTranslatorView = lazyView('OvrTranslatorView', () => import('../OvrTranslatorView.vue'));
+const TranslatorView = lazyView('TranslatorView', () => import('../TranslatorView.vue'));
+const FriendsListView = lazyView('FriendsListView', () => import('../FriendsListView.vue'));
+const SettingsView = lazyView('SettingsView', () => import('../SettingsView.vue'));
+const RemoteAssistView = lazyView('RemoteAssistView', () => import('../RemoteAssistView.vue'));
+const DanmakuView = lazyView('DanmakuView', () => import('../DanmakuView.vue'));
 
 const appVersion = ref('');
 onMounted(async () => {
@@ -37,8 +72,6 @@ const getStatusColor = (status: string) => {
     default: return 'bg-surface'
   }
 }
-
-import { Languages } from 'lucide-vue-next';
 
 const vrTabs = computed(() => [
   { key: 'ovr', icon: Glasses, label: t('layout.ovr_settings') },
@@ -76,7 +109,7 @@ const vrTabs = computed(() => [
         </div>
         <div>
           <h2 class="font-bold text-sm leading-tight text-white">
-            VrcDog VR
+            直播姬 VR
           </h2>
           <p class="text-[10px] font-medium text-text-muted/70">
             OVR Overlay Translator

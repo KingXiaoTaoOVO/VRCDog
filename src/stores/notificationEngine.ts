@@ -43,7 +43,7 @@ export const useNotificationEngine = () => {
     };
   };
 
-  const notify = async (title: string, body: string, type: 'friend_online' | 'invite' | 'test' = 'test') => {
+  const notify = async (title: string, body: string, type: 'friend_online' | 'friend_offline' | 'invite' | 'test' = 'test') => {
     const rules = await getRules();
     
     // Evaluate Desktop Notification
