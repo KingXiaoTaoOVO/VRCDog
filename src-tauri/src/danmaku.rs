@@ -587,7 +587,7 @@ pub fn danmaku_send_test(
 }
 
 fn submit_vr_input_message(runtime: &DanmakuRuntime, text: &str) -> DanmakuMessage {
-    let msg = make_message(runtime, "vr", "input", "VR杈撳叆", text);
+    let msg = make_message(runtime, "vr", "input", "VR输入", text);
     let config = runtime
         .config
         .lock()
@@ -788,11 +788,15 @@ fn parse_gift_text(text: &str) -> Option<(String, u32)> {
 
 async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<DanmakuMessage>) {
     let mut reconnect_count = 0u32;
+    let mut last_logged_error = String::new();
+    let mut repeated_error_count = 0u32;
 
     while !runtime.stop.load(Ordering::Acquire) {
         match run_bilibili_once(runtime.clone(), tx.clone()).await {
             Ok(()) => {
-                // 杩炴帴姝ｅ父鍏抽棴锛堥潪閿欒锛夛紝浣嗘湭琚姹傚仠姝?                // 闇€瑕佺煭鏆傜瓑寰呭苟鏍囪鏂紑锛岄伩鍏嶇珛鍗抽噸杩為€犳垚绌鸿浆
+                last_logged_error.clear();
+                repeated_error_count = 0;
+                // 连接正常关闭但未被要求停止，短暂等待并标记断开，避免立即重连造成空转
                 reconnect_count += 1;
                 set_status(&runtime, |status| {
                     status.bili_connected = false;
@@ -812,7 +816,20 @@ async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<
                     status.last_error = err.clone();
                     status.last_event = "bilibili_error".to_string();
                 });
-                emit_log(&runtime.app, &format!("Bilibili source error: {err}"));
+                if err == last_logged_error {
+                    repeated_error_count = repeated_error_count.saturating_add(1);
+                    if repeated_error_count == 10 {
+                        emit_log(
+                            &runtime.app,
+                            &format!("Bilibili 连接仍在重试，同一错误已重复 10 次：{err}"),
+                        );
+                        repeated_error_count = 0;
+                    }
+                } else {
+                    last_logged_error = err.clone();
+                    repeated_error_count = 0;
+                    emit_log(&runtime.app, &format!("Bilibili 连接失败：{err}"));
+                }
                 let delay = Duration::from_secs((3 * reconnect_count.min(10)) as u64);
                 tokio::time::sleep(delay).await;
             }
@@ -843,9 +860,16 @@ async fn run_bilibili_once(
     let room_info = resolve_bili_room_id(&client, cfg.room_id, &cfg.bili_sessdata).await?;
     let real_room_id = room_info.room_id;
     if room_info.live_status == 0 {
-        return Err(format!(
-            "鐩存挱闂?{real_room_id} 褰撳墠鏈紑鎾紝Bilibili 寮瑰箷鏈嶅姟鍣ㄥ彲鑳戒細鎷掔粷杩炴帴"
-        ));
+        set_status(&runtime, |status| {
+            status.room_id = real_room_id;
+            status.last_error.clear();
+            status.last_event = "bilibili_room_waiting_live".to_string();
+        });
+        emit_status(&runtime.app, &runtime.status);
+        emit_log(
+            &runtime.app,
+            &format!("直播间 {real_room_id} 当前未开播，已继续连接弹幕服务器并等待开播。"),
+        );
     }
     let (token, host, port) =
         get_bili_danmaku_endpoint(&client, real_room_id, &cfg.bili_sessdata).await?;
@@ -1289,7 +1313,7 @@ async fn handle_bili_value(
         }
         "GUARD_BUY" => {
             let data = &value["data"]["data"];
-            let user = data["username"].as_str().unwrap_or("???");
+            let user = data["username"].as_str().unwrap_or("VrcDog");
             let guard_level = data["guard_level"].as_u64().unwrap_or(0);
             let guard = match guard_level {
                 1 => "Governor",
@@ -1361,7 +1385,7 @@ fn parse_bili_danmaku(
         .get(2)
         .and_then(|v| v.get(1))
         .and_then(|v| v.as_str())
-        .unwrap_or("???")
+        .unwrap_or("VrcDog")
         .to_string();
 
     let mut msg = make_message(runtime, "bilibili", "danmaku", &user, &text);
@@ -1380,8 +1404,8 @@ fn parse_bili_danmaku(
 
 fn parse_bili_gift(runtime: &DanmakuRuntime, value: &serde_json::Value) -> Option<DanmakuMessage> {
     let data = &value["data"]["data"];
-    let user = data["uname"].as_str().unwrap_or("???");
-    let gift = data["giftName"].as_str().unwrap_or("绀肩墿");
+    let user = data["uname"].as_str().unwrap_or("VrcDog");
+    let gift = data["giftName"].as_str().unwrap_or("礼物");
     let count = data["combo_num"]
         .as_u64()
         .or_else(|| data["batch_combo_num"].as_u64())
@@ -1403,7 +1427,7 @@ fn parse_bili_super_chat(
     value: &serde_json::Value,
 ) -> Option<DanmakuMessage> {
     let data = &value["data"]["data"];
-    let user = data["user_info"]["uname"].as_str().unwrap_or("???");
+    let user = data["user_info"]["uname"].as_str().unwrap_or("VrcDog");
     let text = data["message"].as_str().unwrap_or("");
     let mut msg = make_message(runtime, "bilibili", "sc", user, text);
     msg.price = data["price"].as_f64();
@@ -1731,7 +1755,7 @@ fn make_test_message(
             "test",
             "danmaku",
             "TestUser",
-            custom_text.unwrap_or("直播姬 is now integrated into VrcDog."),
+            custom_text.unwrap_or("VrcDog弹幕已接入 VR 视图。"),
         ),
     }
 }
@@ -1803,7 +1827,7 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
         Ok(Ok(context)) => context,
         Ok(Err(err)) => {
             let err_str = format!("{err:?}");
-            // 妫€娴?OpenVR 鏄惁宸茶 OVR 缈昏瘧鍣ㄥ垵濮嬪寲锛堝悓涓€杩涚▼鍙兘 init 涓€娆★級
+            // 检测 OpenVR 是否已在当前进程初始化，OpenVR 同一进程只能 init 一次
             let msg = if err_str.to_lowercase().contains("init")
                 && !err_str.to_lowercase().contains("not")
                 || err_str.to_lowercase().contains("already")
@@ -1864,7 +1888,7 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
         }
     };
 
-    let handle = match overlay.create_overlay("vrcdog.danmaku\0", "VrcDog Danmaku\0") {
+    let handle = match overlay.create_overlay("vrcdog.danmaku\0", "VrcDog弹幕\0") {
         Ok(handle) => handle,
         Err(err) => {
             set_status(&runtime, |status| {
@@ -1875,7 +1899,7 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             return;
         }
     };
-    let menu_handle = match overlay.create_overlay("vrcdog.danmaku.menu\0", "VrcDog Danmaku Menu\0")
+    let menu_handle = match overlay.create_overlay("vrcdog.danmaku.menu\0", "VrcDog弹幕菜单\0")
     {
         Ok(handle) => Some(handle),
         Err(err) => {
@@ -3033,7 +3057,7 @@ fn render_danmaku_menu_overlay(
         &mut pixels,
         width,
         height,
-        "直播姬 Menu",
+        "VrcDog Menu",
         22.0,
         36.0,
         title,

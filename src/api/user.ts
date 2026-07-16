@@ -1,5 +1,14 @@
 import { request } from './request';
 
+async function resolveCurrentUserId(userId?: string) {
+  if (userId) return userId;
+  const currentUser: any = await request('/auth/user', { method: 'GET' });
+  if (!currentUser?.id) {
+    throw new Error('无法获取当前用户 ID');
+  }
+  return currentUser.id;
+}
+
 export const UserApi = {
   getUser: (params: { userId: string } | string) => {
     const userId = typeof params === 'string' ? params : params.userId;
@@ -9,17 +18,24 @@ export const UserApi = {
   getUsers: (params: { search?: string, n?: number, offset?: number }) =>
     request('/users', { method: 'GET', params }),
 
-  addUserTags: (params: { tags: string[] }) =>
-    request('/auth/user/addTags', { method: 'POST', params }),
+  addUserTags: async (params: { userId?: string, tags: string[] }) => {
+    const userId = await resolveCurrentUserId(params.userId);
+    return request(`/users/${userId}/addTags`, { method: 'POST', params: { tags: params.tags } });
+  },
 
-  removeUserTags: (params: { tags: string[] }) =>
-    request('/auth/user/removeTags', { method: 'POST', params }),
+  removeUserTags: async (params: { userId?: string, tags: string[] }) => {
+    const userId = await resolveCurrentUserId(params.userId);
+    return request(`/users/${userId}/removeTags`, { method: 'POST', params: { tags: params.tags } });
+  },
 
   getUserFeedback: (params: { userId: string }) =>
     request(`/users/${params.userId}/feedback`, { method: 'GET', params: { n: 100 } }),
 
-  saveCurrentUser: (params: any) =>
-    request('/auth/user', { method: 'PUT', params }),
+  saveCurrentUser: async (params: any) => {
+    const userId = await resolveCurrentUserId(params?.userId);
+    const { userId: _userId, ...body } = params || {};
+    return request(`/users/${userId}`, { method: 'PUT', params: body });
+  },
 
   getUserNotes: (params: { offset?: number, n?: number }) =>
     request('/userNotes', { method: 'GET', params }),

@@ -118,6 +118,18 @@
   background: var(--theme-primary-btn-hover);
 }
 
+.disabled-readable-btn:disabled {
+  background: var(--theme-surface-hover) !important;
+  color: var(--theme-text-strong) !important;
+  border: 1px solid var(--theme-border-soft) !important;
+  box-shadow: none !important;
+  opacity: 1;
+}
+
+.disabled-readable-btn:disabled * {
+  color: var(--theme-text-strong) !important;
+}
+
 button.bg-primary\/10,
 button.bg-primary\/15,
 button.hover\:bg-primary\/10:hover,

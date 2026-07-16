@@ -1,4 +1,4 @@
-import { request, safeInvoke } from './request';
+import { getStoredAuthCookie, parseExecuteResponse, request, safeInvoke } from './request';
 
 function toCleanBase64(imageData: string) {
   return imageData.includes(',') ? imageData.split(',')[1] : imageData;
@@ -11,20 +11,30 @@ export const VrcPlusIconApi = {
   deleteFile: (fileId: string) =>
     request(`/file/${fileId}`, { method: 'DELETE' }),
 
-  uploadVrcPlusIcon: (imageData: string) =>
-    safeInvoke('vrc_execute', {
+  deleteFileVersion: (params: { fileId: string; version: string | number }) =>
+    request(`/file/${params.fileId}/${params.version}`, { method: 'DELETE' }),
+
+  uploadVrcPlusIcon: async (imageData: string) => {
+    const authCookie = await getStoredAuthCookie();
+    const res = await safeInvoke('vrc_execute', {
       options: {
         url: 'https://api.vrchat.cloud/api/1/file/image',
         method: 'POST',
+        auth_cookie: authCookie,
         form_data: [
-          { name: 'tag', value: 'icon' },
+          { name: 'data', value: JSON.stringify({ tag: 'icon' }) },
           {
-            name: 'file',
+            name: 'image',
             file_name: 'icon.png',
             file_content_base64: toCleanBase64(imageData),
             file_mime: 'image/png',
           },
         ],
       },
-    }),
+    });
+    return parseExecuteResponse(res, 'https://api.vrchat.cloud/api/1/file/image');
+  },
+
+  uploadVRCPlusIcon: (imageData: string) =>
+    VrcPlusIconApi.uploadVrcPlusIcon(imageData),
 };

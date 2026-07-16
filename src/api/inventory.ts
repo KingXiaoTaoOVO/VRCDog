@@ -41,4 +41,7 @@ export const InventoryApi = {
 
   unarchiveItem: (params: { inventoryId: string }) =>
     request(`/inventory/${params.inventoryId}`, { method: 'PUT', params: { isArchived: false } }),
+
+  unArchiveItem: (params: { inventoryId: string }) =>
+    request(`/inventory/${params.inventoryId}`, { method: 'PUT', params: { isArchived: false } }),
 };

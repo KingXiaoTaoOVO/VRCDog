@@ -472,10 +472,16 @@ pub async fn sys_save_vrc_config(content: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Result<(), String> {
-    if let Ok(mut app_dir) = app.path().app_data_dir() {
-        app_dir.push("vrcdog.db");
-        if app_dir.exists() {
-            std::fs::copy(&app_dir, &dest_path).map_err(|e| format!("Backup failed: {}", e))?;
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        let database_path = app_dir.join("vrcdog.db");
+        let legacy_path = app_dir.join("livehime.db");
+        let source_path = if database_path.exists() {
+            database_path
+        } else {
+            legacy_path
+        };
+        if source_path.exists() {
+            std::fs::copy(&source_path, &dest_path).map_err(|e| format!("Backup failed: {}", e))?;
             return Ok(());
         }
         return Err("Database file not found".to_string());
@@ -485,9 +491,9 @@ pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Re
 
 #[tauri::command]
 pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Result<(), String> {
-    if let Ok(mut app_dir) = app.path().app_data_dir() {
-        app_dir.push("vrcdog.db");
-        std::fs::copy(&src_path, &app_dir).map_err(|e| format!("Restore failed: {}", e))?;
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        let database_path = app_dir.join("vrcdog.db");
+        std::fs::copy(&src_path, &database_path).map_err(|e| format!("Restore failed: {}", e))?;
         return Ok(());
     }
     Err("Cannot resolve app data directory".to_string())

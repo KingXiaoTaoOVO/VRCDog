@@ -4,7 +4,7 @@
     "error_network": "Chyba site: {err}",
     "error_verify_failed": "Overeni proslo, ale nepodarilo se nacist uzivatele",
     "error_code_wrong": "Neplatny kod",
-    "title": "VRC Dog Manager",
+    "title": "VrcDog",
     "subtitle": "Vase univerzalni VRChat socialni centrum",
     "username": "VRChat uzivatelske jmeno nebo e-mail",
     "password": "Heslo",
@@ -41,14 +41,14 @@
       "close": "Zavrit"
     },
     "update": {
-      "title": "Aktualizace VRCDog",
+      "title": "Aktualizace VrcDog",
       "tab_stable": "Stabilni",
       "tab_beta": "Beta",
       "beta_warning_title": "Beta sestaveni",
       "beta_warning_desc": "Beta sestaveni slouzi k testovani novych funkci. Pro stabilitu pouzijte stabilni verzi.",
       "version": "Verze",
       "no_releases": "Nebyly nalezeny zadne verze",
-      "up_to_date": "VRCDog je aktualni",
+      "up_to_date": "VrcDog je aktualni",
       "has_new": "Je dostupna nova verze: {version}",
       "download": "Stahnout"
     }

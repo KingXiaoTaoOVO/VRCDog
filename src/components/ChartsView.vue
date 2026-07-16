@@ -5,8 +5,10 @@ import { TrendingUp, Users, Clock, Globe2, Network, Trophy, LayoutDashboard } fr
 import { useI18n } from 'vue-i18n';
 import type { VrcUser, FriendLog } from '../types/vrc';
 import * as echarts from 'echarts';
+import { useUserProfileStore } from '../stores/userProfile';
 
 const { t } = useI18n();
+const profileStore = useUserProfileStore();
 
 const currentTab = ref<'overview' | 'network' | 'worlds'>('overview');
 const loading = ref(true);
@@ -263,6 +265,16 @@ const renderNetworkChart = () => {
   if (!networkChartRef.value) return;
   if (!chartInstance) {
     chartInstance = echarts.init(networkChartRef.value, undefined, { renderer: 'canvas' });
+    chartInstance.on('click', (params: any) => {
+      if (params?.dataType !== 'node' || !params?.data?.id) return;
+      const prefill = allFriends.value.find((friend) => friend.id === params.data.id);
+      profileStore.openProfile(params.data.id, prefill || {
+        id: params.data.id,
+        displayName: params.data.name,
+        status: 'offline',
+        isFriend: true,
+      } as any);
+    });
   }
 
   // 渲染 VrcDog 风格的相互图

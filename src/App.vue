@@ -89,6 +89,7 @@ const NotesView = lazyView('NotesView', () => import('./components/NotesView.vue
 const StatusPresetsView = lazyView('StatusPresetsView', () => import('./components/StatusPresetsView.vue'));
 const BilidownView = lazyView('BilidownView', () => import('./components/BilidownView.vue'));
 const DanmakuView = lazyView('DanmakuView', () => import('./components/DanmakuView.vue'));
+const VrpianoView = lazyView('VrpianoView', () => import('./components/VrpianoView.vue'));
 const ToolsView = lazyView('ToolsView', () => import('./components/ToolsView.vue'));
 const TranslatorView = lazyView('TranslatorView', () => import('./components/TranslatorView.vue'));
 const OvrTranslatorView = lazyView('OvrTranslatorView', () => import('./components/OvrTranslatorView.vue'));
@@ -185,7 +186,11 @@ onMounted(async () => {
     setTimeout(async () => {
       try {
         const args = await SysApi.getLaunchArgs();
-        const urlArg = args.find(a => a.startsWith('vrcdog://') || a.startsWith('vrchat://'));
+        const urlArg = args.find(a =>
+          a.startsWith('vrcdog://')
+          || a.startsWith('livehime://') // Legacy scheme accepted for existing shortcuts.
+          || a.startsWith('vrchat://')
+        );
         if (urlArg) {
           if (urlArg.includes('launch/')) {
             const worldId = urlArg.split('launch/')[1];
@@ -249,7 +254,7 @@ if (typeof window !== 'undefined') {
     // 验证：用当前 cookie 再试一次 /auth/user，确认 auth 确实失效
     // 防止 WebSocket 断开等误触发导致用户被强制登出
     try {
-      const verifyUser = await VrcApi.getCurrentUser();
+      const verifyUser = await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true });
       if (verifyUser && verifyUser.displayName) {
         // auth 仍然有效，忽略本次事件
         console.log('[App] Auth still valid, ignoring auth-expired event');
@@ -368,6 +373,7 @@ if (typeof window !== 'undefined') {
       />
       <BilidownView v-else-if="activeTab === 'bilidown'" />
       <DanmakuView v-else-if="activeTab === 'danmaku'" />
+      <VrpianoView v-else-if="activeTab === 'vrpiano'" />
       <ToolsView v-else-if="activeTab === 'tools'" />
       <TranslatorView v-else-if="activeTab === 'translator'" />
       <OvrTranslatorView v-else-if="activeTab === 'ovr'" />

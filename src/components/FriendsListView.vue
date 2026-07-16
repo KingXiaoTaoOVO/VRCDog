@@ -51,14 +51,20 @@ const fetchFriends = async () => {
     errorMsg.value = '';
     try {
       const cached: any[] = await DbApi.getCachedFriends() || [];
-      
-      onlineFriends.value = cached.filter((f: any) => f.location && f.location !== 'offline');
-    
-    // In VRChat, active usually means location is 'offline' but status is not 'offline', or similar.
-    // For now we mock 'active' users as those with location 'offline' but status != 'offline'
-    activeFriends.value = cached.filter((f: any) => f.location === 'offline' && f.status && f.status !== 'offline');
-    
-    offlineFriends.value = cached.filter((f: any) => f.location === 'offline' && (!f.status || f.status === 'offline'));
+
+      const normalized = cached.filter((f: any) => f?.id || f?.displayName);
+      const isOnlineLocation = (location: unknown) => {
+        const loc = String(location || '').trim().toLowerCase();
+        return Boolean(loc) && loc !== 'offline';
+      };
+      const isActiveStatus = (status: unknown) => {
+        const value = String(status || '').trim().toLowerCase();
+        return Boolean(value) && value !== 'offline';
+      };
+
+      onlineFriends.value = normalized.filter((f: any) => isOnlineLocation(f.location));
+      activeFriends.value = normalized.filter((f: any) => !isOnlineLocation(f.location) && isActiveStatus(f.status));
+      offlineFriends.value = normalized.filter((f: any) => !isOnlineLocation(f.location) && !isActiveStatus(f.status));
   } catch (err: any) {
     errorMsg.value = err.message || err;
   } finally {

@@ -16,7 +16,10 @@ import { InviteMessagesApi } from './inviteMessages';
 import { MiscApi } from './misc';
 import { VrcPlusIconApi } from './vrcPlusIcon';
 import { VrcPlusImageApi } from './vrcPlusImage';
-import { request as baseRequest } from './request';
+import { InstanceApi } from './instance';
+import { ImageApi } from './image';
+import { QueryRequestApi } from './queryRequest';
+import { getStoredAuthCookie, parseExecuteResponse, request as baseRequest } from './request';
 import { isDebugLogEnabled } from './debugConfig';
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -86,6 +89,24 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     if (cmd === 'vrc_get_friends' || cmd === 'vrc_search_users' || cmd === 'vrc_search_worlds' || cmd === 'vrc_get_notifications' || cmd === 'vrc_get_avatars' || cmd === 'db_get_status_presets' || cmd === 'vrc_get_latest_gamelogs' || cmd === 'db_get_all_notes') {
       return Promise.resolve([]) as any;
     }
+    if (cmd === 'osc_get_status') return Promise.resolve({ monitorRunning: false, automationRunning: false }) as any;
+    if (cmd === 'osc_get_system_snapshot') {
+      return Promise.resolve({
+        cpuUsage: 28.4,
+        ramUsage: 54.2,
+        memoryUsedGb: 17.3,
+        memoryTotalGb: 32,
+        gpuUsage: 41,
+        gpuMemoryUsedGb: 4.8,
+        gpuMemoryTotalGb: 12,
+        idleSeconds: 12,
+        activeWindow: 'VrcDog Preview',
+        localTime: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        localDate: new Date().toISOString().slice(0, 10),
+        vrcRunning: true,
+      }) as any;
+    }
+    if (cmd.startsWith('osc_')) return Promise.resolve(undefined) as any;
     if (cmd === 'ovr_load_ovras_ini') return Promise.resolve('{}') as any;
     if (cmd === 'ovr_sync_ovras_ini') return Promise.resolve(undefined) as any;
     if (cmd === 'danmaku_get_config') return Promise.resolve(mockDanmakuConfig) as any;
@@ -132,7 +153,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
         source: 'browser',
         message_type: String(args?.messageType || 'danmaku'),
         user: 'PreviewUser',
-        text: String(args?.text || '直播姬 browser preview message.'),
+        text: String(args?.text || 'VrcDog浏览器预览消息'),
         price: null,
         gift_count: null,
         medal_name: null,
@@ -141,6 +162,72 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
         timestamp_ms: Date.now(),
       }) as any;
     }
+    const mockVrpianoStatus = {
+      running: false,
+      song_name: '',
+      progress: 0,
+      played_notes: 0,
+      total_notes: 0,
+      duration_ms: 0,
+      elapsed_ms: 0,
+      last_event: 'browser_preview',
+      last_error: '',
+      songs_dir: 'Browser preview',
+      speed: 1,
+      hotkeys_enabled: false,
+      hotkeys_available: true,
+    };
+    if (cmd === 'vrpiano_init' || cmd === 'vrpiano_get_status' || cmd === 'vrpiano_stop') return Promise.resolve(mockVrpianoStatus) as any;
+    if (cmd === 'vrpiano_set_speed') return Promise.resolve({ ...mockVrpianoStatus, speed: Number(args?.speed || 1), last_event: `Browser preview speed ${Number(args?.speed || 1).toFixed(2)}x` }) as any;
+    if (cmd === 'vrpiano_set_hotkeys') {
+      const config = (args?.config || {}) as any;
+      return Promise.resolve({
+        ...mockVrpianoStatus,
+        speed: Number(config.speed || 1),
+        hotkeys_enabled: Boolean(config.enabled),
+        last_event: Boolean(config.enabled) ? 'Browser preview hotkeys enabled' : 'Browser preview hotkeys disabled',
+      }) as any;
+    }
+    if (cmd === 'vrpiano_start') {
+      return Promise.resolve({
+        ...mockVrpianoStatus,
+        running: true,
+        song_name: 'Preview Song',
+        total_notes: 128,
+        duration_ms: 128000,
+        last_event: 'Browser preview started',
+      }) as any;
+    }
+    if (cmd === 'vrpiano_list_songs') {
+      return Promise.resolve([
+        { id: 'preview-1', name: '晴天（预览）', path: 'preview-1.mid', size: 43419, modified_ms: Date.now() },
+        { id: 'preview-2', name: '钟（预览）', path: 'preview-2.mid', size: 37423, modified_ms: Date.now() },
+      ]) as any;
+    }
+    if (cmd === 'vrpiano_import_song') return Promise.resolve({ id: 'imported', name: 'Imported', path: 'imported.mid', size: 1024, modified_ms: Date.now() }) as any;
+    if (cmd === 'vrpiano_rename_song') return Promise.resolve({ id: 'renamed', name: String((args?.request as any)?.new_name || 'Renamed'), path: 'renamed.mid', size: 1024, modified_ms: Date.now() }) as any;
+    if (cmd === 'vrpiano_delete_song' || cmd === 'vrpiano_preview_song') return Promise.resolve(undefined) as any;
+    if (cmd === 'vrpiano_read_song_data') return Promise.resolve({ name: 'Preview MIDI', data: 'TVRoZAAAAAYAAAABAGBNVHJrAAAAEwD/UQMHoSAAkDxkYIA8AAD/LwA=' }) as any;
+    if (cmd === 'vrpiano_download_url') return Promise.resolve({ id: 'download-url', name: 'Downloaded URL', path: 'download-url.mid', size: 2048, modified_ms: Date.now() }) as any;
+    if (cmd === 'vrpiano_search_midishow') {
+      return Promise.resolve([
+        { id: 10001, title: 'A Little Story', artist: 'Preview Artist', page_url: 'https://www.midishow.com/en/midi/10001.html' },
+        { id: 10002, title: 'River Flows In You', artist: 'Yiruma', page_url: 'https://www.midishow.com/en/midi/10002.html' },
+      ]) as any;
+    }
+    if (cmd === 'vrpiano_download_midishow') {
+      const request = (args?.request || {}) as any;
+      if (request.preview) return Promise.resolve(null) as any;
+      return Promise.resolve({ id: `midishow-${request.midi_id}`, name: request.title || `MIDI_${request.midi_id}`, path: `midishow-${request.midi_id}.mid`, size: 4096, modified_ms: Date.now() }) as any;
+    }
+    if (cmd === 'vrpiano_midishow_preview_data') {
+      const request = (args?.request || {}) as any;
+      return Promise.resolve({ name: request.title || `MIDI_${request.midi_id}`, data: 'TVRoZAAAAAYAAAABAGBNVHJrAAAAEwD/UQMHoSAAkDxkYIA8AAD/LwA=' }) as any;
+    }
+    if (cmd === 'vrpiano_midishow_accounts') return Promise.resolve([]) as any;
+    if (cmd === 'vrpiano_midishow_login') return Promise.resolve([{ username: String((args?.request as any)?.username || 'preview') }]) as any;
+    if (cmd === 'vrpiano_midishow_remove_account') return Promise.resolve([]) as any;
+    if (cmd === 'vrpiano_open_songs_dir') return Promise.resolve(undefined) as any;
     return Promise.resolve({}) as any;
   }
   const startTime = performance.now();
@@ -177,6 +264,28 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     throw new Error(errorMsg);
   }
 }
+
+export const request = baseRequest;
+export const authRequest = AuthApi;
+export const userRequest = UserApi;
+export const friendRequest = FriendApi;
+export const worldRequest = WorldApi;
+export const avatarRequest = AvatarApi;
+export const groupRequest = GroupApi;
+export const notificationRequest = NotificationApi;
+export const favoriteRequest = FavoriteApi;
+export const fileRequest = FileApi;
+export const playerModerationRequest = PlayerModerationApi;
+export const avatarModerationRequest = AvatarModerationApi;
+export const inventoryRequest = InventoryApi;
+export const propRequest = PropApi;
+export const inviteMessagesRequest = InviteMessagesApi;
+export const miscRequest = MiscApi;
+export const vrcPlusIconRequest = VrcPlusIconApi;
+export const vrcPlusImageRequest = VrcPlusImageApi;
+export const instanceRequest = InstanceApi;
+export const imageRequest = ImageApi;
+export const queryRequest = QueryRequestApi;
 
 /**
  * [VrcDog 对齐] VRChat API 核心导出
@@ -267,6 +376,7 @@ export const VrcApi = {
   deleteWorld: WorldApi.deleteWorld,
   publishWorld: WorldApi.publishWorld,
   unpublishWorld: WorldApi.unpublishWorld,
+  uploadWorldImage: WorldApi.uploadWorldImage,
 
   // 形象模块
   getAvatar: AvatarApi.getAvatar,
@@ -279,12 +389,19 @@ export const VrcApi = {
   createImposter: AvatarApi.createImposter,
   deleteImposter: AvatarApi.deleteImposter,
   getAvailableAvatarStyles: AvatarApi.getAvailableAvatarStyles,
+  getAvatarGallery: AvatarApi.getAvatarGallery,
+  uploadAvatarImage: AvatarApi.uploadAvatarImage,
+  uploadAvatarGalleryImage: AvatarApi.uploadAvatarGalleryImage,
+  setAvatarGalleryOrder: AvatarApi.setAvatarGalleryOrder,
   getLicensedAvatars: AvatarApi.getLicensedAvatars,
 
   // 实例模块
-  createInstance: (params: any) => baseRequest('/instances', { method: 'POST', params }),
-  getInstance: (params: any) => baseRequest(`/instances/${params.worldId}:${params.instanceId}`),
-  inviteMyself: (params: any) => baseRequest(`/invite/myself/to/${params.worldId}:${params.instanceId}`, { method: 'POST' }),
+  createInstance: InstanceApi.createInstance,
+  getInstance: InstanceApi.getInstance,
+  getInstanceShortName: InstanceApi.getInstanceShortName,
+  getInstanceFromShortName: InstanceApi.getInstanceFromShortName,
+  selfInvite: InstanceApi.selfInvite,
+  inviteMyself: InstanceApi.selfInvite,
   inviteUser: (params: any) => {
     const body: any = {};
     for (const key of ['instanceId', 'worldId', 'worldName', 'messageSlot', 'rsvp', 'platform', 'details', 'message']) {
@@ -305,33 +422,90 @@ export const VrcApi = {
 
   // 组模块
   getGroup: GroupApi.getGroup,
+  createGroup: GroupApi.createGroup,
+  updateGroup: GroupApi.updateGroup,
+  editGroup: GroupApi.editGroup,
   getGroups: async () => {
     const user: any = await baseRequest('/auth/user');
     return GroupApi.getGroups({ userId: user.id });
   },
+  getGroupAnnouncement: GroupApi.getGroupAnnouncement,
+  setGroupAnnouncement: GroupApi.setGroupAnnouncement,
   joinGroup: GroupApi.joinGroup,
   leaveGroup: GroupApi.leaveGroup,
+  cancelGroupRequest: GroupApi.cancelGroupRequest,
+  setGroupRepresentation: GroupApi.setGroupRepresentation,
   getGroupMembers: GroupApi.getGroupMembers,
+  getGroupMembersSearch: GroupApi.getGroupMembersSearch,
+  getGroupMember: GroupApi.getGroupMember,
+  setGroupMemberProps: GroupApi.setGroupMemberProps,
   getGroupRoles: GroupApi.getGroupRoles,
+  getGroupRoleTemplates: GroupApi.getGroupRoleTemplates,
+  getRoleTemplates: GroupApi.getRoleTemplates,
+  createGroupRole: GroupApi.createGroupRole,
+  editGroupRole: GroupApi.editGroupRole,
+  deleteGroupRole: GroupApi.deleteGroupRole,
+  addGroupMemberRole: GroupApi.addGroupMemberRole,
+  removeGroupMemberRole: GroupApi.removeGroupMemberRole,
   getGroupPosts: GroupApi.getGroupPosts,
   createGroupPost: GroupApi.createGroupPost,
+  updateGroupPost: GroupApi.updateGroupPost,
+  editGroupPost: GroupApi.editGroupPost,
+  deleteGroupPost: GroupApi.deleteGroupPost,
   getGroupLogs: GroupApi.getGroupLogs,
+  getGroupAuditLogTypes: GroupApi.getGroupAuditLogTypes,
+  getGroupInvites: GroupApi.getGroupInvites,
   sendGroupInvite: GroupApi.sendGroupInvite,
+  deleteGroupInvite: GroupApi.deleteGroupInvite,
+  deleteSentGroupInvite: GroupApi.deleteSentGroupInvite,
+  getGroupBans: GroupApi.getGroupBans,
   kickGroupMember: GroupApi.kickGroupMember,
   banGroupMember: GroupApi.banGroupMember,
   unbanGroupMember: GroupApi.unbanGroupMember,
+  blockGroup: GroupApi.blockGroup,
+  unblockGroup: GroupApi.unblockGroup,
+  getBlockedGroups: GroupApi.getBlockedGroups,
   getUserGroupPermissions: GroupApi.getUserGroupPermissions,
+  getGroupPermissions: GroupApi.getGroupPermissions,
+  getGroupInstances: GroupApi.getGroupInstances,
+  getUsersGroupInstances: GroupApi.getUsersGroupInstances,
   getGroupJoinRequests: GroupApi.getGroupJoinRequests,
   respondGroupJoinRequest: GroupApi.respondGroupJoinRequest,
+  acceptGroupInviteRequest: GroupApi.acceptGroupInviteRequest,
+  rejectGroupInviteRequest: GroupApi.rejectGroupInviteRequest,
+  blockGroupInviteRequest: GroupApi.blockGroupInviteRequest,
+  deleteBlockedGroupRequest: GroupApi.deleteBlockedGroupRequest,
   getRepresentedGroup: GroupApi.getRepresentedGroup,
+  getGroupCalendar: GroupApi.getGroupCalendar,
+  getGroupCalendarEvent: GroupApi.getGroupCalendarEvent,
+  getGroupCalendars: GroupApi.getGroupCalendars,
+  getFollowingGroupCalendars: GroupApi.getFollowingGroupCalendars,
+  getFeaturedGroupCalendars: GroupApi.getFeaturedGroupCalendars,
+  followGroupEvent: GroupApi.followGroupEvent,
+  deleteGroupEvent: GroupApi.deleteGroupEvent,
+  createGroupEvent: GroupApi.createGroupEvent,
+  editGroupEvent: GroupApi.editGroupEvent,
+  groupSearch: GroupApi.groupSearch,
+  getGroupGallery: GroupApi.getGroupGallery,
+  groupStrictsearch: GroupApi.groupStrictsearch,
 
   // 通知模块
   getNotifications: NotificationApi.getNotifications,
+  getHiddenFriendRequests: NotificationApi.getHiddenFriendRequests,
   acceptNotification: NotificationApi.acceptNotification,
   hideNotification: NotificationApi.hideNotification,
+  seeNotification: NotificationApi.seeNotification,
   getNotificationsV2: NotificationApi.getNotificationsV2,
+  sendInviteNotification: NotificationApi.sendInvite,
+  sendInvitePhoto: NotificationApi.sendInvitePhoto,
+  sendRequestInviteNotification: NotificationApi.sendRequestInvite,
+  sendRequestInvitePhoto: NotificationApi.sendRequestInvitePhoto,
+  sendInviteResponse: NotificationApi.sendInviteResponse,
+  sendInviteResponsePhoto: NotificationApi.sendInviteResponsePhoto,
   seeNotificationV2: NotificationApi.seeNotificationV2,
+  sendNotificationResponse: NotificationApi.sendNotificationResponse,
   deleteNotificationV2: NotificationApi.deleteNotificationV2,
+  hideNotificationV2: NotificationApi.hideNotificationV2,
 
   // 收藏模块
   getFavorites: FavoriteApi.getFavorites,
@@ -339,12 +513,34 @@ export const VrcApi = {
   getFavoriteAvatars: FavoriteApi.getFavoriteAvatars,
   getFavoriteGroups: FavoriteApi.getFavoriteGroups,
   addFavorite: FavoriteApi.addFavorite,
-  deleteFavorite: FavoriteApi.removeFavorite,
+  deleteFavorite: FavoriteApi.deleteFavorite,
+  removeFavorite: FavoriteApi.removeFavorite,
+  saveFavoriteGroup: FavoriteApi.saveFavoriteGroup,
+  clearFavoriteGroup: FavoriteApi.clearFavoriteGroup,
+  getFavoriteLimits: FavoriteApi.getFavoriteLimits,
 
   // 文件模块
   getFile: FileApi.getFile,
   deleteFile: FileApi.deleteFile,
+  deleteFileVersion: FileApi.deleteFileVersion,
   getFileAnalysis: FileApi.getFileAnalysis,
+  miscGetFile: MiscApi.getFile,
+  miscDeleteFile: MiscApi.deleteFile,
+  queryFetch: QueryRequestApi.fetch,
+  uploadAvatarFailCleanup: ImageApi.uploadAvatarFailCleanup,
+  uploadAvatarImageFileStart: ImageApi.uploadAvatarImageFileStart,
+  uploadAvatarImageFileFinish: ImageApi.uploadAvatarImageFileFinish,
+  uploadAvatarImageSigStart: ImageApi.uploadAvatarImageSigStart,
+  uploadAvatarImageSigFinish: ImageApi.uploadAvatarImageSigFinish,
+  setAvatarImage: ImageApi.setAvatarImage,
+  uploadWorldFailCleanup: ImageApi.uploadWorldFailCleanup,
+  uploadWorldImageFileStart: ImageApi.uploadWorldImageFileStart,
+  uploadWorldImageFileFinish: ImageApi.uploadWorldImageFileFinish,
+  uploadWorldImageSigStart: ImageApi.uploadWorldImageSigStart,
+  uploadWorldImageSigFinish: ImageApi.uploadWorldImageSigFinish,
+  setWorldImage: ImageApi.setWorldImage,
+  getAvatarImages: ImageApi.getAvatarImages,
+  getWorldImages: ImageApi.getWorldImages,
 
   // 播放器操作
   getModerations: PlayerModerationApi.getPlayerModerations,
@@ -365,11 +561,16 @@ export const VrcApi = {
   equipItem: InventoryApi.equipItem,
   archiveInventoryItem: InventoryApi.archiveItem,
   unarchiveInventoryItem: InventoryApi.unarchiveItem,
+  unArchiveItem: InventoryApi.unArchiveItem,
   getProp: PropApi.getProp,
+  refreshInviteMessageTableData: InviteMessagesApi.refreshInviteMessageTableData,
   getInviteMessages: InviteMessagesApi.getInviteMessages,
   editInviteMessage: InviteMessagesApi.editInviteMessage,
   getVrcPlusFiles: VrcPlusIconApi.getFileList,
+  deleteVrcPlusFile: VrcPlusIconApi.deleteFile,
+  deleteVrcPlusFileVersion: VrcPlusIconApi.deleteFileVersion,
   uploadVrcPlusIcon: VrcPlusIconApi.uploadVrcPlusIcon,
+  uploadVRCPlusIcon: VrcPlusIconApi.uploadVRCPlusIcon,
   uploadGalleryImage: VrcPlusImageApi.uploadGalleryImage,
   uploadSticker: VrcPlusImageApi.uploadSticker,
   uploadEmoji: VrcPlusImageApi.uploadEmoji,
@@ -377,20 +578,23 @@ export const VrcApi = {
   getPrint: VrcPlusImageApi.getPrint,
   deletePrint: VrcPlusImageApi.deletePrint,
   uploadPrint: VrcPlusImageApi.uploadPrint,
+  createPrint: VrcPlusImageApi.createPrint,
   
   // 图片上传
   uploadVrcPlusImage: async (base64Data: string, tag: string = 'gallery', entityId?: string) => {
     const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const authCookie = await getStoredAuthCookie();
+    const data: any = { tag };
+    if (entityId) data[tag === 'avatargallery' ? 'galleryId' : 'entityId'] = entityId;
     const formData: any[] = [
-      { name: 'tag', value: tag },
-      { name: 'file', file_name: 'image.png', file_content_base64: cleanBase64, file_mime: 'image/png' }
+      { name: 'data', value: JSON.stringify(data) },
+      { name: 'image', file_name: 'image.png', file_content_base64: cleanBase64, file_mime: 'image/png' }
     ];
-    if (entityId) formData.push({ name: tag === 'avatargallery' ? 'galleryId' : 'entityId', value: entityId });
 
     const res: any = await safeInvoke('vrc_execute', {
-      options: { url: 'https://api.vrchat.cloud/api/1/file/image', method: 'POST', form_data: formData }
+      options: { url: 'https://api.vrchat.cloud/api/1/file/image', method: 'POST', auth_cookie: authCookie, form_data: formData }
     });
-    return res.data ? JSON.parse(res.data) : res;
+    return parseExecuteResponse(res, 'https://api.vrchat.cloud/api/1/file/image');
   }
 };
 
@@ -473,6 +677,76 @@ export const SysApi = {
   saveVrcConfig: (params: { content: string }) => safeInvoke<void>('sys_save_vrc_config', params),
   backupDatabase: (params: { destPath: string }) => safeInvoke<void>('sys_backup_database', params),
   restoreDatabase: (params: { srcPath: string }) => safeInvoke<void>('sys_restore_database', params),
+};
+
+export type OscValueType = 'float' | 'double' | 'int' | 'long' | 'bool' | 'string' | 'impulse';
+
+export interface OscMonitorArgument {
+  valueType: string;
+  value: unknown;
+}
+
+export interface OscMonitorEvent {
+  address: string;
+  args: OscMonitorArgument[];
+  sender: string;
+  timestamp: string;
+}
+
+export interface OscSystemSnapshot {
+  cpuUsage: number;
+  ramUsage: number;
+  memoryUsedGb: number;
+  memoryTotalGb: number;
+  gpuUsage: number | null;
+  gpuMemoryUsedGb: number | null;
+  gpuMemoryTotalGb: number | null;
+  idleSeconds: number;
+  activeWindow: string;
+  localTime: string;
+  localDate: string;
+  vrcRunning: boolean;
+}
+
+export interface OscAutomationMapping {
+  enabled: boolean;
+  address: string;
+  source: string;
+  scale: number;
+  offset: number;
+  min?: number | null;
+  max?: number | null;
+  valueType: OscValueType;
+}
+
+export interface OscAutomationConfig {
+  host: string;
+  port: number;
+  intervalMs: number;
+  mappings: OscAutomationMapping[];
+}
+
+export interface OscRouteRule {
+  enabled: boolean;
+  sourceAddress: string;
+  targetHost: string;
+  targetPort: number;
+  targetAddress: string;
+}
+
+export const OscApi = {
+  sendMessage: (params: { host: string; port: number; address: string; valueType: OscValueType; value: unknown }) =>
+    safeInvoke<void>('osc_send_message', params),
+  sendChatbox: (params: { host: string; port: number; text: string; send: boolean; notify: boolean }) =>
+    safeInvoke<void>('osc_send_chatbox', params),
+  startMonitor: (params: { host: string; port: number; routes?: OscRouteRule[] }) =>
+    safeInvoke<void>('osc_start_monitor', params),
+  stopMonitor: () => safeInvoke<void>('osc_stop_monitor'),
+  getSystemSnapshot: () => safeInvoke<OscSystemSnapshot>('osc_get_system_snapshot'),
+  startAutomation: (params: { config: OscAutomationConfig }) =>
+    safeInvoke<void>('osc_start_automation', params),
+  stopAutomation: () => safeInvoke<void>('osc_stop_automation'),
+  getStatus: () => safeInvoke<{ monitorRunning: boolean; automationRunning: boolean }>('osc_get_status'),
 };
 
 export const GamelogApi = {
@@ -598,6 +872,115 @@ export const VrctApi = {
   processMessage: (params: { req: any }) => safeInvoke<any>('vrct_process_message', params),
   getHistory: () => safeInvoke<any[]>('vrct_get_history'),
   clearHistory: () => safeInvoke<void>('vrct_clear_history'),
+};
+
+export interface VrpianoSong {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  modified_ms: number;
+}
+
+export interface VrpianoStatus {
+  running: boolean;
+  song_name: string;
+  progress: number;
+  played_notes: number;
+  total_notes: number;
+  duration_ms: number;
+  elapsed_ms: number;
+  last_event: string;
+  last_error: string;
+  songs_dir: string;
+  speed: number;
+  hotkeys_enabled: boolean;
+  hotkeys_available: boolean;
+}
+
+export interface VrpianoOnlineSong {
+  id: number;
+  title: string;
+  artist: string;
+  page_url: string;
+}
+
+export interface VrpianoMidishowAccount {
+  username: string;
+}
+
+export interface VrpianoMidiData {
+  name: string;
+  data: string;
+}
+
+export const VrpianoApi = {
+  init: () => safeInvoke<VrpianoStatus>('vrpiano_init'),
+  listSongs: () => safeInvoke<VrpianoSong[]>('vrpiano_list_songs'),
+  importSong: (params: { sourcePath: string }) => safeInvoke<VrpianoSong>('vrpiano_import_song', { sourcePath: params.sourcePath }),
+  renameSong: (params: { songPath: string; newName: string; overwrite?: boolean }) => safeInvoke<VrpianoSong>('vrpiano_rename_song', {
+    request: {
+      song_path: params.songPath,
+      new_name: params.newName,
+      overwrite: Boolean(params.overwrite),
+    },
+  }),
+  deleteSong: (params: { songPath: string }) => safeInvoke<void>('vrpiano_delete_song', { songPath: params.songPath }),
+  previewSong: (params: { songPath: string }) => safeInvoke<void>('vrpiano_preview_song', { songPath: params.songPath }),
+  readSongData: (params: { songPath: string }) => safeInvoke<VrpianoMidiData>('vrpiano_read_song_data', { songPath: params.songPath }),
+  downloadUrl: (params: { url: string; filename?: string }) => safeInvoke<VrpianoSong>('vrpiano_download_url', {
+    request: {
+      url: params.url,
+      filename: params.filename || null,
+    },
+  }),
+  searchMidishow: (params: { keyword: string; maxResults?: number }) => safeInvoke<VrpianoOnlineSong[]>('vrpiano_search_midishow', {
+    keyword: params.keyword,
+    maxResults: params.maxResults || 30,
+  }),
+  downloadMidishow: (params: { midiId: number; title?: string; preview?: boolean }) => safeInvoke<VrpianoSong | null>('vrpiano_download_midishow', {
+    request: {
+      midi_id: params.midiId,
+      title: params.title || null,
+      preview: Boolean(params.preview),
+    },
+  }),
+  midishowPreviewData: (params: { midiId: number; title?: string }) => safeInvoke<VrpianoMidiData>('vrpiano_midishow_preview_data', {
+    request: {
+      midi_id: params.midiId,
+      title: params.title || null,
+      preview: true,
+    },
+  }),
+  midishowAccounts: () => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_accounts'),
+  midishowLogin: (params: { username: string; password: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_login', {
+    request: {
+      username: params.username,
+      password: params.password,
+    },
+  }),
+  midishowRemoveAccount: (params: { username: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_remove_account', {
+    username: params.username,
+  }),
+  openSongsDir: () => safeInvoke<void>('vrpiano_open_songs_dir'),
+  getStatus: () => safeInvoke<VrpianoStatus>('vrpiano_get_status'),
+  start: (params: { songPath: string; delaySecs: number; speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_start', {
+    request: {
+      song_path: params.songPath,
+      delay_secs: params.delaySecs,
+      speed: params.speed,
+    }
+  }),
+  stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),
+  setSpeed: (params: { speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_speed', params),
+  setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
+    config: {
+      enabled: params.enabled,
+      song_path: params.songPath,
+      delay_secs: params.delaySecs,
+      speed: params.speed,
+    },
+  }),
 };
 
 export {

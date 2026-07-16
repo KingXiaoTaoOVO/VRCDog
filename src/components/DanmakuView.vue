@@ -125,12 +125,18 @@ const integerInRange = (value: unknown, fallback: number, min: number, max: numb
 
 const runtimeConfig = (): DanmakuConfig => {
   const base = { ...defaultConfig(), ...config.value };
+  const normalizeOscAddress = (value: unknown) => {
+    const text = String(value || '').trim();
+    return !text || text === '/vrcdog/danmaku' ? '/vrcdog/danmaku' : text;
+  };
   return {
     ...base,
     room_id: integerInRange(base.room_id, 0, 0, Number.MAX_SAFE_INTEGER),
     osc_input_port: integerInRange(base.osc_input_port, 9011, 1, 65535),
     osc_output_port: integerInRange(base.osc_output_port, 9000, 1, 65535),
     vrc_chatbox_port: integerInRange(base.vrc_chatbox_port, 9000, 1, 65535),
+    osc_input_address: normalizeOscAddress(base.osc_input_address),
+    osc_output_address: normalizeOscAddress(base.osc_output_address),
     chatbox_interval_ms: integerInRange(base.chatbox_interval_ms, 1600, 250, 60_000),
     x: finiteNumber(base.x, hmdDefault.x),
     y: finiteNumber(base.y, hmdDefault.y),
@@ -464,7 +470,7 @@ onMounted(async () => {
   await loadSettings();
   await checkBiliLogin();
   await refreshSnapshot();
-  addLog('直播姬界面已加载');
+  addLog('VrcDog界面已加载');
 
   try {
     unlisteners.push(await listen<DanmakuStatus>('danmaku_status', (event) => {
@@ -497,10 +503,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="live-hime-shell">
-    <aside class="live-hime-sidebar">
-      <header class="live-hime-header">
-        <strong>直播姬</strong>
+  <div class="vrcdog-shell">
+    <aside class="vrcdog-sidebar">
+      <header class="vrcdog-header">
+        <strong>VrcDog</strong>
         <span class="status-badge">
           <i class="status-dot" :class="statusClass" />
           {{ connectedText }}
@@ -663,7 +669,7 @@ onUnmounted(() => {
       </div>
     </aside>
 
-    <main class="live-hime-main">
+    <main class="vrcdog-main">
       <header class="log-header">
         <span>日志</span>
         <button class="small-btn" @click="clearLog">清空</button>
@@ -699,7 +705,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.live-hime-shell {
+.vrcdog-shell {
   --dm-bg: rgba(255, 255, 255, 0.16);
   --dm-side: var(--theme-surface, rgba(255, 252, 240, 0.64));
   --dm-panel: var(--theme-surface-hover, rgba(255, 252, 240, 0.78));
@@ -723,7 +729,7 @@ onUnmounted(() => {
   backdrop-filter: blur(18px);
   font-size: 13px;
 }
-.live-hime-sidebar {
+.vrcdog-sidebar {
   width: 320px;
   min-width: 320px;
   display: flex;
@@ -731,7 +737,7 @@ onUnmounted(() => {
   background: var(--dm-side);
   box-shadow: inset -1px 0 0 var(--dm-border);
 }
-.live-hime-header,
+.vrcdog-header,
 .log-header {
   min-height: 56px;
   padding: 14px 16px;
@@ -914,7 +920,7 @@ onUnmounted(() => {
   background: var(--dm-panel);
   line-height: 1.6;
 }
-.live-hime-main {
+.vrcdog-main {
   min-width: 0;
   flex: 1;
   display: flex;

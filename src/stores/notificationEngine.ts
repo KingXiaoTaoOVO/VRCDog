@@ -7,6 +7,7 @@ export type NotificationCondition = 'never' | 'desktop' | 'vr' | 'not_vr' | 'vrc
 export interface NotificationRules {
   desktopCondition: NotificationCondition;
   showWhenAfk: boolean;
+  soundEnabled: boolean;
   ttsCondition: NotificationCondition;
   ttsVoice: string;
   ttsVolume: number;
@@ -14,6 +15,16 @@ export interface NotificationRules {
 
 export const useNotificationEngine = () => {
   const systemStore = useSystemContextStore();
+
+  const asBool = (value: unknown, fallback = false) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true') return true;
+      if (normalized === 'false') return false;
+    }
+    return fallback;
+  };
 
   const evaluateCondition = (condition: NotificationCondition, isAfkEnabled: boolean): boolean => {
     if (condition === 'never') return false;
@@ -34,10 +45,14 @@ export const useNotificationEngine = () => {
   const getRules = async (): Promise<NotificationRules> => {
     // Fetch rules from DB. Fallback to defaults.
     const all = await DbApi.getAllSettings() as Record<string, unknown>;
+    const systemEnabled = asBool(all.notifySystem, true);
     return {
-      desktopCondition: (all.notifyDesktopCondition as NotificationCondition) || 'always',
-      showWhenAfk: all.notifyShowWhenAfk !== false,
-      ttsCondition: (all.notifyTtsCondition as NotificationCondition) || 'never',
+      desktopCondition: systemEnabled ? ((all.notifyDesktopCondition as NotificationCondition) || 'always') : 'never',
+      showWhenAfk: asBool(all.notifyShowWhenAfk, false),
+      soundEnabled: asBool(all.notifySound, true),
+      ttsCondition: asBool(all.notifyTts, false)
+        ? ((all.notifyTtsCondition as NotificationCondition) || 'always')
+        : 'never',
       ttsVoice: (all.notifyTtsVoice as string) || '',
       ttsVolume: Number(all.notifyTtsVolume) || 50
     };
@@ -58,9 +73,36 @@ export const useNotificationEngine = () => {
       }
     }
 
+    if (rules.soundEnabled) {
+      playNotificationSound();
+    }
+
     // Evaluate TTS
     if (evaluateCondition(rules.ttsCondition, rules.showWhenAfk)) {
       playTts(body, rules.ttsVoice, rules.ttsVolume);
+    }
+  };
+
+  const playNotificationSound = () => {
+    try {
+      const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtor) return;
+      const context = new AudioCtor();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = context.currentTime;
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, start);
+      oscillator.frequency.exponentialRampToValueAtTime(1320, start + 0.08);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.12, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.24);
+      window.setTimeout(() => void context.close(), 450);
+    } catch {
+      // Ignore browsers that block audio before user interaction.
     }
   };
 
@@ -80,5 +122,5 @@ export const useNotificationEngine = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  return { notify, playTts };
+  return { notify, playTts, playNotificationSound };
 };

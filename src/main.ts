@@ -3,7 +3,7 @@ import { createApp } from "vue";
 import { createPinia } from 'pinia';
 
 const isTrayMenuMode = window.location.search.includes('mode=tray-menu');
-const STARTUP_RECOVERY_KEY = 'live-hime-startup-network-recovered';
+const STARTUP_RECOVERY_KEY = 'vrcdog-startup-network-recovered';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -95,7 +95,7 @@ const bootstrap = async () => {
 };
 
 bootstrap().catch((error) => {
-  console.error('[Startup] 直播姬 failed to boot:', error);
+  console.error('[Startup] VrcDog failed to boot:', error);
   if (isRecoverableLoadError(error)) {
     document.body.dataset.startupFailed = 'network';
     const root = document.getElementById('app');
@@ -103,11 +103,11 @@ bootstrap().catch((error) => {
       root.innerHTML = `
         <div style="height:100vh;display:flex;align-items:center;justify-content:center;background:#fffaf0;color:#9a6a38;font-family:system-ui,Segoe UI,sans-serif;">
           <div style="text-align:center;font-weight:700;">
-            <div style="margin-bottom:12px;">直播姬正在恢复启动连接...</div>
-            <button id="live-hime-reload" style="border:0;border-radius:10px;padding:10px 16px;background:#e7a94d;color:white;font-weight:700;cursor:pointer;">重新加载</button>
+            <div style="margin-bottom:12px;">VrcDog 正在恢复启动连接...</div>
+            <button id="vrcdog-reload" style="border:0;border-radius:10px;padding:10px 16px;background:#e7a94d;color:white;font-weight:700;cursor:pointer;">重新加载</button>
           </div>
         </div>`;
-      document.getElementById('live-hime-reload')?.addEventListener('click', () => window.location.reload());
+      document.getElementById('vrcdog-reload')?.addEventListener('click', () => window.location.reload());
     }
     recoverStartupOnce();
   }

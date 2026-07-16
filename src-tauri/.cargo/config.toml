@@ -1,4 +1,4 @@
-# Build configuration for VrcDog
+# Build configuration for LiveHime
 #
 # openvr_sys is patched to ../vendor/openvr_sys, which uses pre-generated
 # bindings by default and does not require libclang.

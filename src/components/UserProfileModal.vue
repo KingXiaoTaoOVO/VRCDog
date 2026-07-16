@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2 } from "lucide-vue-next";
 import { useUserProfileStore } from "../stores/userProfile";
 import { useAuthStore } from "../stores/authStore";
+import { useEntityModalStore } from "../stores/entityModal";
 import { useToast } from "../composables/useToast";
 import { VrcApi, DbApi, OvrApi } from "../api";
 import VrcAvatar from "./VrcAvatar.vue";
@@ -12,6 +13,7 @@ import JsonTree from "./JsonTree.vue";
 const { t, locale } = useI18n();
 const profileStore = useUserProfileStore();
 const authStore = useAuthStore();
+const entityStore = useEntityModalStore();
 const toast = useToast();
 
 type TabId = "info" | "mutual" | "groups" | "created_worlds" | "fav_worlds" | "created_avatars" | "activity" | "raw_json";
@@ -598,7 +600,14 @@ const bioLinksParsed = computed<string[]>(() => {
 function getFaviconUrl(url: string): string {
   try {
     const u = new URL(url);
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(u.hostname)}&sz=32`;
+    const host = u.hostname.replace(/^www\./, '');
+    const label = (host[0] || '?').toUpperCase();
+    const colors = ['#22c55e', '#0ea5e9', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
+    let hash = 0;
+    for (let i = 0; i < host.length; i += 1) hash = (hash * 31 + host.charCodeAt(i)) >>> 0;
+    const bg = colors[hash % colors.length];
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${bg}"/><text x="16" y="21" text-anchor="middle" font-family="Arial,sans-serif" font-size="16" font-weight="700" fill="#fff">${label}</text></svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
   } catch {
     return '';
   }
@@ -1207,6 +1216,16 @@ const avatarImageUrl = computed(() =>
   profileStore.baseInfo?.currentAvatarThumbnailImageUrl || ""
 );
 
+const openGroupDetail = async (group: any) => {
+  const groupId = group?.id || group?.groupId || group?.group?.id;
+  if (!groupId) return;
+  try {
+    await entityStore.openGroup(group?.group || group);
+  } catch (e: any) {
+    toast.error(e?.message || String(e));
+  }
+};
+
 const executeAction = async (action: string) => {
   const userId = profileStore.baseInfo?.id;
   if (!userId) return;
@@ -1303,7 +1322,7 @@ const executeAction = async (action: string) => {
       default: {
         if (action.startsWith('open_world:')) {
           const wid = action.substring('open_world:'.length);
-          window.open(`https://vrchat.com/home/world/${wid}`, '_blank');
+          await entityStore.openWorld(wid);
         } else if (action.startsWith('open_avatar:')) {
           const aid = action.substring('open_avatar:'.length);
           window.open(`https://vrchat.com/home/avatar/${aid}`, '_blank');
@@ -2218,7 +2237,7 @@ watch(activeTab, (tab) => {
                     {{ t('user_profile.list.owned_groups') }} <span class="text-xs ml-1" style="color: var(--theme-text-muted);">{{ groupedGroups.own.length }}</span>
                   </div>
                   <div class="flex flex-wrap mt-2 mb-3">
-                    <div v-for="g in groupedGroups.own" :key="g.id" class="friend-item">
+                    <div v-for="g in groupedGroups.own" :key="g.id" class="friend-item" @click="openGroupDetail(g)">
                       <div class="relative shrink-0">
                         <VrcAvatar :user="g" :url="g.iconUrl || g.thumbnailUrl" custom-class="w-9 h-9 rounded-lg object-cover" />
                         <span class="absolute -top-1 -right-1 text-xs">👑</span>
@@ -2237,7 +2256,7 @@ watch(activeTab, (tab) => {
                     {{ t('user_profile.list.mutual_groups') }} <span class="text-xs ml-1" style="color: var(--theme-text-muted);">{{ groupedGroups.mutual.length }}</span>
                   </div>
                   <div class="flex flex-wrap mt-2 mb-3">
-                    <div v-for="g in groupedGroups.mutual" :key="g.id" class="friend-item">
+                    <div v-for="g in groupedGroups.mutual" :key="g.id" class="friend-item" @click="openGroupDetail(g)">
                       <VrcAvatar :user="g" :url="g.iconUrl || g.thumbnailUrl" custom-class="w-9 h-9 rounded-lg object-cover" />
                       <div class="flex-1 min-w-0">
                         <div class="truncate text-sm font-medium" style="color: var(--theme-text);">{{ g.name }}</div>
@@ -2253,7 +2272,7 @@ watch(activeTab, (tab) => {
                     {{ isSelf ? t('user_profile.list.my_groups') : t('user_profile.list.groups') }} <span class="text-xs ml-1" style="color: var(--theme-text-muted);">{{ groupedGroups.other.length }}</span>
                   </div>
                   <div class="flex flex-wrap mt-2">
-                    <div v-for="g in groupedGroups.other" :key="g.id" class="friend-item">
+                    <div v-for="g in groupedGroups.other" :key="g.id" class="friend-item" @click="openGroupDetail(g)">
                       <VrcAvatar :user="g" :url="g.iconUrl || g.thumbnailUrl" custom-class="w-9 h-9 rounded-lg object-cover" />
                       <div class="flex-1 min-w-0">
                         <div class="truncate text-sm font-medium" style="color: var(--theme-text);">{{ g.name }}</div>

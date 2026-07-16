@@ -109,7 +109,7 @@ const vrTabs = computed(() => [
         </div>
         <div>
           <h2 class="font-bold text-sm leading-tight text-white">
-            直播姬 VR
+            VrcDog VR
           </h2>
           <p class="text-[10px] font-medium text-text-muted/70">
             OVR Overlay Translator

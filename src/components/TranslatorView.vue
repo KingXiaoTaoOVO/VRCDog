@@ -90,6 +90,7 @@ const engineOptions: EngineOption[] = [
   { label: 'ZhiPu GLM', value: 'zhipu', needsKey: true, hint: 'ZhiPu API key' },
   { label: 'Groq', value: 'groq', needsKey: true, hint: 'Groq API key' },
   { label: 'OpenRouter', value: 'openrouter', needsKey: true, hint: 'OpenRouter API key' },
+  { label: 'Plamo', value: 'plamo', needsKey: true, hint: 'PreferredAI Platform API key' },
   { label: 'Ollama Local', value: 'ollama', supportsLocal: true, hint: 'http://127.0.0.1:11434' },
   { label: 'LM Studio Local', value: 'lmstudio', supportsLocal: true, hint: 'http://127.0.0.1:1234' },
   { label: 'Custom OpenAI API', value: 'custom_llm', needsKey: true, hint: 'OpenAI-compatible endpoint' },
@@ -137,7 +138,7 @@ let unlistenVrct: UnlistenFn | null = null;
 
 const currentEngine = computed(() => engineOptions.find((engine) => engine.value === translateEngine.value) ?? engineOptions[0]);
 const needsApiKey = computed(() => Boolean(currentEngine.value.needsKey && !currentEngine.value.supportsLocal));
-const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'ollama', 'lmstudio', 'custom_llm', 'gemini'].includes(translateEngine.value));
+const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'plamo', 'ollama', 'lmstudio', 'custom_llm', 'gemini'].includes(translateEngine.value));
 const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
 
 const setStatus = (message: string) => {
@@ -243,6 +244,7 @@ const processMessage = async (
         prompt: prompt.value.trim(),
         custom_api_url: customApiUrl.value.trim(),
         send_osc: sendOsc,
+        send_typing: sendOsc,
         complete: true,
         notification: false,
         update_overlay: true,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { VrcApi, DbApi } from "../api";
+import { VrcApi, DbApi, GamelogApi } from "../api";
 import { Users, Search, MapPin, Bone, StickyNote, RefreshCcw } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import VrcResourceCard from './VrcResourceCard.vue';
@@ -17,6 +17,17 @@ interface Player {
   userData?: any;
   loadingData?: boolean;
   note?: string;
+}
+
+interface GameLogEvent {
+  time: string;
+  event_type: string;
+  content: string;
+}
+
+interface LogRoomSnapshot {
+  roomName: string;
+  players: Player[];
 }
 
 const currentRoom = ref(t('player_list.unknown_instance'));
@@ -59,6 +70,57 @@ function mapInstanceUser(raw: any): Player | null {
     },
     loadingData: false,
   };
+}
+
+function mergePlayers(target: Map<string, Player>, list: Player[]) {
+  for (const player of list) {
+    const key = player.userData?.id || player.name;
+    const existing = target.get(key);
+    target.set(key, existing ? { ...existing, ...player, note: existing.note || player.note } : player);
+  }
+}
+
+function cleanLogName(name: string) {
+  return String(name || '')
+    .replace(/\s+\((usr_[^)]+)\)\s*$/, '')
+    .trim();
+}
+
+async function buildLogRoomSnapshot(): Promise<LogRoomSnapshot> {
+  try {
+    const logs: GameLogEvent[] = await GamelogApi.getLatestGamelogs({ maxLines: 4000 });
+    if (!Array.isArray(logs) || logs.length === 0) return { roomName: '', players: [] };
+
+    const left = new Set<string>();
+    const current = new Map<string, Player>();
+    let roomName = '';
+
+    for (const event of logs) {
+      const type = event?.event_type || '';
+      if (type === 'Instance Joined') {
+        roomName = String(event.content || '').trim();
+        break;
+      }
+
+      const name = cleanLogName(event?.content || '');
+      if (!name) continue;
+
+      if (type === 'Player Left') {
+        left.add(name);
+      } else if (type === 'Player Joined' && !left.has(name)) {
+        current.set(name, {
+          name,
+          joinTime: event.time || new Date().toISOString(),
+          loadingData: false,
+        });
+      }
+    }
+
+    return { roomName, players: Array.from(current.values()) };
+  } catch (e) {
+    console.warn('Failed to load room players from game log', e);
+    return { roomName: '', players: [] };
+  }
 }
 
 async function buildApiFallbackPlayers(freshUser: any, location: string): Promise<Player[]> {
@@ -106,11 +168,22 @@ const fetchPlayerList = async () => {
     const location = String(freshUser?.location || authStore.currentUser?.location || '');
     currentLocation.value = location;
     const parsed = parseLocation(location);
+    const logSnapshot = await buildLogRoomSnapshot();
 
     if (!parsed) {
-      currentRoom.value = readableLocationState(location);
+      currentRoom.value = logSnapshot.roomName || readableLocationState(location);
       instancePlayerCount.value = null;
-      players.value = [];
+      const fallbackPlayers = new Map<string, Player>();
+      mergePlayers(fallbackPlayers, logSnapshot.players);
+      if (freshUser?.displayName) {
+        mergePlayers(fallbackPlayers, [{
+          name: freshUser.displayName,
+          joinTime: freshUser.last_login || new Date().toISOString(),
+          userData: freshUser,
+          loadingData: false,
+        }]);
+      }
+      players.value = Array.from(fallbackPlayers.values()).sort((a, b) => b.joinTime.localeCompare(a.joinTime));
       return;
     }
 
@@ -139,11 +212,15 @@ const fetchPlayerList = async () => {
       .map(mapInstanceUser)
       .filter((player: Player | null): player is Player => Boolean(player));
 
-    if (nextPlayers.length === 0) {
-      nextPlayers = await buildApiFallbackPlayers(freshUser, location);
+    const mergedPlayers = new Map<string, Player>();
+    mergePlayers(mergedPlayers, nextPlayers);
+    mergePlayers(mergedPlayers, logSnapshot.players);
+
+    if (mergedPlayers.size <= 1) {
+      mergePlayers(mergedPlayers, await buildApiFallbackPlayers(freshUser, location));
     }
 
-    const updatedPlayers: Player[] = nextPlayers.map((player: Player) => {
+    const updatedPlayers: Player[] = Array.from(mergedPlayers.values()).map((player: Player) => {
       const existing = players.value.find(p => p.userData?.id && p.userData.id === player.userData?.id)
         || players.value.find(p => p.name === player.name);
       if (existing) {

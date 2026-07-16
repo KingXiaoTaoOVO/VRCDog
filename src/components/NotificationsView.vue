@@ -4,8 +4,10 @@ import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
 import { Bell, Loader2, UserPlus, Check, X, Megaphone, HelpCircle, UsersRound, MessageSquare, Info, UserCheck, UserX } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcNotification } from '../types/vrc';
+import { useToast } from '../composables/useToast';
 
 const { t } = useI18n();
+const toast = useToast();
 
 const notifications = ref<VrcNotification[]>([]);
 const loading = ref(true);
@@ -99,31 +101,74 @@ const refreshLocalNotifications = () => {
   void fetchNotifications(false);
 };
 
-const acceptNotification = async (id: string) => {
-  processingId.value = id;
+const tryRemoteNotificationAction = async (notif: VrcNotification, action: 'accept' | 'reject' | 'hide') => {
+  if (localNotificationTypes.has(notif.type)) return;
+
+  if (action === 'accept') {
+    try {
+      await VrcApi.acceptNotification(notif.id);
+      return;
+    } catch (legacyError) {
+      await VrcApi.sendNotificationResponse({
+        notificationId: notif.id,
+        responseType: 'accept',
+      }).catch(() => {
+        throw legacyError;
+      });
+      return;
+    }
+  }
+
+  if (action === 'reject') {
+    try {
+      await VrcApi.sendNotificationResponse({
+        notificationId: notif.id,
+        responseType: 'reject',
+      });
+      return;
+    } catch {
+      // Legacy notifications use hide as the effective reject/dismiss action.
+    }
+  }
+
   try {
-    await VrcApi.acceptNotification(id);
-    await DbApi.deleteNotification({ id }); // 成功后从本地缓存删除
-    await fetchNotifications();
+    await VrcApi.hideNotification(notif.id);
+  } catch (legacyError) {
+    await VrcApi.hideNotificationV2(notif.id).catch(() => {
+      throw legacyError;
+    });
+  }
+};
+
+const acceptNotification = async (id: string) => {
+  const notif = notifications.value.find((item) => item.id === id);
+  if (!notif) return;
+  processingId.value = id;
+  errorMsg.value = '';
+  try {
+    await tryRemoteNotificationAction(notif, 'accept');
+    await DbApi.deleteNotification({ id });
+    notifications.value = notifications.value.filter((item) => item.id !== id);
+    toast.success('已接受通知');
   } catch (err: any) {
-    console.error('Accept notification failed:', err);
+    errorMsg.value = err?.message || String(err);
+    toast.error(`接受失败：${errorMsg.value}`);
   } finally {
     processingId.value = null;
   }
 };
 
-const hideNotification = async (notif: VrcNotification) => {
+const rejectNotification = async (notif: VrcNotification) => {
   processingId.value = notif.id;
+  errorMsg.value = '';
   try {
-    if (!localNotificationTypes.has(notif.type)) {
-      await VrcApi.hideNotification(notif.id).catch((err: any) => {
-        console.warn('Hide remote notification failed, removing local cache only:', err);
-      });
-    }
-    await DbApi.deleteNotification({ id: notif.id }); // 成功后从本地缓存删除
-    await fetchNotifications(false);
+    await tryRemoteNotificationAction(notif, actionableNotificationTypes.has(notif.type) ? 'reject' : 'hide');
+    await DbApi.deleteNotification({ id: notif.id });
+    notifications.value = notifications.value.filter((item) => item.id !== notif.id);
+    toast.success(actionableNotificationTypes.has(notif.type) ? '已拒绝通知' : '已隐藏通知');
   } catch (err: any) {
-    console.error('Hide notification failed:', err);
+    errorMsg.value = err?.message || String(err);
+    toast.error(`操作失败：${errorMsg.value}`);
   } finally {
     processingId.value = null;
   }
@@ -296,7 +341,7 @@ const renderDetails = (details: any) => {
             <button 
               :disabled="processingId === notif.id"
               class="w-10 h-10 rounded-xl bg-surface text-text-muted hover:bg-red-50 hover:text-red-500 hover:hover:border-red-200 transition-all flex items-center justify-center disabled:opacity-50"
-              @click="hideNotification(notif)"
+              @click="rejectNotification(notif)"
             >
               <X :size="20" />
             </button>

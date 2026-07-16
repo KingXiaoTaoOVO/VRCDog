@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 const HISTORY_LIMIT: usize = 80;
+const VRC_CHATBOX_LIMIT: usize = 144;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,6 +54,24 @@ pub struct VrctProcessRequest {
     pub update_overlay: bool,
     #[serde(default)]
     pub show_original_in_osc: bool,
+    #[serde(default)]
+    pub osc_port: Option<u16>,
+    #[serde(default)]
+    pub osc_host: Option<String>,
+    #[serde(default)]
+    pub send_typing: bool,
+    #[serde(default)]
+    pub message_prefix: String,
+    #[serde(default)]
+    pub message_suffix: String,
+    #[serde(default)]
+    pub translation_prefix: String,
+    #[serde(default)]
+    pub translation_suffix: String,
+    #[serde(default = "default_separator")]
+    pub separator: String,
+    #[serde(default)]
+    pub translation_first: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +124,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_separator() -> String {
+    " ".into()
+}
+
 fn normalize_lang(code: &str) -> String {
     let normalized = code.trim().replace('_', "-");
     match normalized.as_str() {
@@ -128,16 +151,79 @@ fn normalize_lang(code: &str) -> String {
     }
 }
 
+fn format_part(prefix: &str, text: &str, suffix: &str) -> String {
+    format!("{}{}{}", prefix, text, suffix)
+}
+
 fn osc_text(req: &VrctProcessRequest, translated: &str) -> String {
-    if req.show_original_in_osc && !req.text.trim().is_empty() {
-        format!("{} ({})", translated, req.text.trim())
+    let message = req.text.trim();
+    let translation = translated.trim();
+    let translation_part = format_part(
+        &req.translation_prefix,
+        translation,
+        &req.translation_suffix,
+    );
+
+    if !req.show_original_in_osc || message.is_empty() {
+        return translation_part;
+    }
+
+    if req.message_prefix.is_empty()
+        && req.message_suffix.is_empty()
+        && req.translation_prefix.is_empty()
+        && req.translation_suffix.is_empty()
+        && req.separator.trim().is_empty()
+    {
+        return format!("{} ({})", translation, message);
+    }
+
+    let message_part = format_part(&req.message_prefix, message, &req.message_suffix);
+    if req.translation_first {
+        format!("{}{}{}", translation_part, req.separator, message_part)
     } else {
-        translated.to_string()
+        format!("{}{}{}", message_part, req.separator, translation_part)
     }
 }
 
-fn send_osc_chatbox(text: String, complete: bool, notification: bool) -> Result<(), String> {
+fn trim_for_chatbox(text: String) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= VRC_CHATBOX_LIMIT {
+        return normalized;
+    }
+
+    let mut clipped: String = normalized
+        .chars()
+        .take(VRC_CHATBOX_LIMIT.saturating_sub(1))
+        .collect();
+    clipped.push('…');
+    clipped
+}
+
+fn send_osc_packet(host: &str, port: u16, msg: OscMessage) -> Result<(), String> {
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+    let packet = OscPacket::Message(msg);
+    let msg_buf = rosc::encoder::encode(&packet).map_err(|e| e.to_string())?;
+    socket
+        .send_to(&msg_buf, format!("{}:{}", host, port))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn send_osc_typing(host: &str, port: u16, flag: bool) -> Result<(), String> {
+    let msg = OscMessage {
+        addr: "/chatbox/typing".to_string(),
+        args: vec![OscType::Bool(flag)],
+    };
+    send_osc_packet(host, port, msg)
+}
+
+fn send_osc_chatbox(
+    host: &str,
+    port: u16,
+    text: String,
+    complete: bool,
+    notification: bool,
+) -> Result<(), String> {
     let msg = OscMessage {
         addr: "/chatbox/input".to_string(),
         args: vec![
@@ -146,12 +232,19 @@ fn send_osc_chatbox(text: String, complete: bool, notification: bool) -> Result<
             OscType::Bool(notification),
         ],
     };
-    let packet = OscPacket::Message(msg);
-    let msg_buf = rosc::encoder::encode(&packet).map_err(|e| e.to_string())?;
-    socket
-        .send_to(&msg_buf, "127.0.0.1:9000")
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    send_osc_packet(host, port, msg)
+}
+
+fn osc_target(req: &VrctProcessRequest) -> (String, u16) {
+    let host = req
+        .osc_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+        .unwrap_or("127.0.0.1")
+        .to_string();
+    let port = req.osc_port.unwrap_or(9000).max(1);
+    (host, port)
 }
 
 #[tauri::command]
@@ -163,7 +256,7 @@ pub async fn vrct_process_message(
 ) -> crate::AppResult<VrctMessageRecord> {
     let text = req.text.trim().to_string();
     if text.is_empty() {
-        return Err("VRCT message text is empty".into());
+        return Err("VrcDog translation message text is empty".into());
     }
 
     let ovr_config = ovr_state.config.lock().await.clone();
@@ -218,8 +311,21 @@ pub async fn vrct_process_message(
 
     let mut sent_osc = false;
     if req.send_osc {
-        send_osc_chatbox(osc_text(&req, &translated), req.complete, req.notification)
-            .map_err(crate::AppError::from)?;
+        let (osc_host, osc_port) = osc_target(&req);
+        if req.send_typing {
+            send_osc_typing(&osc_host, osc_port, true).map_err(crate::AppError::from)?;
+        }
+        let send_result = send_osc_chatbox(
+            &osc_host,
+            osc_port,
+            trim_for_chatbox(osc_text(&req, &translated)),
+            req.complete,
+            req.notification,
+        );
+        if req.send_typing {
+            let _ = send_osc_typing(&osc_host, osc_port, false);
+        }
+        send_result.map_err(crate::AppError::from)?;
         sent_osc = true;
     }
 

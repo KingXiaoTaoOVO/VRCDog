@@ -10,6 +10,7 @@ pub mod gamelog;
 pub mod hardware;
 pub mod local_server;
 pub mod ocr;
+pub mod osc;
 pub mod ovr;
 pub mod playspace;
 pub mod remote_assist;
@@ -19,6 +20,7 @@ pub mod translate;
 pub mod vr_ui;
 pub mod vrc_api;
 pub mod vrct;
+pub mod vrpiano;
 pub mod xiaohongshu;
 
 #[derive(Debug, serde::Serialize)]
@@ -279,6 +281,7 @@ pub fn run() {
         .manage(vrc_api::VrcState::new())
         .manage(ovr::OvrState::new())
         .manage(danmaku::DanmakuState::new())
+        .manage(vrpiano::VrpianoState::default())
         .manage(vrct::VrctState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -353,6 +356,14 @@ pub fn run() {
             hardware::sys_show_in_explorer,
             hardware::sys_start_auto_launch_apps,
             hardware::sys_kill_auto_launch_apps,
+            osc::osc_send_message,
+            osc::osc_send_chatbox,
+            osc::osc_start_monitor,
+            osc::osc_stop_monitor,
+            osc::osc_get_system_snapshot,
+            osc::osc_start_automation,
+            osc::osc_stop_automation,
+            osc::osc_get_status,
             sys::sys_save_text_file,
             sys::sys_set_autostart,
             sys::sys_register_url_scheme,
@@ -440,6 +451,26 @@ pub fn run() {
             remote_assist::remote_assist_get_chat,
             remote_assist::remote_assist_get_state,
             remote_assist::remote_assist_toggle_accept,
+            vrpiano::vrpiano_init,
+            vrpiano::vrpiano_list_songs,
+            vrpiano::vrpiano_import_song,
+            vrpiano::vrpiano_rename_song,
+            vrpiano::vrpiano_delete_song,
+            vrpiano::vrpiano_preview_song,
+            vrpiano::vrpiano_read_song_data,
+            vrpiano::vrpiano_download_url,
+            vrpiano::vrpiano_search_midishow,
+            vrpiano::vrpiano_download_midishow,
+            vrpiano::vrpiano_midishow_preview_data,
+            vrpiano::vrpiano_midishow_accounts,
+            vrpiano::vrpiano_midishow_login,
+            vrpiano::vrpiano_midishow_remove_account,
+            vrpiano::vrpiano_open_songs_dir,
+            vrpiano::vrpiano_get_status,
+            vrpiano::vrpiano_start,
+            vrpiano::vrpiano_stop,
+            vrpiano::vrpiano_set_speed,
+            vrpiano::vrpiano_set_hotkeys,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

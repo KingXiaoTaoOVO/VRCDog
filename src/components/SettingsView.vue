@@ -130,6 +130,8 @@ const config = ref({
   notifyFriendsOnline: true,
   notifyInvite: true,
   notifyStatusChange: false,
+  notifySystem: true,
+  notifySound: true,
   notifyTts: false,
   notifyTtsCondition: 'always',
   notifyDesktopCondition: 'always',
@@ -886,6 +888,15 @@ const testNotification = () => {
             <div>
               <h2 class="text-[15px] font-bold text-text-strong mb-4 flex items-center gap-2">{{ $t('auto_0090bd38') }}</h2>
               <div class="space-y-1">
+                <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.notifySystem = !config.notifySystem">
+                  <div>
+                    <div class="text-[13px] text-[var(--theme-text-muted)]">系统通知</div>
+                    <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">收到邀请、好友请求和重要提醒时显示桌面通知</div>
+                  </div>
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifySystem ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifySystem ? 'right-1' : 'left-1'"></div>
+                  </div>
+                </div>
                 <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors">
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_d5e4f300') }}</div>
                   <CustomSelect v-model="config.notifyDesktopCondition" :options="[
@@ -896,6 +907,15 @@ const testNotification = () => {
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_f4edc0a7') }}</div>
                   <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifyShowWhenAfk ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifyShowWhenAfk ? 'right-1' : 'left-1'"></div>
+                  </div>
+                </div>
+                <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.notifySound = !config.notifySound">
+                  <div>
+                    <div class="text-[13px] text-[var(--theme-text-muted)]">通知音效</div>
+                    <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">系统通知触发时播放一声轻提示音</div>
+                  </div>
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifySound ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifySound ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
               </div>

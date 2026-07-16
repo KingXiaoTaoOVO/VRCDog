@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
 
-// VRCT audio capture state used by the Tauri commands and Python WASAPI bridge.
+// VrcDog translation audio capture state used by the Tauri commands and Python WASAPI bridge.
 pub struct AudioCaptureState {
     pub is_recording: Mutex<bool>,
     pub selected_device: Mutex<String>,
@@ -48,7 +48,7 @@ pub async fn vrct_get_audio_devices() -> AppResult<Vec<AudioDevice>> {
 pub async fn vrct_start_stt_recording(state: State<'_, AudioCaptureState>) -> AppResult<()> {
     let mut rec = state.is_recording.lock().unwrap();
     *rec = true;
-    println!("[VRCT] Microphone recording started. Audio routing to STT.");
+    println!("[VrcDog] Microphone recording started. Audio routing to STT.");
     Ok(())
 }
 
@@ -56,6 +56,6 @@ pub async fn vrct_start_stt_recording(state: State<'_, AudioCaptureState>) -> Ap
 pub async fn vrct_stop_stt_recording(state: State<'_, AudioCaptureState>) -> AppResult<()> {
     let mut rec = state.is_recording.lock().unwrap();
     *rec = false;
-    println!("[VRCT] Microphone recording stopped.");
+    println!("[VrcDog] Microphone recording stopped.");
     Ok(())
 }

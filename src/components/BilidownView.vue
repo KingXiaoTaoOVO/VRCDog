@@ -423,7 +423,7 @@ const downloadVideo = async () => {
           >
           <button 
             :disabled="isLoading || !bvidUrl"
-            class="bg-primary hover:bg-primary-hover disabled:bg-surface disabled:text-text-muted disabled:border disabled:border-border-soft disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:shadow-none active:scale-95 min-w-[140px]"
+            class="disabled-readable-btn bg-primary hover:bg-primary-hover disabled:bg-surface disabled:text-text-muted disabled:border disabled:border-border-soft disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:shadow-none active:scale-95 min-w-[140px]"
             @click="searchVideo"
           >
             <Loader2
@@ -449,7 +449,7 @@ const downloadVideo = async () => {
           >
           <button 
             :disabled="isLoading || !xhsUrl"
-            class="bg-primary hover:bg-primary-hover disabled:bg-surface disabled:text-text-muted disabled:border disabled:border-border-soft disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:shadow-none active:scale-95 min-w-[140px]"
+            class="disabled-readable-btn bg-primary hover:bg-primary-hover disabled:bg-surface disabled:text-text-muted disabled:border disabled:border-border-soft disabled:cursor-not-allowed text-white px-8 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:shadow-none active:scale-95 min-w-[140px]"
             @click="searchXhs"
           >
             <Loader2
@@ -528,7 +528,7 @@ const downloadVideo = async () => {
             <div class="mt-6 flex items-center gap-4">
               <button 
                 :disabled="isDownloading"
-                class="flex-1 bg-primary text-white hover:brightness-110 rounded-2xl py-4 font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-xl active:scale-95 disabled:bg-surface disabled:cursor-not-allowed disabled:shadow-none"
+                class="disabled-readable-btn flex-1 bg-primary text-white hover:brightness-110 rounded-2xl py-4 font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-xl active:scale-95 disabled:bg-surface disabled:cursor-not-allowed disabled:shadow-none"
                 @click="downloadVideo"
               >
                 <Download class="w-5 h-5" />
@@ -551,7 +551,7 @@ const downloadVideo = async () => {
                 </div>
                 <button
                   :disabled="isDownloading"
-                  class="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-bold flex items-center gap-1.5 disabled:bg-surface disabled:cursor-not-allowed"
+                  class="disabled-readable-btn px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-bold flex items-center gap-1.5 disabled:bg-surface disabled:cursor-not-allowed"
                   @click="downloadAllParsed"
                 >
                   <Download class="w-3.5 h-3.5" />

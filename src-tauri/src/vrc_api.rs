@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::State;
 use tokio::sync::RwLock;
 
-const VRC_USER_AGENT: &str = "VRCDog/5.0.0";
+const VRC_USER_AGENT: &str = concat!("VRCDog/", env!("CARGO_PKG_VERSION"));
 
 pub struct VrcState {
     pub client: RwLock<Client>,
@@ -185,6 +185,39 @@ fn parse_auth_cookies(raw_cookie: &str) -> Vec<String> {
     }
 }
 
+fn is_transient_http_status(status: u16) -> bool {
+    matches!(status, 408 | 425 | 429 | 500 | 502 | 503 | 504 | 520..=524)
+}
+
+fn clean_network_error(error: &str) -> String {
+    if error.contains("error sending request") || error.contains("network") {
+        "Network changed or temporarily unavailable".to_string()
+    } else {
+        error.to_string()
+    }
+}
+
+fn vrchat_error_message(data: &str) -> Option<String> {
+    let json = serde_json::from_str::<serde_json::Value>(data).ok()?;
+    json.pointer("/error/message")
+        .and_then(|v| v.as_str())
+        .or_else(|| json.get("message").and_then(|v| v.as_str()))
+        .map(|s| s.to_string())
+}
+
+fn is_vrchat_permission_401(url: &str, data: &str) -> bool {
+    let msg = vrchat_error_message(data)
+        .unwrap_or_default()
+        .to_lowercase();
+    if url.contains("/avatars") && url.contains("userId=") && msg.contains("own avatars") {
+        return true;
+    }
+    msg.contains("you can only")
+        || msg.contains("permission")
+        || msg.contains("forbidden")
+        || msg.contains("private")
+}
+
 #[cfg(test)]
 mod cookie_tests {
     use super::parse_auth_cookies;
@@ -220,26 +253,53 @@ pub async fn vrc_get_image_bytes(
         return Err("Empty URL".to_string());
     }
     let client = state.client.read().await.clone();
+    let direct_cookies = auth_cookie
+        .as_deref()
+        .map(parse_auth_cookies)
+        .unwrap_or_default();
 
-    let mut req = client.get(&url);
-
-    // Inject cookie
-
-    if let Some(ref cv) = auth_cookie {
-        let direct_cookies = parse_auth_cookies(cv);
-
+    let mut last_error = String::new();
+    let mut response = None;
+    for attempt in 0..3 {
+        let mut req = client.get(&url);
         if !direct_cookies.is_empty() {
             let cookie_str = direct_cookies.join("; ");
             if let Ok(hv) = reqwest::header::HeaderValue::from_str(&cookie_str) {
                 req = req.header(reqwest::header::COOKIE, hv);
             }
         }
+
+        match req.send().await {
+            Ok(res) => {
+                let status = res.status().as_u16();
+                if is_transient_http_status(status) && attempt < 2 {
+                    last_error = format!("HTTP {}", status);
+                    tokio::time::sleep(Duration::from_millis(180 * (attempt + 1) as u64)).await;
+                    continue;
+                }
+                response = Some(res);
+                break;
+            }
+            Err(e) => {
+                last_error = clean_network_error(&e.to_string());
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(180 * (attempt + 1) as u64)).await;
+                    continue;
+                }
+            }
+        }
     }
 
-    let res = req.send().await.map_err(|e| e.to_string())?;
+    let res = response.ok_or_else(|| {
+        if last_error.is_empty() {
+            "Image request failed".to_string()
+        } else {
+            format!("Image request failed: {}", last_error)
+        }
+    })?;
 
     if !res.status().is_success() {
-        return Err(format!("无法加载图片: {}", res.status()));
+        return Err(format!("Unable to load image: {}", res.status()));
     }
 
     let content_type = res
@@ -249,7 +309,10 @@ pub async fn vrc_get_image_bytes(
         .unwrap_or("image/jpeg")
         .to_string();
 
-    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| clean_network_error(&e.to_string()))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
     let mime = if content_type.is_empty() {
@@ -370,18 +433,18 @@ pub async fn vrc_execute(
     let res = req.send().await.map_err(|e| e.to_string())?;
     let status = res.status().as_u16();
     let auth_cookie = extract_auth_cookie(&res);
+    let data = res.text().await.unwrap_or_default();
 
-    // Debug logging for auth issues.
-    if status == 401 && options.url.contains("api.vrchat.cloud") {
+    if status == 401
+        && options.url.contains("api.vrchat.cloud")
+        && !is_vrchat_permission_401(&options.url, &data)
+    {
         eprintln!(
-            "[VrcApi] 401 for {} - auth_cookie provided: {}, direct_cookies count: {}",
+            "[VrcApi] Auth rejected for {} - {}",
             options.url,
-            options.auth_cookie.is_some(),
-            direct_cookies.len()
+            vrchat_error_message(&data).unwrap_or_else(|| "HTTP 401".to_string())
         );
     }
-
-    let data = res.text().await.unwrap_or_default();
 
     Ok(ResponsePayload {
         status,

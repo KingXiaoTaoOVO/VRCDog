@@ -234,6 +234,33 @@ async function emitFriendPresenceNotification(type: string, content: any) {
   await notify('VRC 好友状态', `${title}${detail ? ` - ${detail}` : ''}`, isOnline ? 'friend_online' : 'friend_offline');
 }
 
+function notificationTitle(content: any) {
+  const sender = content?.senderUsername || content?.senderDisplayName || content?.senderUserId || 'VRChat';
+  const message = typeof content?.message === 'string' ? content.message.trim() : '';
+  if (message) return message;
+  switch (content?.type) {
+    case 'friendRequest': return `${sender} 发送了好友请求`;
+    case 'invite': return `${sender} 邀请你加入房间`;
+    case 'requestInvite': return `${sender} 请求加入你的位置`;
+    case 'group.invite': return `${sender} 发送了群组邀请`;
+    case 'group.request': return `${sender} 发送了群组申请`;
+    default: return sender;
+  }
+}
+
+function notificationBody(content: any) {
+  if (typeof content?.details === 'string') {
+    try {
+      const parsed = JSON.parse(content.details);
+      return parsed?.worldName || parsed?.message || parsed?.location || content.details;
+    } catch {
+      return content.details;
+    }
+  }
+  const details = content?.details || {};
+  return details.worldName || details.message || details.location || content?.type || '';
+}
+
 async function handlePipeline(json: any) {
   wsState.lastUpdate = new Date().toLocaleTimeString();
   
@@ -286,6 +313,8 @@ async function handlePipeline(json: any) {
             created_at: content.created_at || new Date().toISOString()
           })
         });
+        const { notify } = useNotificationEngine();
+        await notify(notificationTitle(content), notificationBody(content), 'invite');
       }
     } else if (type === 'hide-notification' || type === 'clear-notification') {
       // Depending on API, hide/clear might give notificationId

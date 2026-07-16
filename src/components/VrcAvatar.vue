@@ -8,12 +8,10 @@
 </template>
 
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n';
 import { ref, onMounted, watch } from 'vue';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import vrchatImg from '../assets/vrchat.png';
-
-const { t } = useI18n();
+import { isDebugLogEnabled } from '../api/debugConfig';
 
 const props = withDefaults(defineProps<{
   user?: any;
@@ -29,6 +27,20 @@ const imgSrc = ref<string>(vrchatImg);
 
 // 内存缓存：同一 URL 不重复请求
 const cache = new Map<string, string>();
+const failedAt = new Map<string, number>();
+const FAILED_RETRY_MS = 60000;
+
+const isRecentFailure = (url: string) => {
+  const ts = failedAt.get(url);
+  if (!ts) return false;
+  if (Date.now() - ts > FAILED_RETRY_MS) {
+    failedAt.delete(url);
+    return false;
+  }
+  return true;
+};
+
+const errorText = (err: unknown) => String((err as any)?.message || err || 'unknown error');
 
 const getAvatarUrl = (user: any) => {
   if (!user) return '';
@@ -63,6 +75,11 @@ const loadImage = async () => {
     return;
   }
 
+  if (isRecentFailure(targetUrl)) {
+    imgSrc.value = vrchatImg;
+    return;
+  }
+
   // 转换 file 路径为 image 路径 (参考 VrcDog 实现)
   let finalUrl = targetUrl;
   const pattern = /file\/file_([a-f0-9-]+)\/(\d+)(\/file)?\/?$/;
@@ -91,12 +108,17 @@ const loadImage = async () => {
       });
       imgSrc.value = base64Data;
       cache.set(targetUrl, base64Data);
+      failedAt.delete(targetUrl);
     } else {
       imgSrc.value = finalUrl;
       cache.set(targetUrl, finalUrl);
+      failedAt.delete(targetUrl);
     }
   } catch (err) {
-    console.warn(t('auto_78c7f60e'), err);
+    failedAt.set(targetUrl, Date.now());
+    if (isDebugLogEnabled()) {
+      console.warn('[VrcAvatar] Image fallback:', errorText(err));
+    }
     imgSrc.value = vrchatImg;
   }
 };

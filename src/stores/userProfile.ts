@@ -132,6 +132,17 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   const localNote = ref('');
   const isSavingNote = ref(false);
 
+  const resolveMyId = async () => {
+    if (myId.value) return myId.value;
+    try {
+      const user = await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true }) as { id?: string } | null | undefined;
+      myId.value = user?.id || null;
+    } catch {
+      myId.value = null;
+    }
+    return myId.value;
+  };
+
   // ── Navigation History (breadcrumb) ──────────────────────────────
   interface NavEntry { userId: string; displayName: string; }
   const navHistory = ref<NavEntry[]>([]);
@@ -209,9 +220,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
           localNote.value = res.note;
         }
       }),
-      VrcApi.getCurrentUser().then((user: { id?: string } | null | undefined) => {
-        if (user && user.id) myId.value = user.id;
-      })
+      resolveMyId()
     ]).finally(() => {
       isLoadingBase.value = false;
     });
@@ -312,16 +321,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingFavWorlds.value = true;
     const cacheKey = `fav_worlds_${userId}`;
     try {
-      let currentUserId = myId.value;
-      if (!currentUserId) {
-        try {
-          const currentUser = await VrcApi.getCurrentUser();
-          currentUserId = currentUser?.id || null;
-          myId.value = currentUserId;
-        } catch {
-          currentUserId = null;
-        }
-      }
+      const currentUserId = await resolveMyId();
 
       if (!currentUserId || userId !== currentUserId) {
         favoriteWorlds.value = [];
@@ -359,6 +359,12 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     const cacheKey = `avatars_${userId}`;
     
     try {
+      const currentUserId = await resolveMyId();
+      if (!currentUserId || userId !== currentUserId) {
+        createdAvatars.value = [];
+        return;
+      }
+
       const cachedStr = await DbApi.getApiCache({ key: cacheKey });
       if (cachedStr) {
         try {
@@ -376,7 +382,9 @@ export const useUserProfileStore = defineStore('userProfile', () => {
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
       }
     } catch (err) {
-      console.warn("Failed to fetch created avatars", err);
+      if ((err as any)?.code !== 'VRCHAT_PERMISSION_DENIED') {
+        console.warn("Failed to fetch created avatars", err);
+      }
     } finally {
       isLoadingAvatars.value = false;
     }

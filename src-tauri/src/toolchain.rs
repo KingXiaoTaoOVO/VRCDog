@@ -123,6 +123,7 @@ pub async fn check_system_status() -> AppResult<EnvironmentStatus> {
     ];
     let ffmpeg_installed = find_in_drives(&ffmpeg_paths).is_some()
         || Path::new(&format!(r"{}\VrcDog\ffmpeg\ffmpeg.exe", local_app_data)).exists()
+        || Path::new(&format!(r"{}\VrcDog\ffmpeg\ffmpeg.exe", local_app_data)).exists()
         // Check PATH
         || std::process::Command::new("ffmpeg").arg("-version").output().is_ok();
 
@@ -324,7 +325,7 @@ pub async fn launch_software(target: String) -> AppResult<()> {
 
 fn create_optimized_client() -> AppResult<reqwest::Client> {
     reqwest::Client::builder()
-        .user_agent("VrcDog/2.0-HyperEngine")
+        .user_agent("VrcDog/5.0-HyperEngine")
         .tcp_nodelay(true)
         .pool_max_idle_per_host(32)
         .danger_accept_invalid_certs(true)

@@ -10,6 +10,52 @@ import OvrAdvVrDashPanels from './OvrAdvVrDashPanels.vue';
 
 const { t } = useI18n();
 
+const translationProviderOptions = [
+  { label: 'Google Translate Free', value: 'google_free' },
+  { label: 'Microsoft Translator', value: 'microsoft' },
+  { label: 'DeepL Free', value: 'deepl_free' },
+  { label: 'DeepL Pro', value: 'deepl' },
+  { label: 'Tencent Translate', value: 'tencent' },
+  { label: 'Baidu Translate', value: 'baidu' },
+  { label: 'Papago', value: 'papago' },
+  { label: 'Gemini', value: 'gemini' },
+  { label: 'OpenAI', value: 'openai' },
+  { label: 'DeepSeek', value: 'deepseek' },
+  { label: 'SiliconFlow', value: 'siliconflow' },
+  { label: 'Moonshot', value: 'moonshot' },
+  { label: 'ZhiPu GLM', value: 'zhipu' },
+  { label: 'Groq', value: 'groq' },
+  { label: 'OpenRouter', value: 'openrouter' },
+  { label: 'Plamo', value: 'plamo' },
+  { label: 'Ollama Local', value: 'ollama' },
+  { label: 'LM Studio Local', value: 'lmstudio' },
+  { label: 'Custom OpenAI API', value: 'custom_llm' },
+];
+
+const llmPromptServices = [
+  'openai',
+  'deepseek',
+  'siliconflow',
+  'moonshot',
+  'zhipu',
+  'groq',
+  'openrouter',
+  'plamo',
+  'ollama',
+  'lmstudio',
+  'custom_llm',
+  'gemini',
+];
+
+const apiTestUrls: Record<string, string> = {
+  deepseek: 'https://api.deepseek.com/models',
+  openai: 'https://api.openai.com/v1/models',
+  groq: 'https://api.groq.com/openai/v1/models',
+  openrouter: 'https://openrouter.ai/api/v1/models',
+  plamo: 'https://api.platform.preferredai.jp/v1/models',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
+};
+
 const activeSubTab = ref('basic');
 const isSaving = ref(false);
 const saved = ref(false);
@@ -909,13 +955,9 @@ const testApiConnection = async () => {
   apiTestResult.value = 'idle';
   
   try {
-    let url = '';
-    if (config.value.general.transService === 'deepseek') {
-      url = 'https://api.deepseek.com/models';
-    } else if (config.value.general.transService === 'openai') {
-      url = 'https://api.openai.com/v1/models';
-    } else {
-      // Custom / Tencent fallback
+    const service = config.value.general.transService;
+    const url = apiTestUrls[service];
+    if (!url) {
       if (config.value.general.transApiKey.length > 10) {
         apiTestResult.value = 'success';
         apiTestMsg.value = t('ovr.api_test_success');
@@ -927,11 +969,16 @@ const testApiConnection = async () => {
       return;
     }
 
+    const headers: Record<string, string> = {};
+    if (service === 'gemini') {
+      headers['x-goog-api-key'] = config.value.general.transApiKey;
+    } else {
+      headers.Authorization = `Bearer ${config.value.general.transApiKey}`;
+    }
+
     const res = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${config.value.general.transApiKey}`
-      }
+      headers,
     });
 
     if (res.ok) {
@@ -1119,7 +1166,7 @@ const getKeyDisplay = (val: string) => {
 
       <!-- 右侧内容 -->
       <div class="flex-1 p-8 overflow-y-auto custom-scrollbar">
-        <!-- 鍩虹璁剧疆 -->
+        <!-- 基础设置 -->
         <div
           v-if="activeSubTab === 'basic'"
           class="space-y-5 animate-fade-in"
@@ -1221,7 +1268,7 @@ const getKeyDisplay = (val: string) => {
             {{ t('ovr.desktop_title') }}
           </h2>
 
-          <!-- 鍔熻兘璇存槑 -->
+          <!-- 功能说明 -->
           <div class="p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-2xl border border-primary/20 shadow-sm">
             <p class="text-sm text-primary leading-relaxed">
               {{ t('ovr.desktop_desc') }}
@@ -1248,7 +1295,7 @@ const getKeyDisplay = (val: string) => {
             </label>
           </div>
 
-          <!-- 鎵嬪姩鎵弿鎸夐挳 -->
+          <!-- 手动扫描按钮 -->
           <div
             v-if="config.general.desktopMode"
             class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-3"
@@ -1291,7 +1338,7 @@ const getKeyDisplay = (val: string) => {
             </div>
           </div>
 
-          <!-- 鑷姩鎵弿闂撮殧 -->
+          <!-- 自动扫描间隔 -->
           <div
             v-if="config.general.desktopMode"
             class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-3"
@@ -1389,7 +1436,7 @@ const getKeyDisplay = (val: string) => {
           </div>
         </div>
 
-        <!-- OCR璁剧疆 -->
+        <!-- OCR设置 -->
         <div
           v-else-if="activeSubTab === 'ocr'"
           class="space-y-5 animate-fade-in"
@@ -1489,11 +1536,7 @@ const getKeyDisplay = (val: string) => {
             >
               <div>
                 <label class="block text-sm font-bold text-primary mb-1">{{ t('ovr.trans_provider') }}</label>
-                <CustomSelect v-model="config.general.transService" :options="[
-                  { label: t('ovr.trans_tencent'), value: 'tencent' },
-                  { label: t('ovr.trans_deepseek'), value: 'deepseek' },
-                  { label: t('ovr.trans_openai'), value: 'openai' }
-                ]" />
+                <CustomSelect v-model="config.general.transService" :options="translationProviderOptions" />
               </div>
               
               <div>
@@ -1535,7 +1578,7 @@ const getKeyDisplay = (val: string) => {
                 </div>
               </div>
               
-              <div v-if="['deepseek', 'openai'].includes(config.general.transService)">
+              <div v-if="llmPromptServices.includes(config.general.transService)">
                 <label class="block text-sm font-bold text-primary mb-1">{{ t('ovr.trans_prompt') }}</label>
                 <textarea
                   v-model="config.general.transLlmPrompt"

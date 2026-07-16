@@ -1,6 +1,16 @@
 import { request } from './request';
 
+async function resolveCurrentUserId(userId?: string) {
+  if (userId && userId !== 'me') return userId;
+  const currentUser: any = await request('/auth/user', { method: 'GET' });
+  if (!currentUser?.id) throw new Error('无法获取当前用户 ID');
+  return currentUser.id;
+}
+
 export const MiscApi = {
+  getFile: (params: { fileId: string }) =>
+    request(`/file/${params.fileId}`, { method: 'GET' }),
+
   saveNote: (params: { targetUserId?: string; userId?: string; note: string }) =>
     request('/userNotes', { method: 'POST', params }),
 
@@ -14,8 +24,10 @@ export const MiscApi = {
       },
     }),
 
-  getVRChatCredits: (params: { userId: string }) =>
-    request(`/user/${params.userId}/balance`, { method: 'GET' }),
+  getVRChatCredits: async (params: { userId?: string } = {}) => {
+    const userId = await resolveCurrentUserId(params.userId);
+    return request(`/user/${userId}/balance`, { method: 'GET' });
+  },
 
   closeInstance: (params: { location: string; hardClose?: boolean }) =>
     request(`/instances/${params.location}`, {
@@ -23,25 +35,37 @@ export const MiscApi = {
       params: { hardClose: params.hardClose ?? false },
     }),
 
-  deleteWorldPersistData: (params: { userId: string; worldId: string }) =>
-    request(`/users/${params.userId}/${params.worldId}/persist`, { method: 'DELETE' }),
+  deleteWorldPersistData: async (params: { userId?: string; worldId: string }) => {
+    const userId = await resolveCurrentUserId(params.userId);
+    return request(`/users/${userId}/${params.worldId}/persist`, { method: 'DELETE' });
+  },
 
-  hasWorldPersistData: (params: { userId: string; worldId: string }) =>
-    request(`/users/${params.userId}/${params.worldId}/persist/exists`, { method: 'GET' }),
+  hasWorldPersistData: async (params: { userId?: string; worldId: string }) => {
+    const userId = await resolveCurrentUserId(params.userId);
+    return request(`/users/${userId}/${params.worldId}/persist/exists`, { method: 'GET' });
+  },
 
-  updateBadge: (params: { userId: string; badgeId: string; hidden: boolean; showcased: boolean }) =>
-    request(`/users/${params.userId}/badges/${params.badgeId}`, {
+  updateBadge: async (params: { userId?: string; badgeId: string; hidden: boolean; showcased: boolean }) => {
+    const userId = await resolveCurrentUserId(params.userId);
+    return request(`/users/${userId}/badges/${params.badgeId}`, {
       method: 'PUT',
       params: {
-        userId: params.userId,
+        userId,
         badgeId: params.badgeId,
         hidden: params.hidden,
         showcased: params.showcased,
       },
-    }),
+    });
+  },
 
   getVisits: () =>
     request('/visits', { method: 'GET' }),
+
+  getFileAnalysis: (params: { fileId: string; version: number | string; variant: string }) =>
+    request(`/analysis/${params.fileId}/${params.version}/${params.variant}`, { method: 'GET' }),
+
+  deleteFile: (fileId: string) =>
+    request(`/file/${fileId}`, { method: 'DELETE' }),
 
   sendBoop: (params: { userId: string; emojiId: string; inventoryItemId?: string }) =>
     request(`/users/${params.userId}/boop`, {

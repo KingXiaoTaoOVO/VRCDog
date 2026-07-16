@@ -173,7 +173,11 @@ function selectLanguage(code: string) {
 
 // 用户首选语言（用于在菜单里高亮，即使没实现也显示对勾）
 const preferredLangCode = computed(() => {
-  return normalizeLocale(localStorage.getItem('vrcdog-locale-pref') || locale.value);
+  return normalizeLocale(
+    localStorage.getItem('vrcdog-locale-pref')
+    || localStorage.getItem('livehime-locale-pref')
+    || locale.value,
+  );
 });
 
 // ========== 设置弹窗（代理 + 自定义 API） ==========

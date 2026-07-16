@@ -8,5 +8,8 @@ export const AvatarModerationApi = {
     request('/auth/user/avatarmoderations', { method: 'POST', params }),
 
   deleteAvatarModeration: (params: { avatarModerationType: string; targetAvatarId: string }) =>
-    request('/auth/user/avatarmoderations', { method: 'DELETE', params }),
+    request(
+      `/auth/user/avatarmoderations?targetAvatarId=${encodeURIComponent(params.targetAvatarId)}&avatarModerationType=${encodeURIComponent(params.avatarModerationType)}`,
+      { method: 'DELETE' },
+    ),
 };

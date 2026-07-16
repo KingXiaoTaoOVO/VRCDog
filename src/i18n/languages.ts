@@ -125,10 +125,12 @@ export function normalizeLocale(rawLocale: string | null | undefined): AppLocale
 export function getPreferredLocale(): AppLocale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
 
-  const storedPreference = localStorage.getItem('vrcdog-locale-pref');
+  const storedPreference = localStorage.getItem('vrcdog-locale-pref')
+    || localStorage.getItem('livehime-locale-pref');
   if (storedPreference) return normalizeLocale(storedPreference);
 
-  const storedLocale = localStorage.getItem('vrcdog-locale');
+  const storedLocale = localStorage.getItem('vrcdog-locale')
+    || localStorage.getItem('livehime-locale');
   if (storedLocale) return normalizeLocale(storedLocale);
 
   const browserLocales = navigator.languages?.length ? navigator.languages : [navigator.language];

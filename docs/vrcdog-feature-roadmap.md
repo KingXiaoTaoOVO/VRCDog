@@ -743,7 +743,7 @@ VrcDog 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/
 | 通知 | `VrcApi.getNotifications` + 本地 `DbApi.getNotifications` |
 | 实例信息 | `VrcApi.getInstance` |
 | 群组成员 | `VrcApi.getGroupMembers` |
-| GitHub Release | `https://api.github.com/repos/KingXiaoTaoOVO/VRCDog/releases` |
+| GitHub Release | `https://api.github.com/repos/KingXiaoTaoOVO/VrcDog/releases` |
 
 ### 真实数据接口映射
 
@@ -763,7 +763,7 @@ VrcDog 用 `views/` + `coordinators/` + `services/` + `queries/` + `composables/
 | 通知 | `VrcApi.getNotifications` + 本地 `db_get_notifications` |
 | 实例信息 | `VrcApi.getInstance` |
 | 群组成员 | `VrcApi.getGroupMembers` |
-| GitHub Release | `https://api.github.com/repos/KingXiaoTaoOVO/VRCDog/releases` |
+| GitHub Release | `https://api.github.com/repos/KingXiaoTaoOVO/VrcDog/releases` |
 
 ---
 

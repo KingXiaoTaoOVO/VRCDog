@@ -12,11 +12,17 @@ pub struct DbState {
 }
 
 impl DbState {
-    pub fn new(mut app_dir: PathBuf) -> Self {
+    pub fn new(app_dir: PathBuf) -> Self {
         fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
-        app_dir.push("vrcdog.db");
+        let database_path = app_dir.join("vrcdog.db");
+        let mistaken_livehime_path = app_dir.join("livehime.db");
+        if !database_path.exists() && mistaken_livehime_path.exists() {
+            if let Err(error) = fs::copy(&mistaken_livehime_path, &database_path) {
+                eprintln!("[VrcDog] Failed to migrate mistaken livehime.db to vrcdog.db: {error}");
+            }
+        }
 
-        let conn = Connection::open(app_dir).expect("Failed to open SQLite database");
+        let conn = Connection::open(database_path).expect("Failed to open SQLite database");
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .expect("Failed to set busy timeout");
 

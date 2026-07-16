@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { SysApi, VrcApi } from "../api";
-import { Wrench, Trash2, MessageSquare, Radio, Play, CheckCircle2, AlertCircle, Loader2, Activity, Keyboard, Send, FolderOpen, Image, FileText, Bug, Database } from 'lucide-vue-next';
+import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
+import OscWorkbench from './OscWorkbench.vue';
 
 const { t } = useI18n();
 const authStore = useAuthStore();
@@ -12,15 +13,9 @@ const isVrcRunning = ref(false);
 const cacheStatus = ref({ loading: false, message: '', type: '' });
 const rpcForm = ref({ details: 'Using VrcDog', state: 'Chilling in VRChat' });
 const rpcStatus = ref({ loading: false, message: '', type: '' });
-const oscForm = ref({ address: '/avatar/parameters/Jump', value: 1 });
-const oscStatus = ref({ loading: false, message: '', type: '' });
-const isOscAutoSync = ref(false);
-
-const chatboxText = ref('');
-const chatboxStatus = ref({ loading: false, message: '', type: '' });
-let typingTimer: any = null;
 
 const dirStatus = ref({ message: '', type: '' });
+let vrcStatusTimer: ReturnType<typeof setInterval> | null = null;
 
 type InviteMessageType = 'message' | 'request' | 'response' | 'requestResponse';
 type InviteTemplateSlot = {
@@ -123,27 +118,6 @@ async function saveInviteTemplateSlot(row: InviteTemplateSlot) {
   }
 }
 
-// Send typing indicator when text changes
-watch(chatboxText, (newVal) => {
-  if (typingTimer) clearTimeout(typingTimer);
-  SysApi.sendOscChatbox({ text: newVal, complete: false }).catch(() => {});
-  typingTimer = setTimeout(() => {
-    SysApi.sendOscChatbox({ text: newVal, complete: true }).catch(() => {});
-  }, 2000);
-});
-
-const sendChatbox = async () => {
-  if (!chatboxText.value) return;
-  chatboxStatus.value = { loading: true, message: '', type: '' };
-  try {
-    await SysApi.sendOscChatbox({ text: chatboxText.value, complete: true });
-    chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
-    chatboxText.value = ''; 
-  } catch (err: any) {
-    chatboxStatus.value = { loading: false, message: t('tools.osc_fail', { err: err.message || err }), type: 'error' };
-  }
-};
-
 const checkVrc = async () => {
   try {
     isVrcRunning.value = await SysApi.isVrcRunning();
@@ -182,32 +156,6 @@ const setRpc = async () => {
   }
 };
 
-const sendOsc = async () => {
-  oscStatus.value = { loading: true, message: '', type: '' };
-  try {
-    await SysApi.sendOscParam({ address: oscForm.value.address, value: Number(oscForm.value.value) });
-    oscStatus.value = { loading: false, message: t('tools.osc_success'), type: 'success' };
-  } catch (err: any) {
-    oscStatus.value = { loading: false, message: t('tools.osc_fail', { err: err.message || err }), type: 'error' };
-  }
-};
-
-const toggleOscSync = async () => {
-  try {
-    if (isOscAutoSync.value) {
-      await SysApi.stopOscAutomation();
-      isOscAutoSync.value = false;
-      oscStatus.value = { loading: false, message: t('tools.osc_sync_stopped'), type: 'success' };
-    } else {
-      await SysApi.startOscAutomation();
-      isOscAutoSync.value = true;
-      oscStatus.value = { loading: false, message: t('tools.osc_sync_running'), type: 'success' };
-    }
-  } catch (err: any) {
-    oscStatus.value = { loading: false, message: t('tools.osc_fail', { err: err.message || err }), type: 'error' };
-  }
-};
-
 const openDirectory = async (target: string) => {
   dirStatus.value = { message: '', type: '' };
   try {
@@ -222,13 +170,12 @@ const openDirectory = async (target: string) => {
 onMounted(() => {
   checkVrc();
   loadInviteTemplates();
-  setInterval(checkVrc, 10000);
+  vrcStatusTimer = setInterval(checkVrc, 10000);
 });
 
 onUnmounted(() => {
-  if (isOscAutoSync.value) {
-    SysApi.stopOscAutomation();
-  }
+  if (vrcStatusTimer) clearInterval(vrcStatusTimer);
+  vrcStatusTimer = null;
 });
 </script>
 
@@ -432,118 +379,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- OSC 控制 -->
-      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
-        <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
-          <Radio
-            class="text-primary"
-            :size="20"
-          /> {{ t('tools.osc_title') }}
-        </h3>
-        <div class="space-y-3 relative z-10">
-          <div>
-            <label class="block text-xs font-bold text-text-muted mb-1">{{ t('tools.osc_address') }}</label>
-            <input
-              v-model="oscForm.address"
-              type="text"
-              :placeholder="t('tools.osc_address_ph')"
-              class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
-            >
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-text-muted mb-1">{{ t('tools.osc_value') }}</label>
-            <input
-              v-model="oscForm.value"
-              type="number"
-              step="0.1"
-              class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-lg text-sm outline-none  focus:bg-surface transition-all"
-            >
-          </div>
-          <div class="flex flex-col gap-2 mt-3">
-            <button
-              :disabled="oscStatus.loading"
-              class="w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
-              @click="sendOsc"
-            >
-              <Loader2
-                v-if="oscStatus.loading"
-                class="animate-spin"
-                :size="16"
-              />
-              <Send
-                v-else
-                :size="16"
-              /> {{ t('tools.osc_send') }}
-            </button>
-            <button
-              class="w-full py-2.5 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
-              :class="isOscAutoSync ? 'bg-primary text-white hover:bg-primary-hover border-primary shadow-primary/20' : 'bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 border-fuchsia-200'"
-              @click="toggleOscSync"
-            >
-              <Activity :size="16" /> {{ isOscAutoSync ? t('tools.osc_sync_stop') : t('tools.osc_sync_start') }}
-            </button>
-          </div>
-          <div
-            v-if="oscStatus.message"
-            class="text-xs font-bold px-3 py-2 rounded-lg text-center"
-            :class="oscStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
-          >
-            {{ oscStatus.message }}
-          </div>
-        </div>
-      </div>
-
-      <!-- VRChat 聊天框 -->
-      <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow md:col-span-2 lg:col-span-1">
-        <div class="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-2xl group-hover:bg-primary/30 transition-colors" />
-        <h3 class="font-extrabold text-text mb-4 flex items-center gap-2 relative z-10 text-lg">
-          <Keyboard
-            class="text-primary"
-            :size="20"
-          /> {{ t('tools.chatbox_title') }}
-        </h3>
-        <div class="space-y-3 relative z-10 flex flex-col flex-1">
-          <p class="text-xs text-text-muted font-medium leading-relaxed mb-1">
-            {{ t('tools.chatbox_desc') }}
-          </p>
-          <textarea
-            v-model="chatboxText"
-            :placeholder="t('tools.chatbox_placeholder')"
-            class="w-full flex-1 min-h-[60px] p-3 bg-surface-hover border-border-soft rounded-xl text-sm font-medium outline-none  focus:bg-surface transition-all resize-none custom-scrollbar"
-            @keyup.enter.prevent="sendChatbox"
-          />
-          <div class="flex items-center justify-between mt-auto">
-            <span
-              v-if="chatboxStatus.message"
-              class="text-[10px] font-bold px-2 py-1 rounded-md"
-              :class="chatboxStatus.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-primary/20 text-primary'"
-            >
-              {{ chatboxStatus.message }}
-            </span>
-            <span
-              v-else
-              class="text-[10px] text-border-strong"
-            >{{ t('tools.chatbox_hint') }}</span>
-            
-            <button
-              :disabled="chatboxStatus.loading || !chatboxText.trim()"
-              class="px-5 py-2 bg-surface hover:bg-surface-hover backdrop-blur-md disabled:opacity-50 text-text font-bold rounded-xl flex items-center justify-center gap-2 transition-colors ml-auto"
-              @click="sendChatbox"
-            >
-              <Loader2
-                v-if="chatboxStatus.loading"
-                class="animate-spin"
-                :size="16"
-              />
-              <Send
-                v-else
-                :size="16"
-              /> {{ t('tools.chatbox_send') }}
-            </button>
-          </div>
-        </div>
-      </div>
+      <OscWorkbench />
 
       <!-- Invite message templates -->
       <div class="bg-surface rounded-2xl p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow md:col-span-2 lg:col-span-3">

@@ -56,6 +56,7 @@ regex = "1.12.3"
 tauri-plugin-updater = "2.10.1"
 lazy_static = "1.4"
 hostname = "0.4"
+midly = "0.5"
 
 # ─── Remote Assist (Native Remote Desktop) ────────────────────────────────────
 # Screen capture via DXGI Desktop Duplication
@@ -82,6 +83,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
+    "Win32_System_SystemInformation",
     "Win32_Security",
     "Win32_System_Com",
 ] }
