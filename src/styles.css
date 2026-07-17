@@ -30,6 +30,12 @@
     height: 100vh;
   }
 
+  html.translation-overlay-mode,
+  body.translation-overlay-mode,
+  html.translation-overlay-mode #app {
+    background: transparent !important;
+  }
+
   input[type="checkbox"],
   input[type="radio"] {
     accent-color: var(--theme-primary);

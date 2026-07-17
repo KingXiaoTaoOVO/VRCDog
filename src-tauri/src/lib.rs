@@ -14,6 +14,7 @@ pub mod osc;
 pub mod ovr;
 pub mod playspace;
 pub mod remote_assist;
+pub mod remote_assist_hub;
 pub mod sys;
 pub mod toolchain;
 pub mod translate;
@@ -343,6 +344,7 @@ pub fn run() {
             gallery::gallery_delete_image,
             sys::sys_clear_vrchat_cache,
             sys::sys_check_steamvr,
+            sys::sys_gpt_sovits_synthesize,
             hardware::sys_is_vrchat_running,
             hardware::sys_launch_vrchat,
             hardware::sys_kill_vrchat,
@@ -368,6 +370,8 @@ pub fn run() {
             sys::sys_set_autostart,
             sys::sys_register_url_scheme,
             sys::sys_get_launch_args,
+            sys::sys_get_client_server_config,
+            sys::sys_save_client_server_config,
             sys::sys_open_dir,
             sys::sys_open_url,
             sys::sys_register_steamvr_autostart,
@@ -445,6 +449,9 @@ pub fn run() {
             remote_assist::remote_assist_stop_service,
             remote_assist::remote_assist_connect,
             remote_assist::remote_assist_disconnect,
+            remote_assist::remote_assist_start_view,
+            remote_assist::remote_assist_stop_view,
+            remote_assist::remote_assist_send_input,
             remote_assist::remote_assist_refresh_password,
             remote_assist::remote_assist_get_sessions,
             remote_assist::remote_assist_send_chat,

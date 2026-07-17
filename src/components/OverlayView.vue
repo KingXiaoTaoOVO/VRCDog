@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { listen } from '@tauri-apps/api/event';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -25,10 +26,19 @@ interface LogMessage {
 }
 
 const logs = ref<LogMessage[]>([]);
+const backgroundOpacity = useStorage('vrc_translation_overlay_opacity', 0.82);
+const panelStyle = computed(() => {
+  const opacity = Math.min(1, Math.max(0, Number(backgroundOpacity.value) || 0));
+  return { backgroundColor: `rgba(0, 0, 0, ${opacity})` };
+});
 
-onMounted(() => {
+let unlistenTranslation: UnlistenFn | null = null;
+let unlistenClose: UnlistenFn | null = null;
+let unlistenSettings: UnlistenFn | null = null;
+
+onMounted(async () => {
   // 监听来自主窗口的翻译日志事件
-  listen('translation-log', (event: any) => {
+  unlistenTranslation = await listen('translation-log', (event: any) => {
     const payload = event.payload as LogMessage;
     logs.value.unshift({
       ...payload,
@@ -46,17 +56,34 @@ onMounted(() => {
   });
 
   // 监听强制关闭指令
-  listen('cmd-close-overlay', async () => {
+  unlistenClose = await listen('cmd-close-overlay', async () => {
     try {
       await getCurrentWindow().destroy();
     } catch (e) {}
   });
+
+  unlistenSettings = await listen<{ backgroundOpacity?: number }>(
+    'translation-overlay-settings',
+    (event) => {
+      const nextOpacity = Number(event.payload?.backgroundOpacity);
+      if (Number.isFinite(nextOpacity)) {
+        backgroundOpacity.value = Math.min(1, Math.max(0, nextOpacity));
+      }
+    },
+  );
+});
+
+onUnmounted(() => {
+  unlistenTranslation?.();
+  unlistenClose?.();
+  unlistenSettings?.();
 });
 </script>
 
 <template>
   <div
-    class="h-screen w-screen overflow-hidden bg-black border border-[var(--theme-primary)] rounded-xl flex flex-col justify-end p-4 pb-8 select-none shadow-[0_0_20px_rgba(var(--theme-primary),0.3)] font-mono"
+    class="h-screen w-screen overflow-hidden border border-[var(--theme-primary)] rounded-xl flex flex-col justify-end p-4 pb-8 select-none shadow-[0_0_20px_rgba(var(--theme-primary),0.3)] font-mono"
+    :style="panelStyle"
     @mousedown="startDrag"
   >
     <!-- 没有任何记录时的提示语 -->
@@ -79,16 +106,30 @@ onMounted(() => {
       <div
         v-for="log in logs"
         :key="log.id" 
-        class="flex flex-col animate-fade-in w-full"
+        class="flex animate-fade-in w-full"
+        :class="log.type === 'self' ? 'justify-end' : 'justify-start'"
       >
-        <div class="w-full">
-          <p class="text-[13px] opacity-70 font-medium mb-0.5 flex items-start gap-2" :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'">
-            <span class="opacity-50 mt-0.5">&gt;</span> 
-            <span class="break-words flex-1">{{ log.text }}</span>
+        <div
+          class="max-w-[86%] rounded-lg border px-3 py-2"
+          :class="log.type === 'self'
+            ? 'bg-[var(--theme-primary)]/15 border-[var(--theme-primary)]/35 text-right'
+            : 'bg-emerald-500/15 border-emerald-400/35 text-left'"
+        >
+          <div
+            class="text-[10px] font-extrabold uppercase tracking-wide mb-1"
+            :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'"
+          >
+            {{ log.type === 'self' ? t('overlay.self') : t('overlay.other') }}
+          </div>
+          <p
+            class="text-[12px] opacity-70 font-medium mb-1 break-words"
+            :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-300'"
+          >
+            {{ log.text }}
           </p>
           <p
             v-if="log.translation"
-            class="text-[16px] font-bold leading-snug pl-4 break-words"
+            class="text-[16px] font-bold leading-snug break-words"
             :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'"
           >
             {{ log.translation }}

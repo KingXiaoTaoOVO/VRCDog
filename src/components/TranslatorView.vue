@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isTauri } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useStorage } from '@vueuse/core';
 import {
   CheckCircle2,
   ClipboardList,
@@ -57,33 +58,33 @@ const tt = (key: string, fallback: string) => {
   return value === key ? fallback : value;
 };
 
-const languageOptions: Option[] = [
-  { label: 'Auto detect', value: 'auto' },
-  { label: 'Chinese (zh-CN)', value: 'zh-CN' },
-  { label: 'English (en-US)', value: 'en-US' },
-  { label: 'Japanese (ja-JP)', value: 'ja-JP' },
-  { label: 'Korean (ko-KR)', value: 'ko-KR' },
-  { label: 'French (fr-FR)', value: 'fr' },
-  { label: 'German (de-DE)', value: 'de' },
-  { label: 'Spanish (es-ES)', value: 'es' },
-  { label: 'Russian (ru-RU)', value: 'ru' },
-  { label: 'Portuguese (pt-BR)', value: 'pt-BR' },
-  { label: 'Thai (th-TH)', value: 'th' },
-  { label: 'Vietnamese (vi-VN)', value: 'vi' },
-];
+const languageOptions = computed<Option[]>(() => [
+  { label: tt('translator.language_auto', 'Auto detect'), value: 'auto' },
+  { label: `${tt('translator.language_chinese', 'Chinese')} (zh-CN)`, value: 'zh-CN' },
+  { label: `${tt('translator.language_english', 'English')} (en-US)`, value: 'en-US' },
+  { label: `${tt('translator.language_japanese', 'Japanese')} (ja-JP)`, value: 'ja-JP' },
+  { label: `${tt('translator.language_korean', 'Korean')} (ko-KR)`, value: 'ko-KR' },
+  { label: `${tt('translator.language_french', 'French')} (fr-FR)`, value: 'fr' },
+  { label: `${tt('translator.language_german', 'German')} (de-DE)`, value: 'de' },
+  { label: `${tt('translator.language_spanish', 'Spanish')} (es-ES)`, value: 'es' },
+  { label: `${tt('translator.language_russian', 'Russian')} (ru-RU)`, value: 'ru' },
+  { label: `${tt('translator.language_portuguese', 'Portuguese')} (pt-BR)`, value: 'pt-BR' },
+  { label: `${tt('translator.language_thai', 'Thai')} (th-TH)`, value: 'th' },
+  { label: `${tt('translator.language_vietnamese', 'Vietnamese')} (vi-VN)`, value: 'vi' },
+]);
 
-const speechLanguageOptions = languageOptions.filter((option) => option.value !== 'auto');
+const speechLanguageOptions = computed(() => languageOptions.value.filter((option) => option.value !== 'auto'));
 
-const engineOptions: EngineOption[] = [
-  { label: 'Google Translate Free', value: 'google_free', hint: 'No API key required' },
-  { label: 'Microsoft Translator', value: 'microsoft', needsKey: true, hint: 'Azure Translator key' },
-  { label: 'DeepL Free', value: 'deepl_free', needsKey: true, hint: 'DeepL Free auth key' },
-  { label: 'DeepL Pro', value: 'deepl', needsKey: true, hint: 'DeepL Pro auth key' },
+const engineOptions = computed<EngineOption[]>(() => [
+  { label: 'Google Translate Free', value: 'google_free', hint: tt('translator.hint_no_api_key', 'No API key required') },
+  { label: 'Microsoft Translator', value: 'microsoft', needsKey: true, hint: tt('translator.hint_azure_key', 'Azure Translator key') },
+  { label: 'DeepL Free', value: 'deepl_free', needsKey: true, hint: tt('translator.hint_deepl_free_key', 'DeepL Free auth key') },
+  { label: 'DeepL Pro', value: 'deepl', needsKey: true, hint: tt('translator.hint_deepl_pro_key', 'DeepL Pro auth key') },
   { label: 'Tencent Translate', value: 'tencent', needsKey: true, hint: 'SecretId:SecretKey' },
   { label: 'Baidu Translate', value: 'baidu', needsKey: true, hint: 'AppID:SecretKey' },
   { label: 'Papago', value: 'papago', needsKey: true, hint: 'ClientId:ClientSecret' },
-  { label: 'Gemini', value: 'gemini', needsKey: true, hint: 'Google AI Studio key' },
-  { label: 'OpenAI', value: 'openai', needsKey: true, hint: 'OpenAI compatible API key' },
+  { label: 'Gemini', value: 'gemini', needsKey: true, hint: tt('translator.hint_google_ai_key', 'Google AI Studio key') },
+  { label: 'OpenAI', value: 'openai', needsKey: true, hint: tt('translator.hint_openai_key', 'OpenAI compatible API key') },
   { label: 'DeepSeek', value: 'deepseek', needsKey: true, hint: 'DeepSeek API key' },
   { label: 'SiliconFlow', value: 'siliconflow', needsKey: true, hint: 'SiliconFlow API key' },
   { label: 'Moonshot', value: 'moonshot', needsKey: true, hint: 'Moonshot API key' },
@@ -91,22 +92,22 @@ const engineOptions: EngineOption[] = [
   { label: 'Groq', value: 'groq', needsKey: true, hint: 'Groq API key' },
   { label: 'OpenRouter', value: 'openrouter', needsKey: true, hint: 'OpenRouter API key' },
   { label: 'Plamo', value: 'plamo', needsKey: true, hint: 'PreferredAI Platform API key' },
-  { label: 'Ollama Local', value: 'ollama', supportsLocal: true, hint: 'http://127.0.0.1:11434' },
-  { label: 'LM Studio Local', value: 'lmstudio', supportsLocal: true, hint: 'http://127.0.0.1:1234' },
-  { label: 'Custom OpenAI API', value: 'custom_llm', needsKey: true, hint: 'OpenAI-compatible endpoint' },
-];
+  { label: tt('translator.engine_ollama_local', 'Ollama Local'), value: 'ollama', supportsLocal: true, hint: 'http://127.0.0.1:11434' },
+  { label: tt('translator.engine_lmstudio_local', 'LM Studio Local'), value: 'lmstudio', supportsLocal: true, hint: 'http://127.0.0.1:1234' },
+  { label: tt('translator.engine_custom_openai', 'Custom OpenAI API'), value: 'custom_llm', needsKey: true, hint: tt('translator.hint_openai_endpoint', 'OpenAI-compatible endpoint') },
+]);
 
-const speakerEngineOptions: Option[] = [
+const speakerEngineOptions = computed<Option[]>(() => [
   { label: tt('translator.engine_cloud', 'Cloud recognition (Google Web Speech)'), value: 'cloud' },
   { label: tt('translator.engine_local', 'Local Whisper / offline fallback'), value: 'local' },
-];
+]);
 
-const sourceLang = ref('zh-CN');
-const targetLang = ref('en-US');
-const otherSourceLang = ref('en-US');
-const otherTargetLang = ref('zh-CN');
-const translateEngine = ref('google_free');
-const otherEngine = ref('cloud');
+const sourceLang = useStorage('vrc_translator_source_lang', 'zh-CN');
+const targetLang = useStorage('vrc_translator_target_lang', 'en-US');
+const otherSourceLang = useStorage('vrc_translator_other_source_lang', 'en-US');
+const otherTargetLang = useStorage('vrc_translator_other_target_lang', 'zh-CN');
+const translateEngine = useStorage('vrc_translator_engine', 'google_free');
+const otherEngine = useStorage('vrc_translator_stt_engine', 'cloud');
 const apiKey = ref('');
 const model = ref('');
 const customApiUrl = ref('');
@@ -118,16 +119,22 @@ const translatedText = ref('');
 const lastTargetLang = ref(targetLang.value);
 const history = ref<VrctMessageRecord[]>([]);
 
-const autoSendOsc = ref(true);
-const showOriginalOsc = ref(true);
-const autoPlayTts = ref(false);
-const ttsEngine = ref<TtsEngine>('system');
-const gptSovitsUrl = ref('http://127.0.0.1:9880');
+const autoSendOsc = useStorage('vrc_translator_auto_send_osc', true);
+const showOriginalOsc = useStorage('vrc_translator_show_original', true);
+const autoPlayTts = useStorage('vrc_translator_auto_tts', false);
+const ttsEngine = useStorage<TtsEngine>('vrc_translator_tts_engine', 'system');
+const gptSovitsUrl = useStorage('vrc_translator_gpt_sovits_url', 'http://127.0.0.1:9880');
+const gptSovitsWeights = useStorage('vrc_translator_sovits_weights', '');
+const gptWeights = useStorage('vrc_translator_gpt_weights', '');
+const gptReferenceAudio = useStorage('vrc_translator_reference_audio', '');
+const gptPromptText = useStorage('vrc_translator_prompt_text', '');
+const gptPromptLanguage = useStorage('vrc_translator_prompt_language', 'zh');
 
 const isRecording = ref(false);
 const isOtherRecording = ref(false);
 const isTranslating = ref(false);
 const isOverlayOpen = ref(false);
+const overlayBackgroundOpacity = useStorage('vrc_translation_overlay_opacity', 0.82);
 const errorMsg = ref('');
 const statusMsg = ref('');
 
@@ -136,7 +143,7 @@ let overlayWebview: WebviewWindow | null = null;
 let unlistenAudio: UnlistenFn | null = null;
 let unlistenVrct: UnlistenFn | null = null;
 
-const currentEngine = computed(() => engineOptions.find((engine) => engine.value === translateEngine.value) ?? engineOptions[0]);
+const currentEngine = computed(() => engineOptions.value.find((engine) => engine.value === translateEngine.value) ?? engineOptions.value[0]);
 const needsApiKey = computed(() => Boolean(currentEngine.value.needsKey && !currentEngine.value.supportsLocal));
 const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'plamo', 'ollama', 'lmstudio', 'custom_llm', 'gemini'].includes(translateEngine.value));
 const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
@@ -179,6 +186,17 @@ const notifyOverlay = async (record: VrctMessageRecord) => {
   });
 };
 
+const syncOverlaySettings = async () => {
+  if (!isTauri()) return;
+  await emit('translation-overlay-settings', {
+    backgroundOpacity: Math.min(1, Math.max(0, Number(overlayBackgroundOpacity.value) || 0)),
+  });
+};
+
+watch(overlayBackgroundOpacity, () => {
+  syncOverlaySettings().catch(() => undefined);
+});
+
 const playTts = async (text: string, lang = lastTargetLang.value) => {
   if (!text.trim()) return;
 
@@ -197,8 +215,19 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
 
   try {
     const langCode = lang.startsWith('ja') ? 'ja' : lang.startsWith('ko') ? 'ko' : lang.startsWith('en') ? 'en' : 'zh';
-    const url = `${gptSovitsUrl.value.replace(/\/$/, '')}/?text=${encodeURIComponent(text)}&text_language=${langCode}`;
-    await new Audio(url).play();
+    const audioUrl = await SysApi.synthesizeGptSovits({
+      baseUrl: gptSovitsUrl.value,
+      text,
+      textLanguage: langCode,
+      sovitsWeights: gptSovitsWeights.value.trim() || undefined,
+      gptWeights: gptWeights.value.trim() || undefined,
+      referenceAudio: gptReferenceAudio.value.trim() || undefined,
+      promptText: gptPromptText.value.trim() || undefined,
+      promptLanguage: gptPromptLanguage.value || langCode,
+    });
+    const audio = new Audio(audioUrl);
+    audio.volume = 1;
+    await audio.play();
   } catch (error) {
     errorMsg.value = tt('translator.tts_error', 'TTS playback failed: {err}').replace('{err}', errorText(error));
   }
@@ -394,6 +423,7 @@ const toggleOverlay = async () => {
 
     overlayWebview.once('tauri://created', () => {
       isOverlayOpen.value = true;
+      syncOverlaySettings().catch(() => undefined);
     });
     overlayWebview.once('tauri://error', (event) => {
       errorMsg.value = tt('translator.overlay_fail', 'Overlay creation failed: {error}').replace('{error}', JSON.stringify(event));
@@ -500,21 +530,39 @@ onUnmounted(async () => {
 
 <template>
   <div class="h-full min-h-0 flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
-    <header class="flex items-center justify-between gap-4 mb-5 shrink-0 z-10">
+    <header class="flex items-center justify-between gap-4 mb-5 shrink-0 z-10 flex-wrap">
       <h2 class="text-3xl font-extrabold text-text flex items-center gap-3 tracking-tight min-w-0">
         <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary shrink-0">
           <Languages class="w-6 h-6 text-primary" />
         </span>
         <span class="truncate">{{ tt('translator.title', '翻译官') }}</span>
       </h2>
-      <button
-        :class="isOverlayOpen ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30 border-red-500 text-white' : 'bg-surface hover:bg-surface-hover text-text-muted hover:text-primary border-border-soft shadow-sm'"
-        class="px-4 py-2.5 font-bold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-sm shrink-0"
-        @click="toggleOverlay"
-      >
-        <MonitorUp :size="16" />
-        <span>{{ isOverlayOpen ? tt('translator.overlay_close', '关闭悬浮窗') : tt('translator.overlay_open', '开启悬浮窗') }}</span>
-      </button>
+      <div class="flex items-center justify-end gap-3 flex-wrap">
+        <label class="min-w-[220px] flex items-center gap-3 px-3 py-2 bg-surface border border-border-soft rounded-xl shadow-sm">
+          <span class="text-xs font-bold text-text-muted whitespace-nowrap">
+            {{ tt('translator.overlay_opacity', '背景不透明度') }}
+          </span>
+          <input
+            v-model.number="overlayBackgroundOpacity"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            class="overlay-opacity-slider min-w-0 flex-1"
+          >
+          <output class="w-10 text-right text-xs font-extrabold text-primary tabular-nums">
+            {{ Math.round(overlayBackgroundOpacity * 100) }}%
+          </output>
+        </label>
+        <button
+          :class="isOverlayOpen ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30 border-red-500 text-white' : 'bg-surface hover:bg-surface-hover text-text-muted hover:text-primary border-border-soft shadow-sm'"
+          class="px-4 py-2.5 font-bold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-sm shrink-0"
+          @click="toggleOverlay"
+        >
+          <MonitorUp :size="16" />
+          <span>{{ isOverlayOpen ? tt('translator.overlay_close', '关闭悬浮窗') : tt('translator.overlay_open', '开启悬浮窗') }}</span>
+        </button>
+      </div>
     </header>
 
     <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 z-10 relative">
@@ -548,14 +596,44 @@ onUnmounted(async () => {
                 ]"
               />
             </div>
-            <div v-if="ttsEngine === 'gpt_sovits'" class="min-w-0">
-              <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.gptsovits_url_label', 'GPT-SoVITS API URL') }}</label>
-              <input
-                v-model="gptSovitsUrl"
-                type="text"
-                class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
-                :placeholder="tt('translator.gptsovits_url_placeholder', 'http://127.0.0.1:9880')"
-              >
+            <div v-if="ttsEngine === 'gpt_sovits'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.gptsovits_url_label', 'GPT-SoVITS API URL') }}</label>
+                <input
+                  v-model="gptSovitsUrl"
+                  type="text"
+                  class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                  :placeholder="tt('translator.gptsovits_url_placeholder', 'http://127.0.0.1:9880')"
+                >
+              </div>
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.sovits_weights_label', 'SoVITS weights (.pth)') }}</label>
+                <input v-model="gptSovitsWeights" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" :placeholder="tt('translator.sovits_weights_placeholder', 'D:\\models\\voice.pth')">
+              </div>
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.gpt_weights_label', 'GPT weights (.ckpt)') }}</label>
+                <input v-model="gptWeights" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" :placeholder="tt('translator.gpt_weights_placeholder', 'D:\\models\\voice.ckpt')">
+              </div>
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.reference_audio_label', 'Reference audio') }}</label>
+                <input v-model="gptReferenceAudio" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" :placeholder="tt('translator.reference_audio_placeholder', 'D:\\voices\\reference.wav')">
+              </div>
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.prompt_text_label', 'Reference transcript') }}</label>
+                <input v-model="gptPromptText" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all">
+              </div>
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.prompt_language_label', 'Reference language') }}</label>
+                <CustomSelect
+                  v-model="gptPromptLanguage"
+                  :options="[
+                    { label: tt('translator.language_chinese', 'Chinese'), value: 'zh' },
+                    { label: tt('translator.language_english', 'English'), value: 'en' },
+                    { label: tt('translator.language_japanese', 'Japanese'), value: 'ja' },
+                    { label: tt('translator.language_korean', 'Korean'), value: 'ko' }
+                  ]"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -611,21 +689,21 @@ onUnmounted(async () => {
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div v-if="needsApiKey || apiKey" class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">API Key</label>
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.api_key_label', 'API Key') }}</label>
                   <input v-model="apiKey" type="password" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10">
                 </div>
                 <div v-if="showModelField" class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Model</label>
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.model_label', 'Model') }}</label>
                   <input v-model="model" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="default">
                 </div>
                 <div v-if="translateEngine === 'custom_llm'" class="md:col-span-2 min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Custom API URL</label>
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.custom_api_url_label', 'Custom API URL') }}</label>
                   <input v-model="customApiUrl" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="https://example.com/v1/chat/completions">
                 </div>
               </div>
 
               <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Prompt</label>
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.prompt_label', 'Prompt') }}</label>
                 <textarea
                   v-model="prompt"
                   rows="2"
@@ -648,13 +726,13 @@ onUnmounted(async () => {
                 @click="toggleOtherRecording"
               >
                 <component :is="isOtherRecording ? Square : Ear" :size="15" />
-                <span>{{ isOtherRecording ? '停止监听' : tt('translator.listen_game', '开启游戏语音监听') }}</span>
+                <span>{{ isOtherRecording ? tt('translator.stop_game_listen', '停止监听') : tt('translator.listen_game', '开启游戏语音监听') }}</span>
               </button>
             </div>
 
             <div class="space-y-4">
               <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">STT Engine</label>
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.stt_engine_label', 'STT Engine') }}</label>
                 <CustomSelect v-model="otherEngine" :options="speakerEngineOptions" />
               </div>
 
@@ -687,7 +765,7 @@ onUnmounted(async () => {
             <div class="flex items-center justify-between gap-3 mb-4">
               <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
                 <ClipboardList class="text-primary" :size="20" />
-                文本翻译
+                {{ tt('translator.text_translation', '文本翻译') }}
               </h3>
               <button
                 :disabled="!canTranslate"
@@ -695,7 +773,7 @@ onUnmounted(async () => {
                 @click="translateManual"
               >
                 <component :is="isTranslating ? RefreshCw : Send" :class="{ 'animate-spin': isTranslating }" :size="16" />
-                翻译并发送
+                {{ tt('translator.translate_and_send', '翻译并发送') }}
               </button>
             </div>
             <textarea
@@ -784,3 +862,12 @@ onUnmounted(async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.overlay-opacity-slider {
+  height: 4px;
+  border-radius: 999px;
+  accent-color: var(--theme-primary);
+  cursor: pointer;
+}
+</style>

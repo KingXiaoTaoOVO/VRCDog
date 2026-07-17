@@ -2,6 +2,7 @@ import { translate } from '../i18n';
 import { reactive } from 'vue';
 import { VrcApi, DbApi } from './index';
 import { useNotificationEngine } from '../stores/notificationEngine';
+import { getCookieValue } from './cookies';
 
 export const wsState = reactive({
   connected: false,
@@ -9,115 +10,122 @@ export const wsState = reactive({
   bytesReceived: 0,
   lastUpdate: '',
   everConnected: false, // 是否曾经成功连接过（区分"从未连接"与"已断开"）
+  phase: 'idle' as 'idle' | 'authenticating' | 'connecting' | 'waiting' | 'connected',
+  lastError: '',
+  reconnectAttempts: 0,
 });
 
 let webSocket: WebSocket | null = null;
 let lastMessage = '';
-let reconnectTimer: number | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
-let wsShuttingDown = false; // 阻止 initWebsocket 在 closeWebSocket 之后继续执行
-const MAX_RECONNECT_ATTEMPTS = 5; // 最多重连 5 次，之后彻底停止
-const RECONNECT_BASE_MS = 5000; // 首次重连间隔 5 秒
-const RECONNECT_MAX_MS = 60000; // 最长间隔 60 秒
+let reconnectEnabled = false;
+let authenticating = false;
+let lifecycleId = 0;
+const RECONNECT_DELAY_MS = 5000;
 const FRIEND_NOTIFY_DEBOUNCE_MS = 45_000;
 const friendNotifyTimes = new Map<string, number>();
 
-/**
- * 指数退避 + 随机抖动，防止同时冲击服务器
- * 第 1 次: 5s
- * 第 2 次: 10s
- * 第 3 次: 20s
- * 第 4 次: 40s
- * 第 5 次: 60s (max)
- */
-function getReconnectDelay(): number {
-  const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts - 1), RECONNECT_MAX_MS);
-  // 添加 ±20% 随机抖动
-  const jitter = delay * 0.2 * (Math.random() * 2 - 1);
-  return Math.round(delay + jitter);
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return typeof err === 'string' ? err : 'Unknown pipeline error';
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function scheduleReconnect(reason?: string) {
+  if (!reconnectEnabled || reconnectTimer !== null) return;
+  reconnectAttempts++;
+  wsState.connected = false;
+  wsState.phase = 'waiting';
+  wsState.reconnectAttempts = reconnectAttempts;
+  if (reason) wsState.lastError = reason;
+  console.warn(`[WSS] Pipeline unavailable, retrying in ${RECONNECT_DELAY_MS / 1000}s (attempt ${reconnectAttempts})`, reason || '');
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void initWebsocket();
+  }, RECONNECT_DELAY_MS);
 }
 
 export async function initWebsocket() {
-  if (webSocket !== null) return;
-  // 防止 closeWebSocket 之后 in-flight 的异步操作继续连接
-  if (wsShuttingDown) return;
-  
-  // 超过最大重连次数，不再尝试
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.warn(`[WSS] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached, giving up`);
-    // 如果曾经连接成功过，everConnected 保持 true 以区分"从未连接"与"已断开"
-    return;
-  }
-  
+  reconnectEnabled = true;
+  if (webSocket !== null || authenticating) return;
+
+  clearReconnectTimer();
+  const attemptLifecycleId = lifecycleId;
+  authenticating = true;
+  wsState.phase = 'authenticating';
+
   try {
-    // ⚠️ 重要: 使用 suppressAuthExpired=true 防止 /auth 返回 401 时触发用户登出
-    // WebSocket pipeline 的 /auth 调用只是为了获取 WS token，
-    // 它的 401 不代表用户认证失效（可能是 pipeline 临时不可用）
-    const res: any = await VrcApi.request('/auth', { method: 'GET', suppressAuthExpired: true });
-    if (res && res.token) {
-      // ⚠️ 注意：不再在此处重置 reconnectAttempts！
-      // 只有 WebSocket 真正连接成功（onopen）时才重置计数器
-      connectWebSocket(res.token);
-    } else {
-      // /auth 返回成功但没有 token（可能 pipeline 暂时无响应），触发重试
-      throw new Error('/auth returned no token');
+    let authCookie = await DbApi.getAuth();
+    let token = getCookieValue(authCookie, 'auth');
+
+    if (!token) {
+      await VrcApi.request('/auth/user', {
+        method: 'GET',
+        suppressAuthExpired: true,
+      });
+      authCookie = await DbApi.getAuth();
+      token = getCookieValue(authCookie, 'auth');
     }
+
+    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) return;
+    if (!token) throw new Error('VRChat auth cookie is missing');
+    connectWebSocket(token, attemptLifecycleId);
   } catch (err) {
-    console.error('WebSocket init error:', err);
-    reconnectAttempts++;
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      const delay = getReconnectDelay();
-      console.log(`[WSS] Will retry init in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-      reconnectTimer = setTimeout(initWebsocket, delay) as unknown as number;
-    } else {
-      console.warn('[WSS] WebSocket pipeline unavailable, will not retry');
-      // everConnected 在曾经成功连接后不再重置为 false，以保留"曾经连接过"的状态
-    }
+    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) return;
+    const message = errorMessage(err);
+    console.error('[WSS] Pipeline authentication failed:', err);
+    scheduleReconnect(message);
+  } finally {
+    if (attemptLifecycleId === lifecycleId) authenticating = false;
   }
 }
 
-function connectWebSocket(token: string) {
-  if (webSocket !== null) return;
-  
-  const socket = new WebSocket(`wss://pipeline.vrchat.cloud/?auth=${token}`);
-  
+function connectWebSocket(token: string, attemptLifecycleId: number) {
+  if (!reconnectEnabled || attemptLifecycleId !== lifecycleId || webSocket !== null) return;
+
+  wsState.phase = 'connecting';
+  const socket = new WebSocket(
+    `wss://pipeline.vrchat.cloud/?authToken=${encodeURIComponent(token)}`,
+  );
+  webSocket = socket;
+
   socket.onopen = () => {
-    // 如果在连接建立过程中调用了 closeWebSocket，立即关闭此连接
-    if (wsShuttingDown) {
+    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) {
       socket.close();
       return;
     }
     wsState.connected = true;
     wsState.everConnected = true;
-    // ✅ 只有 WebSocket 真正连接成功时才重置重连计数器
+    wsState.phase = 'connected';
+    wsState.lastError = '';
     reconnectAttempts = 0;
+    wsState.reconnectAttempts = 0;
     console.log('[WSS] Pipeline connected');
   };
-  
+
   socket.onclose = (e) => {
     wsState.connected = false;
     if (webSocket === socket) webSocket = null;
     console.log('[WSS] Pipeline closed', e.code, e.reason);
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    // 意外断开才重连（code 1000 = 正常关闭），且不超过最大次数
-    if (e.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      reconnectAttempts++;
-      const delay = getReconnectDelay();
-      console.log(`[WSS] Will reconnect in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-      reconnectTimer = setTimeout(() => {
-        if (webSocket === null) initWebsocket();
-      }, delay) as unknown as number;
-    } else if (e.code === 1000) {
-      console.log('[WSS] Clean close, no reconnect');
-    } else {
-      console.warn('[WSS] Max reconnect attempts reached');
-    }
+    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) return;
+    const reason = e.reason || (e.code ? `WebSocket closed (${e.code})` : 'WebSocket closed');
+    scheduleReconnect(reason);
   };
-  
+
   socket.onerror = (err) => {
     console.error('[WSS] Pipeline error', err);
+    wsState.lastError = 'Pipeline WebSocket connection error';
+    socket.close();
   };
-  
+
   socket.onmessage = ({ data }) => {
     wsState.messageCount++;
     wsState.bytesReceived += data.length;
@@ -135,24 +143,21 @@ function connectWebSocket(token: string) {
       console.error('[WSS] Parse error', e);
     }
   };
-  
-  webSocket = socket;
 }
 
 export function closeWebSocket() {
-  wsShuttingDown = true;
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (webSocket) {
-    webSocket.close();
-    webSocket = null;
-  }
+  reconnectEnabled = false;
+  lifecycleId++;
+  authenticating = false;
+  clearReconnectTimer();
+  const socket = webSocket;
+  webSocket = null;
+  if (socket) socket.close(1000, 'Client logout');
   wsState.connected = false;
-  reconnectAttempts = 0; // 重置重连计数器，下次登录时可以重新尝试
-  // 延迟清除关闭标记，确保 in-flight 的 initWebsocket 能检测到
-  setTimeout(() => { wsShuttingDown = false; }, 500);
+  wsState.phase = 'idle';
+  wsState.lastError = '';
+  reconnectAttempts = 0;
+  wsState.reconnectAttempts = 0;
 }
 
 type PipelineHandler = (json: any) => void;

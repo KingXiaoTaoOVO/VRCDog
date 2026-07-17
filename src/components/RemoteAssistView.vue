@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { Monitor, Wifi, WifiOff, RefreshCw, Copy, Shield, Send, FileUp, MessageCircle, Settings2, Zap, Globe, Server, Lock, Unlock, Phone, PhoneOff, Clipboard, Eye, EyeOff } from 'lucide-vue-next';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { Monitor, Wifi, WifiOff, RefreshCw, Copy, Shield, Send, FileUp, MessageCircle, Settings2, Zap, Globe, Server, Phone, PhoneOff, Eye, EyeOff, X, Maximize2 } from 'lucide-vue-next';
 
 const { t } = useI18n();
 
@@ -64,6 +64,18 @@ const serviceRunning = ref(false);
 const acceptingConnections = ref(false);
 const showPassword = ref(false);
 const connecting = ref(false);
+const remoteError = ref('');
+let unlistenRemoteEvent: UnlistenFn | null = null;
+let unlistenRemoteChat: UnlistenFn | null = null;
+let unlistenRemoteFrame: UnlistenFn | null = null;
+const viewerOpen = ref(false);
+const viewerSessionId = ref('');
+const viewerFrame = ref('');
+const viewerWidth = ref(0);
+const viewerHeight = ref(0);
+const viewerLoading = ref(false);
+const viewerSurface = ref<HTMLElement | null>(null);
+let lastPointerSentAt = 0;
 
 // Connection form
 const peerIdInput = ref('');
@@ -80,6 +92,11 @@ const activePanel = ref<'connect' | 'sessions' | 'chat' | 'files' | 'settings'>(
 
 // ─── Initialization ──────────────────────────────────────────────────────────
 
+const errorText = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  return typeof error === 'string' ? error : JSON.stringify(error);
+};
+
 onMounted(async () => {
   try {
     deviceInfo.value = await invoke('remote_assist_init');
@@ -94,12 +111,23 @@ onMounted(async () => {
       activeServer.value = servers.value[0];
       await invoke('remote_assist_set_server', { server: servers.value[0] });
     }
+
+    const state = await invoke<{
+      service_on: boolean;
+      accepting: boolean;
+      sessions: ConnectionSession[];
+    }>('remote_assist_get_state');
+    serviceRunning.value = Boolean(state.service_on);
+    acceptingConnections.value = Boolean(state.accepting);
+    sessions.value = Array.isArray(state.sessions) ? state.sessions : [];
+    chatMessages.value = await invoke<ChatMessage[]>('remote_assist_get_chat');
   } catch (e) {
     console.error('Failed to init remote assist:', e);
+    remoteError.value = errorText(e);
   }
 
   // Listen for status events
-  await listen('remote_assist_event', (event: any) => {
+  unlistenRemoteEvent = await listen('remote_assist_event', async (event: any) => {
     const data = event.payload;
     if (data.event === 'service_started') {
       serviceRunning.value = true;
@@ -118,22 +146,51 @@ onMounted(async () => {
       }
     } else if (data.event === 'connected') {
       connecting.value = false;
+      serviceRunning.value = true;
+      sessions.value = await invoke<ConnectionSession[]>('remote_assist_get_sessions');
     } else if (data.event === 'disconnected') {
       sessions.value = sessions.value.filter(s => s.session_id !== data.session_id);
+      if (viewerSessionId.value === data.session_id) {
+        viewerOpen.value = false;
+        viewerSessionId.value = '';
+        viewerFrame.value = '';
+      }
+    } else if (data.event === 'transport_error') {
+      connecting.value = false;
+      remoteError.value = data.message || t('remote_assist.connection_failed');
     }
   });
 
-  await listen('remote_assist_chat', (event: any) => {
+  unlistenRemoteChat = await listen('remote_assist_chat', (event: any) => {
     const data = event.payload;
     if (data.message) {
       chatMessages.value.push(data.message);
     }
   });
+
+  unlistenRemoteFrame = await listen('remote_assist_frame', (event: any) => {
+    const data = event.payload;
+    if (data.session_id !== viewerSessionId.value || !data.data) return;
+    viewerWidth.value = Number(data.width) || 0;
+    viewerHeight.value = Number(data.height) || 0;
+    viewerFrame.value = `data:image/jpeg;base64,${data.data}`;
+    viewerLoading.value = false;
+  });
+});
+
+onUnmounted(() => {
+  if (viewerSessionId.value) {
+    void invoke('remote_assist_stop_view', { sessionId: viewerSessionId.value });
+  }
+  unlistenRemoteEvent?.();
+  unlistenRemoteChat?.();
+  unlistenRemoteFrame?.();
 });
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 const toggleService = async () => {
+  remoteError.value = '';
   try {
     if (serviceRunning.value) {
       await invoke('remote_assist_stop_service');
@@ -142,6 +199,7 @@ const toggleService = async () => {
     }
   } catch (e) {
     console.error('Failed to toggle service:', e);
+    remoteError.value = errorText(e);
   }
 };
 
@@ -163,6 +221,7 @@ const copyToClipboard = (text: string) => {
 const connectToPeer = async () => {
   if (!peerIdInput.value.trim()) return;
   connecting.value = true;
+  remoteError.value = '';
   try {
     const session = await invoke<ConnectionSession>('remote_assist_connect', {
       peerId: peerIdInput.value.trim(),
@@ -172,7 +231,19 @@ const connectToPeer = async () => {
     activePanel.value = 'sessions';
   } catch (e) {
     console.error('Connection failed:', e);
+    remoteError.value = errorText(e);
     connecting.value = false;
+  }
+};
+
+const toggleAcceptConnections = async () => {
+  const nextValue = !acceptingConnections.value;
+  remoteError.value = '';
+  try {
+    await invoke('remote_assist_toggle_accept', { accept: nextValue });
+    acceptingConnections.value = nextValue;
+  } catch (error) {
+    remoteError.value = errorText(error);
   }
 };
 
@@ -182,6 +253,86 @@ const disconnectSession = async (sessionId: string) => {
   } catch (e) {
     console.error('Disconnect failed:', e);
   }
+};
+
+const openViewer = async (sessionId: string) => {
+  remoteError.value = '';
+  viewerSessionId.value = sessionId;
+  viewerFrame.value = '';
+  viewerLoading.value = true;
+  viewerOpen.value = true;
+  try {
+    await invoke('remote_assist_start_view', { sessionId });
+    await nextTick();
+    viewerSurface.value?.focus();
+  } catch (error) {
+    viewerOpen.value = false;
+    viewerSessionId.value = '';
+    viewerLoading.value = false;
+    remoteError.value = errorText(error);
+  }
+};
+
+const closeViewer = async () => {
+  const sessionId = viewerSessionId.value;
+  viewerOpen.value = false;
+  viewerSessionId.value = '';
+  viewerFrame.value = '';
+  viewerLoading.value = false;
+  if (sessionId) {
+    try {
+      await invoke('remote_assist_stop_view', { sessionId });
+    } catch (error) {
+      remoteError.value = errorText(error);
+    }
+  }
+};
+
+const sendViewerInput = (event: Record<string, unknown>) => {
+  if (!viewerSessionId.value) return;
+  void invoke('remote_assist_send_input', {
+    sessionId: viewerSessionId.value,
+    event,
+  }).catch((error) => {
+    remoteError.value = errorText(error);
+  });
+};
+
+const remotePointerPosition = (event: MouseEvent) => {
+  const element = event.currentTarget as HTMLElement;
+  const rect = element.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(viewerWidth.value - 1, Math.round((event.clientX - rect.left) / rect.width * viewerWidth.value))),
+    y: Math.max(0, Math.min(viewerHeight.value - 1, Math.round((event.clientY - rect.top) / rect.height * viewerHeight.value))),
+  };
+};
+
+const onViewerMouseMove = (event: MouseEvent) => {
+  const now = performance.now();
+  if (now - lastPointerSentAt < 32 || !viewerWidth.value || !viewerHeight.value) return;
+  lastPointerSentAt = now;
+  sendViewerInput({ type: 'MouseMove', ...remotePointerPosition(event) });
+};
+
+const remoteMouseButton = (button: number) => button === 1 ? 2 : button === 2 ? 1 : 0;
+
+const onViewerMouseDown = (event: MouseEvent) => {
+  viewerSurface.value?.focus();
+  sendViewerInput({ type: 'MouseDown', button: remoteMouseButton(event.button) });
+};
+
+const onViewerMouseUp = (event: MouseEvent) => {
+  sendViewerInput({ type: 'MouseUp', button: remoteMouseButton(event.button) });
+};
+
+const onViewerWheel = (event: WheelEvent) => {
+  event.preventDefault();
+  sendViewerInput({ type: 'MouseWheel', delta: -Math.sign(event.deltaY) * 120 });
+};
+
+const onViewerKey = (event: KeyboardEvent, down: boolean) => {
+  event.preventDefault();
+  sendViewerInput({ type: down ? 'KeyDown' : 'KeyUp', code: event.keyCode });
 };
 
 const getServerHost = (server: ServerConfig | null) =>
@@ -267,6 +418,13 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
           {{ serviceRunning ? t('remote_assist.service_online') : t('remote_assist.service_offline') }}
         </span>
       </div>
+    </div>
+
+    <div
+      v-if="remoteError"
+      class="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500"
+    >
+      {{ remoteError }}
     </div>
 
     <!-- Tab Navigation -->
@@ -459,6 +617,13 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
               {{ session.status }}
             </span>
             <button
+              class="p-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
+              :title="t('remote_assist.open_viewer')"
+              @click="openViewer(session.session_id)"
+            >
+              <Maximize2 :size="14" />
+            </button>
+            <button
               class="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"
               @click="disconnectSession(session.session_id)"
             >
@@ -627,7 +792,7 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
             <button
               class="w-10 h-5 rounded-full transition-all relative"
               :class="acceptingConnections ? 'bg-primary' : 'bg-red-400/60'"
-              @click="acceptingConnections = !acceptingConnections"
+              @click="toggleAcceptConnections"
             >
               <span
                 class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all"
@@ -635,16 +800,51 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
               />
             </button>
           </label>
-          <label class="flex items-center justify-between cursor-pointer">
-            <span class="text-sm text-text">{{ t('remote_assist.auto_start') }}</span>
-            <button
-              class="w-10 h-5 rounded-full bg-red-400/60 transition-all relative"
-            >
-              <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow" />
-            </button>
-          </label>
         </div>
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="viewerOpen"
+      class="fixed inset-0 z-[10000] bg-black/85 flex flex-col"
+    >
+      <div class="h-12 shrink-0 flex items-center gap-3 px-4 bg-surface border-b border-border-soft">
+        <Monitor :size="16" class="text-primary" />
+        <span class="text-sm font-bold text-text-strong">{{ t('remote_assist.remote_screen') }}</span>
+        <span class="text-xs text-text-muted">{{ sessions.find(session => session.session_id === viewerSessionId)?.peer_name }}</span>
+        <button
+          class="ml-auto p-2 rounded-lg text-text-muted hover:text-text-strong hover:bg-surface-hover transition-colors"
+          :title="t('remote_assist.close_viewer')"
+          @click="closeViewer"
+        >
+          <X :size="18" />
+        </button>
+      </div>
+      <div
+        ref="viewerSurface"
+        tabindex="0"
+        class="flex-1 min-h-0 flex items-center justify-center bg-black outline-none overflow-hidden"
+        @keydown="onViewerKey($event, true)"
+        @keyup="onViewerKey($event, false)"
+      >
+        <div v-if="viewerLoading" class="flex items-center gap-2 text-white/70 text-sm font-bold">
+          <RefreshCw :size="16" class="animate-spin" />
+          {{ t('remote_assist.waiting_for_screen') }}
+        </div>
+        <img
+          v-else-if="viewerFrame"
+          :src="viewerFrame"
+          class="max-w-full max-h-full object-contain select-none"
+          draggable="false"
+          @mousemove="onViewerMouseMove"
+          @mousedown.prevent="onViewerMouseDown"
+          @mouseup.prevent="onViewerMouseUp"
+          @wheel="onViewerWheel"
+          @contextmenu.prevent
+        />
+      </div>
+    </div>
+  </Teleport>
 </template>

@@ -40,7 +40,13 @@
               class="w-1.5 h-1.5 rounded-full"
               :class="isRunning ? 'bg-primary animate-ping' : 'bg-text-muted'"
             />
-            {{ isRunning ? t('role.dashboard_running', { port: serverPort }) : t('role.server_stopped') }}
+            {{
+              isRunning
+                ? (isRemoteMode
+                  ? t('role.dashboard_remote_running', { url: serverUrl })
+                  : t('role.dashboard_running', { port: serverPort }))
+                : t('role.server_stopped')
+            }}
           </p>
         </div>
       </div>
@@ -71,7 +77,7 @@
         >
           <Globe class="w-4 h-4" /> {{ currentLangLabel }}
         </button>
-        <button class="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl shadow-md shadow-primary/30 text-xs font-bold transition-all" @click="openNewClient">
+        <button v-if="!isRemoteMode" class="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl shadow-md shadow-primary/30 text-xs font-bold transition-all" @click="openNewClient">
           <Monitor class="w-4 h-4" /> {{ t('role.dashboard_open_client') }}
         </button>
         <button class="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface-hover text-text hover:text-red-500 border border-border-soft rounded-xl shadow-sm text-xs font-bold transition-all" @click="stopAndExit">
@@ -90,8 +96,56 @@
             <Activity class="w-3 h-3" />
             {{ t('role.dashboard_conn_info') }}
           </h2>
+          <div class="grid grid-cols-2 gap-1 p-1 mb-4 bg-surface-hover border border-border-soft rounded-lg">
+            <button
+              class="min-h-9 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+              :class="!isRemoteMode ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'"
+              @click="selectServerMode('local')"
+            >
+              <Monitor class="w-4 h-4" />
+              {{ t('role.local_service') }}
+            </button>
+            <button
+              class="min-h-9 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+              :class="isRemoteMode ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'"
+              @click="selectServerMode('remote')"
+            >
+              <Cloud class="w-4 h-4" />
+              {{ t('role.remote_service') }}
+            </button>
+          </div>
           <div
-            v-if="!isRunning"
+            v-if="isRemoteMode"
+            class="space-y-3"
+          >
+            <div>
+              <label class="text-[10px] text-text block mb-1 uppercase tracking-wider">{{ t('role.remote_server_address') }}</label>
+              <input
+                v-model="remoteServerUrl"
+                type="url"
+                class="w-full bg-surface/50 border border-border-soft rounded-lg px-3 py-2 text-xs outline-none text-text-strong font-mono transition-colors"
+                :placeholder="t('role.server_address_ph')"
+                @keydown.enter="connectRemoteServer"
+              >
+            </div>
+            <div
+              v-if="isRunning"
+              class="text-xs text-primary p-3 rounded-lg border border-primary/20 bg-primary/5 break-all"
+            >
+              {{ serverUrl }}
+            </div>
+            <button
+              class="w-full mt-4 py-3 font-bold rounded-xl text-xs flex justify-center items-center gap-2 shadow-md transition-all"
+              :class="isRunning ? 'bg-surface-hover text-primary border border-primary/20' : 'bg-primary hover:bg-primary-hover text-white shadow-primary/30'"
+              @click="isRunning ? disconnectRemoteServer() : connectRemoteServer()"
+            >
+              <RefreshCcw v-if="isRunning" class="w-4 h-4" />
+              <Cloud v-else class="w-4 h-4" />
+              {{ isRunning ? t('role.remote_reconnect') : t('role.connect_server') }}
+            </button>
+          </div>
+          <div
+            v-else-if="!isRunning"
             class="space-y-3"
           >
             <div>
@@ -638,9 +692,10 @@ import { useToast } from "../composables/useToast";
 
 const toast = useToast();
 import { ref, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
-import { Server, Globe, Monitor, LogOut, Play, Square, Activity, Radar, ChevronRight, Terminal, Users, Shield, Star, Trash2, ShieldAlert, Snowflake, Check, Save, Palette } from 'lucide-vue-next';
+import { Server, Globe, Monitor, LogOut, Play, Square, Activity, Radar, ChevronRight, Terminal, Users, Shield, Star, Trash2, ShieldAlert, Snowflake, Check, Save, Palette, UserCheck, Cloud, RefreshCcw } from 'lucide-vue-next';
 import { currentThemeId, setTheme, themes, type ThemeId } from '../theme';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from 'vue-i18n';
 import { SysApi, DbApi, VrcApi } from '../api';
 import { useStorage } from '@vueuse/core';
@@ -670,6 +725,14 @@ const themeStyles = computed(() => {
 });
 
 const { t, locale } = useI18n();
+const props = withDefaults(defineProps<{
+  initialMode?: 'local' | 'remote';
+  remoteUrl?: string;
+  adminPassword: string;
+}>(), {
+  initialMode: 'local',
+  remoteUrl: '',
+});
 const currentLangLabel = computed(() => getLocaleLabel(locale.value));
 const cycleLanguage = () => {
   const nextLang = setAppLocale(getNextLocale(locale.value), { notify: true });
@@ -680,7 +743,13 @@ const cycleLanguage = () => {
 const emit = defineEmits(['exit']);
 const serverHost = useStorage('vrc_dashboard_host', '0.0.0.0');
 const serverPort = useStorage('vrc_dashboard_port', 11451);
+const serverMode = ref<'local' | 'remote'>(props.initialMode);
+const remoteServerUrl = useStorage(
+  'vrc_dashboard_remote_url',
+  props.remoteUrl || 'http://127.0.0.1:11451',
+);
 const isRunning = ref(false);
+const isRemoteMode = computed(() => serverMode.value === 'remote');
 const activeTab = ref('logs');
 const tabs = computed(() => [
   { key: 'logs', label: t('role.dashboard_logs_tab') },
@@ -695,10 +764,21 @@ const showToast = (msg: string) => {
 };
 
 // === Server URL helper ===
+const normalizeServerUrl = (value: string) => {
+  let normalized = value.trim();
+  if (!normalized) return '';
+  if (!/^https?:\/\//i.test(normalized)) normalized = `http://${normalized}`;
+  return normalized.replace('0.0.0.0', '127.0.0.1').replace(/\/+$/, '');
+};
+
 const serverUrl = computed(() => {
+  if (isRemoteMode.value) return normalizeServerUrl(remoteServerUrl.value);
   const h = serverHost.value === '0.0.0.0' ? '127.0.0.1' : serverHost.value;
   return `http://${h}:${serverPort.value}`;
 });
+const adminHeaders = computed(() => ({
+  'x-vrcdog-admin-password': props.adminPassword,
+}));
 
 // === Logs ===
 interface LogEntry { time: string; level: string; content: string; }
@@ -738,14 +818,20 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 const fetchClients = async () => {
   if (!isRunning.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/clients`, { method: 'GET' });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/clients`, {
+      method: 'GET',
+      headers: adminHeaders.value,
+    });
     onlineClients.value = data.clients || [];
   } catch { /* ignore */ }
 };
 const fetchUsers = async () => {
   if (!isRunning.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users`, { method: 'GET' });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users`, {
+      method: 'GET',
+      headers: adminHeaders.value,
+    });
     allUsers.value = data.users || [];
     banMap.value = data.bans || {};
     freezeMap.value = data.frozen || {};
@@ -754,11 +840,15 @@ const fetchUsers = async () => {
 const fetchRoles = async () => {
   if (!isRunning.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, { method: 'GET' });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, {
+      method: 'GET',
+      headers: adminHeaders.value,
+    });
     allRoles.value = data.roles || [];
   } catch { /* ignore */ }
 };
 const startPolling = () => {
+  stopPolling();
   fetchClients(); fetchUsers(); fetchRoles();
   pollTimer = setInterval(() => { fetchClients(); fetchUsers(); fetchRoles(); }, 5000);
 };
@@ -770,7 +860,11 @@ const selectUser = (uid: string) => { selectedUserId.value = uid; activeTab.valu
 
 const adminPost = async (endpoint: string, body: any) => {
   try {
-    const data = await VrcApi.request(`${serverUrl.value}${endpoint}`, { method: 'POST', params: body });
+    const data = await VrcApi.request(`${serverUrl.value}${endpoint}`, {
+      method: 'POST',
+      params: body,
+      headers: adminHeaders.value,
+    });
     
     if (data && data.success === false) {
        throw new Error(data.message);
@@ -845,7 +939,11 @@ const selectRole = (r: Role) => { selectedRole.value = JSON.parse(JSON.stringify
 const saveRole = async () => {
   if (!selectedRole.value) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, { method: 'POST', params: selectedRole.value });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, {
+      method: 'POST',
+      params: selectedRole.value,
+      headers: adminHeaders.value,
+    });
     if(data.success) {
       toast.info(t('settings.saved'));
       fetchRoles();
@@ -859,7 +957,11 @@ const saveRole = async () => {
 const deleteRole = async (role_id: string) => {
   if(!confirm(t('app.confirm_delete_role'))) return;
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles/delete`, { method: 'POST', params: { role_id } });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles/delete`, {
+      method: 'POST',
+      params: { role_id },
+      headers: adminHeaders.value,
+    });
     if(data.success) {
        if(selectedRole.value?.role_id === role_id) selectedRole.value = null;
        showToast(t('role.delete_success') || 'Success');
@@ -873,7 +975,11 @@ const deleteRole = async (role_id: string) => {
 
 const setDefaultRole = async (role_id: string) => {
   try {
-    await VrcApi.request(`${serverUrl.value}/api/admin/roles/set_default`, { method: 'POST', params: { role_id } });
+    await VrcApi.request(`${serverUrl.value}/api/admin/roles/set_default`, {
+      method: 'POST',
+      params: { role_id },
+      headers: adminHeaders.value,
+    });
     showToast(t('role.default_changed') || 'Changed');
     fetchRoles();
   } catch {}
@@ -881,7 +987,11 @@ const setDefaultRole = async (role_id: string) => {
 
 const setUserRole = async (user_id: string, role_id: string | null) => {
   try {
-    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users/set_role`, { method: 'POST', params: { user_id, role_id } });
+    const data = await VrcApi.request(`${serverUrl.value}/api/admin/users/set_role`, {
+      method: 'POST',
+      params: { user_id, role_id },
+      headers: adminHeaders.value,
+    });
     if (data.success) {
       showToast(t('role.assign_success') || 'Success');
     }
@@ -889,6 +999,55 @@ const setUserRole = async (user_id: string, role_id: string | null) => {
 };
 
 // === Server Lifecycle ===
+const connectRemoteServer = async () => {
+  const normalized = normalizeServerUrl(remoteServerUrl.value);
+  if (!normalized) {
+    addLog(`[ERROR] ${t('role.error_require_url')}`);
+    return;
+  }
+  remoteServerUrl.value = normalized;
+  try {
+    await SysApi.pingServer({ url: normalized });
+    await VrcApi.request(`${normalized}/api/admin/auth`, {
+      method: 'POST',
+      params: { password: props.adminPassword },
+    });
+    isRunning.value = true;
+    addLog(`[SUCCESS] ${t('role.remote_connected', { url: normalized })}`);
+    startPolling();
+  } catch (error: any) {
+    isRunning.value = false;
+    stopPolling();
+    addLog(`[ERROR] ${t('role.connection_failed')}${error?.message || error}`);
+  }
+};
+
+const disconnectRemoteServer = async () => {
+  isRunning.value = false;
+  stopPolling();
+  onlineClients.value = [];
+  allUsers.value = [];
+  allRoles.value = [];
+  await connectRemoteServer();
+};
+
+const selectServerMode = async (mode: 'local' | 'remote') => {
+  if (serverMode.value === mode) return;
+  stopPolling();
+  isRunning.value = false;
+  serverMode.value = mode;
+  if (mode === 'remote') {
+    await connectRemoteServer();
+    return;
+  }
+  try {
+    isRunning.value = await SysApi.isServerRunning();
+    if (isRunning.value) startPolling();
+  } catch (error: any) {
+    addLog(`[ERROR] ${error?.message || error}`);
+  }
+};
+
 const startLocalServer = async () => {
   try {
     addLog(t('app.start_server'));
@@ -912,18 +1071,27 @@ const stopLocalServer = async () => {
 // === Lifecycle ===
 onMounted(async () => {
   addLog('[INFO] ' + t('role.dashboard_title') + ' loaded');
-  unlistenLog = await listen<string>('server_log', (e) => addLog(e.payload));
-  unlistenClients = await listen<string>('clients_updated', () => { fetchClients(); fetchUsers(); });
+  if (isTauri()) {
+    unlistenLog = await listen<string>('server_log', (e) => addLog(e.payload));
+    unlistenClients = await listen<string>('clients_updated', () => { fetchClients(); fetchUsers(); });
+  }
   
-  try {
-    const running = await SysApi.isServerRunning();
-    if (running) {
-      isRunning.value = true;
-      addLog(t('app.server_running'));
-      setTimeout(startPolling, 500);
+  if (props.remoteUrl) {
+    remoteServerUrl.value = normalizeServerUrl(props.remoteUrl);
+  }
+  if (isRemoteMode.value) {
+    await connectRemoteServer();
+  } else {
+    try {
+      const running = await SysApi.isServerRunning();
+      if (running) {
+        isRunning.value = true;
+        addLog(t('app.server_running'));
+        setTimeout(startPolling, 500);
+      }
+    } catch (err: any) {
+      console.warn("Failed to check server status", err);
     }
-  } catch (err: any) {
-    console.warn("Failed to check server status", err);
   }
 });
 onUnmounted(() => { unlistenLog?.(); unlistenClients?.(); stopPolling(); });

@@ -1,7 +1,197 @@
 use crate::AppResult;
+use base64::Engine;
+use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use tauri::Manager;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GptSovitsSynthesisRequest {
+    pub base_url: String,
+    pub text: String,
+    pub text_language: String,
+    pub sovits_weights: Option<String>,
+    pub gpt_weights: Option<String>,
+    pub reference_audio: Option<String>,
+    pub prompt_text: Option<String>,
+    pub prompt_language: Option<String>,
+}
+
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value.as_deref().map(str::trim).filter(|value| !value.is_empty())
+}
+
+async fn set_gpt_sovits_weight(
+    client: &reqwest::Client,
+    base_url: &str,
+    endpoint: &str,
+    weights_path: &str,
+) -> Result<(), String> {
+    let response = client
+        .get(format!("{base_url}/{endpoint}"))
+        .query(&[("weights_path", weights_path)])
+        .send()
+        .await
+        .map_err(|error| format!("{endpoint} request failed: {error}"))?;
+
+    if response.status().is_success() {
+        return Ok(());
+    }
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    Err(format!("{endpoint} returned HTTP {status}: {body}"))
+}
+
+async fn gpt_sovits_audio_response(
+    response: reqwest::Response,
+) -> Result<(String, Vec<u8>), String> {
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("audio/wav")
+        .split(';')
+        .next()
+        .unwrap_or("audio/wav")
+        .to_string();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("Failed to read TTS audio: {error}"))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "GPT-SoVITS returned HTTP {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        ));
+    }
+    if bytes.is_empty() {
+        return Err("GPT-SoVITS returned empty audio".to_string());
+    }
+
+    Ok((content_type, bytes.to_vec()))
+}
+
+#[tauri::command]
+pub async fn sys_gpt_sovits_synthesize(
+    request: GptSovitsSynthesisRequest,
+) -> Result<String, String> {
+    let base_url = request.base_url.trim().trim_end_matches('/');
+    if !(base_url.starts_with("http://") || base_url.starts_with("https://")) {
+        return Err("GPT-SoVITS URL must start with http:// or https://".to_string());
+    }
+    if request.text.trim().is_empty() {
+        return Err("TTS text cannot be empty".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|error| format!("Failed to create TTS client: {error}"))?;
+
+    if let Some(weights_path) = non_empty(&request.sovits_weights) {
+        set_gpt_sovits_weight(
+            &client,
+            base_url,
+            "set_sovits_weights",
+            weights_path,
+        )
+        .await?;
+    }
+    if let Some(weights_path) = non_empty(&request.gpt_weights) {
+        set_gpt_sovits_weight(&client, base_url, "set_gpt_weights", weights_path).await?;
+    }
+
+    let prompt_language = non_empty(&request.prompt_language)
+        .unwrap_or(&request.text_language)
+        .to_string();
+    let mut payload = serde_json::json!({
+        "text": request.text.trim(),
+        "text_lang": request.text_language.clone(),
+        "prompt_lang": prompt_language,
+        "text_split_method": "cut5",
+        "batch_size": 1,
+        "media_type": "wav",
+        "streaming_mode": false
+    });
+    if let Some(reference_audio) = non_empty(&request.reference_audio) {
+        payload["ref_audio_path"] = serde_json::Value::String(reference_audio.to_string());
+    }
+    if let Some(prompt_text) = non_empty(&request.prompt_text) {
+        payload["prompt_text"] = serde_json::Value::String(prompt_text.to_string());
+    }
+
+    let post_result = client
+        .post(format!("{base_url}/tts"))
+        .json(&payload)
+        .send()
+        .await;
+
+    let audio = match post_result {
+        Ok(response) if response.status().is_success() => {
+            gpt_sovits_audio_response(response).await
+        }
+        Ok(response) => {
+            let post_status = response.status();
+            let post_error = response.text().await.unwrap_or_default();
+            let mut query = vec![
+                ("text", request.text.trim().to_string()),
+                ("text_language", request.text_language.clone()),
+                ("prompt_language", prompt_language),
+            ];
+            if let Some(reference_audio) = non_empty(&request.reference_audio) {
+                query.push(("refer_wav_path", reference_audio.to_string()));
+            }
+            if let Some(prompt_text) = non_empty(&request.prompt_text) {
+                query.push(("prompt_text", prompt_text.to_string()));
+            }
+
+            let fallback = client
+                .get(base_url)
+                .query(&query)
+                .send()
+                .await
+                .map_err(|error| {
+                    format!(
+                        "GPT-SoVITS /tts returned HTTP {post_status}: {post_error}; legacy API request failed: {error}"
+                    )
+                })?;
+            gpt_sovits_audio_response(fallback).await
+        }
+        Err(post_error) => {
+            let mut query = vec![
+                ("text", request.text.trim().to_string()),
+                ("text_language", request.text_language.clone()),
+                ("prompt_language", prompt_language),
+            ];
+            if let Some(reference_audio) = non_empty(&request.reference_audio) {
+                query.push(("refer_wav_path", reference_audio.to_string()));
+            }
+            if let Some(prompt_text) = non_empty(&request.prompt_text) {
+                query.push(("prompt_text", prompt_text.to_string()));
+            }
+
+            let fallback = client
+                .get(base_url)
+                .query(&query)
+                .send()
+                .await
+                .map_err(|error| {
+                    format!(
+                        "GPT-SoVITS /tts request failed: {post_error}; legacy API request failed: {error}"
+                    )
+                })?;
+            gpt_sovits_audio_response(fallback).await
+        }
+    }?;
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(audio.1);
+    Ok(format!("data:{};base64,{}", audio.0, encoded))
+}
 
 #[tauri::command]
 pub async fn sys_clear_vrchat_cache() -> AppResult<u64> {
@@ -189,8 +379,84 @@ pub async fn sys_get_launch_args() -> Result<Vec<String>, String> {
     Ok(std::env::args().collect())
 }
 
+#[derive(serde::Serialize)]
+pub struct ClientServerConfig {
+    pub server_url: String,
+    pub config_path: String,
+}
+
+fn client_server_config_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app_handle
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("client-server.json"))
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
-pub async fn sys_open_dir(target: String) -> Result<(), String> {
+pub async fn sys_get_client_server_config(
+    app_handle: tauri::AppHandle,
+) -> Result<ClientServerConfig, String> {
+    let path = client_server_config_path(&app_handle)?;
+    let mut server_url = "http://127.0.0.1:11451".to_string();
+    if let Ok(content) = tokio::fs::read_to_string(&path).await {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(saved_url) = value.get("server_url").and_then(|value| value.as_str()) {
+                if !saved_url.trim().is_empty() {
+                    server_url = saved_url.trim().to_string();
+                }
+            }
+        }
+    } else {
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        let content = serde_json::to_string_pretty(&serde_json::json!({
+            "server_url": server_url
+        }))
+        .map_err(|error| error.to_string())?;
+        tokio::fs::write(&path, content)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(ClientServerConfig {
+        server_url,
+        config_path: path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn sys_save_client_server_config(
+    app_handle: tauri::AppHandle,
+    server_url: String,
+) -> Result<ClientServerConfig, String> {
+    let server_url = server_url.trim().trim_end_matches('/').to_string();
+    if server_url.is_empty() {
+        return Err("Server URL cannot be empty".to_string());
+    }
+    let path = client_server_config_path(&app_handle)?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    let content = serde_json::to_string_pretty(&serde_json::json!({
+        "server_url": server_url
+    }))
+    .map_err(|error| error.to_string())?;
+    tokio::fs::write(&path, content)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(ClientServerConfig {
+        server_url,
+        config_path: path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn sys_open_dir(app_handle: tauri::AppHandle, target: String) -> Result<(), String> {
     let mut path = PathBuf::new();
 
     match target.as_str() {
@@ -249,6 +515,13 @@ pub async fn sys_open_dir(target: String) -> Result<(), String> {
                 local.push("VRChat");
                 path = local;
             }
+        }
+        "client_config" => {
+            path = app_handle
+                .path()
+                .app_data_dir()
+                .map_err(|error| error.to_string())?;
+            std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
         }
         _ => return Err("未知的目录目标".to_string()),
     }

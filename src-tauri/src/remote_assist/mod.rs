@@ -17,11 +17,13 @@
 pub mod capture;
 pub mod codec;
 pub mod commands;
+pub mod desktop;
 pub mod input;
 pub mod nat;
 pub mod relay;
 pub mod rendezvous;
 pub mod transfer;
+pub mod transport;
 pub mod tunnel;
 pub mod types;
 

@@ -58,6 +58,25 @@ export function normalizeAuthCookieJson(rawCookie: string | null | undefined): s
   return JSON.stringify(cookies);
 }
 
+export function getCookieValue(
+  rawCookie: string | null | undefined,
+  cookieName: string,
+): string | null {
+  const targetName = cookieName.trim().toLowerCase();
+  if (!targetName) return null;
+
+  for (const cookie of parseCookieInput(rawCookie)) {
+    const equals = cookie.indexOf('=');
+    if (equals <= 0) continue;
+    const name = cookie.slice(0, equals).trim().toLowerCase();
+    if (name === targetName) {
+      return cookie.slice(equals + 1).trim() || null;
+    }
+  }
+
+  return null;
+}
+
 export async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Promise<string | null> {
   const newCookies = parseCookieInput(newCookieJson);
   if (!isTauri() || newCookies.length === 0) {

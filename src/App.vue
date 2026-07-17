@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, watchEffect } from 'vue';
+import { defineAsyncComponent, onMounted, ref, watch, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -32,7 +32,7 @@ import DebugConsole from './components/DebugConsole.vue';
 
 // Assets
 import dogImg from './assets/dog.jpg';
-import { Loader2 } from 'lucide-vue-next';
+import { Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
 import { setAppLocale } from './i18n';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -107,6 +107,24 @@ const { appRole, isLoggedIn, autoLoginLoading, banMessage, serverConnected, reco
 const { appMode, activeTab } = storeToRefs(uiStore);
 
 const isOverlayMode = window.location.search.includes('mode=overlay');
+document.documentElement.classList.toggle('translation-overlay-mode', isOverlayMode);
+document.body.classList.toggle('translation-overlay-mode', isOverlayMode);
+const serverDashboardTarget = ref<{
+  mode: 'local' | 'remote';
+  url: string;
+  password: string;
+}>({
+  mode: 'local',
+  url: '',
+  password: '',
+});
+const disconnectedServerUrl = ref('');
+const reconnectingServer = ref(false);
+const reconnectServerError = ref('');
+
+watch(clientServerUrl, (value) => {
+  disconnectedServerUrl.value = value;
+}, { immediate: true });
 
 // Inject dynamic theme variables into the document
 watchEffect(() => {
@@ -130,12 +148,36 @@ watchEffect(() => {
   root.style.setProperty('--theme-terminal-bg', theme.colors.terminalBg);
 });
 
-const handleRoleSelected = async (payload: { role: 'client' | 'server', url?: string }) => {
+const handleRoleSelected = async (payload: {
+  role: 'client' | 'server';
+  url?: string;
+  serverMode?: 'local' | 'remote';
+  password?: string;
+}) => {
   authStore.appRole = payload.role;
   if (payload.role === 'client') {
-    authStore.clientServerUrl = payload.url || '';
+    await authStore.updateClientServerUrl(payload.url || '', false);
     // 不调用 tryAutoLogin —— 用户必须手动登录或点击已保存账号
     // 自动登录仅由 LoginView 里的 loginWithSavedAccount 触发
+    return;
+  }
+  serverDashboardTarget.value = {
+    mode: payload.serverMode || 'local',
+    url: payload.url || '',
+    password: payload.password || '',
+  };
+};
+
+const reconnectWithServerUrl = async () => {
+  reconnectingServer.value = true;
+  reconnectServerError.value = '';
+  try {
+    const connected = await authStore.updateClientServerUrl(disconnectedServerUrl.value, true);
+    if (!connected) reconnectServerError.value = t('app.server_reconnect_failed');
+  } catch (error: any) {
+    reconnectServerError.value = error?.message || String(error);
+  } finally {
+    reconnectingServer.value = false;
   }
 };
 
@@ -279,10 +321,13 @@ if (typeof window !== 'undefined') {
 </script>
 
 <template>
-  <ToastContainer />
+  <ToastContainer v-if="!isOverlayMode" />
   
   <!-- Global Background Elements -->
-  <div class="fixed inset-0 overflow-hidden pointer-events-none -z-20 bg-background transition-colors duration-700">
+  <div
+    v-if="!isOverlayMode"
+    class="fixed inset-0 overflow-hidden pointer-events-none -z-20 bg-background transition-colors duration-700"
+  >
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
   </div>
@@ -291,6 +336,9 @@ if (typeof window !== 'undefined') {
   
   <ServerDashboardView
     v-else-if="appRole === 'server'"
+    :initial-mode="serverDashboardTarget.mode"
+    :remote-url="serverDashboardTarget.url"
+    :admin-password="serverDashboardTarget.password"
     @exit="authStore.appRole = null"
   />
 
@@ -376,7 +424,6 @@ if (typeof window !== 'undefined') {
       <VrpianoView v-else-if="activeTab === 'vrpiano'" />
       <ToolsView v-else-if="activeTab === 'tools'" />
       <TranslatorView v-else-if="activeTab === 'translator'" />
-      <OvrTranslatorView v-else-if="activeTab === 'ovr'" />
       <RemoteAssistView v-else-if="activeTab === 'remote'" />
       <ExportView v-else-if="activeTab === 'export'" />
       <EnvView v-else-if="activeTab === 'env'" />
@@ -414,12 +461,35 @@ if (typeof window !== 'undefined') {
         </h2>
         <p class="text-border-strong text-sm mb-4" v-html="$t('app.server_disconnected_desc', { auto_text: $t('auto_7072b137'), countdown: reconnectCountdown })">
         </p>
-        <div class="flex gap-2 justify-center">
+        <label class="block text-left mb-4">
+          <span class="block text-xs font-bold text-text-muted mb-2">{{ t('role.server_address') }}</span>
+          <div class="flex items-center gap-2 px-3 py-2.5 bg-surface-hover border border-border-soft rounded-lg focus-within:border-primary">
+            <Link2 :size="16" class="text-text-muted shrink-0" />
+            <input
+              v-model="disconnectedServerUrl"
+              type="url"
+              class="min-w-0 flex-1 bg-transparent text-sm text-text outline-none"
+              :placeholder="t('role.server_address_ph')"
+              @keydown.enter="reconnectWithServerUrl"
+            >
+          </div>
+        </label>
+        <p v-if="reconnectServerError" class="text-red-400 text-xs mb-3">{{ reconnectServerError }}</p>
+        <div class="grid grid-cols-2 gap-2">
           <button
             class="px-5 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
             @click="() => authStore.handleLogout(false)"
           >
             {{ t('app.logout') || 'Logout' }}
+          </button>
+          <button
+            class="px-5 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+            :disabled="reconnectingServer"
+            @click="reconnectWithServerUrl"
+          >
+            <Loader2 v-if="reconnectingServer" :size="15" class="animate-spin" />
+            <RefreshCcw v-else :size="15" />
+            {{ t('app.save_and_reconnect') }}
           </button>
         </div>
       </div>

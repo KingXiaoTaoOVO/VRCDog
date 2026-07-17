@@ -126,7 +126,8 @@ pub enum WireMessage {
         seq: u64,
         w: u32,
         h: u32,
-        len: u32,
+        data: String,
+        keyframe: bool,
     },
     /// 输入事件
     Input(InputEvent),
@@ -159,6 +160,8 @@ pub enum WireMessage {
     Clipboard {
         content: String,
     },
+    StartScreen,
+    StopScreen,
     /// 心跳
     Ping,
     Pong,

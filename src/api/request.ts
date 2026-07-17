@@ -117,7 +117,47 @@ function isVrchatAuthExpired(status: number, url: string, message: string): bool
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
     console.warn(`[Browser Mock] API Command: ${cmd}`, args);
-    if (cmd === 'vrc_execute') return Promise.resolve({ status: 200, data: '[]' }) as T;
+    if (cmd === 'vrc_execute') {
+      const requestUrl = String((args?.options as any)?.url || '');
+      if (requestUrl.includes('/auth/user')) {
+        return Promise.resolve({
+          status: 200,
+          data: JSON.stringify({
+            id: 'usr_browser_preview',
+            username: 'preview-user',
+            displayName: 'VrcDog Preview',
+            status: 'active',
+            statusDescription: 'Browser UI preview',
+            currentAvatarThumbnailImageUrl: '',
+            tags: [],
+          }),
+          auth_cookie: 'auth=browser_preview',
+        }) as T;
+      }
+      if (requestUrl.includes('/config')) {
+        return Promise.resolve({
+          status: 200,
+          data: JSON.stringify({
+            apiUrl: 'https://api.vrchat.cloud/api/1',
+            websocketUrl: 'wss://pipeline.vrchat.cloud',
+          }),
+        }) as T;
+      }
+      if (
+        requestUrl.includes('/api/client/register')
+        || requestUrl.includes('/api/client/heartbeat')
+        || requestUrl.includes('/api/client/check-status/')
+      ) {
+        return Promise.resolve({
+          status: 200,
+          data: JSON.stringify({ status: 'ok', allowed: true, features: [] }),
+        }) as T;
+      }
+      if (requestUrl.includes('/api/client/features/')) {
+        return Promise.resolve({ status: 200, data: JSON.stringify({ features: [] }) }) as T;
+      }
+      return Promise.resolve({ status: 200, data: '{}' }) as T;
+    }
     if (cmd === 'db_get_auth') return Promise.resolve(null) as T;
     return Promise.resolve({} as T);
   }

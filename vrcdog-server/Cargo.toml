@@ -1,0 +1,20 @@
+[package]
+name = "vrcdog-server"
+version = "1.0.0"
+edition = "2021"
+description = "Standalone deployable server for VRCDog clients"
+license = "MIT"
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"] }
+bcrypt = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6.9", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

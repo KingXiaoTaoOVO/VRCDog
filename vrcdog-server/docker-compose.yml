@@ -1,0 +1,13 @@
+services:
+  vrcdog-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "11451:11451"
+    environment:
+      VRCDOG_HOST: 0.0.0.0
+      VRCDOG_PORT: 11451
+      VRCDOG_DATA_FILE: /app/data/server-state.json
+      RUST_LOG: vrcdog_server=info,tower_http=info
+    volumes:
+      - ./data:/app/data

@@ -48,6 +48,22 @@ const densityOptions: { key: DensityMode; label: string; navClass: string; child
 
 const currentDensity = computed(() => densityOptions.find(option => option.key === densityMode.value) || densityOptions[1]);
 const menuSurfaceColor = computed(() => currentTheme.value.colors.bgMain);
+const pipelineStatusKey = computed(() => {
+  if (wsState.connected) return 'status.pipeline_online';
+  if (wsState.phase === 'authenticating' || wsState.phase === 'connecting') {
+    return 'status.pipeline_connecting';
+  }
+  if (wsState.phase === 'waiting') return 'status.pipeline_retrying';
+  return 'status.pipeline_offline';
+});
+const pipelineStatusTitle = computed(() => {
+  const parts = [t(pipelineStatusKey.value)];
+  if (wsState.reconnectAttempts > 0) {
+    parts.push(t('status.pipeline_retry_count', { count: wsState.reconnectAttempts }));
+  }
+  if (wsState.lastError) parts.push(wsState.lastError);
+  return parts.join(' · ');
+});
 const menuSectionBg = computed(() => {
   switch (currentTheme.value.id) {
     case 'cat': return '#f5fff8';
@@ -307,7 +323,7 @@ const themeStyles = computed(() => {
               }"
             >
               <span
-                class="w-1.5 h-1.5 rounded-full inline-block animate-pulse"
+                class="w-1.5 h-1.5 rounded-full inline-block"
                 :class="getStatusColor(currentUser?.status || 'offline')"
               />
               {{ $t('status.' + (currentUser?.status?.replace(' ', '_') || 'offline')) }}
@@ -315,29 +331,36 @@ const themeStyles = computed(() => {
           </div>
         </div>
 
-        <!-- 实时数据流状态 (WebSocket) — 仅在成功连接时显示 -->
+        <!-- 实时数据流状态 (WebSocket) -->
         <div
-          v-if="wsState.connected"
-          class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between bg-emerald-50 border-emerald-200 text-emerald-600"
+          class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between transition-colors"
+          :class="{
+            'bg-emerald-50 border-emerald-200 text-emerald-600': wsState.connected,
+            'bg-blue-50 border-blue-200 text-blue-600': !wsState.connected && (wsState.phase === 'authenticating' || wsState.phase === 'connecting'),
+            'bg-amber-50 border-amber-200 text-amber-700': !wsState.connected && wsState.phase === 'waiting',
+            'bg-slate-50 border-slate-200 text-slate-500': !wsState.connected && wsState.phase === 'idle',
+          }"
+          :title="pipelineStatusTitle"
         >
           <div class="flex items-center gap-1">
-            <Activity
-              :size="10"
-              class="animate-pulse"
-            />
-            <span>{{ $t('status.pipeline_online') }}</span>
+            <Activity :size="10" />
+            <span>{{ $t(pipelineStatusKey) }}</span>
           </div>
           <span
-            v-if="wsState.messageCount > 0"
-            class="text-emerald-600"
+            v-if="wsState.connected && wsState.messageCount > 0"
+            class="text-current"
           >{{ $t('status.frames', { count: wsState.messageCount }) }}</span>
+          <span
+            v-else-if="wsState.phase === 'waiting' && wsState.reconnectAttempts > 0"
+            class="text-current tabular-nums"
+          >#{{ wsState.reconnectAttempts }}</span>
         </div>
 
         <!-- VrcDog 服务端连接状态 -->
         <div
           v-if="clientServerUrl"
           class="mt-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1"
-          :class="serverConnected ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-red-50 border-red-200 text-red-600 animate-pulse'"
+          :class="serverConnected ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-red-50 border-red-200 text-red-600'"
         >
           <div
             class="w-1.5 h-1.5 rounded-full"

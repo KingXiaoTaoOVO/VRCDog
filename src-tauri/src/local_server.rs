@@ -1,5 +1,7 @@
 use axum::{
-    extract::{ConnectInfo, Path, State},
+    extract::{ws::WebSocketUpgrade, ConnectInfo, Path, State},
+    http::StatusCode,
+    middleware,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -130,6 +132,7 @@ pub struct SharedState {
     pub frozen: Arc<Mutex<HashMap<String, FreezeInfo>>>,
     pub roles: Arc<Mutex<HashMap<String, Role>>>,
     pub shutdown: CancellationToken,
+    pub remote_assist: crate::remote_assist_hub::RemoteAssistHub,
 }
 
 // ===== Request/Response Types =====
@@ -189,6 +192,11 @@ struct RoleIdRequest {
 struct SetUserRoleRequest {
     user_id: String,
     role_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AdminAuthRequest {
+    password: String,
 }
 
 #[derive(Serialize)]
@@ -281,6 +289,7 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         frozen: Arc::new(Mutex::new(HashMap::new())),
         roles: Arc::new(Mutex::new(initial_roles)),
         shutdown: shutdown.clone(),
+        remote_assist: crate::remote_assist_hub::RemoteAssistHub::default(),
     };
 
     let cors = CorsLayer::new()
@@ -289,21 +298,7 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         .allow_headers(Any)
         .allow_private_network(true);
 
-    let app = Router::new()
-        // Public endpoints (clients use these)
-        .route("/ping", get(handle_ping))
-        .route("/api/client/register", post(handle_client_register))
-        .route("/api/client/heartbeat", post(handle_client_heartbeat))
-        .route("/api/client/disconnect", post(handle_client_disconnect))
-        .route(
-            "/api/client/check-status/{user_id}",
-            get(handle_check_status),
-        )
-        .route(
-            "/api/client/features/{user_id}",
-            get(handle_get_features_public),
-        )
-        // Admin endpoints (dashboard uses these)
+    let admin_routes = Router::new()
         .route("/api/admin/clients", get(handle_admin_clients))
         .route("/api/admin/users", get(handle_admin_users))
         .route("/api/admin/kick", post(handle_admin_kick))
@@ -323,6 +318,24 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
             "/api/admin/users/set_role",
             post(handle_admin_set_user_role),
         )
+        .route_layer(middleware::from_fn(require_admin_password));
+
+    let app = Router::new()
+        .route("/ping", get(handle_ping))
+        .route("/api/admin/auth", post(handle_admin_auth))
+        .route("/api/client/register", post(handle_client_register))
+        .route("/api/client/heartbeat", post(handle_client_heartbeat))
+        .route("/api/client/disconnect", post(handle_client_disconnect))
+        .route("/api/remote-assist/ws", get(handle_remote_assist_ws))
+        .route(
+            "/api/client/check-status/{user_id}",
+            get(handle_check_status),
+        )
+        .route(
+            "/api/client/features/{user_id}",
+            get(handle_get_features_public),
+        )
+        .merge(admin_routes)
         .layer(cors)
         .with_state(state.clone());
 
@@ -438,6 +451,13 @@ async fn handle_ping(
         status: "ok".to_string(),
         message: "Pong from VrcDog Server".to_string(),
     })
+}
+
+async fn handle_remote_assist_ws(
+    State(state): State<SharedState>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    state.remote_assist.upgrade(ws).await
 }
 
 async fn handle_client_register(
@@ -683,6 +703,38 @@ async fn handle_get_features_public(
 }
 
 // ===== Handlers: Admin =====
+
+async fn handle_admin_auth(Json(req): Json<AdminAuthRequest>) -> impl IntoResponse {
+    if crate::verify_server_password(&req.password) {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "success": true })),
+        )
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "Invalid server password"
+            })),
+        )
+    }
+}
+
+async fn require_admin_password(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let password = request
+        .headers()
+        .get("x-vrcdog-admin-password")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if !crate::verify_server_password(password) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(next.run(request).await)
+}
 
 async fn handle_admin_clients(State(state): State<SharedState>) -> impl IntoResponse {
     let clients = state.clients.lock().await;

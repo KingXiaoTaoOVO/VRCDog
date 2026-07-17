@@ -50,8 +50,30 @@ export const useUiStore = defineStore('ui', () => {
     { key: 'settings', label: 'sidebar.settings', icon: markRaw(Settings) },
   ];
 
+  const mergeMissingTabsInDefaultOrder = (
+    orderedTabs: any[],
+    baseTabs: any[],
+    configuredKeys: Set<string>,
+    mapTab: (tab: any) => any,
+  ) => {
+    const result = [...orderedTabs];
+    baseTabs.forEach((tab, defaultIndex) => {
+      if (configuredKeys.has(tab.key)) return;
+
+      const nextVisibleTab = baseTabs
+        .slice(defaultIndex + 1)
+        .find(candidate => result.some(item => item.key === candidate.key));
+      const insertIndex = nextVisibleTab
+        ? result.findIndex(item => item.key === nextVisibleTab.key)
+        : result.length;
+      result.splice(insertIndex, 0, mapTab(tab));
+    });
+    return result;
+  };
+
   const activeSidebarTabs = computed(() => {
     const baseTabs = sidebarTabs.filter(tab => {
+       if (appMode.value === 'pc' && tab.key === 'ovr') return false;
        if (Object.keys(serverMenuPerms.value).length > 0) {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
@@ -66,14 +88,13 @@ export const useUiStore = defineStore('ui', () => {
            if (t) result.push(t);
         }
     });
-    baseTabs.forEach(t => {
-       if (!customNavConfig.value.find((c: any) => c.key === t.key)) result.push(t);
-    });
-    return result;
+    const configuredKeys = new Set(customNavConfig.value.map((item: any) => item.key));
+    return mergeMissingTabsInDefaultOrder(result, baseTabs, configuredKeys, tab => tab);
   });
 
   const editableNavConfig = computed(() => {
     const baseTabs = sidebarTabs.filter(tab => {
+       if (appMode.value === 'pc' && tab.key === 'ovr') return false;
        if (Object.keys(serverMenuPerms.value).length > 0) {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
@@ -88,12 +109,13 @@ export const useUiStore = defineStore('ui', () => {
            result.push({ ...t, visible: cfg.visible !== false });
         }
     });
-    baseTabs.forEach(t => {
-       if (!customNavConfig.value.find((c: any) => c.key === t.key)) {
-           result.push({ ...t, visible: true });
-       }
-    });
-    return result;
+    const configuredKeys = new Set(customNavConfig.value.map((item: any) => item.key));
+    return mergeMissingTabsInDefaultOrder(
+      result,
+      baseTabs,
+      configuredKeys,
+      tab => ({ ...tab, visible: true }),
+    );
   });
 
   const filteredThemes = computed(() => {

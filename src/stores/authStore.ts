@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { VrcApi, DbApi } from '../api';
+import { VrcApi, DbApi, SysApi } from '../api';
 import { initWebsocket, closeWebSocket } from '../api/websocket';
 import { initGamelogWatcher, stopGamelogWatcher } from '../api/gamelogWatcher';
 import { isTauri } from '@tauri-apps/api/core';
@@ -152,8 +152,39 @@ export const useAuthStore = defineStore('auth', () => {
       }
     } catch (err) {
       console.warn(t('auto_149c8616'), err);
+      serverConnected.value = false;
+      return false;
     }
     return true;
+  };
+
+  const updateClientServerUrl = async (url: string, reconnect = true) => {
+    let normalized = url.trim();
+    if (!normalized) throw new Error(t('role.error_require_url'));
+    if (!/^https?:\/\//i.test(normalized)) normalized = `http://${normalized}`;
+    normalized = normalized.replace('0.0.0.0', '127.0.0.1').replace(/\/+$/, '');
+
+    await SysApi.pingServer({ url: normalized });
+
+    clientServerUrl.value = normalized;
+    localStorage.setItem('vrc_server_url', normalized);
+    await Promise.allSettled([
+      SysApi.saveClientServerConfig({ serverUrl: normalized }),
+      DbApi.saveSetting({ key: 'clientServerUrl', value: JSON.stringify(normalized) }),
+    ]);
+
+    consecutiveFailures = 0;
+    reconnectCountdown.value = 0;
+    if (!reconnect || !currentUser.value) return true;
+
+    serverConnected.value = false;
+    const registered = await registerWithServer(currentUser.value);
+    if (registered) {
+      serverConnected.value = true;
+      await uiStore.fetchServerFeatures(getBaseUrl(), currentUser.value);
+      startHeartbeat();
+    }
+    return registered;
   };
 
   const startHeartbeat = () => {
@@ -269,10 +300,10 @@ export const useAuthStore = defineStore('auth', () => {
     await ensureServerEventListeners();
 
     await uiStore.fetchServerFeatures(getBaseUrl(), user);
-    await initWebsocket();
     initGamelogWatcher();
-    syncInitialFriends();
-    syncInitialNotifications();
+    await syncInitialFriends();
+    void syncInitialNotifications();
+    await initWebsocket();
   };
 
   const tryAutoLogin = async () => {
@@ -318,10 +349,10 @@ export const useAuthStore = defineStore('auth', () => {
         if (res.auth_cookie) {
           await mergeCookiesAndSave(res.auth_cookie);
         }
-        await initWebsocket();
         initGamelogWatcher();
-        syncInitialFriends();
-        syncInitialNotifications();
+        await syncInitialFriends();
+        void syncInitialNotifications();
+        await initWebsocket();
       } else if (res.error) {
         const errMsg = res.error || '';
         
@@ -337,10 +368,10 @@ export const useAuthStore = defineStore('auth', () => {
               startHeartbeat();
               await ensureServerEventListeners();
               await uiStore.fetchServerFeatures(getBaseUrl(), cachedData.user);
-              await initWebsocket();
               initGamelogWatcher();
-              syncInitialFriends();
-              syncInitialNotifications();
+              await syncInitialFriends();
+              void syncInitialNotifications();
+              await initWebsocket();
               
               if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
                 // Keep the cached login, but notify? Optional.
@@ -367,10 +398,10 @@ export const useAuthStore = defineStore('auth', () => {
             registerWithServer(cachedData.user);
             startHeartbeat();
             await ensureServerEventListeners();
-            await initWebsocket();
             initGamelogWatcher();
-            syncInitialFriends();
-            syncInitialNotifications();
+            await syncInitialFriends();
+            void syncInitialNotifications();
+            await initWebsocket();
           }
         }
       } catch {}
@@ -388,6 +419,7 @@ export const useAuthStore = defineStore('auth', () => {
     banMessage,
     serverConnected,
     reconnectCountdown,
+    updateClientServerUrl,
     getBaseUrl,
     disconnectFromServer,
     handleLogout,

@@ -80,7 +80,47 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       show_sc: true,
       vr_input_text: '',
     };
-    if (cmd === 'vrc_execute') return Promise.resolve({ status: 200, data: '{}' }) as any;
+    if (cmd === 'vrc_execute') {
+      const requestUrl = String((args?.options as any)?.url || '');
+      if (requestUrl.includes('/auth/user')) {
+        return Promise.resolve({
+          status: 200,
+          data: JSON.stringify({
+            id: 'usr_browser_preview',
+            username: 'preview-user',
+            displayName: 'VrcDog Preview',
+            status: 'active',
+            statusDescription: 'Browser UI preview',
+            currentAvatarThumbnailImageUrl: '',
+            tags: [],
+          }),
+          auth_cookie: 'auth=browser_preview',
+        }) as any;
+      }
+      if (requestUrl.includes('/config')) {
+        return Promise.resolve({
+          status: 200,
+          data: JSON.stringify({
+            apiUrl: 'https://api.vrchat.cloud/api/1',
+            websocketUrl: 'wss://pipeline.vrchat.cloud',
+          }),
+        }) as any;
+      }
+      if (
+        requestUrl.includes('/api/client/register')
+        || requestUrl.includes('/api/client/heartbeat')
+        || requestUrl.includes('/api/client/check-status/')
+      ) {
+        return Promise.resolve({
+          status: 200,
+          data: JSON.stringify({ status: 'ok', allowed: true, features: [] }),
+        }) as any;
+      }
+      if (requestUrl.includes('/api/client/features/')) {
+        return Promise.resolve({ status: 200, data: JSON.stringify({ features: [] }) }) as any;
+      }
+      return Promise.resolve({ status: 200, data: '{}' }) as any;
+    }
     if (cmd === 'vrc_get_server_status') return Promise.resolve({ status: { description: 'All Systems Operational' } }) as any;
     if (cmd === 'db_get_auth') return Promise.resolve('mock_auth_cookie_abc123') as any;
     if (cmd === 'db_get_setting') return Promise.resolve(null) as any;
@@ -643,6 +683,16 @@ export const DbApi = {
 export const SysApi = {
   checkSystemStatus: () => safeInvoke<any>('check_system_status'),
   checkSteamVR: () => safeInvoke<boolean>('sys_check_steamvr'),
+  synthesizeGptSovits: (params: {
+    baseUrl: string;
+    text: string;
+    textLanguage: string;
+    sovitsWeights?: string;
+    gptWeights?: string;
+    referenceAudio?: string;
+    promptText?: string;
+    promptLanguage?: string;
+  }) => safeInvoke<string>('sys_gpt_sovits_synthesize', { request: params }),
   installSoftware: (params: any) => safeInvoke<void>('install_software', params),
   uninstallSoftware: (params: any) => safeInvoke<void>('uninstall_software', params),
   launchSoftware: (params: any) => safeInvoke<void>('launch_software', params),
@@ -670,6 +720,8 @@ export const SysApi = {
   setAutostart: (params: { enable: boolean }) => safeInvoke<void>('sys_set_autostart', params),
   registerUrlScheme: (params: { enable: boolean }) => safeInvoke<void>('sys_register_url_scheme', params),
   getLaunchArgs: () => safeInvoke<string[]>('sys_get_launch_args'),
+  getClientServerConfig: () => safeInvoke<{ server_url: string; config_path: string }>('sys_get_client_server_config'),
+  saveClientServerConfig: (params: { serverUrl: string }) => safeInvoke<{ server_url: string; config_path: string }>('sys_save_client_server_config', params),
   openDir: (params: { target: string }) => safeInvoke<void>('sys_open_dir', params),
   getVrcScreenshotDir: () => safeInvoke<string>('sys_get_vrc_screenshot_dir'),
   setVrcScreenshotDir: (params: { path: string }) => safeInvoke<void>('sys_set_vrc_screenshot_dir', params),

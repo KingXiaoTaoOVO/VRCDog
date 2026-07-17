@@ -3,7 +3,7 @@ import { useToast } from "../composables/useToast";
 
 const toast = useToast();
 import { ref, onMounted, computed, watch, onErrorCaptured } from 'vue';
-import { Settings, Save, Trash2, Globe, Monitor, Shield, HardDrive, Bell, Gamepad2, Check, DownloadCloud, Play, Rocket, Loader2, Zap, Radio, FileJson, AlertTriangle, Camera, AlertCircle, Eye, EyeOff, Lock, UserCheck, History, Smartphone, Laptop, Fingerprint, Activity, Layers, Sliders, Languages, Cpu, Info, ChevronRight, Glasses, Search } from 'lucide-vue-next';
+import { Settings, Save, Trash2, Globe, Monitor, Shield, HardDrive, Bell, Gamepad2, Check, DownloadCloud, Play, Rocket, Loader2, Zap, Radio, FileJson, FolderOpen, AlertTriangle, Camera, AlertCircle, Eye, EyeOff, Lock, UserCheck, History, Smartphone, Laptop, Fingerprint, Activity, Layers, Sliders, Languages, Cpu, Info, ChevronRight, Glasses, Search } from 'lucide-vue-next';
 import { SysApi, DbApi } from '../api';
 import { useI18n } from 'vue-i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -15,8 +15,13 @@ import CustomSelect from './CustomSelect.vue';
 import { localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 import { setDebugLogEnabled } from '../api/debugConfig';
 import { setTheme, themes, currentThemeId, type ThemeId } from '../theme';
+import { useAuthStore } from '../stores/authStore';
+import { useUiStore } from '../stores/uiStore';
 
 const { t, locale } = useI18n();
+const authStore = useAuthStore();
+const uiStore = useUiStore();
+const clientConfigPath = ref('');
 
 const tabs = [
   { id: 'general', label: 'settings.nav_general', icon: Settings },
@@ -32,6 +37,12 @@ const tabs = [
   { id: 'ovr_ocr', label: 'settings.nav_ocr', icon: Camera },
   { id: 'ovr_trans', label: 'settings.nav_translation', icon: Languages }
 ];
+const vrOnlyTabs = new Set(['vr', 'ovr_ocr', 'ovr_trans']);
+const visibleTabs = computed(() => (
+  uiStore.appMode === 'pc'
+    ? tabs.filter((tab) => !vrOnlyTabs.has(tab.id))
+    : tabs
+));
 
 
 const activeTab = ref('general');
@@ -41,6 +52,12 @@ const saved = ref(false);
 const appVersion = ref('');
 const checkUpdateStatus = ref('');
 const isCheckingUpdate = ref(false);
+
+watch(() => uiStore.appMode, (mode) => {
+  if (mode === 'pc' && vrOnlyTabs.has(activeTab.value)) {
+    activeTab.value = 'general';
+  }
+});
 
 const vrcConfigText = ref('');
 const vrcConfigError = ref('');
@@ -127,6 +144,7 @@ const config = ref({
   theme: 'dog',
   proxyEnabled: false,
   proxyUrl: 'http://127.0.0.1:7890',
+  clientServerUrl: 'http://127.0.0.1:11451',
   notifyFriendsOnline: true,
   notifyInvite: true,
   notifyStatusChange: false,
@@ -266,6 +284,13 @@ const loadSettings = async () => {
     if (config.value.theme && themes[config.value.theme as ThemeId]) {
       setTheme(config.value.theme as ThemeId);
     }
+    try {
+      const clientConfig = await SysApi.getClientServerConfig();
+      if (clientConfig?.server_url) config.value.clientServerUrl = clientConfig.server_url;
+      clientConfigPath.value = clientConfig?.config_path || '';
+    } catch {
+      config.value.clientServerUrl = authStore.clientServerUrl || config.value.clientServerUrl;
+    }
   } catch (err) {
     console.warn('Failed to load settings:', err);
   }
@@ -278,6 +303,11 @@ const saveSettings = async () => {
     for (const [key, val] of entries) {
       await DbApi.saveSetting({ key, value: JSON.stringify(val) });
     }
+    const clientConfig = await SysApi.saveClientServerConfig({
+      serverUrl: config.value.clientServerUrl,
+    }).catch(() => null);
+    if (clientConfig?.config_path) clientConfigPath.value = clientConfig.config_path;
+    await authStore.updateClientServerUrl(config.value.clientServerUrl, true);
 
     // 设置窗口置顶
     try {
@@ -458,7 +488,7 @@ const testNotification = () => {
       <div class="text-[10px] font-black text-[var(--theme-text-muted)] mb-4 px-2 uppercase tracking-widest mt-2 opacity-50">{{ t('settings.title') || 'Settings' }}</div>
       
       <button 
-        v-for="tab in tabs" 
+        v-for="tab in visibleTabs"
         :key="tab.id"
         class="w-full text-left px-4 py-3 rounded-xl transition-all duration-300 flex items-center gap-3 relative group overflow-hidden"
         :class="activeTab === tab.id 
@@ -492,7 +522,7 @@ const testNotification = () => {
 
     <div class="flex-1 p-10 overflow-y-auto custom-scrollbar relative z-10 bg-[var(--theme-bg-main)]/5">
       <div class="max-w-4xl mx-auto mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
-        <h1 class="text-4xl font-black text-[var(--theme-text-strong)] mb-2 tracking-tight">{{ t(tabs.find((t: any) => t.id === activeTab)?.label || '') }}</h1>
+        <h1 class="text-4xl font-black text-[var(--theme-text-strong)] mb-2 tracking-tight">{{ t(visibleTabs.find((tab) => tab.id === activeTab)?.label || '') }}</h1>
         <p class="text-[var(--theme-text-soft)] text-sm opacity-60">{{ t('settings.subtitle') || 'Configure your personal experience' }}</p>
       </div>
 
@@ -976,6 +1006,38 @@ const testNotification = () => {
 
           <!-- 网络 (Network) -->
           <div v-else-if="activeTab === 'network'" class="max-w-4xl mx-auto space-y-8 pb-10 mt-4">
+            <div>
+              <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ t('settings.client_server_title') }}</h2>
+              <div class="p-4 bg-[var(--theme-surface)]/60 border border-[var(--theme-border-soft)] rounded-lg">
+                <label class="block">
+                  <span class="block text-[13px] font-bold text-[var(--theme-text-muted)] mb-2">{{ t('role.server_address') }}</span>
+                  <div class="flex items-center gap-2 px-3 py-2.5 bg-[var(--theme-bg-main)]/40 border border-[var(--theme-border-soft)] rounded-lg focus-within:border-[var(--theme-primary)]">
+                    <Globe class="w-4 h-4 text-[var(--theme-text-muted)] shrink-0" />
+                    <input
+                      v-model="config.clientServerUrl"
+                      type="url"
+                      :placeholder="t('role.server_address_ph')"
+                      class="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--theme-text)] outline-none font-mono"
+                    >
+                  </div>
+                </label>
+                <div class="mt-3 flex items-start gap-2 text-[11px] text-[var(--theme-text-muted)]">
+                  <FileJson class="w-4 h-4 shrink-0" />
+                  <span>
+                    {{ t('settings.client_server_file_desc') }}
+                    <code v-if="clientConfigPath" class="block mt-1 break-all text-[var(--theme-primary)]">{{ clientConfigPath }}</code>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="mt-3 px-3 py-2 border border-[var(--theme-border-soft)] rounded-lg text-[12px] font-bold text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)] flex items-center gap-2"
+                  @click="SysApi.openDir({ target: 'client_config' })"
+                >
+                  <FolderOpen class="w-4 h-4" />
+                  {{ t('settings.open_client_config_dir') }}
+                </button>
+              </div>
+            </div>
             <div>
               <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_898db399') }}</h2>
               <div class="space-y-1">
@@ -1561,8 +1623,8 @@ const testNotification = () => {
                  <Rocket :size="20" />
                </div>
                <div>
-                 <h2 class="text-xl font-bold text-text">SteamVR Integration</h2>
-                 <p class="text-xs text-[var(--theme-text-muted)]">Register and configure dashboard overlay</p>
+                 <h2 class="text-xl font-bold text-text">{{ t('settings.steamvr_integration') }}</h2>
+                 <p class="text-xs text-[var(--theme-text-muted)]">{{ t('settings.steamvr_integration_desc') }}</p>
                </div>
             </div>
             
@@ -1571,15 +1633,15 @@ const testNotification = () => {
                 class="p-4 bg-primary/10 hover:bg-primary border border-primary/20 rounded-2xl text-left transition-all group active:scale-95"
                 @click="registerSteamVR"
                >
-                 <div class="text-primary group-hover:text-white font-bold text-sm mb-1">Manifest Registration</div>
-                 <div class="text-primary/60 group-hover:text-white/60 text-[10px]">Setup auto-start and manifest</div>
+                 <div class="text-primary group-hover:text-white font-bold text-sm mb-1">{{ t('settings.steamvr_register') }}</div>
+                 <div class="text-primary/60 group-hover:text-white/60 text-[10px]">{{ t('settings.steamvr_register_desc') }}</div>
                </button>
                <button 
                  class="p-4 bg-[var(--theme-bg-main)]/5 dark:bg-[var(--theme-text)]/5 hover:bg-[var(--theme-bg-main)]/10 dark:hover:bg-[var(--theme-text)]/10 border border-[var(--theme-border-soft)] dark:border-[var(--theme-text)]/10 rounded-2xl text-left transition-all group active:scale-95"
                 @click="openBindings"
                >
-                 <div class="text-text group-hover:text-primary font-bold text-sm mb-1">Input Bindings</div>
-                 <div class="text-[var(--theme-text-muted)] text-[10px]">Customize controller actions</div>
+                 <div class="text-text group-hover:text-primary font-bold text-sm mb-1">{{ t('settings.steamvr_bindings') }}</div>
+                 <div class="text-[var(--theme-text-muted)] text-[10px]">{{ t('settings.steamvr_bindings_desc') }}</div>
                </button>
             </div>
           </section>
@@ -1593,42 +1655,42 @@ const testNotification = () => {
                 <Search :size="20" />
               </div>
               <div>
-                <h2 class="text-xl font-bold text-text">Optical Character Recognition</h2>
-                <p class="text-xs text-[var(--theme-text-muted)]">Extract text from your VR view</p>
+                <h2 class="text-xl font-bold text-text">{{ t('settings.ocr_title') }}</h2>
+                <p class="text-xs text-[var(--theme-text-muted)]">{{ t('settings.ocr_desc') }}</p>
               </div>
             </div>
 
             <div class="space-y-4">
               <!-- Lang Selection -->
               <div class="p-4 bg-[var(--theme-surface)]/40 rounded-2xl border border-white/5 space-y-3">
-                <div class="text-sm font-bold text-text">Capture Language</div>
+                <div class="text-sm font-bold text-text">{{ t('settings.ocr_capture_language') }}</div>
                 <CustomSelect v-model="config.ocrLanguage" :options="[
-                  { label: 'Japanese', value: 'ja' },
-                  { label: 'English', value: 'en-US' },
-                  { label: 'Chinese (Simplified)', value: 'zh-Hans-CN' },
-                  { label: 'Chinese (Traditional)', value: 'zh-Hant-TW' },
-                  { label: 'Korean', value: 'ko' }
+                  { label: t('settings.language_japanese'), value: 'ja' },
+                  { label: t('settings.language_english'), value: 'en-US' },
+                  { label: t('settings.language_chinese_simplified'), value: 'zh-Hans-CN' },
+                  { label: t('settings.language_chinese_traditional'), value: 'zh-Hant-TW' },
+                  { label: t('settings.language_korean'), value: 'ko' }
                 ]" />
               </div>
 
               <!-- Speed/Accuracy -->
               <div class="p-4 bg-[var(--theme-surface)]/40 rounded-2xl border border-white/5 space-y-3">
-                <div class="text-sm font-bold text-text">Processing Strategy</div>
+                <div class="text-sm font-bold text-text">{{ t('settings.ocr_processing_strategy') }}</div>
                 <CustomSelect v-model="config.ocrSpeedMode" :options="[
-                  { label: 'Fast (Low Resource)', value: 'fast' },
-                  { label: 'Balanced', value: 'balanced' },
-                  { label: 'Accurate (High Precision)', value: 'accurate' }
+                  { label: t('settings.ocr_fast'), value: 'fast' },
+                  { label: t('settings.ocr_balanced'), value: 'balanced' },
+                  { label: t('settings.ocr_accurate'), value: 'accurate' }
                 ]" />
               </div>
 
               <!-- Advanced Image Tweak -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="p-4 bg-[var(--theme-surface)]/30 rounded-2xl border border-white/5 space-y-3">
-                   <div class="text-xs font-bold text-[var(--theme-text-muted)]">Merge Tolerance X</div>
+                   <div class="text-xs font-bold text-[var(--theme-text-muted)]">{{ t('settings.ocr_merge_x') }}</div>
                    <input v-model.number="config.ocrMergeToleranceX" type="range" min="0.0" max="1.0" step="0.05" class="w-full h-1 bg-background/50 rounded-lg appearance-none cursor-pointer accent-primary">
                 </div>
                 <div class="p-4 bg-[var(--theme-surface)]/30 rounded-2xl border border-white/5 space-y-3">
-                   <div class="text-xs font-bold text-[var(--theme-text-muted)]">Merge Tolerance Y</div>
+                   <div class="text-xs font-bold text-[var(--theme-text-muted)]">{{ t('settings.ocr_merge_y') }}</div>
                    <input v-model.number="config.ocrMergeToleranceY" type="range" min="0.0" max="1.0" step="0.05" class="w-full h-1 bg-background/50 rounded-lg appearance-none cursor-pointer accent-primary">
                 </div>
               </div>
@@ -1644,17 +1706,17 @@ const testNotification = () => {
                 <Languages :size="20" />
               </div>
               <div>
-                <h2 class="text-xl font-bold text-text">Translation Engine</h2>
-                <p class="text-xs text-[var(--theme-text-muted)]">Real-time speech and text translation</p>
+                <h2 class="text-xl font-bold text-text">{{ t('settings.translation_engine') }}</h2>
+                <p class="text-xs text-[var(--theme-text-muted)]">{{ t('settings.translation_engine_desc') }}</p>
               </div>
             </div>
 
             <div class="space-y-4">
               <!-- Service Provider -->
               <div class="p-4 bg-[var(--theme-surface)]/40 rounded-2xl border border-white/5 space-y-3">
-                <div class="text-sm font-bold text-text">Active Provider</div>
+                <div class="text-sm font-bold text-text">{{ t('settings.translation_provider') }}</div>
                 <CustomSelect v-model="config.transService" :options="[
-                  { label: 'Built-in (Free)', value: 'builtin' },
+                  { label: t('settings.translation_builtin'), value: 'builtin' },
                   { label: 'DeepSeek', value: 'deepseek' },
                   { label: 'OpenAI (GPT)', value: 'openai' },
                   { label: 'Tencent', value: 'tencent' },

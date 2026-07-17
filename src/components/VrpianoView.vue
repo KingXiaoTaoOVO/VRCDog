@@ -75,7 +75,7 @@ const editSongName = ref('');
 const playerTitle = ref('未加载曲目');
 const playerPositionMs = ref(0);
 const playerDurationMs = ref(0);
-const playerVolume = ref(0.7);
+const playerVolume = ref(0.9);
 const playerPlaying = ref(false);
 const playerLoading = ref(false);
 const parsedPlayerNotes = ref<MidiNote[]>([]);
@@ -100,9 +100,16 @@ let pollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
 let hotkeyApplyTimer: number | null = null;
 let audioContext: AudioContext | null = null;
+let playerMasterGain: GainNode | null = null;
+let playerCompressor: DynamicsCompressorNode | null = null;
 let playerTimer: number | null = null;
 let playerStartedAt = 0;
-let scheduledNodes: Array<AudioScheduledSourceNode | GainNode> = [];
+let playerAnchorContextTime = 0;
+let playerAnchorPositionMs = 0;
+let nextNoteIndex = 0;
+const scheduledNodes = new Set<AudioNode>();
+const PLAYER_LOOKAHEAD_MS = 1500;
+const PLAYER_TICK_MS = 80;
 
 const selectedSong = computed(() => songs.value.find((song) => song.path === selectedPath.value) || null);
 const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status.value.progress || 0)) * 100));
@@ -146,7 +153,7 @@ const clampSpeed = (value: unknown) => {
 
 const clampPlayerVolume = (value: unknown) => {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 0.7;
+  if (!Number.isFinite(parsed)) return 0.9;
   return Math.min(1, Math.max(0, parsed));
 };
 
@@ -354,13 +361,14 @@ const parseMidiNotes = (bytes: Uint8Array) => {
 const stopScheduledAudio = () => {
   for (const node of scheduledNodes) {
     try {
-      if ('stop' in node) node.stop();
-      if ('disconnect' in node) node.disconnect();
+      const source = node as AudioScheduledSourceNode;
+      if (typeof source.stop === 'function') source.stop();
+      node.disconnect();
     } catch {
       // Audio nodes may already be stopped.
     }
   }
-  scheduledNodes = [];
+  scheduledNodes.clear();
 };
 
 const stopPlayerTimer = () => {
@@ -383,10 +391,74 @@ const updatePlayerClock = () => {
 const ensureAudioContext = () => {
   const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
   if (!audioContext) audioContext = new AudioCtor();
+  if (!playerMasterGain) {
+    playerMasterGain = audioContext.createGain();
+    playerCompressor = audioContext.createDynamicsCompressor();
+    playerCompressor.threshold.value = -18;
+    playerCompressor.knee.value = 18;
+    playerCompressor.ratio.value = 4;
+    playerCompressor.attack.value = 0.005;
+    playerCompressor.release.value = 0.18;
+    playerMasterGain.gain.value = clampPlayerVolume(playerVolume.value);
+    playerMasterGain.connect(playerCompressor).connect(audioContext.destination);
+  }
   return audioContext;
 };
 
 const midiNoteFrequency = (note: number) => 440 * Math.pow(2, (note - 69) / 12);
+
+const scheduleNote = (context: AudioContext, note: MidiNote, currentPositionMs: number) => {
+  if (!playerMasterGain) return;
+  const noteEndMs = note.timeMs + note.durationMs;
+  const startAt = Math.max(
+    context.currentTime + 0.005,
+    playerAnchorContextTime + (note.timeMs - playerAnchorPositionMs) / 1000,
+  );
+  const remainingMs = noteEndMs - Math.max(currentPositionMs, note.timeMs);
+  const duration = Math.max(0.05, remainingMs / 1000);
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const peak = Math.max(0.018, 0.24 * note.velocity);
+
+  oscillator.type = 'triangle';
+  oscillator.frequency.setValueAtTime(midiNoteFrequency(note.note), startAt);
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.linearRampToValueAtTime(peak, startAt + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+  oscillator.connect(gain).connect(playerMasterGain);
+  oscillator.start(startAt);
+  oscillator.stop(startAt + duration + 0.025);
+  scheduledNodes.add(oscillator);
+  scheduledNodes.add(gain);
+  oscillator.onended = () => {
+    scheduledNodes.delete(oscillator);
+    scheduledNodes.delete(gain);
+    try {
+      oscillator.disconnect();
+      gain.disconnect();
+    } catch {
+      // Nodes may already be disconnected by pause/seek.
+    }
+  };
+};
+
+const schedulePlayerWindow = () => {
+  if (!playerPlaying.value || !audioContext) return;
+  const currentPositionMs = Math.min(
+    playerDurationMs.value,
+    playerAnchorPositionMs + (audioContext.currentTime - playerAnchorContextTime) * 1000,
+  );
+  const horizonMs = currentPositionMs + PLAYER_LOOKAHEAD_MS;
+  const notes = parsedPlayerNotes.value;
+
+  while (nextNoteIndex < notes.length && notes[nextNoteIndex].timeMs <= horizonMs) {
+    const note = notes[nextNoteIndex];
+    if (note.timeMs + note.durationMs >= currentPositionMs) {
+      scheduleNote(audioContext, note, currentPositionMs);
+    }
+    nextNoteIndex += 1;
+  }
+};
 
 const schedulePlayer = async (startMs = playerPositionMs.value) => {
   const context = ensureAudioContext();
@@ -394,30 +466,21 @@ const schedulePlayer = async (startMs = playerPositionMs.value) => {
   stopScheduledAudio();
   stopPlayerTimer();
 
-  const gainScale = clampPlayerVolume(playerVolume.value);
-  const now = context.currentTime + 0.03;
-  for (const note of parsedPlayerNotes.value) {
-    const noteEnd = note.timeMs + note.durationMs;
-    if (noteEnd < startMs) continue;
-    const startAt = now + Math.max(0, note.timeMs - startMs) / 1000;
-    const duration = Math.max(0.05, (noteEnd - Math.max(startMs, note.timeMs)) / 1000);
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(midiNoteFrequency(note.note), startAt);
-    gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.linearRampToValueAtTime(0.12 * note.velocity * gainScale, startAt + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start(startAt);
-    oscillator.stop(startAt + duration + 0.03);
-    scheduledNodes.push(oscillator, gain);
-  }
-
-  playerPositionMs.value = startMs;
-  playerStartedAt = Date.now() - startMs;
+  const safeStartMs = Math.min(playerDurationMs.value, Math.max(0, startMs));
+  playerPositionMs.value = safeStartMs;
+  playerStartedAt = Date.now() - safeStartMs;
+  playerAnchorContextTime = context.currentTime + 0.025;
+  playerAnchorPositionMs = safeStartMs;
+  nextNoteIndex = parsedPlayerNotes.value.findIndex(
+    (note) => note.timeMs + note.durationMs >= safeStartMs,
+  );
+  if (nextNoteIndex < 0) nextNoteIndex = parsedPlayerNotes.value.length;
   playerPlaying.value = true;
-  playerTimer = window.setInterval(updatePlayerClock, 120);
+  schedulePlayerWindow();
+  playerTimer = window.setInterval(() => {
+    updatePlayerClock();
+    schedulePlayerWindow();
+  }, PLAYER_TICK_MS);
 };
 
 const pausePlayer = () => {
@@ -444,9 +507,11 @@ const seekPlayer = async () => {
   if (playerPlaying.value) await schedulePlayer(playerPositionMs.value);
 };
 
-const applyPlayerVolume = async () => {
+const applyPlayerVolume = () => {
   playerVolume.value = clampPlayerVolume(playerVolume.value);
-  if (playerPlaying.value) await schedulePlayer(playerPositionMs.value);
+  if (audioContext && playerMasterGain) {
+    playerMasterGain.gain.setTargetAtTime(playerVolume.value, audioContext.currentTime, 0.02);
+  }
 };
 
 const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
@@ -727,6 +792,11 @@ const previewLocalSong = async () => {
   } catch (e: any) {
     error.value = e.message || String(e);
   }
+};
+
+const previewSong = async (song: VrpianoSong) => {
+  selectedPath.value = song.path;
+  await previewLocalSong();
 };
 
 const openSongsDir = async () => {
@@ -1015,7 +1085,7 @@ onUnmounted(() => {
             class="song-row"
             :class="{ selected: selectedPath === song.path }"
             @click="selectedPath = song.path"
-            @dblclick="start"
+            @dblclick="previewSong(song)"
           >
             <span class="song-note" :class="{ custom: Boolean(songIcon(song)) }">
               <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
@@ -1069,7 +1139,7 @@ onUnmounted(() => {
           </div>
           <div class="player-volume">
             <Volume2 :size="15" />
-            <input v-model.number="playerVolume" type="range" min="0" max="1" step="0.05" @change="applyPlayerVolume">
+            <input v-model.number="playerVolume" type="range" min="0" max="1" step="0.05" @input="applyPlayerVolume">
             <b>{{ Math.round(playerVolume * 100) }}%</b>
             <small>{{ playerProgressPercent }}%</small>
           </div>
@@ -1441,14 +1511,13 @@ h1 {
 }
 
 .pane-toolbar {
-  min-height: 56px;
+  min-height: 86px;
   padding: 12px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   box-shadow: inset 0 -1px 0 var(--vp-border);
-  gap: 10px;
+  gap: 9px;
 }
 
 .pane-toolbar strong {
@@ -1464,11 +1533,11 @@ h1 {
 }
 
 .tool-buttons {
-  min-width: 0;
-  flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, 34px);
-  justify-content: end;
+  grid-template-columns: repeat(8, minmax(28px, 32px));
+  justify-content: start;
+  gap: 6px;
+  width: 100%;
 }
 
 button,
@@ -1478,8 +1547,8 @@ input {
 
 .icon-btn,
 .online-actions button {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 6px;
   display: grid;
