@@ -609,18 +609,16 @@ async fn handle_client_disconnect(
     State(state): State<SharedState>,
     Json(req): Json<UserIdRequest>,
 ) -> impl IntoResponse {
-    let is_banned = state.bans.lock().await.contains_key(&req.user_id);
-    let is_frozen = state.frozen.lock().await.contains_key(&req.user_id);
+    let now = now_str();
     {
         let mut clients = state.clients.lock().await;
         clients.remove(&req.user_id);
     }
     {
         let mut users = state.users.lock().await;
-        if !is_banned && !is_frozen {
-            users.remove(&req.user_id);
-        } else if let Some(u) = users.get_mut(&req.user_id) {
+        if let Some(u) = users.get_mut(&req.user_id) {
             u.is_online = false;
+            u.last_seen = now;
         }
     }
     let _ = state.app_handle.emit(
@@ -706,10 +704,7 @@ async fn handle_get_features_public(
 
 async fn handle_admin_auth(Json(req): Json<AdminAuthRequest>) -> impl IntoResponse {
     if crate::verify_server_password(&req.password) {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({ "success": true })),
-        )
+        (StatusCode::OK, Json(serde_json::json!({ "success": true })))
     } else {
         (
             StatusCode::UNAUTHORIZED,

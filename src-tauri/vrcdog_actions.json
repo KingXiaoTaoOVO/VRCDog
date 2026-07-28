@@ -34,6 +34,26 @@
     {
       "controller_type": "oculus_touch",
       "binding_url": "bindings_touch.json"
+    },
+    {
+      "controller_type": "pico_neo3_controller",
+      "binding_url": "bindings_pico_neo3.json"
+    },
+    {
+      "controller_type": "pico4_controller",
+      "binding_url": "bindings_pico4.json"
+    },
+    {
+      "controller_type": "holographic_controller",
+      "binding_url": "bindings_wmr.json"
+    },
+    {
+      "controller_type": "vive_cosmos_controller",
+      "binding_url": "bindings_cosmos.json"
+    },
+    {
+      "controller_type": "hpmotioncontroller",
+      "binding_url": "bindings_hpmotion.json"
     }
   ],
   "localization": [

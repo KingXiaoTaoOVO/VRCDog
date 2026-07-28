@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Monitor, Wifi, WifiOff, RefreshCw, Copy, Shield, Send, FileUp, MessageCircle, Settings2, Zap, Globe, Server, Phone, PhoneOff, Eye, EyeOff, X, Maximize2 } from 'lucide-vue-next';
 
@@ -89,6 +89,7 @@ const customServerLabel = ref('');
 // Chat
 const chatInput = ref('');
 const activePanel = ref<'connect' | 'sessions' | 'chat' | 'files' | 'settings'>('connect');
+const nativeRuntime = isTauri();
 
 // ─── Initialization ──────────────────────────────────────────────────────────
 
@@ -97,7 +98,45 @@ const errorText = (error: unknown) => {
   return typeof error === 'string' ? error : JSON.stringify(error);
 };
 
+const initializeBrowserPreview = () => {
+  deviceInfo.value = {
+    id: '728451903',
+    password: 'preview8',
+    hostname: 'VrcDog Preview',
+    platform: 'Browser',
+    nat_type: 'preview',
+    online: true,
+  };
+  const server: ServerConfig = {
+    host: '127.0.0.1:11451',
+    relay: '127.0.0.1:11451',
+    api: 'http://127.0.0.1:11451',
+    key: '',
+    is_official: false,
+    label: 'VRCDog Preview Server',
+    server_type: 'VrcDogBackend',
+  };
+  servers.value = [server];
+  activeServer.value = server;
+  serviceRunning.value = true;
+  acceptingConnections.value = true;
+  sessions.value = [{
+    session_id: 'preview-session',
+    peer_id: '483920175',
+    peer_name: 'Preview Desktop',
+    started_at: new Date().toISOString(),
+    conn_type: 'relay',
+    latency_ms: 18,
+    status: 'connected',
+  }];
+};
+
 onMounted(async () => {
+  if (!nativeRuntime) {
+    initializeBrowserPreview();
+    return;
+  }
+
   try {
     deviceInfo.value = await invoke('remote_assist_init');
     
@@ -179,7 +218,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (viewerSessionId.value) {
+  if (nativeRuntime && viewerSessionId.value) {
     void invoke('remote_assist_stop_view', { sessionId: viewerSessionId.value });
   }
   unlistenRemoteEvent?.();
@@ -191,6 +230,11 @@ onUnmounted(() => {
 
 const toggleService = async () => {
   remoteError.value = '';
+  if (!nativeRuntime) {
+    serviceRunning.value = !serviceRunning.value;
+    acceptingConnections.value = serviceRunning.value;
+    return;
+  }
   try {
     if (serviceRunning.value) {
       await invoke('remote_assist_stop_service');
@@ -204,6 +248,10 @@ const toggleService = async () => {
 };
 
 const refreshPassword = async () => {
+  if (!nativeRuntime) {
+    if (deviceInfo.value) deviceInfo.value.password = 'preview9';
+    return;
+  }
   try {
     const newPwd = await invoke<string>('remote_assist_refresh_password');
     if (deviceInfo.value) {
@@ -222,6 +270,20 @@ const connectToPeer = async () => {
   if (!peerIdInput.value.trim()) return;
   connecting.value = true;
   remoteError.value = '';
+  if (!nativeRuntime) {
+    sessions.value.push({
+      session_id: `preview-${Date.now()}`,
+      peer_id: peerIdInput.value.trim(),
+      peer_name: `Preview ${peerIdInput.value.trim()}`,
+      started_at: new Date().toISOString(),
+      conn_type: 'relay',
+      latency_ms: 24,
+      status: 'connected',
+    });
+    connecting.value = false;
+    activePanel.value = 'sessions';
+    return;
+  }
   try {
     const session = await invoke<ConnectionSession>('remote_assist_connect', {
       peerId: peerIdInput.value.trim(),
@@ -239,6 +301,10 @@ const connectToPeer = async () => {
 const toggleAcceptConnections = async () => {
   const nextValue = !acceptingConnections.value;
   remoteError.value = '';
+  if (!nativeRuntime) {
+    acceptingConnections.value = nextValue;
+    return;
+  }
   try {
     await invoke('remote_assist_toggle_accept', { accept: nextValue });
     acceptingConnections.value = nextValue;
@@ -248,6 +314,10 @@ const toggleAcceptConnections = async () => {
 };
 
 const disconnectSession = async (sessionId: string) => {
+  if (!nativeRuntime) {
+    sessions.value = sessions.value.filter(session => session.session_id !== sessionId);
+    return;
+  }
   try {
     await invoke('remote_assist_disconnect', { sessionId });
   } catch (e) {
@@ -261,6 +331,11 @@ const openViewer = async (sessionId: string) => {
   viewerFrame.value = '';
   viewerLoading.value = true;
   viewerOpen.value = true;
+  if (!nativeRuntime) {
+    await nextTick();
+    viewerSurface.value?.focus();
+    return;
+  }
   try {
     await invoke('remote_assist_start_view', { sessionId });
     await nextTick();
@@ -279,6 +354,7 @@ const closeViewer = async () => {
   viewerSessionId.value = '';
   viewerFrame.value = '';
   viewerLoading.value = false;
+  if (!nativeRuntime) return;
   if (sessionId) {
     try {
       await invoke('remote_assist_stop_view', { sessionId });
@@ -289,7 +365,7 @@ const closeViewer = async () => {
 };
 
 const sendViewerInput = (event: Record<string, unknown>) => {
-  if (!viewerSessionId.value) return;
+  if (!viewerSessionId.value || !nativeRuntime) return;
   void invoke('remote_assist_send_input', {
     sessionId: viewerSessionId.value,
     event,
@@ -355,11 +431,30 @@ const getMessageTime = (msg: ChatMessage) =>
 
 const selectServer = async (server: ServerConfig) => {
   activeServer.value = server;
+  if (!nativeRuntime) return;
   await invoke('remote_assist_set_server', { server });
 };
 
 const addCustomServer = async () => {
   if (!customServerHost.value.trim()) return;
+  if (!nativeRuntime) {
+    const host = customServerHost.value.trim();
+    const server: ServerConfig = {
+      host,
+      relay: host,
+      api: host.startsWith('http') ? host : `http://${host}`,
+      key: '',
+      is_official: false,
+      label: customServerLabel.value.trim() || host,
+      server_type: 'VrcDogBackend',
+    };
+    servers.value.push(server);
+    activeServer.value = server;
+    showCustomServer.value = false;
+    customServerHost.value = '';
+    customServerLabel.value = '';
+    return;
+  }
   try {
     const server = await invoke<ServerConfig>('remote_assist_add_custom_server', {
       host: customServerHost.value.trim(),
@@ -380,6 +475,16 @@ const sendChat = async () => {
   if (!chatInput.value.trim() || sessions.value.length === 0) return;
   const activeSession = sessions.value.find(s => s.status === 'connected');
   if (!activeSession) return;
+  if (!nativeRuntime) {
+    chatMessages.value.push({
+      id: `preview-message-${Date.now()}`,
+      from: 'local',
+      text: chatInput.value.trim(),
+      time: new Date().toISOString(),
+    });
+    chatInput.value = '';
+    return;
+  }
   
   try {
     const msg = await invoke<ChatMessage>('remote_assist_send_chat', {

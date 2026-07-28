@@ -301,6 +301,7 @@ pub fn run() {
             vrc_api::vrc_get_image_bytes,
             vrc_api::vrc_set_proxy,
             vrc_api::vrc_apply_auth_cookie,
+            vrc_api::vrc_load_cookies_on_startup,
             vrc_api::vrc_clear_cookies,
             gamelog::vrc_get_latest_gamelogs,
             db::db_record_activity,
@@ -476,6 +477,7 @@ pub fn run() {
             vrpiano::vrpiano_get_status,
             vrpiano::vrpiano_start,
             vrpiano::vrpiano_stop,
+            vrpiano::vrpiano_toggle_pause,
             vrpiano::vrpiano_set_speed,
             vrpiano::vrpiano_set_hotkeys,
         ])
@@ -588,17 +590,37 @@ fn sys_is_server_running() -> Result<bool, String> {
 
 #[tauri::command]
 async fn sys_ping_server(url: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let base_url = url.trim().trim_end_matches('/');
+    let parsed =
+        reqwest::Url::parse(base_url).map_err(|error| format!("Invalid server URL: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!(
+            "Unsupported server URL scheme: {}",
+            parsed.scheme()
+        ));
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|error| format!("Unable to create server probe: {error}"))?;
     let res = client
-        .get(format!("{}/ping", url))
+        .get(format!("{base_url}/ping"))
         .send()
         .await
-        .map_err(|e| e.to_string())?;
-    if res.status().is_success() {
-        Ok("ok".to_string())
-    } else {
-        Err(format!("Server responded with status: {}", res.status()))
+        .map_err(|error| format!("Unable to connect to VRCDog server: {error}"))?;
+    let status = res.status();
+    if !status.is_success() {
+        return Err(format!("Server responded with status: {status}"));
     }
+    let payload = res
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| format!("Server returned an invalid ping response: {error}"))?;
+    if payload.get("status").and_then(|value| value.as_str()) != Some("ok") {
+        return Err("The address is not a compatible VRCDog server".to_string());
+    }
+    Ok("ok".to_string())
 }
 
 #[tauri::command]

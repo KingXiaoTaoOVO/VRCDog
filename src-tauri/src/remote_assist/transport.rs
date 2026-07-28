@@ -3,7 +3,8 @@ use super::{
     input::InputSimulator,
     tunnel::SecureTunnel,
     types::{
-    ChatMessage, ConnectionSession, DeviceInfo, ServerConfig, ServerType, WireMessage, REMOTE_STATE,
+        ChatMessage, ConnectionSession, DeviceInfo, ServerConfig, ServerType, WireMessage,
+        REMOTE_STATE,
     },
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -109,10 +110,7 @@ pub async fn is_running() -> bool {
     TRANSPORT.lock().await.is_some()
 }
 
-pub async fn connect(
-    peer_id: String,
-    password: String,
-) -> Result<ConnectionSession, String> {
+pub async fn connect(peer_id: String, password: String) -> Result<ConnectionSession, String> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let (reply_tx, reply_rx) = oneshot::channel();
     let command_tx = command_sender().await?;
@@ -178,23 +176,22 @@ async fn run_transport(
     mut command_rx: mpsc::UnboundedReceiver<TransportCommand>,
     ready_tx: oneshot::Sender<Result<(), String>>,
 ) {
-    let websocket = match tokio::time::timeout(Duration::from_secs(10), connect_async(&server_url))
-        .await
-    {
-        Ok(Ok((socket, _))) => socket,
-        Ok(Err(error)) => {
-            let _ = ready_tx.send(Err(format!(
-                "Failed to connect to remote-assist server {server_url}: {error}"
-            )));
-            return;
-        }
-        Err(_) => {
-            let _ = ready_tx.send(Err(format!(
-                "Timed out connecting to remote-assist server {server_url}"
-            )));
-            return;
-        }
-    };
+    let websocket =
+        match tokio::time::timeout(Duration::from_secs(10), connect_async(&server_url)).await {
+            Ok(Ok((socket, _))) => socket,
+            Ok(Err(error)) => {
+                let _ = ready_tx.send(Err(format!(
+                    "Failed to connect to remote-assist server {server_url}: {error}"
+                )));
+                return;
+            }
+            Err(_) => {
+                let _ = ready_tx.send(Err(format!(
+                    "Timed out connecting to remote-assist server {server_url}"
+                )));
+                return;
+            }
+        };
     let (mut writer, mut reader) = websocket.split();
     let (key_secret, key_public) = SecureTunnel::generate_static_keypair();
     let local_device_id = device.id.clone();
@@ -423,7 +420,11 @@ async fn handle_server_message(
     local_device_id: &str,
     tunnels: &mut HashMap<String, SecureTunnel>,
 ) {
-    match value.get("type").and_then(Value::as_str).unwrap_or_default() {
+    match value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
         "connected" | "incoming_connected" => {
             let session_id = string_field(&value, "session_id");
             let peer_id = string_field(&value, "peer_id");
@@ -470,7 +471,9 @@ async fn handle_server_message(
             };
             {
                 let mut state = REMOTE_STATE.write().await;
-                state.sessions.retain(|current| current.session_id != session_id);
+                state
+                    .sessions
+                    .retain(|current| current.session_id != session_id);
                 state.sessions.push(session.clone());
             }
             if let Some(reply) = pending.remove(&session_id) {

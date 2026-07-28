@@ -1,0 +1,8 @@
+<WixLocalization Culture="en-us" Codepage="65001" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="TauriLanguage">1033</String>
+  <String Id="TauriCodepage">1252</String>
+  <String Id="LaunchApp">Launch VRCDog</String>
+  <String Id="DowngradeErrorMessage">A newer version of VRCDog is already installed.</String>
+  <String Id="PathEnvVarFeature">Add the install location of the VRCDog executable to the PATH system environment variable. This allows the VRCDog executable to be called from any location.</String>
+  <String Id="InstallAppFeature">Installs VRCDog.</String>
+</WixLocalization>

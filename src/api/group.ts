@@ -1,11 +1,5 @@
 import { request } from './request';
-
-async function resolveCurrentUserId(userId?: string) {
-  if (userId && userId !== 'me') return userId;
-  const currentUser: any = await request('/auth/user', { method: 'GET' });
-  if (!currentUser?.id) throw new Error('无法获取当前用户 ID');
-  return currentUser.id;
-}
+import { resolveCurrentUserId } from './utils';
 
 export const GroupApi = {
   getGroup: (params: { groupId: string, includeRoles?: boolean }) =>

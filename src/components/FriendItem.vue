@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useEntityModalStore } from '../stores/entityModal';
+import { useUserProfileStore } from '../stores/userProfile';
 
 const props = defineProps<{
   friend: any;
@@ -14,6 +16,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const entityStore = useEntityModalStore();
+const profileStore = useUserProfileStore();
 
 // Map VRChat language tags to country flag emojis (same as VrcDog)
 const LANGUAGE_FLAGS: Record<string, string> = {
@@ -40,9 +44,9 @@ const LANGUAGE_FLAGS: Record<string, string> = {
   language_ara: '🇸🇦',
   language_ron: '🇷🇴',
   language_vie: '🇻🇳',
-  language_ukr: '🇺🇦',
-  language_ind: '🇮🇩',
   language_msa: '🇲🇾',
+  language_ind: '🇮🇩',
+  language_ukr: '🇺🇦',
 };
 
 // Get country flags from user's language tags
@@ -74,6 +78,19 @@ const cleanLocName = (location: string) => {
   }
   const colonIdx = location.indexOf(':');
   return colonIdx > -1 ? location.substring(0, colonIdx) : location;
+};
+
+const isWorldLocation = (location: string) => {
+  return location && location.startsWith('wrld_');
+};
+
+const handleWorldClick = (event: MouseEvent) => {
+  event.stopPropagation();
+  const location = props.friend?.location;
+  if (isWorldLocation(location)) {
+    const worldId = location.split(':')[0];
+    entityStore.openWorld(worldId);
+  }
 };
 </script>
 
@@ -111,14 +128,19 @@ const cleanLocName = (location: string) => {
       <!-- slots for subtitle -->
       <slot name="subtitle">
          <div v-if="friend.location && !isOffline" class="flex items-center gap-1.5 mt-1 text-[12px] font-bold text-[var(--theme-text-muted)] truncate bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
-          <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80 text-[10px]">🔒</span>
-          <span v-else class="shrink-0 text-[10px]">{{ getFlag(friend.location) }}</span>
-          <span class="truncate">{{ cleanLocName(friend.location) }}</span>
-        </div>
-         <div v-else class="text-[12px] font-bold text-[var(--theme-text-muted)] mt-1 truncate bg-[var(--theme-bg-main)]/5 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
-          {{ isOffline ? t('auto_50d4a850') : t('auto_7cdc4c2a') }}
-        </div>
-      </slot>
+           <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80 text-[10px]">🔒</span>
+           <span v-else-if="friend.location.startsWith('wrld_')" class="shrink-0 text-[10px] cursor-pointer hover:text-primary hover:underline transition-colors" @click.stop="handleWorldClick($event)" title="点击查看世界详情">{{ getFlag(friend.location) }}</span>
+           <span v-else class="shrink-0 text-[10px]">{{ getFlag(friend.location) }}</span>
+           <span class="truncate cursor-pointer hover:text-primary hover:underline transition-colors"
+                 v-if="friend.location.startsWith('wrld_')"
+                 @click.stop="handleWorldClick($event)"
+                 title="点击查看世界详情">{{ cleanLocName(friend.location) }}</span>
+           <span v-else class="truncate">{{ cleanLocName(friend.location) }}</span>
+         </div>
+          <div v-else class="text-[12px] font-bold text-[var(--theme-text-muted)] mt-1 truncate bg-[var(--theme-bg-main)]/5 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
+           {{ isOffline ? t('auto_50d4a850') : t('auto_7cdc4c2a') }}
+         </div>
+       </slot>
     </div>
   </div>
 </template>

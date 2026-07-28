@@ -1,13 +1,7 @@
 import { request } from './request';
+import { resolveCurrentUserId } from './utils';
 
 export type InviteMessageType = 'message' | 'response' | 'request' | 'requestResponse' | string;
-
-async function resolveCurrentUserId(userId?: string) {
-  if (userId) return userId;
-  const currentUser: any = await request('/auth/user', { method: 'GET' });
-  if (!currentUser?.id) throw new Error('无法获取当前用户 ID');
-  return currentUser.id;
-}
 
 export const InviteMessagesApi = {
   refreshInviteMessageTableData: async (messageType: InviteMessageType, userId?: string) => {

@@ -5,3 +5,8 @@
 #
 # If you intentionally enable buildtime_bindgen on that crate, set
 # LIBCLANG_PATH in your shell to the directory that contains libclang.dll.
+
+[build]
+# Keep Cargo outputs outside the legacy target directory. That directory can
+# retain ACLs or locks from a previous elevated/antivirus-scanned Tauri build.
+target-dir = "../.cargo-target"

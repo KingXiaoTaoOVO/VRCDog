@@ -172,7 +172,10 @@ export const useUiStore = defineStore('ui', () => {
         vrcServerOk.value = false;
         vrcServerStatus.value = res?.status?.description || 'Unknown';
       }
-    } catch { vrcServerOk.value = true; }
+    } catch (error) {
+      vrcServerOk.value = false;
+      vrcServerStatus.value = error instanceof Error ? error.message : 'Connection failed';
+    }
   };
 
   const getStatusColor = (status: string) => {

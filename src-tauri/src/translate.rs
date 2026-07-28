@@ -32,7 +32,6 @@ pub async fn translate(req: &TranslateRequest) -> Result<TranslateResult, String
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .connect_timeout(std::time::Duration::from_secs(5))
-        .danger_accept_invalid_certs(true) // Allow self-signed proxy certs
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
     let translated = match req.service.as_str() {

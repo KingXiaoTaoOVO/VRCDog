@@ -134,7 +134,12 @@ impl RemoteAssistHub {
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
         };
-        let replaced = self.inner.write().await.peers.insert(device_id.clone(), peer);
+        let replaced = self
+            .inner
+            .write()
+            .await
+            .peers
+            .insert(device_id.clone(), peer);
         if let Some(previous) = replaced {
             let _ = send_json(
                 &previous.sender,
@@ -149,7 +154,11 @@ impl RemoteAssistHub {
     }
 
     async fn handle_peer_message(&self, device_id: &str, value: Value) {
-        match value.get("type").and_then(Value::as_str).unwrap_or_default() {
+        match value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "set_accept" => {
                 if let Some(peer) = self.inner.write().await.peers.get_mut(device_id) {
                     peer.accepting = value
@@ -198,8 +207,12 @@ impl RemoteAssistHub {
             .and_then(Value::as_str)
             .unwrap_or_default();
         if target_id == device_id {
-            self.send_connect_error(device_id, &session_id, "Cannot connect to this device itself")
-                .await;
+            self.send_connect_error(
+                device_id,
+                &session_id,
+                "Cannot connect to this device itself",
+            )
+            .await;
             return;
         }
 

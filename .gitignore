@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
+!src-python/midishow-downloader/dist/
+!src-python/midishow-downloader/dist/**
 dist-ssr
 *.local
 
@@ -29,9 +31,16 @@ dist-ssr
 # Agent and temporary files
 skills使用说明
 .scratch/
+/.cargo-target/
 logs/
 .gemini/
 docs/agents/
+/.claude/
+/.codegraph/
+/VRCX/
+**/__pycache__/
+*.py[cod]
+.midishow_cookies.json
 
 # AtomCode local-scope configs (machine-specific)
 .atomcode/local/

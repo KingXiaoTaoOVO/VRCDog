@@ -7,6 +7,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import type { VrcUser } from '../types/vrc';
 import { setAppLocale, translate } from '../i18n';
 import { useUiStore } from './uiStore';
+import { useFriendsStore } from './friendsStore';
 import { mergeCookiesAndSave } from '../api/cookies';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -19,7 +20,7 @@ export const useAuthStore = defineStore('auth', () => {
   const autoLoginLoading = ref(false);
   const clientServerUrl = ref<string>('');
   const banMessage = ref<string>('');
-  
+
   const serverConnected = ref(true);
   const reconnectCountdown = ref(0);
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -94,8 +95,8 @@ export const useAuthStore = defineStore('auth', () => {
   const handleLogout = async (keepVrcAuth: boolean = false) => {
     await disconnectFromServer();
     if (!keepVrcAuth) {
-      // 检查是否有已保存的账号，如果有则不调用 VRChat logout API
-      // 因为 logout 会让服务器端 cookie 失效，导致保存的账号无法一键登录
+      // Check if there are saved accounts; if so, don't call VRChat logout API
+      // because logout would invalidate the server-side cookie, breaking one-click login for saved accounts
       let hasSavedAccounts = false;
       try {
         const raw = await DbApi.getSetting({ key: 'savedAccounts' });
@@ -106,10 +107,10 @@ export const useAuthStore = defineStore('auth', () => {
       } catch {}
 
       if (!hasSavedAccounts) {
-        // 没有保存的账号，正常调用 logout 使 cookie 失效
+        // No saved accounts, normal logout to invalidate cookie
         try { await VrcApi.logout(); } catch {}
       }
-      // 只清除本地 auth 存储，不影响 savedAccounts 中保存的 cookie
+      // Only clear local auth storage; savedAccounts with cookies remain intact
       try { await DbApi.clearAuth(); } catch {}
     }
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
@@ -117,8 +118,8 @@ export const useAuthStore = defineStore('auth', () => {
     consecutiveFailures = 0;
     currentUser.value = null;
     isLoggedIn.value = false;
-    // ⚠️ 关键修复：只有用户主动完全退出（keepVrcAuth=false）才回到角色选择页
-    // auth 过期/被踢/被封（keepVrcAuth=true）只回到登录页，保留模式选择
+    // ⚠️ Key fix: only return to role selection on full user logout (keepVrcAuth=false)
+    // Auth expiry/kick/ban (keepVrcAuth=true) only returns to login page, preserving role choice
     if (!keepVrcAuth) {
       appRole.value = null;
       clientServerUrl.value = '';
@@ -136,8 +137,13 @@ export const useAuthStore = defineStore('auth', () => {
         display_name: user.displayName || '',
         avatar_url: user.currentAvatarThumbnailImageUrl || ''
       };
-      const data = await VrcApi.request(`${getBaseUrl()}/api/client/register`, { method: 'POST', params: payload });
-      
+      const data = await VrcApi.request(`${getBaseUrl()}/api/client/register`, {
+        method: 'POST',
+        params: payload,
+        timeoutMs: 5000,
+        maxRetries: 1,
+      });
+
       serverConnected.value = true;
       consecutiveFailures = 0;
       reconnectCountdown.value = 0;
@@ -190,6 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
   const startHeartbeat = () => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     let normalTick = 0;
+    let vrcKeepaliveTick = 0;
     heartbeatTimer = setInterval(async () => {
       if (!clientServerUrl.value || !currentUser.value) return;
       if (isFetchingHeartbeat) return;
@@ -202,28 +209,37 @@ export const useAuthStore = defineStore('auth', () => {
         reconnectCountdown.value = 0;
       } else {
         normalTick++;
-        if (normalTick < 15) return; // 每 15 秒发送一次心跳，减少请求频率
+        if (normalTick < 15) return; // every 15s send heartbeat, reduce request frequency
         normalTick = 0;
+      }
+
+      // VRChat API keepalive: call /auth/user every 5 min to prevent session expiry
+      vrcKeepaliveTick++;
+      if (vrcKeepaliveTick >= 20) { // 20 * 15s = 300s = 5min
+        vrcKeepaliveTick = 0;
+        try {
+          await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true, timeoutMs: 10000 });
+        } catch { /* ignore keepalive errors */ }
       }
 
       isFetchingHeartbeat = true;
       try {
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Heartbeat timeout')), 3000));
-        const heartbeatPromise = VrcApi.request(`${getBaseUrl()}/api/client/heartbeat`, {
+        const data: any = await VrcApi.request(`${getBaseUrl()}/api/client/heartbeat`, {
           method: 'POST',
           params: {
             user_id: currentUser.value.id || currentUser.value.displayName
-          }
+          },
+          timeoutMs: 3000,
+          maxRetries: 0,
         });
-        const data: any = await Promise.race([heartbeatPromise, timeoutPromise]);
-        
+
         if (!serverConnected.value) {
            await registerWithServer(currentUser.value);
         }
         serverConnected.value = true;
         consecutiveFailures = 0;
         reconnectCountdown.value = 0;
-        
+
         if (data.status === 'banned') {
           banMessage.value = `Account Banned! Reason: ${data.reason}${data.duration_hours ? ' for ' + data.duration_hours + ' hours' : ' permanently'}`;
           handleLogout(true);
@@ -253,27 +269,30 @@ export const useAuthStore = defineStore('auth', () => {
     }, 1000);
   };
 
-  const syncInitialFriends = async () => {
-    if (!isLoggedIn.value) return;
+  const doSyncFriends = async (): Promise<VrcUser[]> => {
+    const friendsStore = useFriendsStore();
     try {
-      // 合并在线+离线好友为一次请求，减少 API 调用
-      const allFriends = await VrcApi.getFriends({ n: 100, offset: 0, offline: true });
-      
-      if (allFriends.length > 0 && isTauri()) {
-        const onlineFriends = allFriends.filter((f: VrcUser) => f.location && f.location !== 'offline');
-        await DbApi.batchSaveFriends({ friendsJson: JSON.stringify(allFriends) });
+      const liveFriends = await VrcApi.getAllFriends({ n: 100, offset: 0 });
+
+      if (liveFriends.length > 0 && isTauri()) {
+        const onlineFriends = liveFriends.filter((f: VrcUser) => f.location && f.location !== 'offline');
+        await DbApi.batchSaveFriends({ friendsJson: JSON.stringify(liveFriends) });
         if (onlineFriends.length > 0) {
           await DbApi.batchRecordFriends({ friendsJson: JSON.stringify(onlineFriends) });
         }
       }
+      friendsStore.setFriends(liveFriends);
       window.dispatchEvent(new CustomEvent('vrc-friends-synced'));
+      return liveFriends;
     } catch (err) {
+      friendsStore.setError(err instanceof Error ? err.message : String(err));
       console.warn(t('auto_1d37aaa9'), err);
+      window.dispatchEvent(new CustomEvent('vrc-friends-synced'));
+      return [] as VrcUser[];
     }
   };
 
   const syncInitialNotifications = async () => {
-    if (!isLoggedIn.value) return;
     try {
       const notifs = await VrcApi.getNotifications({ n: 100, offset: 0 });
       if (notifs && notifs.length > 0 && isTauri()) {
@@ -285,24 +304,48 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
+  /**
+   * Kick off friends sync and register the promise with friendsStore
+   * BEFORE setting isLoggedIn — this prevents the race condition where
+   * DashboardView mounts and fires a redundant API call.
+   */
+  const startFriendsSync = () => {
+    const friendsStore = useFriendsStore();
+    const p = doSyncFriends();
+    friendsStore.beginSync(p);
+    return p;
+  };
+
   const handleLoginSuccess = async (user: any) => {
     currentUser.value = user;
-    
+
     DbApi.saveSetting({
       key: 'cached_vrc_user',
       value: JSON.stringify({ user: user, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
     }).catch(() => {});
 
+    // Load cookies into Rust jar after login for session persistence
+    try {
+      const cookie = await DbApi.getAuth();
+      if (cookie) {
+        await VrcApi.loadCookiesOnStartup({ authCookie: cookie });
+      }
+    } catch { /* ignore */ }
+
     const allowed = await registerWithServer(user);
     if (allowed === false) { currentUser.value = null; return; }
+
+    // Register friends sync BEFORE isLoggedIn so views see the in-flight promise
+    const friendsSyncPromise = startFriendsSync();
+    void syncInitialNotifications();
+
     isLoggedIn.value = true;
     startHeartbeat();
     await ensureServerEventListeners();
 
     await uiStore.fetchServerFeatures(getBaseUrl(), user);
     initGamelogWatcher();
-    await syncInitialFriends();
-    void syncInitialNotifications();
+    await friendsSyncPromise;
     await initWebsocket();
   };
 
@@ -310,7 +353,7 @@ export const useAuthStore = defineStore('auth', () => {
     autoLoginLoading.value = true;
     try {
       if (!isTauri()) { autoLoginLoading.value = false; return; }
-      
+
       try {
         const allSettings = await DbApi.getAllSettings() as Record<string, unknown>;
         if (allSettings && typeof allSettings === 'object' && allSettings.language) {
@@ -320,6 +363,12 @@ export const useAuthStore = defineStore('auth', () => {
 
       const savedCookie = await DbApi.getAuth();
       if (!savedCookie) { autoLoginLoading.value = false; return; }
+
+      // Load saved cookies into the Rust cookie jar on startup
+      // This ensures session persistence across app restarts
+      try {
+        await VrcApi.loadCookiesOnStartup({ authCookie: savedCookie });
+      } catch { /* ignore */ }
 
       await VrcApi.fetchConfig();
 
@@ -333,7 +382,7 @@ export const useAuthStore = defineStore('auth', () => {
       const autoLoginUser = res.current_user || res.currentUser || (res.id ? res : null);
       if (autoLoginUser) {
         currentUser.value = autoLoginUser;
-        
+
         DbApi.saveSetting({
           key: 'cached_vrc_user',
           value: JSON.stringify({ user: autoLoginUser, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
@@ -345,17 +394,20 @@ export const useAuthStore = defineStore('auth', () => {
         startHeartbeat();
         await ensureServerEventListeners();
         await uiStore.fetchServerFeatures(getBaseUrl(), autoLoginUser);
-        
+
         if (res.auth_cookie) {
           await mergeCookiesAndSave(res.auth_cookie);
         }
         initGamelogWatcher();
-        await syncInitialFriends();
+
+        // Start friends sync BEFORE awaiting it
+        const friendsSyncPromise = startFriendsSync();
         void syncInitialNotifications();
+        await friendsSyncPromise;
         await initWebsocket();
       } else if (res.error) {
         const errMsg = res.error || '';
-        
+
         // Attempt to use cache first if cookie is invalid
         const cachedUserStr = await DbApi.getSetting({ key: 'cached_vrc_user' });
         if (cachedUserStr) {
@@ -369,10 +421,10 @@ export const useAuthStore = defineStore('auth', () => {
               await ensureServerEventListeners();
               await uiStore.fetchServerFeatures(getBaseUrl(), cachedData.user);
               initGamelogWatcher();
-              await syncInitialFriends();
+              await startFriendsSync();
               void syncInitialNotifications();
               await initWebsocket();
-              
+
               if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
                 // Keep the cached login, but notify? Optional.
               }
@@ -399,7 +451,7 @@ export const useAuthStore = defineStore('auth', () => {
             startHeartbeat();
             await ensureServerEventListeners();
             initGamelogWatcher();
-            await syncInitialFriends();
+            await startFriendsSync();
             void syncInitialNotifications();
             await initWebsocket();
           }
@@ -425,7 +477,7 @@ export const useAuthStore = defineStore('auth', () => {
     handleLogout,
     handleLoginSuccess,
     tryAutoLogin,
-    syncInitialFriends,
-    startHeartbeat
+    startHeartbeat,
+    startFriendsSync
   };
 });

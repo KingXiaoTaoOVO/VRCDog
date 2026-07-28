@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
+import { isTauri } from '@tauri-apps/api/core';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   AlertTriangle,
@@ -18,6 +20,7 @@ import {
   Loader2,
   Music,
   Pause,
+  PictureInPicture2,
   Play,
   RefreshCcw,
   Search,
@@ -26,12 +29,23 @@ import {
   Trash2,
   Upload,
   Volume2,
+  X,
 } from 'lucide-vue-next';
 import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
+import { SysApi } from '../api';
+import {
+  GENERAL_MIDI_GROUPS,
+  GeneralMidiSynth,
+  getGeneralMidiInstrumentName,
+  parseGeneralMidi,
+  type MidiNote,
+} from '../audio/generalMidi';
 
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
+  paused: false,
   song_name: '',
+  song_path: '',
   progress: 0,
   played_notes: 0,
   total_notes: 0,
@@ -43,14 +57,19 @@ const emptyStatus = (): VrpianoStatus => ({
   speed: 1,
   hotkeys_enabled: false,
   hotkeys_available: true,
+  last_hotkey: '',
+  last_hotkey_at_ms: 0,
 });
 
 const songs = ref<VrpianoSong[]>([]);
 const onlineResults = ref<VrpianoOnlineSong[]>([]);
 const selectedPath = ref('');
+const localSongQuery = ref('');
 const status = ref<VrpianoStatus>(emptyStatus());
 const loading = ref(false);
 const onlineLoading = ref(false);
+const hasSearchedOnline = ref(false);
+const lastOnlineKeyword = ref('');
 const onlineBusyId = ref<number | null>(null);
 const error = ref('');
 const delaySecs = ref(5);
@@ -63,6 +82,7 @@ const logs = ref<string[]>([]);
 const midishowAccounts = ref<VrpianoMidishowAccount[]>([]);
 const midishowUsername = ref('');
 const midishowPassword = ref('');
+const midishowCookie = ref('');
 const midishowLoginOpen = ref(false);
 const accountLoading = ref(false);
 const songIcons = ref<Record<string, string>>({});
@@ -79,48 +99,81 @@ const playerVolume = ref(0.9);
 const playerPlaying = ref(false);
 const playerLoading = ref(false);
 const parsedPlayerNotes = ref<MidiNote[]>([]);
-
-type MidiNote = {
-  timeMs: number;
-  durationMs: number;
-  note: number;
-  velocity: number;
-};
+const playerInstrument = ref('source');
+const sourcePrograms = ref<number[]>([]);
+const sourceHasPercussion = ref(false);
+const overlayOpen = ref(false);
 
 const formatVrpianoError = (e: unknown) => {
   const message = e instanceof Error ? e.message : String(e);
+  if (/interactive browser verification|Cloudflare|challenge|cf_chl/i.test(message)) {
+    return 'Midishow 要求浏览器验证。已登录后请在浏览器使用官方下载，或将公开 .mid/.midi 直链粘贴到下方下载框。';
+  }
   if (/status code 403|HTTP 403|403 Forbidden|status 403/i.test(message)) {
-    return 'Midishow 拒绝了本次请求（403）。请稍后重试，或换一个关键词/ID。';
+    return 'Midishow 拒绝了本次请求（403）。请登录后保存浏览器中已登录 Midishow 的最新 Cookie，再重试。';
+  }
+  if (/JavaScript\/cookies|Cloudflare|challenge|cf_chl/i.test(message)) {
+    return 'Midishow 需要浏览器 Cookie 验证。请先在浏览器打开并登录 Midishow，再把 Cookie 粘贴到登录表单。';
   }
   return message;
 };
 
 let unlistenStatus: (() => void) | null = null;
+let unlistenOverlayClosed: (() => void) | null = null;
 let pollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
 let hotkeyApplyTimer: number | null = null;
 let audioContext: AudioContext | null = null;
 let playerMasterGain: GainNode | null = null;
 let playerCompressor: DynamicsCompressorNode | null = null;
+let playerSynth: GeneralMidiSynth | null = null;
 let playerTimer: number | null = null;
 let playerStartedAt = 0;
 let playerAnchorContextTime = 0;
 let playerAnchorPositionMs = 0;
 let nextNoteIndex = 0;
-const scheduledNodes = new Set<AudioNode>();
 const PLAYER_LOOKAHEAD_MS = 1500;
 const PLAYER_TICK_MS = 80;
+const playerInstrumentStorageKey = 'vrcdog.vrpiano.playerInstrument.v1';
 
 const selectedSong = computed(() => songs.value.find((song) => song.path === selectedPath.value) || null);
+const filteredSongs = computed(() => {
+  const query = localSongQuery.value.trim().toLowerCase();
+  if (!query) return songs.value;
+  const terms = query.split(/\s+/).filter(Boolean);
+  return songs.value.filter((song) => {
+    const haystack = `${song.name} ${song.path}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+});
 const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status.value.progress || 0)) * 100));
 const canStart = computed(() => Boolean(selectedSong.value) && !status.value.running && !loading.value);
 const speedText = computed(() => `${clampSpeed(speed.value).toFixed(2)}x`);
 const defaultMidishowAccount = computed(() => midishowAccounts.value[0] || null);
+const defaultMidishowLoginTypeText = computed(() => {
+  const type = defaultMidishowAccount.value?.login_type;
+  if (!type) return '';
+  return type === 'cookie' ? 'Cookie' : '密码';
+});
 const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length || selectedSong.value) && !playerLoading.value);
+const onlineEmptyText = computed(() => {
+  if (!hasSearchedOnline.value) return '输入关键词搜索，或直接粘贴 URL / ID 下载。';
+  return `未找到“${lastOnlineKeyword.value}”相关结果，换个关键词或粘贴 ID/URL 试试。`;
+});
 const playerProgressPercent = computed(() => {
   if (!playerDurationMs.value) return 0;
   return Math.round(Math.min(1, playerPositionMs.value / playerDurationMs.value) * 100);
 });
+const sourceInstrumentText = computed(() => {
+  const names: string[] = sourcePrograms.value.map(getGeneralMidiInstrumentName);
+  if (sourceHasPercussion.value) names.push('标准鼓组');
+  return names.length ? names.join('、') : '大钢琴';
+});
+const activeInstrumentText = computed(() => (
+  playerInstrument.value === 'source'
+    ? `跟随 MIDI：${sourceInstrumentText.value}`
+    : `手动音色：${getGeneralMidiInstrumentName(Number(playerInstrument.value))}`
+));
 const hotkeyStatusText = computed(() => {
   if (!status.value.hotkeys_available) return '当前系统不支持';
   return hotkeysEnabled.value ? '全局快捷键已开启' : '全局快捷键已关闭';
@@ -129,6 +182,14 @@ const hotkeyStatusText = computed(() => {
 const addLog = (message: string) => {
   const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   logs.value = [`${time} ${message}`, ...logs.value].slice(0, 100);
+};
+
+const selectFirstFilteredSong = () => {
+  if (filteredSongs.value[0]) selectedPath.value = filteredSongs.value[0].path;
+};
+
+const clearLocalSongQuery = () => {
+  localSongQuery.value = '';
 };
 
 const formatBytes = (bytes: number) => {
@@ -164,211 +225,8 @@ const base64ToBytes = (data: string) => {
   return bytes;
 };
 
-const readVarLen = (bytes: Uint8Array, offset: number) => {
-  let value = 0;
-  let cursor = offset;
-  for (let i = 0; i < 4 && cursor < bytes.length; i += 1) {
-    const current = bytes[cursor++];
-    value = (value << 7) | (current & 0x7f);
-    if ((current & 0x80) === 0) break;
-  }
-  return { value, offset: cursor };
-};
-
-const readText = (bytes: Uint8Array, offset: number, length: number) => {
-  return Array.from(bytes.slice(offset, offset + length)).map((byte) => String.fromCharCode(byte)).join('');
-};
-
-const readU16 = (bytes: Uint8Array, offset: number) => (bytes[offset] << 8) | bytes[offset + 1];
-const readU32 = (bytes: Uint8Array, offset: number) => (
-  (bytes[offset] << 24) |
-  (bytes[offset + 1] << 16) |
-  (bytes[offset + 2] << 8) |
-  bytes[offset + 3]
-) >>> 0;
-
-type MidiTrackRange = {
-  start: number;
-  end: number;
-};
-
-type MidiTempoPoint = {
-  tick: number;
-  tempo: number;
-};
-
-const collectMidiTracks = (bytes: Uint8Array, headerLength: number, trackCount: number) => {
-  const tracks: MidiTrackRange[] = [];
-  let offset = 8 + headerLength;
-
-  for (let trackIndex = 0; trackIndex < trackCount && offset + 8 <= bytes.length; trackIndex += 1) {
-    if (readText(bytes, offset, 4) !== 'MTrk') break;
-    const trackLength = readU32(bytes, offset + 4);
-    const start = offset + 8;
-    const end = Math.min(start + trackLength, bytes.length);
-    tracks.push({ start, end });
-    offset = start + trackLength;
-  }
-
-  return tracks;
-};
-
-const walkMidiTrack = (
-  bytes: Uint8Array,
-  track: MidiTrackRange,
-  handlers: {
-    meta?: (tick: number, metaType: number, offset: number, length: number) => void;
-    midi?: (tick: number, statusByte: number, data1: number, data2: number) => void;
-  },
-) => {
-  let offset = track.start;
-  let tick = 0;
-  let runningStatus = 0;
-
-  while (offset < track.end) {
-    const delta = readVarLen(bytes, offset);
-    tick += delta.value;
-    offset = delta.offset;
-    if (offset >= track.end) break;
-
-    let statusByte = bytes[offset++];
-    if (statusByte < 0x80) {
-      if (!runningStatus) break;
-      offset -= 1;
-      statusByte = runningStatus;
-    } else if (statusByte < 0xf0) {
-      runningStatus = statusByte;
-    }
-
-    if (statusByte === 0xff) {
-      const metaType = bytes[offset++] ?? 0;
-      const lengthInfo = readVarLen(bytes, offset);
-      const length = lengthInfo.value;
-      offset = lengthInfo.offset;
-      handlers.meta?.(tick, metaType, offset, length);
-      offset = Math.min(offset + length, track.end);
-      continue;
-    }
-
-    if (statusByte === 0xf0 || statusByte === 0xf7) {
-      const lengthInfo = readVarLen(bytes, offset);
-      offset = Math.min(lengthInfo.offset + lengthInfo.value, track.end);
-      continue;
-    }
-
-    const type = statusByte & 0xf0;
-    const dataLength = type === 0xc0 || type === 0xd0 ? 1 : 2;
-    const data1 = bytes[offset++] ?? 0;
-    const data2 = dataLength === 2 ? (bytes[offset++] ?? 0) : 0;
-    handlers.midi?.(tick, statusByte, data1, data2);
-  }
-};
-
-const tickToMs = (tick: number, tempoMap: MidiTempoPoint[], ticksPerBeat: number) => {
-  let micros = 0;
-  let lastTick = 0;
-  let tempo = 500000;
-
-  for (const point of tempoMap) {
-    if (point.tick > tick) break;
-    if (point.tick > lastTick) {
-      micros += ((point.tick - lastTick) * tempo) / ticksPerBeat;
-      lastTick = point.tick;
-    }
-    tempo = point.tempo;
-  }
-
-  micros += ((tick - lastTick) * tempo) / ticksPerBeat;
-  return micros / 1000;
-};
-
-const parseMidiNotes = (bytes: Uint8Array) => {
-  if (readText(bytes, 0, 4) !== 'MThd') throw new Error('不是有效的 MIDI 文件');
-  const headerLength = readU32(bytes, 4);
-  const trackCount = readU16(bytes, 10);
-  const division = readU16(bytes, 12);
-  if ((division & 0x8000) !== 0) throw new Error('暂不支持 SMPTE 时间格式 MIDI');
-
-  const ticksPerBeat = Math.max(1, division);
-  const notes: MidiNote[] = [];
-  const tracks = collectMidiTracks(bytes, headerLength, trackCount);
-  const tempoMap: MidiTempoPoint[] = [{ tick: 0, tempo: 500000 }];
-
-  for (const track of tracks) {
-    walkMidiTrack(bytes, track, {
-      meta: (tick, metaType, offset, length) => {
-        if (metaType === 0x51 && length === 3 && offset + 3 <= track.end) {
-          tempoMap.push({
-            tick,
-            tempo: (bytes[offset] << 16) | (bytes[offset + 1] << 8) | bytes[offset + 2],
-          });
-        }
-      },
-    });
-  }
-
-  tempoMap.sort((a, b) => a.tick - b.tick);
-  const compactTempoMap = tempoMap.filter((point, index) => {
-    const next = tempoMap[index + 1];
-    return !next || next.tick !== point.tick;
-  });
-
-  for (const track of tracks) {
-    const openNotes = new Map<number, Array<{ timeMs: number; velocity: number }>>();
-
-    walkMidiTrack(bytes, track, {
-      midi: (tick, statusByte, data1, data2) => {
-        const type = statusByte & 0xf0;
-        const key = ((statusByte & 0x0f) << 8) | data1;
-        const eventTimeMs = tickToMs(tick, compactTempoMap, ticksPerBeat);
-
-        if (type === 0x90 && data2 > 0) {
-          const stack = openNotes.get(key) || [];
-          stack.push({ timeMs: eventTimeMs, velocity: data2 / 127 });
-          openNotes.set(key, stack);
-        } else if (type === 0x80 || (type === 0x90 && data2 === 0)) {
-          const stack = openNotes.get(key);
-          const start = stack?.shift();
-          if (start) {
-            notes.push({
-              timeMs: start.timeMs,
-              durationMs: Math.max(90, eventTimeMs - start.timeMs),
-              note: data1,
-              velocity: start.velocity,
-            });
-          }
-        }
-      },
-    });
-
-    for (const [key, stack] of openNotes.entries()) {
-      for (const start of stack) {
-        notes.push({
-          timeMs: start.timeMs,
-          durationMs: 220,
-          note: key & 0xff,
-          velocity: start.velocity,
-        });
-      }
-    }
-  }
-
-  notes.sort((a, b) => a.timeMs - b.timeMs);
-  if (!notes.length) throw new Error('这个 MIDI 没有可试听的音符');
-  return notes;
-};
-
 const stopScheduledAudio = () => {
-  for (const node of scheduledNodes) {
-    try {
-      const source = node as AudioScheduledSourceNode;
-      if (typeof source.stop === 'function') source.stop();
-      node.disconnect();
-    } catch {
-      // Audio nodes may already be stopped.
-    }
-  }
-  scheduledNodes.clear();
+  playerSynth?.stopAll();
 };
 
 const stopPlayerTimer = () => {
@@ -401,14 +259,13 @@ const ensureAudioContext = () => {
     playerCompressor.release.value = 0.18;
     playerMasterGain.gain.value = clampPlayerVolume(playerVolume.value);
     playerMasterGain.connect(playerCompressor).connect(audioContext.destination);
+    playerSynth = new GeneralMidiSynth(audioContext, playerMasterGain);
   }
   return audioContext;
 };
 
-const midiNoteFrequency = (note: number) => 440 * Math.pow(2, (note - 69) / 12);
-
 const scheduleNote = (context: AudioContext, note: MidiNote, currentPositionMs: number) => {
-  if (!playerMasterGain) return;
+  if (!playerSynth) return;
   const noteEndMs = note.timeMs + note.durationMs;
   const startAt = Math.max(
     context.currentTime + 0.005,
@@ -416,30 +273,8 @@ const scheduleNote = (context: AudioContext, note: MidiNote, currentPositionMs: 
   );
   const remainingMs = noteEndMs - Math.max(currentPositionMs, note.timeMs);
   const duration = Math.max(0.05, remainingMs / 1000);
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  const peak = Math.max(0.018, 0.24 * note.velocity);
-
-  oscillator.type = 'triangle';
-  oscillator.frequency.setValueAtTime(midiNoteFrequency(note.note), startAt);
-  gain.gain.setValueAtTime(0.0001, startAt);
-  gain.gain.linearRampToValueAtTime(peak, startAt + 0.012);
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-  oscillator.connect(gain).connect(playerMasterGain);
-  oscillator.start(startAt);
-  oscillator.stop(startAt + duration + 0.025);
-  scheduledNodes.add(oscillator);
-  scheduledNodes.add(gain);
-  oscillator.onended = () => {
-    scheduledNodes.delete(oscillator);
-    scheduledNodes.delete(gain);
-    try {
-      oscillator.disconnect();
-      gain.disconnect();
-    } catch {
-      // Nodes may already be disconnected by pause/seek.
-    }
-  };
+  const overrideProgram = playerInstrument.value === 'source' ? null : Number(playerInstrument.value);
+  playerSynth.schedule(note, startAt, duration, overrideProgram);
 };
 
 const schedulePlayerWindow = () => {
@@ -514,18 +349,79 @@ const applyPlayerVolume = () => {
   }
 };
 
+const applyPlayerInstrument = async () => {
+  if (playerInstrument.value !== 'source') {
+    const program = Number(playerInstrument.value);
+    playerInstrument.value = Number.isInteger(program) && program >= 0 && program <= 127 ? String(program) : 'source';
+  }
+  localStorage.setItem(playerInstrumentStorageKey, playerInstrument.value);
+  addLog(activeInstrumentText.value);
+  if (playerPlaying.value) await schedulePlayer(playerPositionMs.value);
+};
+
+const toggleVrpianoOverlay = async () => {
+  if (!isTauri()) {
+    addLog('浏览器预览中无法创建桌面悬浮窗');
+    return;
+  }
+
+  const existing = await WebviewWindow.getByLabel('vrpiano-overlay');
+  if (existing) {
+    await emit('cmd-close-vrpiano-overlay');
+    overlayOpen.value = false;
+    return;
+  }
+
+  let savedPosition: { x?: number; y?: number } = {};
+  try {
+    savedPosition = JSON.parse(localStorage.getItem('vrcdog.vrpiano.overlay.position') || '{}');
+  } catch {
+    savedPosition = {};
+  }
+
+  const overlay = new WebviewWindow('vrpiano-overlay', {
+    url: '/?mode=vrpiano-overlay',
+    title: 'VRPiano 悬浮控制器',
+    transparent: true,
+    decorations: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    width: 500,
+    height: 620,
+    minWidth: 320,
+    minHeight: 420,
+    ...(Number.isFinite(savedPosition.x) ? { x: savedPosition.x } : {}),
+    ...(Number.isFinite(savedPosition.y) ? { y: savedPosition.y } : {}),
+  });
+
+  overlay.once('tauri://created', () => {
+    overlayOpen.value = true;
+    addLog('VRPiano 悬浮窗已开启');
+  });
+  overlay.once('tauri://error', (event) => {
+    overlayOpen.value = false;
+    error.value = `悬浮窗创建失败：${JSON.stringify(event)}`;
+  });
+  overlay.onCloseRequested(() => {
+    overlayOpen.value = false;
+  });
+};
+
 const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
   playerLoading.value = true;
   error.value = '';
   try {
-    const notes = parseMidiNotes(base64ToBytes(midi.data));
+    const parsed = parseGeneralMidi(base64ToBytes(midi.data));
     pausePlayer();
-    parsedPlayerNotes.value = notes;
+    parsedPlayerNotes.value = parsed.notes;
+    sourcePrograms.value = parsed.programs;
+    sourceHasPercussion.value = parsed.hasPercussion;
     playerTitle.value = midi.name;
     playerPositionMs.value = 0;
-    playerDurationMs.value = Math.ceil(Math.max(...notes.map((note) => note.timeMs + note.durationMs)));
+    playerDurationMs.value = Math.ceil(Math.max(...parsed.notes.map((note) => note.timeMs + note.durationMs)));
     await schedulePlayer(0);
-    addLog(`内置播放器开始试听：${midi.name}`);
+    addLog(`内置播放器开始试听：${midi.name}（${activeInstrumentText.value}）`);
   } catch (e: any) {
     error.value = e.message || String(e);
     addLog(`播放器加载失败：${error.value}`);
@@ -619,9 +515,29 @@ const loadMidishowAccounts = async () => {
   }
 };
 
+const openMidishowSignup = async () => {
+  try {
+    await SysApi.openUrl({ url: 'https://www.midishow.com/en/user/account/signup' });
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const openMidishowSearch = async () => {
+  try {
+    const url = new URL('https://www.midishow.com/search/result');
+    const keyword = onlineKeyword.value.trim();
+    if (keyword) url.searchParams.set('q', keyword);
+    await SysApi.openUrl({ url: url.toString() });
+    addLog('已在浏览器打开 Midishow 官方搜索');
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
 const loginMidishow = async () => {
-  if (!midishowUsername.value.trim() || !midishowPassword.value) {
-    error.value = '请输入 Midishow 用户名和密码';
+  if (!midishowUsername.value.trim() || (!midishowPassword.value && !midishowCookie.value.trim())) {
+    error.value = '请输入 Midishow 账号名，并填写密码或 Cookie';
     return;
   }
   accountLoading.value = true;
@@ -630,8 +546,10 @@ const loginMidishow = async () => {
     midishowAccounts.value = await VrpianoApi.midishowLogin({
       username: midishowUsername.value.trim(),
       password: midishowPassword.value,
+      cookie: midishowCookie.value.trim() || undefined,
     });
     midishowPassword.value = '';
+    midishowCookie.value = '';
     midishowLoginOpen.value = false;
     addLog(`Midishow 已登录：${midishowUsername.value.trim()}`);
   } catch (e: any) {
@@ -828,12 +746,16 @@ const downloadFromUrl = async () => {
 };
 
 const searchOnline = async () => {
-  if (!onlineKeyword.value.trim()) return;
+  const keyword = onlineKeyword.value.trim();
+  if (!keyword) return;
   onlineLoading.value = true;
+  hasSearchedOnline.value = true;
+  lastOnlineKeyword.value = keyword;
+  onlineResults.value = [];
   error.value = '';
   try {
     onlineResults.value = await VrpianoApi.searchMidishow({
-      keyword: onlineKeyword.value.trim(),
+      keyword,
       maxResults: 40,
     });
     addLog(`Midishow 搜索到 ${onlineResults.value.length} 个结果`);
@@ -877,8 +799,12 @@ const downloadOnline = async (song: VrpianoOnlineSong) => {
   }
 };
 
-const openOnlinePage = (song: VrpianoOnlineSong) => {
-  window.open(song.page_url, '_blank', 'noopener,noreferrer');
+const openOnlinePage = async (song: VrpianoOnlineSong) => {
+  try {
+    await SysApi.openUrl({ url: song.page_url });
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
 };
 
 const applySpeed = async (announce = false) => {
@@ -972,11 +898,20 @@ const stop = async () => {
   }
 };
 
+let statusRefreshing = false;
+
 const refreshStatus = async () => {
+  // 在 KeepAlive 下组件不会卸载，避免窗口/标签页不可见时仍每 1.5s 打后端
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (statusRefreshing) return;
+  statusRefreshing = true;
   try {
     status.value = await VrpianoApi.getStatus();
     if (Number.isFinite(status.value.speed)) speed.value = status.value.speed;
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
+    if (status.value.song_path && songs.value.some((song) => song.path === status.value.song_path)) {
+      selectedPath.value = status.value.song_path;
+    }
   } catch {
     // Backend may be unavailable in browser preview.
   }
@@ -1004,24 +939,38 @@ watch([selectedPath, delaySecs], () => {
 });
 
 onMounted(async () => {
+  const savedInstrument = localStorage.getItem(playerInstrumentStorageKey);
+  if (savedInstrument === 'source' || (savedInstrument && Number(savedInstrument) >= 0 && Number(savedInstrument) <= 127)) {
+    playerInstrument.value = savedInstrument;
+  }
   await init();
   try {
+    overlayOpen.value = Boolean(await WebviewWindow.getByLabel('vrpiano-overlay'));
+    unlistenOverlayClosed = await listen('vrpiano-overlay-closed', () => {
+      overlayOpen.value = false;
+    });
     unlistenStatus = await listen<VrpianoStatus>('vrpiano_status', (event) => {
       status.value = event.payload;
       if (Number.isFinite(event.payload.speed)) speed.value = event.payload.speed;
       hotkeysEnabled.value = Boolean(event.payload.hotkeys_enabled);
+      if (event.payload.song_path && songs.value.some((song) => song.path === event.payload.song_path)) {
+        selectedPath.value = event.payload.song_path;
+      }
       if (event.payload.last_event) addLog(event.payload.last_event);
       if (event.payload.last_error) error.value = event.payload.last_error;
     });
   } catch {
     // Non-Tauri preview.
   }
-  pollTimer = window.setInterval(refreshStatus, 1500);
+  if (pollTimer === null) {
+    pollTimer = window.setInterval(refreshStatus, 1500);
+  }
   window.addEventListener('keydown', handleHotkey, { capture: true });
 });
 
 onUnmounted(() => {
   if (unlistenStatus) unlistenStatus();
+  if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (speedApplyTimer !== null) window.clearTimeout(speedApplyTimer);
   if (hotkeyApplyTimer !== null) window.clearTimeout(hotkeyApplyTimer);
@@ -1042,9 +991,15 @@ onUnmounted(() => {
           <p>本地曲库、在线下载、在线试听、MIDI 映射与全局快捷键控制</p>
         </div>
       </div>
-      <div class="status-pill" :class="{ active: status.running }">
-        <span class="status-dot" />
-        {{ status.running ? '演奏中' : '待命' }}
+      <div class="header-actions">
+        <button class="overlay-toggle" :class="{ active: overlayOpen }" @click="toggleVrpianoOverlay">
+          <PictureInPicture2 :size="16" />
+          {{ overlayOpen ? '关闭悬浮窗' : '开启悬浮窗' }}
+        </button>
+        <div class="status-pill" :class="{ active: status.running && !status.paused }">
+          <span class="status-dot" />
+          {{ status.paused ? '已暂停' : status.running ? '演奏中' : '待命' }}
+        </div>
       </div>
     </header>
 
@@ -1064,6 +1019,23 @@ onUnmounted(() => {
       <section class="library-pane">
         <div class="pane-toolbar">
           <strong>本地曲库</strong>
+          <div class="library-search">
+            <Search :size="15" />
+            <input
+              v-model="localSongQuery"
+              placeholder="搜索本地曲库"
+              @keydown.enter.prevent="selectFirstFilteredSong"
+            >
+            <button
+              v-if="localSongQuery"
+              class="clear-search-btn"
+              type="button"
+              title="清空搜索"
+              @click="clearLocalSongQuery"
+            >
+              <X :size="14" />
+            </button>
+          </div>
           <div class="tool-buttons">
             <button class="icon-btn" title="导入 MIDI" :disabled="loading" @click="importMidi"><Upload :size="16" /></button>
             <button class="icon-btn" title="试听曲目" :disabled="!selectedSong" @click="previewLocalSong"><Headphones :size="16" /></button>
@@ -1080,7 +1052,7 @@ onUnmounted(() => {
 
         <div class="song-list">
           <button
-            v-for="song in songs"
+            v-for="song in filteredSongs"
             :key="song.path"
             class="song-row"
             :class="{ selected: selectedPath === song.path }"
@@ -1100,6 +1072,10 @@ onUnmounted(() => {
           <div v-if="!songs.length" class="empty-state">
             <Music :size="24" />
             <span>暂无 MIDI 曲目，导入、搜索或粘贴链接添加。</span>
+          </div>
+          <div v-else-if="!filteredSongs.length" class="empty-state">
+            <Search :size="24" />
+            <span>没有匹配“{{ localSongQuery.trim() }}”的本地曲目。</span>
           </div>
         </div>
       </section>
@@ -1124,6 +1100,19 @@ onUnmounted(() => {
               {{ playerPlaying ? '暂停' : '播放' }}
             </button>
           </div>
+          <label class="player-instrument">
+            <Music :size="15" />
+            <span>播放音色</span>
+            <select v-model="playerInstrument" @change="applyPlayerInstrument">
+              <option value="source">跟随 MIDI 源文件（默认）</option>
+              <optgroup v-for="group in GENERAL_MIDI_GROUPS" :key="group.name" :label="group.name">
+                <option v-for="instrument in group.instruments" :key="instrument.program" :value="String(instrument.program)">
+                  {{ instrument.program + 1 }} · {{ instrument.name }}
+                </option>
+              </optgroup>
+            </select>
+            <small :title="activeInstrumentText">{{ activeInstrumentText }}</small>
+          </label>
           <div class="player-slider">
             <span>{{ formatTime(playerPositionMs) }}</span>
             <input
@@ -1206,7 +1195,7 @@ onUnmounted(() => {
 
           <div class="midishow-account">
             <div>
-              <strong>{{ defaultMidishowAccount ? `已登录 ${defaultMidishowAccount.username}` : 'Midishow 未登录' }}</strong>
+              <strong>{{ defaultMidishowAccount ? `已登录 ${defaultMidishowAccount.username}${defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : ''}` : 'Midishow 未登录' }}</strong>
               <span>{{ defaultMidishowAccount ? '下载与试听会优先使用账号权限。' : '登录后可访问需要账号权限的 MIDI 下载与试听。' }}</span>
             </div>
             <button v-if="defaultMidishowAccount" class="account-btn ghost" :disabled="accountLoading" @click="logoutMidishow">
@@ -1220,20 +1209,37 @@ onUnmounted(() => {
           <form v-if="midishowLoginOpen && !defaultMidishowAccount" class="login-form" @submit.prevent="loginMidishow">
             <input v-model="midishowUsername" autocomplete="username" placeholder="Midishow 用户名 / 邮箱">
             <input v-model="midishowPassword" autocomplete="current-password" type="password" placeholder="密码">
-            <button type="submit" :disabled="accountLoading">
-              <Loader2 v-if="accountLoading" :size="16" class="spin" />
-              <span v-else>保存登录</span>
-            </button>
+            <textarea
+              v-model="midishowCookie"
+              class="cookie-input"
+              autocomplete="off"
+              placeholder="可选：浏览器 Cookie（遇到 Midishow 验证 / 403 时使用）"
+              rows="2"
+            />
+            <div class="login-form-actions">
+              <button type="submit" :disabled="accountLoading">
+                <Loader2 v-if="accountLoading" :size="16" class="spin" />
+                <span v-else>保存登录</span>
+              </button>
+              <button type="button" class="account-btn ghost" @click="openMidishowSignup">
+                <ExternalLink :size="15" /> 注册
+              </button>
+            </div>
           </form>
 
           <div class="online-form">
             <div class="input-row">
               <Search :size="16" />
               <input v-model="onlineKeyword" placeholder="搜索歌名、作者或关键词" @keydown.enter="searchOnline">
-              <button :disabled="onlineLoading || !onlineKeyword.trim()" @click="searchOnline">
-                <Loader2 v-if="onlineLoading" :size="16" class="spin" />
-                <span v-else>搜索</span>
-              </button>
+              <div class="online-search-actions">
+                <button :disabled="onlineLoading || !onlineKeyword.trim()" @click="searchOnline">
+                  <Loader2 v-if="onlineLoading" :size="16" class="spin" />
+                  <span v-else>搜索</span>
+                </button>
+                <button type="button" title="在浏览器打开 Midishow 官方搜索" :disabled="onlineLoading" @click="openMidishowSearch">
+                  <ExternalLink :size="16" />
+                </button>
+              </div>
             </div>
             <div class="input-row download-row">
               <Link2 :size="16" />
@@ -1266,7 +1272,7 @@ onUnmounted(() => {
             </div>
             <div v-if="!onlineResults.length" class="online-empty">
               <Search :size="20" />
-              <span>输入关键词搜索，或直接粘贴 URL / ID 下载。</span>
+              <span>{{ onlineEmptyText }}</span>
             </div>
           </div>
         </section>
@@ -1431,6 +1437,36 @@ h1 {
   color: var(--vp-muted);
 }
 
+.header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.overlay-toggle {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--vp-border);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--vp-muted);
+  background: var(--vp-panel);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.overlay-toggle:hover,
+.overlay-toggle.active {
+  color: var(--vp-primary);
+  border-color: color-mix(in srgb, var(--vp-primary) 38%, transparent);
+  background: var(--vp-hover);
+}
+
 .status-pill {
   flex-shrink: 0;
   display: inline-flex;
@@ -1511,7 +1547,8 @@ h1 {
 }
 
 .pane-toolbar {
-  min-height: 86px;
+  flex: 0 0 auto;
+  min-height: 0;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -1523,6 +1560,45 @@ h1 {
 .pane-toolbar strong {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.library-search {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: var(--vp-muted);
+  background: var(--vp-panel);
+  box-shadow: inset 0 0 0 1px var(--vp-border);
+}
+
+.library-search input {
+  min-width: 0;
+  border: 0;
+  outline: none;
+  color: var(--vp-text);
+  background: transparent;
+}
+
+.clear-search-btn {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--vp-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.clear-search-btn:hover {
+  color: var(--vp-text);
+  background: var(--vp-hover);
 }
 
 .tool-buttons,
@@ -1580,6 +1656,7 @@ input {
 }
 
 .song-list {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
@@ -1689,6 +1766,51 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.player-instrument {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 16px 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--vp-muted);
+}
+
+.player-instrument > span {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.player-instrument select {
+  min-width: 0;
+  width: 100%;
+  height: 34px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--vp-border-strong);
+  border-radius: 6px;
+  outline: none;
+  color: var(--vp-text);
+  background: var(--vp-surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.player-instrument select:focus {
+  border-color: var(--vp-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 14%, transparent);
+}
+
+.player-instrument small {
+  min-width: 0;
+  grid-column: 3;
+  overflow: hidden;
+  color: var(--vp-dim);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .player-head {
@@ -1940,6 +2062,8 @@ input {
 }
 
 .online-panel {
+  flex: 0 0 auto;
+  min-height: 0;
   padding: 12px;
   display: grid;
   gap: 12px;
@@ -1981,7 +2105,8 @@ input {
   gap: 8px;
 }
 
-.login-form input {
+.login-form input,
+.login-form textarea {
   min-width: 0;
   width: 100%;
   border: 1px solid var(--vp-border);
@@ -1992,9 +2117,25 @@ input {
   outline: none;
 }
 
+.login-form textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+.cookie-input {
+  grid-column: 1 / -1;
+}
+
 .login-form button {
   min-width: 92px;
   padding: 0 12px;
+}
+
+.login-form-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .online-head strong {
@@ -2004,6 +2145,19 @@ input {
 .online-form {
   display: grid;
   gap: 8px;
+}
+
+.online-search-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.online-search-actions button {
+  min-width: 32px;
+}
+
+.online-search-actions button:first-child {
+  min-width: 68px;
 }
 
 .input-row {
@@ -2190,6 +2344,7 @@ input {
 
 .theme-field input:focus,
 .login-form input:focus,
+.login-form textarea:focus,
 .input-row:focus-within,
 .control-grid input[type="number"]:focus {
   border-color: var(--vp-border-strong);

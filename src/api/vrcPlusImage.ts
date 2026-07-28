@@ -1,8 +1,5 @@
 import { getStoredAuthCookie, parseExecuteResponse, request, safeInvoke } from './request';
-
-function toCleanBase64(imageData: string) {
-  return imageData.includes(',') ? imageData.split(',')[1] : imageData;
-}
+import { toCleanBase64, resolveCurrentUserId } from './utils';
 
 async function uploadImage(imageData: string, params: Record<string, unknown>) {
   const authCookie = await getStoredAuthCookie();
@@ -25,13 +22,6 @@ async function uploadImage(imageData: string, params: Record<string, unknown>) {
     },
   });
   return parseExecuteResponse(res, 'https://api.vrchat.cloud/api/1/file/image');
-}
-
-async function resolveCurrentUserId(userId?: string) {
-  if (userId) return userId;
-  const currentUser: any = await request('/auth/user', { method: 'GET' });
-  if (!currentUser?.id) throw new Error('无法获取当前用户 ID');
-  return currentUser.id;
 }
 
 export const VrcPlusImageApi = {

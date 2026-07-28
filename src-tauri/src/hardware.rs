@@ -257,23 +257,19 @@ pub fn sys_start_osc_automation() -> AppResult<()> {
             Err(_) => return,
         };
 
-        let mut sys = System::new();
-
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-            // Only refresh what we absolutely need to save CPU cycles
-            sys.refresh_cpu_usage();
-            sys.refresh_memory();
+            let snapshot = crate::osc::system_snapshot(false);
 
             // Send CPU usage (0.0 to 1.0)
-            let cpu_usage = sys.global_cpu_usage() / 100.0;
+            let cpu_usage = snapshot.cpu_usage / 100.0;
             let msg_cpu = OscMessage {
                 addr: "/avatar/parameters/SystemCPU".to_string(),
                 args: vec![OscType::Float(cpu_usage)],
             };
 
             // Send RAM usage (0.0 to 1.0)
-            let ram_usage = sys.used_memory() as f32 / sys.total_memory() as f32;
+            let ram_usage = snapshot.ram_usage / 100.0;
             let msg_ram = OscMessage {
                 addr: "/avatar/parameters/SystemRAM".to_string(),
                 args: vec![OscType::Float(ram_usage)],

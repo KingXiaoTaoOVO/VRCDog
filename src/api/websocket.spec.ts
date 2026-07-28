@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   getAuth: vi.fn(),
   notify: vi.fn(),
+  updateFriend: vi.fn(),
+  addFriend: vi.fn(),
+  removeFriend: vi.fn(),
 }));
 
 vi.mock('./index', () => ({
@@ -26,6 +29,14 @@ vi.mock('../i18n', () => ({
 
 vi.mock('../stores/notificationEngine', () => ({
   useNotificationEngine: () => ({ notify: mocks.notify }),
+}));
+
+vi.mock('../stores/friendsStore', () => ({
+  useFriendsStore: () => ({
+    updateFriend: mocks.updateFriend,
+    addFriend: mocks.addFriend,
+    removeFriend: mocks.removeFriend,
+  }),
 }));
 
 class FakeWebSocket {
@@ -51,6 +62,10 @@ class FakeWebSocket {
   emitClose(code = 1006, reason = '') {
     this.onclose?.({ code, reason } as CloseEvent);
   }
+
+  emitMessage(data: string) {
+    this.onmessage?.({ data } as MessageEvent);
+  }
 }
 
 describe('VRChat pipeline reconnect lifecycle', () => {
@@ -60,6 +75,9 @@ describe('VRChat pipeline reconnect lifecycle', () => {
     mocks.request.mockReset();
     mocks.getAuth.mockReset().mockResolvedValue('["auth=authcookie_test"]');
     mocks.notify.mockReset();
+    mocks.updateFriend.mockReset();
+    mocks.addFriend.mockReset();
+    mocks.removeFriend.mockReset();
     FakeWebSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeWebSocket);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -73,19 +91,26 @@ describe('VRChat pipeline reconnect lifecycle', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps retrying every five seconds after more than five failures', async () => {
+  it('keeps retrying with exponential backoff after failures', async () => {
     mocks.getAuth.mockRejectedValue(new Error('temporary failure'));
     const { closeWebSocket, initWebsocket, wsState } = await import('./websocket');
 
     await initWebsocket();
-    for (let attempt = 1; attempt <= 7; attempt++) {
-      expect(mocks.getAuth).toHaveBeenCalledTimes(attempt);
-      expect(wsState.phase).toBe('waiting');
-      expect(wsState.reconnectAttempts).toBe(attempt);
-      await vi.advanceTimersByTimeAsync(5000);
-    }
+    expect(mocks.getAuth).toHaveBeenCalledTimes(1);
+    expect(wsState.phase).toBe('waiting');
+    expect(wsState.reconnectAttempts).toBe(1);
 
-    expect(mocks.getAuth).toHaveBeenCalledTimes(8);
+    // Advance by 2.5s — first backoff fires at ~2s
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.getAuth).toHaveBeenCalledTimes(2);
+    expect(wsState.phase).toBe('waiting');
+    expect(wsState.reconnectAttempts).toBe(2);
+
+    // Advance by 4s — second backoff fires at ~3s (2*1.5)
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(mocks.getAuth).toHaveBeenCalledTimes(3);
+    expect(wsState.reconnectAttempts).toBe(3);
+
     closeWebSocket();
   });
 
@@ -118,13 +143,33 @@ describe('VRChat pipeline reconnect lifecycle', () => {
     firstSocket.onerror?.(new Event('error'));
     expect(wsState.phase).toBe('waiting');
 
-    await vi.advanceTimersByTimeAsync(5000);
+    // Backoff is 2000*1.5^1 + jitter = ~3000-3900ms for first reconnect
+    await vi.advanceTimersByTimeAsync(4_500);
     expect(FakeWebSocket.instances).toHaveLength(2);
     FakeWebSocket.instances[1].emitOpen();
 
     expect(wsState.connected).toBe(true);
     expect(wsState.phase).toBe('connected');
     expect(wsState.reconnectAttempts).toBe(0);
+    closeWebSocket();
+  });
+
+  it('updates a friend location from a compact pipeline event', async () => {
+    const { closeWebSocket, initWebsocket } = await import('./websocket');
+
+    await initWebsocket();
+    FakeWebSocket.instances[0].emitOpen();
+    FakeWebSocket.instances[0].emitMessage(JSON.stringify({
+      type: 'friend-location',
+      content: { userId: 'usr_friend', location: 'wrld_example:123' },
+    }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.updateFriend).toHaveBeenCalledWith('usr_friend', {
+      id: 'usr_friend',
+      location: 'wrld_example:123',
+      status: 'online',
+    });
     closeWebSocket();
   });
 });

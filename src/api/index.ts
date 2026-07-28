@@ -19,8 +19,9 @@ import { VrcPlusImageApi } from './vrcPlusImage';
 import { InstanceApi } from './instance';
 import { ImageApi } from './image';
 import { QueryRequestApi } from './queryRequest';
-import { getStoredAuthCookie, parseExecuteResponse, request as baseRequest } from './request';
+import { getStoredAuthCookie, parseExecuteResponse, request as baseRequest, VrcRequestError } from './request';
 import { isDebugLogEnabled } from './debugConfig';
+import { toCleanBase64 } from './utils';
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
@@ -133,12 +134,23 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     if (cmd === 'osc_get_system_snapshot') {
       return Promise.resolve({
         cpuUsage: 28.4,
+        cpuName: 'Intel Core i7-12700K',
+        cpuPhysicalCores: 12,
+        cpuLogicalCores: 20,
+        cpuFrequencyMhz: 4900,
         ramUsage: 54.2,
         memoryUsedGb: 17.3,
         memoryTotalGb: 32,
+        gpuName: 'NVIDIA GeForce RTX 4070',
         gpuUsage: 41,
         gpuMemoryUsedGb: 4.8,
         gpuMemoryTotalGb: 12,
+        diskUsage: 66,
+        diskUsedGb: 1320,
+        diskTotalGb: 2000,
+        osName: 'Windows 11 Pro',
+        hostName: 'VRC-PC',
+        systemUptimeSeconds: 13740,
         idleSeconds: 12,
         activeWindow: 'VrcDog Preview',
         localTime: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
@@ -204,7 +216,9 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     }
     const mockVrpianoStatus = {
       running: false,
+      paused: false,
       song_name: '',
+      song_path: '',
       progress: 0,
       played_notes: 0,
       total_notes: 0,
@@ -216,9 +230,12 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       speed: 1,
       hotkeys_enabled: false,
       hotkeys_available: true,
+      last_hotkey: '',
+      last_hotkey_at_ms: 0,
     };
     if (cmd === 'vrpiano_init' || cmd === 'vrpiano_get_status' || cmd === 'vrpiano_stop') return Promise.resolve(mockVrpianoStatus) as any;
     if (cmd === 'vrpiano_set_speed') return Promise.resolve({ ...mockVrpianoStatus, speed: Number(args?.speed || 1), last_event: `Browser preview speed ${Number(args?.speed || 1).toFixed(2)}x` }) as any;
+    if (cmd === 'vrpiano_toggle_pause') return Promise.resolve({ ...mockVrpianoStatus, running: true, paused: true, last_event: 'Browser preview paused' }) as any;
     if (cmd === 'vrpiano_set_hotkeys') {
       const config = (args?.config || {}) as any;
       return Promise.resolve({
@@ -233,6 +250,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
         ...mockVrpianoStatus,
         running: true,
         song_name: 'Preview Song',
+        song_path: String((args?.request as any)?.song_path || 'preview-1.mid'),
         total_notes: 128,
         duration_ms: 128000,
         last_event: 'Browser preview started',
@@ -338,6 +356,7 @@ export const VrcApi = {
   // Tauri 命令
   setProxy: (params: { proxyUrl: string | null, authCookie?: string | null }) => safeInvoke<void>('vrc_set_proxy', params),
   applyAuthCookie: (params: { authCookie: string }) => safeInvoke<void>('vrc_apply_auth_cookie', params),
+  loadCookiesOnStartup: (params: { authCookie: string }) => safeInvoke<void>('vrc_load_cookies_on_startup', params),
   getImageBytes: (params: any) => safeInvoke<string>('vrc_get_image_bytes', params),
   clearCookies: () => safeInvoke('vrc_clear_cookies'),
 
@@ -398,6 +417,7 @@ export const VrcApi = {
 
   // 好友模块
   getFriends: FriendApi.getFriends,
+  getAllFriends: FriendApi.getAllFriends,
   friendRequest: FriendApi.sendFriendRequest,
   sendFriendRequest: FriendApi.sendFriendRequest,
   cancelFriendRequest: FriendApi.cancelFriendRequest,
@@ -409,6 +429,7 @@ export const VrcApi = {
   // 世界模块
   getWorld: WorldApi.getWorld,
   getWorlds: WorldApi.getWorlds,
+  getWorldsByUser: WorldApi.getWorldsByUser,
   searchWorlds: (params: any) => WorldApi.getWorlds({ search: params.query || params.search, ...params }),
   searchGroups: GroupApi.searchGroups,
   saveWorld: WorldApi.saveWorld,
@@ -465,9 +486,14 @@ export const VrcApi = {
   createGroup: GroupApi.createGroup,
   updateGroup: GroupApi.updateGroup,
   editGroup: GroupApi.editGroup,
-  getGroups: async () => {
-    const user: any = await baseRequest('/auth/user');
-    return GroupApi.getGroups({ userId: user.id });
+  getGroups: async (params?: { userId?: string }) => {
+    let userId = params?.userId;
+    if (!userId) {
+      const cached = await DbApi.getCachedCurrentUser();
+      userId = cached?.id || (await baseRequest('/auth/user'))?.id;
+    }
+    if (!userId) throw new VrcRequestError('无法获取当前用户 ID', { code: 'VRCHAT_AUTH_EXPIRED', status: 401, url: '/users/<id>/groups' });
+    return GroupApi.getGroups({ userId });
   },
   getGroupAnnouncement: GroupApi.getGroupAnnouncement,
   setGroupAnnouncement: GroupApi.setGroupAnnouncement,
@@ -622,7 +648,7 @@ export const VrcApi = {
   
   // 图片上传
   uploadVrcPlusImage: async (base64Data: string, tag: string = 'gallery', entityId?: string) => {
-    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const cleanBase64 = toCleanBase64(base64Data);
     const authCookie = await getStoredAuthCookie();
     const data: any = { tag };
     if (entityId) data[tag === 'avatargallery' ? 'galleryId' : 'entityId'] = entityId;
@@ -663,6 +689,19 @@ export const DbApi = {
   saveFriend: (params: any) => safeInvoke<void>('db_save_friend', params),
   batchSaveFriends: (params: { friendsJson: string }) => safeInvoke<number>('db_batch_save_friends', params),
   getCachedFriends: () => safeInvoke<any[]>('db_get_friends'),
+  getCachedCurrentUser: async (): Promise<any | null> => {
+    try {
+      const raw = await safeInvoke<string | null>('db_get_setting', { key: 'cached_vrc_user' });
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.expiresAt && Date.now() < parsed.expiresAt) {
+        return parsed.user || null;
+      }
+    } catch {
+      // ignore cache read errors
+    }
+    return null;
+  },
   removeFriend: (params: { userId: string }) => safeInvoke<void>('db_remove_friend', params),
   saveGameLogs: (params: { logsJson: string }) => safeInvoke<number>('db_save_game_logs', params),
   getGameLogs: (params: { limit?: number; offset?: number }) => safeInvoke<any[]>('db_get_game_logs', params),
@@ -723,6 +762,7 @@ export const SysApi = {
   getClientServerConfig: () => safeInvoke<{ server_url: string; config_path: string }>('sys_get_client_server_config'),
   saveClientServerConfig: (params: { serverUrl: string }) => safeInvoke<{ server_url: string; config_path: string }>('sys_save_client_server_config', params),
   openDir: (params: { target: string }) => safeInvoke<void>('sys_open_dir', params),
+  openUrl: (params: { url: string }) => safeInvoke<void>('sys_open_url', params),
   getVrcScreenshotDir: () => safeInvoke<string>('sys_get_vrc_screenshot_dir'),
   setVrcScreenshotDir: (params: { path: string }) => safeInvoke<void>('sys_set_vrc_screenshot_dir', params),
   getVrcConfig: () => safeInvoke<string>('sys_get_vrc_config'),
@@ -747,12 +787,23 @@ export interface OscMonitorEvent {
 
 export interface OscSystemSnapshot {
   cpuUsage: number;
+  cpuName: string;
+  cpuPhysicalCores: number;
+  cpuLogicalCores: number;
+  cpuFrequencyMhz: number;
   ramUsage: number;
   memoryUsedGb: number;
   memoryTotalGb: number;
+  gpuName: string;
   gpuUsage: number | null;
   gpuMemoryUsedGb: number | null;
   gpuMemoryTotalGb: number | null;
+  diskUsage: number;
+  diskUsedGb: number;
+  diskTotalGb: number;
+  osName: string;
+  hostName: string;
+  systemUptimeSeconds: number;
   idleSeconds: number;
   activeWindow: string;
   localTime: string;
@@ -936,7 +987,9 @@ export interface VrpianoSong {
 
 export interface VrpianoStatus {
   running: boolean;
+  paused: boolean;
   song_name: string;
+  song_path: string;
   progress: number;
   played_notes: number;
   total_notes: number;
@@ -948,6 +1001,8 @@ export interface VrpianoStatus {
   speed: number;
   hotkeys_enabled: boolean;
   hotkeys_available: boolean;
+  last_hotkey: string;
+  last_hotkey_at_ms: number;
 }
 
 export interface VrpianoOnlineSong {
@@ -959,6 +1014,7 @@ export interface VrpianoOnlineSong {
 
 export interface VrpianoMidishowAccount {
   username: string;
+  login_type?: string;
 }
 
 export interface VrpianoMidiData {
@@ -1005,10 +1061,11 @@ export const VrpianoApi = {
     },
   }),
   midishowAccounts: () => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_accounts'),
-  midishowLogin: (params: { username: string; password: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_login', {
+  midishowLogin: (params: { username: string; password?: string; cookie?: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_login', {
     request: {
       username: params.username,
-      password: params.password,
+      password: params.password || '',
+      cookie: params.cookie || null,
     },
   }),
   midishowRemoveAccount: (params: { username: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_remove_account', {
@@ -1024,6 +1081,7 @@ export const VrpianoApi = {
     }
   }),
   stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),
+  togglePause: () => safeInvoke<VrpianoStatus>('vrpiano_toggle_pause'),
   setSpeed: (params: { speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_speed', params),
   setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
     config: {

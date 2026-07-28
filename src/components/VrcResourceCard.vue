@@ -106,9 +106,10 @@ const runMenuAction = (action: () => void | Promise<void>) => {
     >
       <!-- Image or Placeholder -->
       <img 
-        v-if="imageUrl"
+        v-if="imageUrl && !imageError"
         :src="imageUrl" 
         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+        referrerpolicy="no-referrer"
         @error="imageError = true" 
       >
       <div

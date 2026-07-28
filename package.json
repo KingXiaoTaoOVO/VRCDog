@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "node scripts/kill-port-1420.mjs && pnpm exec vite",
     "build": "vue-tsc --noEmit && vite build",
+    "prepare:midishow": "pnpm --dir src-python/midishow-downloader install --frozen-lockfile --prod --ignore-scripts --ignore-workspace",
+    "build:desktop": "pnpm prepare:midishow && pnpm build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run"
+    "test": "vitest run --pool=forks --maxWorkers=1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

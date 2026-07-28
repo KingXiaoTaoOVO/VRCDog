@@ -5,9 +5,11 @@ import VrcAvatar from './VrcAvatar.vue';
 import { MapPin, Users, Globe2, RefreshCcw, Lock } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useUserProfileStore } from '../stores/userProfile';
+import { useFriendsStore } from '../stores/friendsStore';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
+const friendsStore = useFriendsStore();
 
 interface FriendLocation {
   worldId: string;
@@ -88,8 +90,9 @@ async function fetchWorldNamesConcurrent(locs: FriendLocation[]) {
 const fetchLocations = async () => {
   loading.value = true;
   try {
-    // 一次性拉取全部在线好友（n=100 足够，VrcDog 也是分页但首屏用 100）
-    const friends = await VrcApi.getFriends({ n: 100, offset: 0 });
+    // 使用共享好友数据，避免重复API调用
+    await friendsStore.fetchFriends();
+    const friends = friendsStore.allFriends;
     const locMap = new Map<string, FriendLocation>();
     const privates: any[] = [];
     const offlines: any[] = [];

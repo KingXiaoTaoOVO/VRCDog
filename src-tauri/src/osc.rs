@@ -7,7 +7,8 @@ use std::net::UdpSocket;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use sysinfo::{ProcessesToUpdate, System};
+use std::time::{Duration, Instant};
+use sysinfo::{Disks, ProcessesToUpdate, System};
 use tauri::{AppHandle, Emitter};
 use tokio::net::UdpSocket as TokioUdpSocket;
 
@@ -17,6 +18,38 @@ static OSC_AUTOMATION: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()
 static OSC_MONITOR_RUNNING: AtomicBool = AtomicBool::new(false);
 static OSC_AUTOMATION_RUNNING: AtomicBool = AtomicBool::new(false);
 static SYSTEM: OnceLock<Mutex<System>> = OnceLock::new();
+static DISKS: OnceLock<Mutex<Disks>> = OnceLock::new();
+static HARDWARE_INFO: OnceLock<HardwareInfo> = OnceLock::new();
+static GPU_SAMPLE: OnceLock<Mutex<Option<CachedGpuSample>>> = OnceLock::new();
+
+const BYTES_PER_GIB: f32 = 1024.0 * 1024.0 * 1024.0;
+const NVIDIA_SAMPLE_INTERVAL: Duration = Duration::from_millis(1500);
+const NVIDIA_RETRY_INTERVAL: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone)]
+struct HardwareInfo {
+    cpu_name: String,
+    cpu_physical_cores: usize,
+    cpu_logical_cores: usize,
+    cpu_frequency_mhz: u64,
+    os_name: String,
+    host_name: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct GpuTelemetry {
+    name: String,
+    usage: Option<f32>,
+    memory_used_gb: Option<f32>,
+    memory_total_gb: Option<f32>,
+    nvidia_available: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CachedGpuSample {
+    sampled_at: Instant,
+    telemetry: GpuTelemetry,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,12 +78,23 @@ pub struct OscRuntimeStatus {
 #[serde(rename_all = "camelCase")]
 pub struct OscSystemSnapshot {
     pub cpu_usage: f32,
+    pub cpu_name: String,
+    pub cpu_physical_cores: usize,
+    pub cpu_logical_cores: usize,
+    pub cpu_frequency_mhz: u64,
     pub ram_usage: f32,
     pub memory_used_gb: f32,
     pub memory_total_gb: f32,
+    pub gpu_name: String,
     pub gpu_usage: Option<f32>,
     pub gpu_memory_used_gb: Option<f32>,
     pub gpu_memory_total_gb: Option<f32>,
+    pub disk_usage: f32,
+    pub disk_used_gb: f32,
+    pub disk_total_gb: f32,
+    pub os_name: String,
+    pub host_name: String,
+    pub system_uptime_seconds: u64,
     pub idle_seconds: u64,
     pub active_window: String,
     pub local_time: String,
@@ -505,39 +549,167 @@ fn hidden_command(program: &str) -> Command {
     Command::new(program)
 }
 
-fn nvidia_snapshot() -> (Option<f32>, Option<f32>, Option<f32>) {
+fn parse_nvidia_snapshot(line: &str) -> Option<GpuTelemetry> {
+    let mut values = line.split(',').map(str::trim);
+    let name = values.next()?.to_string();
+    let usage = values.next()?.parse::<f32>().ok()?;
+    let memory_used_mb = values.next()?.parse::<f32>().ok()?;
+    let memory_total_mb = values.next()?.parse::<f32>().ok()?;
+    if name.is_empty() {
+        return None;
+    }
+    Some(GpuTelemetry {
+        name,
+        usage: Some(usage.clamp(0.0, 100.0)),
+        memory_used_gb: Some(memory_used_mb / 1024.0),
+        memory_total_gb: Some(memory_total_mb / 1024.0),
+        nvidia_available: true,
+    })
+}
+
+fn query_nvidia_snapshot() -> Option<GpuTelemetry> {
     let output = hidden_command("nvidia-smi")
         .args([
-            "--query-gpu=utilization.gpu,memory.used,memory.total",
+            "--query-gpu=name,utilization.gpu,memory.used,memory.total",
             "--format=csv,noheader,nounits",
         ])
-        .output();
-    let Ok(output) = output else {
-        return (None, None, None);
-    };
+        .output()
+        .ok()?;
     if !output.status.success() {
-        return (None, None, None);
+        return None;
     }
     let line = String::from_utf8_lossy(&output.stdout)
         .lines()
         .next()
         .unwrap_or_default()
         .to_string();
-    let values: Vec<f32> = line
-        .split(',')
-        .filter_map(|value| value.trim().parse::<f32>().ok())
-        .collect();
-    if values.len() < 3 {
-        return (None, None, None);
+    parse_nvidia_snapshot(&line)
+}
+
+#[cfg(target_os = "windows")]
+fn fallback_gpu_info() -> (String, Option<f32>) {
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
+    };
+
+    unsafe {
+        let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() else {
+            return (String::new(), None);
+        };
+        let mut index = 0;
+        let mut best: Option<(String, usize)> = None;
+        while let Ok(adapter) = factory.EnumAdapters1(index) {
+            index += 1;
+            let Ok(description) = adapter.GetDesc1() else {
+                continue;
+            };
+            if description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
+                continue;
+            }
+            let end = description
+                .Description
+                .iter()
+                .position(|value| *value == 0)
+                .unwrap_or(description.Description.len());
+            let name = String::from_utf16_lossy(&description.Description[..end])
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                continue;
+            }
+            let memory = description.DedicatedVideoMemory;
+            if best.as_ref().is_none_or(|(_, current)| memory > *current) {
+                best = Some((name, memory));
+            }
+        }
+        best.map(|(name, memory)| (name, Some(memory as f32 / BYTES_PER_GIB)))
+            .unwrap_or_default()
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn fallback_gpu_info() -> (String, Option<f32>) {
+    (String::new(), None)
+}
+
+fn gpu_snapshot() -> GpuTelemetry {
+    let now = Instant::now();
+    let cache = GPU_SAMPLE.get_or_init(|| Mutex::new(None));
+    let mut cached = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(sample) = cached.as_ref() {
+        let interval = if sample.telemetry.nvidia_available {
+            NVIDIA_SAMPLE_INTERVAL
+        } else {
+            NVIDIA_RETRY_INTERVAL
+        };
+        if now.duration_since(sample.sampled_at) < interval {
+            return sample.telemetry.clone();
+        }
+    }
+
+    let telemetry = query_nvidia_snapshot().unwrap_or_else(|| {
+        let (name, memory_total_gb) = fallback_gpu_info();
+        GpuTelemetry {
+            name,
+            memory_total_gb,
+            ..Default::default()
+        }
+    });
+    *cached = Some(CachedGpuSample {
+        sampled_at: now,
+        telemetry: telemetry.clone(),
+    });
+    telemetry
+}
+
+fn hardware_info(system: &System) -> HardwareInfo {
+    let cpu = system.cpus().first();
+    HardwareInfo {
+        cpu_name: cpu
+            .map(|value| value.brand().trim().to_string())
+            .unwrap_or_default(),
+        cpu_physical_cores: System::physical_core_count().unwrap_or_default(),
+        cpu_logical_cores: system.cpus().len(),
+        cpu_frequency_mhz: cpu.map(|value| value.frequency()).unwrap_or_default(),
+        os_name: System::long_os_version()
+            .or_else(System::name)
+            .unwrap_or_default(),
+        host_name: System::host_name().unwrap_or_default(),
+    }
+}
+
+fn disk_snapshot() -> (f32, f32, f32) {
+    let mut disks = DISKS
+        .get_or_init(|| Mutex::new(Disks::new_with_refreshed_list()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    disks.refresh(true);
+    let (total, available) = disks
+        .list()
+        .iter()
+        .filter(|disk| !disk.is_removable() && disk.total_space() > 0)
+        .fold((0_u64, 0_u64), |(total, available), disk| {
+            (
+                total.saturating_add(disk.total_space()),
+                available.saturating_add(disk.available_space()),
+            )
+        });
+    let used = total.saturating_sub(available);
+    let usage = if total > 0 {
+        used as f32 / total as f32 * 100.0
+    } else {
+        0.0
+    };
     (
-        Some(values[0]),
-        Some(values[1] / 1024.0),
-        Some(values[2] / 1024.0),
+        usage,
+        used as f32 / BYTES_PER_GIB,
+        total as f32 / BYTES_PER_GIB,
     )
 }
 
-fn system_snapshot(include_gpu: bool) -> OscSystemSnapshot {
+pub(crate) fn system_snapshot(include_gpu: bool) -> OscSystemSnapshot {
     let mut system = SYSTEM
         .get_or_init(|| Mutex::new(System::new_all()))
         .lock()
@@ -555,25 +727,38 @@ fn system_snapshot(include_gpu: bool) -> OscSystemSnapshot {
             .to_ascii_lowercase()
             .contains("vrchat")
     });
-    let (gpu_usage, gpu_memory_used_gb, gpu_memory_total_gb) = if include_gpu {
-        nvidia_snapshot()
+    let hardware = HARDWARE_INFO.get_or_init(|| hardware_info(&system)).clone();
+    let gpu = if include_gpu {
+        gpu_snapshot()
     } else {
-        (None, None, None)
+        GpuTelemetry::default()
     };
+    let (disk_usage, disk_used_gb, disk_total_gb) = disk_snapshot();
     let now = Local::now();
 
     OscSystemSnapshot {
         cpu_usage: system.global_cpu_usage(),
+        cpu_name: hardware.cpu_name,
+        cpu_physical_cores: hardware.cpu_physical_cores,
+        cpu_logical_cores: hardware.cpu_logical_cores,
+        cpu_frequency_mhz: hardware.cpu_frequency_mhz,
         ram_usage: if total_memory > 0 {
             used_memory as f32 / total_memory as f32 * 100.0
         } else {
             0.0
         },
-        memory_used_gb: used_memory as f32 / 1024.0 / 1024.0 / 1024.0,
-        memory_total_gb: total_memory as f32 / 1024.0 / 1024.0 / 1024.0,
-        gpu_usage,
-        gpu_memory_used_gb,
-        gpu_memory_total_gb,
+        memory_used_gb: used_memory as f32 / BYTES_PER_GIB,
+        memory_total_gb: total_memory as f32 / BYTES_PER_GIB,
+        gpu_name: gpu.name,
+        gpu_usage: gpu.usage,
+        gpu_memory_used_gb: gpu.memory_used_gb,
+        gpu_memory_total_gb: gpu.memory_total_gb,
+        disk_usage,
+        disk_used_gb,
+        disk_total_gb,
+        os_name: hardware.os_name,
+        host_name: hardware.host_name,
+        system_uptime_seconds: System::uptime(),
         idle_seconds: idle_seconds(),
         active_window: active_window_title(),
         local_time: now.format("%H:%M:%S").to_string(),
@@ -598,6 +783,13 @@ fn source_value(source: &str, snapshot: &OscSystemSnapshot) -> Option<f64> {
         "memory_total_gb" => Some(snapshot.memory_total_gb as f64),
         "gpu_memory_used_gb" => snapshot.gpu_memory_used_gb.map(|value| value as f64),
         "gpu_memory_total_gb" => snapshot.gpu_memory_total_gb.map(|value| value as f64),
+        "disk" | "disk_usage" => Some(snapshot.disk_usage as f64 / 100.0),
+        "disk_used_gb" => Some(snapshot.disk_used_gb as f64),
+        "disk_total_gb" => Some(snapshot.disk_total_gb as f64),
+        "cpu_physical_cores" => Some(snapshot.cpu_physical_cores as f64),
+        "cpu_logical_cores" => Some(snapshot.cpu_logical_cores as f64),
+        "cpu_frequency_mhz" => Some(snapshot.cpu_frequency_mhz as f64),
+        "system_uptime_seconds" => Some(snapshot.system_uptime_seconds as f64),
         "idle_seconds" => Some(snapshot.idle_seconds as f64),
         "vrc_running" => Some(if snapshot.vrc_running { 1.0 } else { 0.0 }),
         "local_year" => Some(now.year() as f64),
@@ -704,4 +896,57 @@ pub fn osc_get_status() -> AppResult<OscRuntimeStatus> {
         monitor_running: OSC_MONITOR_RUNNING.load(Ordering::SeqCst),
         automation_running: OSC_AUTOMATION_RUNNING.load(Ordering::SeqCst),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_nvidia_telemetry_with_device_name() {
+        let telemetry = parse_nvidia_snapshot("NVIDIA GeForce GTX 1060, 36, 3893, 6144")
+            .expect("valid NVIDIA telemetry");
+        assert_eq!(telemetry.name, "NVIDIA GeForce GTX 1060");
+        assert_eq!(telemetry.usage, Some(36.0));
+        assert!((telemetry.memory_used_gb.unwrap() - 3.801_757_8).abs() < 0.001);
+        assert_eq!(telemetry.memory_total_gb, Some(6.0));
+    }
+
+    #[test]
+    fn rejects_incomplete_nvidia_telemetry() {
+        assert!(parse_nvidia_snapshot("NVIDIA GeForce RTX 4070, 25").is_none());
+        assert!(parse_nvidia_snapshot("").is_none());
+    }
+
+    #[test]
+    fn normalizes_system_usage_sources_for_avatar_parameters() {
+        let snapshot = OscSystemSnapshot {
+            cpu_usage: 25.0,
+            cpu_name: String::new(),
+            cpu_physical_cores: 0,
+            cpu_logical_cores: 0,
+            cpu_frequency_mhz: 0,
+            ram_usage: 75.0,
+            memory_used_gb: 0.0,
+            memory_total_gb: 0.0,
+            gpu_name: String::new(),
+            gpu_usage: Some(50.0),
+            gpu_memory_used_gb: None,
+            gpu_memory_total_gb: None,
+            disk_usage: 0.0,
+            disk_used_gb: 0.0,
+            disk_total_gb: 0.0,
+            os_name: String::new(),
+            host_name: String::new(),
+            system_uptime_seconds: 0,
+            idle_seconds: 0,
+            active_window: String::new(),
+            local_time: String::new(),
+            local_date: String::new(),
+            vrc_running: false,
+        };
+        assert_eq!(source_value("cpu_usage", &snapshot), Some(0.25));
+        assert_eq!(source_value("ram_usage", &snapshot), Some(0.75));
+        assert_eq!(source_value("gpu_usage", &snapshot), Some(0.5));
+    }
 }

@@ -6,9 +6,11 @@ import { useI18n } from 'vue-i18n';
 import type { VrcUser, FriendLog } from '../types/vrc';
 import * as echarts from 'echarts';
 import { useUserProfileStore } from '../stores/userProfile';
+import { useFriendsStore } from '../stores/friendsStore';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
+const friendsStore = useFriendsStore();
 
 const currentTab = ref<'overview' | 'network' | 'worlds'>('overview');
 const loading = ref(true);
@@ -63,8 +65,9 @@ const calculateTopWorlds = async (friends: VrcUser[]) => {
 const fetchAll = async () => {
   loading.value = true;
   try {
-    // 1. 好友统计
-    const friends = await VrcApi.getFriends({ n: 100, offset: 0 }); // 暂时取100
+    // 1. 好友统计 — 使用共享Store
+    await friendsStore.fetchFriends();
+    const friends = friendsStore.allFriends as VrcUser[];
     allFriends.value = friends;
     const total = friends.length;
     let online = 0, joinMe = 0, busy = 0, askMe = 0, offline = 0;

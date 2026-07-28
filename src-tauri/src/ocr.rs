@@ -3,6 +3,58 @@ use std::process::Stdio;
 pub struct OcrEngine;
 
 impl OcrEngine {
+    /// Capture the primary desktop surface to a PNG. SteamVR mirrors its
+    /// compositor to a desktop window, so this is the VR capture fallback.
+    pub async fn capture_primary_screen_to_file(path: &std::path::Path) -> Result<(), String> {
+        let destination = path.to_string_lossy().replace('\'', "''");
+        let ps_script = format!(
+            r#"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
+$graphics = [System.Drawing.Graphics]::FromImage($bmp)
+try {{
+    $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+    $bmp.Save('{destination}', [System.Drawing.Imaging.ImageFormat]::Png)
+}} finally {{
+    $graphics.Dispose()
+    $bmp.Dispose()
+}}
+"#
+        );
+
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &ps_script,
+                ])
+                .output()
+        })
+        .await
+        .map_err(|error| format!("screen capture task failed: {error}"))?
+        .map_err(|error| format!("failed to start screen capture: {error}"))?;
+
+        if !output.status.success() {
+            let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if details.is_empty() {
+                "screen capture failed".to_string()
+            } else {
+                format!("screen capture failed: {details}")
+            });
+        }
+
+        if !path.is_file() {
+            return Err("screen capture did not create a PNG file".to_string());
+        }
+        Ok(())
+    }
+
     pub async fn extract_text_from_screen(
         ocr_lang: &str,
         image_enhance: bool,

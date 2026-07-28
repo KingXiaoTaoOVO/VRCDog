@@ -34,7 +34,7 @@ export default defineConfig(async () => ({
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (id.includes('node_modules')) {
             if (id.includes('echarts')) {
               return 'vendor-echarts';

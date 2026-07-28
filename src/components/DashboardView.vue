@@ -6,10 +6,12 @@ import VrcAvatar from './VrcAvatar.vue';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser } from '../types/vrc';
 import { useUserProfileStore } from '../stores/userProfile';
+import { useFriendsStore } from '../stores/friendsStore';
 import { currentTheme } from '../theme';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
+const friendsStore = useFriendsStore();
 
 const loading = ref(false);
 const onlineFriendsCount = ref(0);
@@ -21,17 +23,18 @@ const heatmapData = ref<number[]>([0, 0, 0, 0, 0, 0, 0]); // 7天数据
 const fetchData = async () => {
   loading.value = true;
   try {
-    // 1. 获取在线好友与实例
-    const friends = await VrcApi.getFriends({ n: 100, offset: 0 });
-    const online = friends.filter((f: VrcUser) => f.location && f.location !== 'offline');
+    // 1. 使用共享好友数据，避免重复API调用
+    await friendsStore.fetchFriends();
+    const friends = friendsStore.allFriends;
+    const online = friendsStore.onlineFriends;
     onlineFriendsCount.value = online.length;
     
     // 计算不重复的实例数量
-    const instances = new Set(online.map((f: VrcUser) => f.location).filter((loc: string | undefined) => loc && loc !== 'private'));
+    const instances = new Set(online.map((f: any) => f.location).filter((loc: string | undefined) => loc && loc !== 'private'));
     activeInstancesCount.value = instances.size;
     
     // 获取所有的在线好友
-    recentFriends.value = online;
+    recentFriends.value = online as VrcUser[];
 
     // 2. 获取服务器状态
     const statusRes = await VrcApi.getServerStatus();

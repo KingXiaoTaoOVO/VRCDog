@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { VrcApi, DbApi } from "../api";
+import { isTauri } from '@tauri-apps/api/core';
 import { Search, RefreshCcw, Settings, ChevronDown, ChevronRight, UsersRound, X } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useEntityModalStore } from '../stores/entityModal';
+import { useFriendsStore } from '../stores/friendsStore';
 import FriendItem from './FriendItem.vue';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
 const authStore = useAuthStore();
 const entityStore = useEntityModalStore();
+const friendsStore = useFriendsStore();
 
 const onlineFriends = ref<any[]>([]);
 const activeFriends = ref<any[]>([]); // 活跃中 (仅登录网页端)
@@ -50,7 +53,8 @@ const fetchFriends = async () => {
     loading.value = true;
     errorMsg.value = '';
     try {
-      const cached: any[] = await DbApi.getCachedFriends() || [];
+      // Use shared store — avoids duplicate API calls from DashboardView, ChartsView, etc.
+      const cached = await friendsStore.fetchFriends();
 
       const normalized = cached.filter((f: any) => f?.id || f?.displayName);
       const isOnlineLocation = (location: unknown) => {
@@ -65,14 +69,14 @@ const fetchFriends = async () => {
       onlineFriends.value = normalized.filter((f: any) => isOnlineLocation(f.location));
       activeFriends.value = normalized.filter((f: any) => !isOnlineLocation(f.location) && isActiveStatus(f.status));
       offlineFriends.value = normalized.filter((f: any) => !isOnlineLocation(f.location) && !isActiveStatus(f.status));
-  } catch (err: any) {
-    errorMsg.value = err.message || err;
-  } finally {
-    loading.value = false;
-    // 后台解析世界名称
-    resolveWorldNames();
-  }
-  }, 1000); // 1s debounce
+    } catch (err: any) {
+      errorMsg.value = err.message || err;
+    } finally {
+      loading.value = false;
+      // 后台解析世界名称
+      resolveWorldNames();
+    }
+  }, 500); // Reduced debounce: 500ms (was 1s)
 };
 
 const normalizeGroup = (entry: any) => {
@@ -96,7 +100,7 @@ const fetchGroups = async (force = false) => {
   groupsLoading.value = true;
   groupsErrorMsg.value = '';
   try {
-    const res: any = await VrcApi.getGroups();
+    const res: any = await VrcApi.getGroups({ userId: currentUser.value?.id });
     const list = Array.isArray(res) ? res : [];
     groups.value = list
       .map(normalizeGroup)
@@ -285,7 +289,7 @@ const cleanLocName = (loc: string) => {
 // 世界名缓存 (响应式)
 const worldNameCache = ref(new Map<string, string>());
 
-// 解析世界名称 (后台异步)
+// 解析世界名称 (后台并发，最多5个同时)
 const resolveWorldNames = async () => {
   const worldIds = new Set<string>();
   onlineFriends.value.forEach(f => {
@@ -294,25 +298,40 @@ const resolveWorldNames = async () => {
     }
   });
 
+  // 先从缓存批量读取
+  const needFetch: string[] = [];
   for (const worldId of worldIds) {
     if (worldNameCache.value.has(worldId)) continue;
     try {
-      // 先查 DB 缓存
       const cached = await DbApi.getApiCache({ key: `world_name:${worldId}` });
       if (cached) {
         worldNameCache.value.set(worldId, cached);
-        worldNameCache.value = new Map(worldNameCache.value); // 触发响应式
+        worldNameCache.value = new Map(worldNameCache.value);
         continue;
       }
-      // 请求 API
-      const w: any = await VrcApi.getWorld({ worldId });
-      if (w?.name) {
-        worldNameCache.value.set(worldId, w.name);
-        worldNameCache.value = new Map(worldNameCache.value);
-        await DbApi.saveApiCache({ key: `world_name:${worldId}`, data: w.name });
-      }
     } catch { /* ignore */ }
+    needFetch.push(worldId);
   }
+
+  if (needFetch.length === 0) return;
+
+  // 并发限制5个，避免大量API请求
+  const CONCURRENCY = 5;
+  let idx = 0;
+  async function worker() {
+    while (idx < needFetch.length) {
+      const worldId = needFetch[idx++];
+      try {
+        const w: any = await VrcApi.getWorld({ worldId });
+        if (w?.name) {
+          worldNameCache.value.set(worldId, w.name);
+          worldNameCache.value = new Map(worldNameCache.value);
+          await DbApi.saveApiCache({ key: `world_name:${worldId}`, data: w.name });
+        }
+      } catch { /* ignore */ }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, needFetch.length) }, worker));
 };
 </script>
 
@@ -343,7 +362,7 @@ const resolveWorldNames = async () => {
           :class="activeTab === 'friends' ? 'text-[var(--theme-text)]' : 'text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'"
           @click="setActiveTab('friends')"
         >
-          {{ t('friends.title') }} ({{ onlineCount }})
+          {{ t('friends.title') }} ({{ totalCount }})
           <div v-if="activeTab === 'friends'" class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary"></div>
         </button>
         <button 

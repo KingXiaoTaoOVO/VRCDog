@@ -23,8 +23,12 @@ impl Default for VrcState {
 impl VrcState {
     pub fn new() -> Self {
         let jar = Arc::new(reqwest::cookie::Jar::default());
+        let client = build_vrc_client(None, None, jar.clone()).unwrap_or_else(|error| {
+            eprintln!("[VrcApi] {error}");
+            Client::new()
+        });
         Self {
-            client: RwLock::new(build_vrc_client(None, None, jar.clone())),
+            client: RwLock::new(client),
             proxy_url: RwLock::new(None),
             cookie_jar: RwLock::new(jar),
         }
@@ -35,7 +39,7 @@ fn build_vrc_client(
     proxy_url: Option<String>,
     auth_cookie: Option<String>,
     jar: Arc<reqwest::cookie::Jar>,
-) -> Client {
+) -> Result<Client, String> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::USER_AGENT,
@@ -64,13 +68,15 @@ fn build_vrc_client(
 
     if let Some(url) = proxy_url {
         if !url.is_empty() {
-            if let Ok(proxy) = reqwest::Proxy::all(&url) {
-                builder = builder.proxy(proxy);
-            }
+            let proxy =
+                reqwest::Proxy::all(&url).map_err(|error| format!("Invalid proxy URL: {error}"))?;
+            builder = builder.proxy(proxy);
         }
     }
 
-    builder.build().unwrap_or_else(|_| Client::new())
+    builder
+        .build()
+        .map_err(|error| format!("Unable to create HTTP client: {error}"))
 }
 
 #[tauri::command]
@@ -79,15 +85,17 @@ pub async fn vrc_set_proxy(
     proxy_url: Option<String>,
     auth_cookie: Option<String>,
 ) -> Result<(), String> {
+    let jar = Arc::new(reqwest::cookie::Jar::default());
+    let next_client = build_vrc_client(proxy_url.clone(), auth_cookie, jar.clone())?;
+
     let mut proxy_lock = state.proxy_url.write().await;
     *proxy_lock = proxy_url.clone();
 
-    let jar = Arc::new(reqwest::cookie::Jar::default());
     let mut jar_lock = state.cookie_jar.write().await;
     *jar_lock = jar.clone();
 
     let mut client = state.client.write().await;
-    *client = build_vrc_client(proxy_url, auth_cookie, jar);
+    *client = next_client;
     Ok(())
 }
 
@@ -96,11 +104,12 @@ pub async fn vrc_clear_cookies(state: tauri::State<'_, VrcState>) -> Result<(), 
     let proxy_url = state.proxy_url.read().await.clone();
 
     let jar = Arc::new(reqwest::cookie::Jar::default());
+    let next_client = build_vrc_client(proxy_url, None, jar.clone())?;
     let mut jar_lock = state.cookie_jar.write().await;
     *jar_lock = jar.clone();
 
     let mut client = state.client.write().await;
-    *client = build_vrc_client(proxy_url, None, jar);
+    *client = next_client;
     Ok(())
 }
 
@@ -116,6 +125,32 @@ pub async fn vrc_apply_auth_cookie(
     for cookie in parse_auth_cookies(&auth_cookie) {
         jar.add_cookie_str(&cookie, &url);
     }
+    Ok(())
+}
+
+/// Load saved auth cookies into the shared cookie jar on app startup.
+/// This ensures the session persists across app restarts without requiring
+/// the cookie to be passed on every single request.
+#[tauri::command]
+pub async fn vrc_load_cookies_on_startup(
+    state: tauri::State<'_, VrcState>,
+    auth_cookie: String,
+) -> Result<(), String> {
+    if auth_cookie.is_empty() {
+        return Ok(());
+    }
+    let jar = state.cookie_jar.read().await.clone();
+    let url = "https://api.vrchat.cloud"
+        .parse::<reqwest::Url>()
+        .map_err(|e| e.to_string())?;
+    let cookies = parse_auth_cookies(&auth_cookie);
+    for cookie in &cookies {
+        jar.add_cookie_str(cookie, &url);
+    }
+    eprintln!(
+        "[VrcApi] Loaded {} cookies into jar on startup",
+        cookies.len()
+    );
     Ok(())
 }
 
@@ -197,6 +232,31 @@ fn clean_network_error(error: &str) -> String {
     }
 }
 
+fn parse_http_url(raw: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid request URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!("Unsupported request URL scheme: {}", url.scheme()));
+    }
+    Ok(url)
+}
+
+fn parse_http_method(raw: &str) -> Result<reqwest::Method, String> {
+    reqwest::Method::from_bytes(raw.trim().to_uppercase().as_bytes())
+        .map_err(|error| format!("Invalid HTTP method: {error}"))
+}
+
+fn request_error_message(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        format!("REQUEST_TIMEOUT: {error}")
+    } else if error.is_connect() {
+        format!("REQUEST_CONNECT: {error}")
+    } else if error.is_body() || error.is_decode() {
+        format!("RESPONSE_BODY: {error}")
+    } else {
+        format!("REQUEST_NETWORK: {error}")
+    }
+}
+
 fn vrchat_error_message(data: &str) -> Option<String> {
     let json = serde_json::from_str::<serde_json::Value>(data).ok()?;
     json.pointer("/error/message")
@@ -220,7 +280,7 @@ fn is_vrchat_permission_401(url: &str, data: &str) -> bool {
 
 #[cfg(test)]
 mod cookie_tests {
-    use super::parse_auth_cookies;
+    use super::{parse_auth_cookies, parse_http_method, parse_http_url};
 
     #[test]
     fn parses_json_cookie_array() {
@@ -240,6 +300,14 @@ mod cookie_tests {
     fn wraps_bare_auth_token() {
         let cookies = parse_auth_cookies("abc123");
         assert_eq!(cookies, vec!["auth=abc123"]);
+    }
+
+    #[test]
+    fn validates_http_urls_and_methods() {
+        assert!(parse_http_url("https://api.vrchat.cloud/api/1/config").is_ok());
+        assert!(parse_http_url("file:///tmp/secret").is_err());
+        assert_eq!(parse_http_method("post").unwrap(), reqwest::Method::POST);
+        assert!(parse_http_method("not a method").is_err());
     }
 }
 
@@ -341,6 +409,9 @@ pub struct RequestOptions {
     pub body_is_base64: Option<bool>,
     pub form_data: Option<Vec<FormDataPart>>,
     pub auth_cookie: Option<String>,
+    /// Per-request timeout supplied by the UI.  Keep this bounded so a caller
+    /// cannot accidentally keep a shared API connection alive indefinitely.
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -348,6 +419,7 @@ pub struct ResponsePayload {
     pub status: u16,
     pub data: Option<String>,
     pub auth_cookie: Option<String>,
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 #[tauri::command]
@@ -358,45 +430,37 @@ pub async fn vrc_execute(
     // Use the shared client to preserve session cookies across requests
     let client = state.client.read().await.clone();
 
-    let method = match options.method.to_uppercase().as_str() {
-        "GET" => reqwest::Method::GET,
-        "POST" => reqwest::Method::POST,
-        "PUT" => reqwest::Method::PUT,
-        "DELETE" => reqwest::Method::DELETE,
-        _ => reqwest::Method::GET,
-    };
+    let method = parse_http_method(&options.method)?;
+    let request_url = parse_http_url(&options.url)?;
 
-    let mut req = client.request(method.clone(), &options.url);
+    let mut req = client.request(method, request_url.clone());
 
-    // Align with VrcDog auth handling: keep cookies in the jar and also attach
-    // a Cookie header for the current VRChat API request.
-    let mut direct_cookies: Vec<String> = Vec::new();
+    if let Some(timeout_ms) = options.timeout_ms {
+        req = req.timeout(Duration::from_millis(timeout_ms.clamp(1_000, 120_000)));
+    }
+
+    // Sync auth cookies into the shared jar so reqwest sends them automatically.
+    // No need to attach a manual Cookie header - the jar handles it.
     if let Some(ref cv) = options.auth_cookie {
         let jar = state.cookie_jar.read().await.clone();
-        if let Ok(url) = "https://api.vrchat.cloud".parse::<reqwest::Url>() {
-            direct_cookies = parse_auth_cookies(cv);
+        if request_url.host_str() == Some("api.vrchat.cloud") {
+            let url = "https://api.vrchat.cloud"
+                .parse::<reqwest::Url>()
+                .map_err(|error| error.to_string())?;
+            let direct_cookies = parse_auth_cookies(cv);
             for cookie in &direct_cookies {
                 jar.add_cookie_str(cookie, &url);
             }
         }
     }
 
-    // Attach direct cookies to VRChat API requests as a second auth path.
-    if !direct_cookies.is_empty() && options.url.contains("api.vrchat.cloud") {
-        let cookie_str = direct_cookies.join("; ");
-        if let Ok(hv) = reqwest::header::HeaderValue::from_str(&cookie_str) {
-            req = req.header(reqwest::header::COOKIE, hv);
-        }
-    }
-
     if let Some(headers) = options.headers {
         for (k, v) in headers {
-            if let (Ok(h_name), Ok(h_value)) = (
-                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                reqwest::header::HeaderValue::from_str(&v),
-            ) {
-                req = req.header(h_name, h_value);
-            }
+            let h_name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                .map_err(|error| format!("Invalid request header name: {error}"))?;
+            let h_value = reqwest::header::HeaderValue::from_str(&v)
+                .map_err(|error| format!("Invalid request header value for {k}: {error}"))?;
+            req = req.header(h_name, h_value);
         }
     }
 
@@ -412,9 +476,16 @@ pub async fn vrc_execute(
                         part_req = part_req.file_name(fname);
                     }
                     if let Some(mime) = part.file_mime {
-                        part_req = part_req.mime_str(&mime).unwrap();
+                        part_req = part_req
+                            .mime_str(&mime)
+                            .map_err(|error| format!("Invalid multipart MIME type: {error}"))?;
                     }
                     form = form.part(part.name, part_req);
+                } else {
+                    return Err(format!(
+                        "Invalid base64 content for multipart field {}",
+                        part.name
+                    ));
                 }
             }
         }
@@ -430,13 +501,32 @@ pub async fn vrc_execute(
         }
     }
 
-    let res = req.send().await.map_err(|e| e.to_string())?;
+    let res = req.send().await.map_err(request_error_message)?;
     let status = res.status().as_u16();
     let auth_cookie = extract_auth_cookie(&res);
-    let data = res.text().await.unwrap_or_default();
+    // Retry-After is required for cooperative VRChat rate-limit handling.
+    // Expose a small, non-sensitive response-header subset to the frontend.
+    let mut headers = std::collections::BTreeMap::new();
+    if let Some(retry_after) = res.headers().get(header::RETRY_AFTER) {
+        if let Ok(value) = retry_after.to_str() {
+            headers.insert("retry-after".to_string(), value.to_string());
+        }
+    }
+    let data = res.text().await.map_err(request_error_message)?;
+
+    // Sync response cookies back into the jar so subsequent requests
+    // within the same session use the refreshed tokens.
+    if let Some(ref cookie_str) = auth_cookie {
+        let jar = state.cookie_jar.read().await.clone();
+        if let Ok(url) = "https://api.vrchat.cloud".parse::<reqwest::Url>() {
+            for cookie in parse_auth_cookies(cookie_str) {
+                jar.add_cookie_str(&cookie, &url);
+            }
+        }
+    }
 
     if status == 401
-        && options.url.contains("api.vrchat.cloud")
+        && request_url.host_str() == Some("api.vrchat.cloud")
         && !is_vrchat_permission_401(&options.url, &data)
     {
         eprintln!(
@@ -450,5 +540,6 @@ pub async fn vrc_execute(
         status,
         data: Some(data),
         auth_cookie,
+        headers,
     })
 }

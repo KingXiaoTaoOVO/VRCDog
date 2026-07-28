@@ -1,13 +1,5 @@
 import { request } from './request';
-
-async function resolveCurrentUserId(userId?: string) {
-  if (userId) return userId;
-  const currentUser: any = await request('/auth/user', { method: 'GET' });
-  if (!currentUser?.id) {
-    throw new Error('无法获取当前用户 ID');
-  }
-  return currentUser.id;
-}
+import { resolveCurrentUserId } from './utils';
 
 export const UserApi = {
   getUser: (params: { userId: string } | string) => {
@@ -41,7 +33,7 @@ export const UserApi = {
     request('/userNotes', { method: 'GET', params }),
 
   getMutualCounts: (params: { userId: string }) =>
-    request(`/users/${params.userId}/mutuals`),
+    request(`/users/${params.userId}/mutuals`, { method: 'GET' }),
 
   getMutualFriends: (params: { userId: string, n?: number, offset?: number }) =>
     request(`/users/${params.userId}/mutuals/friends`, { method: 'GET', params }),

@@ -1,8 +1,5 @@
 import { getStoredAuthCookie, parseExecuteResponse, request, safeInvoke } from './request';
-
-function toCleanBase64(imageData: string) {
-  return imageData.includes(',') ? imageData.split(',')[1] : imageData;
-}
+import { toCleanBase64 } from './utils';
 
 async function uploadImage(imageData: string, params: Record<string, unknown>) {
   const authCookie = await getStoredAuthCookie();

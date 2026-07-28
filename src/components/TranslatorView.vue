@@ -122,6 +122,8 @@ const history = ref<VrctMessageRecord[]>([]);
 const autoSendOsc = useStorage('vrc_translator_auto_send_osc', true);
 const showOriginalOsc = useStorage('vrc_translator_show_original', true);
 const autoPlayTts = useStorage('vrc_translator_auto_tts', false);
+const multiLangEnabled = useStorage('vrc_translator_multi_lang', false);
+const multiLangTargets = useStorage<string[]>('vrc_translator_multi_targets', []);
 const ttsEngine = useStorage<TtsEngine>('vrc_translator_tts_engine', 'system');
 const gptSovitsUrl = useStorage('vrc_translator_gpt_sovits_url', 'http://127.0.0.1:9880');
 const gptSovitsWeights = useStorage('vrc_translator_sovits_weights', '');
@@ -287,6 +289,38 @@ const processMessage = async (
     if (autoPlayTts.value && record.translated) {
       await playTts(record.translated, targetLanguage);
     }
+
+    // Multi-language: translate and send to additional target languages
+    if (multiLangEnabled.value && multiLangTargets.value.length > 0 && sendOsc) {
+      for (const extraLang of multiLangTargets.value) {
+        if (extraLang === targetLanguage) continue;
+        try {
+          const extraRecord = await VrctApi.processMessage({
+            req: {
+              text: trimmed,
+              source,
+              source_lang: sourceLanguage,
+              target_lang: extraLang,
+              service: translateEngine.value,
+              api_key: apiKey.value.trim(),
+              model: model.value.trim(),
+              prompt: prompt.value.trim(),
+              custom_api_url: customApiUrl.value.trim(),
+              send_osc: true,
+              send_typing: false,
+              complete: true,
+              notification: false,
+              update_overlay: false,
+              show_original_in_osc: false,
+            },
+          }) as VrctMessageRecord;
+          await new Promise(resolve => setTimeout(resolve, 1200));
+        } catch (err) {
+          console.warn(`Multi-lang translate to ${extraLang} failed:`, err);
+        }
+      }
+    }
+
     return record;
   } catch (error) {
     errorMsg.value = `${tt('translator.network_error', 'Translation request failed. Please check your network and API settings')} ${errorText(error)}`;
@@ -308,6 +342,15 @@ const translateSpeakerText = (text: string) => processMessage(text, 'speaker', o
 const swapMyLanguages = () => {
   if (sourceLang.value === 'auto') return;
   [sourceLang.value, targetLang.value] = [targetLang.value, sourceLang.value];
+};
+
+const toggleMultiLangTarget = (lang: string) => {
+  const idx = multiLangTargets.value.indexOf(lang);
+  if (idx >= 0) {
+    multiLangTargets.value = multiLangTargets.value.filter(l => l !== lang);
+  } else {
+    multiLangTargets.value = [...multiLangTargets.value, lang];
+  }
 };
 
 const swapOtherLanguages = () => {
@@ -581,6 +624,32 @@ onUnmounted(async () => {
               <input v-model="autoPlayTts" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
               <span class="text-sm font-bold text-text-muted truncate">{{ tt('translator.auto_tts', '自动语音播报') }}</span>
             </label>
+            <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
+              <input v-model="multiLangEnabled" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
+              <span class="text-sm font-bold text-text-muted truncate">多语言同时翻译</span>
+            </label>
+          </div>
+
+          <!-- Multi-language target selector -->
+          <div v-if="multiLangEnabled" class="md:col-span-2 mt-2 p-3 bg-surface-hover rounded-xl border border-border-soft">
+            <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">额外目标语言 (多语言 OSC)</label>
+            <div class="flex flex-wrap gap-2">
+              <label
+                v-for="opt in languageOptions.filter(o => o.value !== 'auto' && o.value !== targetLang)"
+                :key="opt.value"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft cursor-pointer hover:border-primary transition-all text-xs font-bold"
+                :class="multiLangTargets.includes(opt.value) ? 'border-primary text-primary bg-primary/5' : 'text-text-muted'"
+              >
+                <input
+                  :checked="multiLangTargets.includes(opt.value)"
+                  type="checkbox"
+                  class="w-3 h-3 text-primary rounded shrink-0"
+                  @change="toggleMultiLangTarget(opt.value)"
+                >
+                {{ opt.label }}
+              </label>
+            </div>
+            <p class="text-[10px] text-text-muted mt-2">翻译结果将依次发送到 VRChat ChatBox（每条间隔约1.2秒）</p>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

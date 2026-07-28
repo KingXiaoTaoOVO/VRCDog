@@ -50,6 +50,8 @@ export function parseCookieInput(rawCookie: string | null | undefined): string[]
     return cookies;
   }
 
+  // If no valid key=value cookies were parsed, check if it's a bare token (no '=')
+  // and wrap it as auth=<token>. If it contains '=' but failed parsing, it's corrupt - return empty.
   return raw.includes('=') ? [] : [`auth=${raw}`];
 }
 
@@ -79,8 +81,12 @@ export function getCookieValue(
 
 export async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Promise<string | null> {
   const newCookies = parseCookieInput(newCookieJson);
-  if (!isTauri() || newCookies.length === 0) {
-    return newCookies.length > 0 ? JSON.stringify(newCookies) : null;
+  if (newCookies.length === 0) {
+    return null;
+  }
+
+  if (!isTauri()) {
+    return JSON.stringify(newCookies);
   }
 
   let existing: string[] = [];
@@ -91,10 +97,14 @@ export async function mergeCookiesAndSave(newCookieJson: string | null | undefin
     existing = [];
   }
 
+  // Merge: new cookies overwrite existing ones with the same name
   const cookieMap = new Map<string, string>();
   for (const cookie of [...existing, ...newCookies]) {
-    const name = cookie.split('=')[0]?.trim().toLowerCase();
-    if (name) cookieMap.set(name, cookie);
+    const equalsIdx = cookie.indexOf('=');
+    if (equalsIdx > 0) {
+      const name = cookie.slice(0, equalsIdx).trim().toLowerCase();
+      if (name) cookieMap.set(name, cookie);
+    }
   }
 
   const merged = Array.from(cookieMap.values());

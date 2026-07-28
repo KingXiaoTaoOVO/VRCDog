@@ -58,7 +58,8 @@ impl SecureTunnel {
 
     /// 加密数据
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, String> {
-        self.encrypt_packet(plaintext).map(|(_, ciphertext)| ciphertext)
+        self.encrypt_packet(plaintext)
+            .map(|(_, ciphertext)| ciphertext)
     }
 
     pub fn encrypt_packet(&self, plaintext: &[u8]) -> Result<(u64, Vec<u8>), String> {

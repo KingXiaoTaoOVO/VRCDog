@@ -2177,8 +2177,7 @@ pub async fn ovr_capture_screenshot(
     app_handle: AppHandle,
     state: tauri::State<'_, OvrState>,
 ) -> crate::AppResult<String> {
-    let s = state.status.lock().await;
-    if !s.initialized {
+    if !state.status.lock().await.initialized {
         return Err("OpenVR 尚未初始化".into());
     }
     let _ = app_handle.emit("ovr_log", "[OVR] 正在捕获 VR 截图...");
@@ -2187,6 +2186,8 @@ pub async fn ovr_capture_screenshot(
     let temp_dir = std::env::temp_dir();
     let path = temp_dir.join("vrcdog_vr_capture.png");
     let path_str = path.to_string_lossy().to_string();
+
+    crate::ocr::OcrEngine::capture_primary_screen_to_file(&path).await?;
 
     let _ = app_handle.emit("ovr_log", format!("[OVR] 截图路径: {}", path_str));
     let _ = app_handle.emit("ovr_screenshot_ready", &path_str);

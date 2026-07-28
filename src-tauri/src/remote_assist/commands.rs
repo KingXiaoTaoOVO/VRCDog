@@ -162,10 +162,7 @@ pub async fn remote_assist_stop_view(session_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn remote_assist_send_input(
-    session_id: String,
-    event: InputEvent,
-) -> Result<(), String> {
+pub async fn remote_assist_send_input(session_id: String, event: InputEvent) -> Result<(), String> {
     require_connected_session(&session_id).await?;
     transport::send_wire(session_id, WireMessage::Input(event)).await
 }
@@ -216,11 +213,7 @@ pub async fn remote_assist_send_chat(
             return Err("The remote-assist session is not connected".into());
         }
     }
-    transport::send_wire(
-        session_id.clone(),
-        WireMessage::Chat { text: text.clone() },
-    )
-    .await?;
+    transport::send_wire(session_id.clone(), WireMessage::Chat { text: text.clone() }).await?;
 
     let message = ChatMessage {
         id: uuid::Uuid::new_v4().to_string(),

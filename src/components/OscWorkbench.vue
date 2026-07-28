@@ -8,6 +8,7 @@ import {
   Clock3,
   Cpu,
   Gauge,
+  HardDrive,
   HeartPulse,
   History,
   MemoryStick,
@@ -21,6 +22,7 @@ import {
   Route,
   Save,
   Send,
+  Server,
   SlidersHorizontal,
   Square,
   Trash2,
@@ -35,6 +37,15 @@ import {
   type OscValueType,
 } from '../api';
 import { useAuthStore } from '../stores/authStore';
+import {
+  formatDuration,
+  formatGigabytes,
+  formatHardwareSpecs,
+  formatHardwareUsage,
+  oscTextLength,
+  renderOscTemplate,
+  truncateOscText,
+} from '../utils/oscFormatting';
 
 type OscTab = 'send' | 'monitor' | 'chatbox' | 'automation' | 'router';
 type AutoChatMode = 'repeat' | 'queue';
@@ -88,12 +99,23 @@ const monitorError = ref('');
 
 const emptySnapshot = (): OscSystemSnapshot => ({
   cpuUsage: 0,
+  cpuName: '',
+  cpuPhysicalCores: 0,
+  cpuLogicalCores: 0,
+  cpuFrequencyMhz: 0,
   ramUsage: 0,
   memoryUsedGb: 0,
   memoryTotalGb: 0,
+  gpuName: '',
   gpuUsage: null,
   gpuMemoryUsedGb: null,
   gpuMemoryTotalGb: null,
+  diskUsage: 0,
+  diskUsedGb: 0,
+  diskTotalGb: 0,
+  osName: '',
+  hostName: '',
+  systemUptimeSeconds: 0,
   idleSeconds: 0,
   activeWindow: '',
   localTime: '--:--:--',
@@ -102,9 +124,10 @@ const emptySnapshot = (): OscSystemSnapshot => ({
 });
 const snapshot = ref<OscSystemSnapshot>(emptySnapshot());
 const snapshotLoading = ref(false);
+const snapshotError = ref('');
 
 const chatMessage = ref('');
-const chatTemplate = ref('{message}\n{time} {hardware}\n{heart_rate} {music}\n{window}');
+const chatTemplate = ref('{message}\n{time}  {hardware}\n{heart_rate} {music}');
 const musicText = ref('');
 const heartRate = ref(0);
 const heartRateAddress = ref('/avatar/parameters/HeartRate');
@@ -180,7 +203,16 @@ const sourceOptions = [
   { value: 'ram_usage', label: 'RAM 使用率 0-1' },
   { value: 'gpu_usage', label: 'GPU 使用率 0-1' },
   { value: 'memory_used_gb', label: '已用内存 GB' },
+  { value: 'memory_total_gb', label: '总内存 GB' },
   { value: 'gpu_memory_used_gb', label: '已用显存 GB' },
+  { value: 'gpu_memory_total_gb', label: '总显存 GB' },
+  { value: 'disk_usage', label: '磁盘使用率 0-1' },
+  { value: 'disk_used_gb', label: '已用磁盘 GB' },
+  { value: 'disk_total_gb', label: '总磁盘 GB' },
+  { value: 'cpu_physical_cores', label: 'CPU 物理核心数' },
+  { value: 'cpu_logical_cores', label: 'CPU 线程数' },
+  { value: 'cpu_frequency_mhz', label: 'CPU 频率 MHz' },
+  { value: 'system_uptime_seconds', label: '系统运行秒数' },
   { value: 'idle_seconds', label: '挂机秒数' },
   { value: 'vrc_running', label: 'VRChat 运行状态' },
   { value: 'local_hour', label: '本地小时' },
@@ -208,40 +240,37 @@ const formatIdle = (seconds: number) => {
   return `${minutes}m ${remainder}s`;
 };
 
-const hardwareText = computed(() => {
-  const parts = [
-    `CPU ${snapshot.value.cpuUsage.toFixed(0)}%`,
-    `RAM ${snapshot.value.ramUsage.toFixed(0)}%`,
-  ];
-  if (snapshot.value.gpuUsage != null) parts.push(`GPU ${snapshot.value.gpuUsage.toFixed(0)}%`);
-  return `[${parts.join(' | ')}]`;
-});
+const hardwareText = computed(() => formatHardwareUsage(snapshot.value));
+const hardwareSpecs = computed(() => formatHardwareSpecs(snapshot.value));
 
 const renderedChatbox = computed(() => {
   const replacements: Record<string, string> = {
     '{message}': chatMessage.value.trim(),
-    '{time}': `[${snapshot.value.localTime}]`,
-    '{date}': `[${snapshot.value.localDate}]`,
+    '{time}': snapshot.value.localTime,
+    '{date}': snapshot.value.localDate,
     '{cpu}': `${snapshot.value.cpuUsage.toFixed(0)}%`,
     '{ram}': `${snapshot.value.ramUsage.toFixed(0)}%`,
     '{gpu}': snapshot.value.gpuUsage == null ? '' : `${snapshot.value.gpuUsage.toFixed(0)}%`,
     '{hardware}': hardwareText.value,
+    '{specs}': hardwareSpecs.value,
+    '{memory}': `${formatGigabytes(snapshot.value.memoryUsedGb)} / ${formatGigabytes(snapshot.value.memoryTotalGb)}`,
+    '{vram}': snapshot.value.gpuMemoryTotalGb == null
+      ? ''
+      : `${formatGigabytes(snapshot.value.gpuMemoryUsedGb)} / ${formatGigabytes(snapshot.value.gpuMemoryTotalGb)}`,
+    '{disk}': `${formatGigabytes(snapshot.value.diskUsedGb, 0)} / ${formatGigabytes(snapshot.value.diskTotalGb, 0)}`,
+    '{cpu_name}': snapshot.value.cpuName,
+    '{gpu_name}': snapshot.value.gpuName,
+    '{os}': snapshot.value.osName,
+    '{host}': snapshot.value.hostName,
+    '{uptime}': formatDuration(snapshot.value.systemUptimeSeconds),
     '{idle}': snapshot.value.idleSeconds > 0 ? `[挂机 ${formatIdle(snapshot.value.idleSeconds)}]` : '',
-    '{window}': snapshot.value.activeWindow ? `[窗口 ${snapshot.value.activeWindow.slice(0, 36)}]` : '',
+    '{window}': snapshot.value.activeWindow ? `[窗口 ${truncateOscText(snapshot.value.activeWindow, 36)}]` : '',
     '{heart_rate}': heartRate.value > 0 ? `[心率 ${heartRate.value} BPM]` : '',
     '{music}': musicText.value.trim() ? `[音乐 ${musicText.value.trim()}]` : '',
   };
-  let result = chatTemplate.value;
-  Object.entries(replacements).forEach(([key, value]) => {
-    result = result.split(key).join(value);
-  });
-  return result
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim()
-    .slice(0, 144);
+  return renderOscTemplate(chatTemplate.value, replacements);
 });
+const renderedChatboxLength = computed(() => oscTextLength(renderedChatbox.value));
 
 const currentAvatarId = computed(() => {
   const user = authStore.currentUser as any;
@@ -410,7 +439,16 @@ function sourceRawValue(source: string): number | null {
     ram_usage: snapshot.value.ramUsage / 100,
     gpu_usage: snapshot.value.gpuUsage == null ? null : snapshot.value.gpuUsage / 100,
     memory_used_gb: snapshot.value.memoryUsedGb,
+    memory_total_gb: snapshot.value.memoryTotalGb,
     gpu_memory_used_gb: snapshot.value.gpuMemoryUsedGb,
+    gpu_memory_total_gb: snapshot.value.gpuMemoryTotalGb,
+    disk_usage: snapshot.value.diskUsage / 100,
+    disk_used_gb: snapshot.value.diskUsedGb,
+    disk_total_gb: snapshot.value.diskTotalGb,
+    cpu_physical_cores: snapshot.value.cpuPhysicalCores,
+    cpu_logical_cores: snapshot.value.cpuLogicalCores,
+    cpu_frequency_mhz: snapshot.value.cpuFrequencyMhz,
+    system_uptime_seconds: snapshot.value.systemUptimeSeconds,
     idle_seconds: snapshot.value.idleSeconds,
     vrc_running: snapshot.value.vrcRunning ? 1 : 0,
     local_hour: now.getHours(),
@@ -436,10 +474,11 @@ function mappingPreview(mapping: OscAutomationMapping) {
 
 async function refreshSnapshot() {
   snapshotLoading.value = true;
+  snapshotError.value = '';
   try {
     snapshot.value = await OscApi.getSystemSnapshot();
-  } catch {
-    // Keep the last snapshot when optional hardware providers are unavailable.
+  } catch (error: any) {
+    snapshotError.value = error?.message || '系统信息检测失败';
   } finally {
     snapshotLoading.value = false;
   }
@@ -460,7 +499,7 @@ async function setTyping(active: boolean) {
 }
 
 async function sendChatText(text: string) {
-  const trimmed = text.trim().slice(0, 144);
+  const trimmed = truncateOscText(text.trim());
   if (!trimmed) return;
   await OscApi.sendChatbox({
     host: endpoint.value.host,
@@ -948,7 +987,7 @@ onUnmounted(() => {
                 <strong>Chatbox 模板</strong>
                 <span>最终内容自动限制为 144 字符</span>
               </div>
-              <span class="char-count" :class="{ warn: renderedChatbox.length >= 136 }">{{ renderedChatbox.length }}/144</span>
+              <span class="char-count" :class="{ warn: renderedChatboxLength >= 136 }">{{ renderedChatboxLength }}/144</span>
             </div>
 
             <label class="field">
@@ -962,7 +1001,7 @@ onUnmounted(() => {
 
             <div class="variable-bar">
               <button
-                v-for="variable in ['{message}', '{time}', '{date}', '{hardware}', '{cpu}', '{ram}', '{gpu}', '{idle}', '{window}', '{heart_rate}', '{music}']"
+                v-for="variable in ['{message}', '{time}', '{date}', '{hardware}', '{specs}', '{cpu}', '{ram}', '{gpu}', '{memory}', '{vram}', '{disk}', '{uptime}', '{idle}', '{window}', '{heart_rate}', '{music}']"
                 :key="variable"
                 @click="insertTemplateVariable(variable)"
               >
@@ -1004,6 +1043,7 @@ onUnmounted(() => {
               </button>
             </div>
             <pre>{{ renderedChatbox || '输入消息或插入模板变量' }}</pre>
+            <p v-if="snapshotError" class="inline-status error">{{ snapshotError }}</p>
 
             <div class="auto-chat-controls">
               <div class="segmented compact">
@@ -1039,12 +1079,29 @@ onUnmounted(() => {
 
       <template v-else-if="activeTab === 'automation'">
         <div class="metric-strip">
-          <div><Cpu :size="16" /><span>CPU</span><strong>{{ snapshot.cpuUsage.toFixed(0) }}%</strong></div>
-          <div><MemoryStick :size="16" /><span>RAM</span><strong>{{ snapshot.ramUsage.toFixed(0) }}%</strong></div>
-          <div><Gauge :size="16" /><span>GPU</span><strong>{{ snapshot.gpuUsage == null ? '--' : `${snapshot.gpuUsage.toFixed(0)}%` }}</strong></div>
-          <div><Clock3 :size="16" /><span>挂机</span><strong>{{ formatIdle(snapshot.idleSeconds) }}</strong></div>
-          <div><Monitor :size="16" /><span>窗口</span><strong :title="snapshot.activeWindow">{{ snapshot.activeWindow || '--' }}</strong></div>
+          <div><Cpu :size="16" /><span>CPU</span><strong>{{ snapshot.cpuUsage.toFixed(0) }}%</strong><small>{{ snapshot.cpuPhysicalCores || '--' }} 核 / {{ snapshot.cpuLogicalCores || '--' }} 线程</small></div>
+          <div><Gauge :size="16" /><span>GPU</span><strong>{{ snapshot.gpuUsage == null ? '--' : `${snapshot.gpuUsage.toFixed(0)}%` }}</strong><small>{{ snapshot.gpuUsage == null ? '负载不可用' : '实时负载' }}</small></div>
+          <div><MemoryStick :size="16" /><span>内存</span><strong>{{ formatGigabytes(snapshot.memoryUsedGb) }} / {{ formatGigabytes(snapshot.memoryTotalGb) }}</strong><small>{{ snapshot.ramUsage.toFixed(0) }}%</small></div>
+          <div><Server :size="16" /><span>显存</span><strong>{{ formatGigabytes(snapshot.gpuMemoryUsedGb) }} / {{ formatGigabytes(snapshot.gpuMemoryTotalGb) }}</strong><small>{{ snapshot.gpuMemoryTotalGb == null ? '未提供遥测' : '专用显存' }}</small></div>
+          <div><HardDrive :size="16" /><span>磁盘</span><strong>{{ formatGigabytes(snapshot.diskUsedGb, 0) }} / {{ formatGigabytes(snapshot.diskTotalGb, 0) }}</strong><small>{{ snapshot.diskUsage.toFixed(0) }}%</small></div>
+          <div><Clock3 :size="16" /><span>运行时间</span><strong>{{ formatDuration(snapshot.systemUptimeSeconds) }}</strong><small>空闲 {{ formatDuration(snapshot.idleSeconds) }}</small></div>
         </div>
+
+        <div class="hardware-profile">
+          <div class="hardware-profile-head">
+            <div><Activity :size="16" /><strong>自动检测到的设备</strong><span>实时</span></div>
+            <button title="重新检测系统信息" :disabled="snapshotLoading" @click="refreshSnapshot">
+              <RefreshCcw :size="14" :class="{ spin: snapshotLoading }" />
+            </button>
+          </div>
+          <dl>
+            <div><dt>处理器</dt><dd :title="snapshot.cpuName">{{ snapshot.cpuName || '未检测到' }}</dd></div>
+            <div><dt>显卡</dt><dd :title="snapshot.gpuName">{{ snapshot.gpuName || '未检测到' }}</dd></div>
+            <div><dt>系统</dt><dd :title="snapshot.osName">{{ snapshot.osName || '未检测到' }}</dd></div>
+            <div><dt>设备</dt><dd>{{ snapshot.hostName || '未检测到' }}</dd></div>
+          </dl>
+        </div>
+        <p v-if="snapshotError" class="inline-status error">{{ snapshotError }}</p>
 
         <div class="automation-toolbar">
           <label>
@@ -1735,12 +1792,19 @@ code {
 }
 
 .auto-chat-controls {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 7px;
 }
 
 .auto-chat-controls .segmented {
-  flex: 1;
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.auto-chat-controls > .primary {
+  justify-self: end;
 }
 
 .auto-chat-controls label,
@@ -1795,7 +1859,7 @@ code {
 
 .metric-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   margin-bottom: 12px;
   overflow: hidden;
@@ -1806,8 +1870,8 @@ code {
 
 .metric-strip > div {
   min-width: 0;
-  min-height: 54px;
-  padding: 8px 10px;
+  min-height: 72px;
+  padding: 9px 11px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
@@ -1826,6 +1890,83 @@ code {
   overflow: hidden;
   color: var(--theme-text);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-strip small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--theme-text-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hardware-profile {
+  margin-bottom: 12px;
+  border-top: 1px solid var(--theme-border-soft);
+  border-bottom: 1px solid var(--theme-border-soft);
+}
+
+.hardware-profile-head {
+  min-height: 40px;
+  padding: 5px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hardware-profile-head > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--theme-text);
+  font-size: 12px;
+}
+
+.hardware-profile-head span {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--theme-success) 34%, transparent);
+  border-radius: 999px;
+  color: var(--theme-success);
+  background: color-mix(in srgb, var(--theme-success) 8%, transparent);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.hardware-profile dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+
+.hardware-profile dl > div {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--theme-border-soft);
+}
+
+.hardware-profile dt {
+  color: var(--theme-text-faint);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.hardware-profile dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: 11px;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1990,6 +2131,10 @@ code {
   }
 
   .metric-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .hardware-profile dl {
     grid-template-columns: 1fr;
   }
 }

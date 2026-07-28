@@ -6,8 +6,11 @@ pub struct PlayspaceController {
     original_pose: sys::HmdMatrix34_t,
 }
 
-// SAFETY: The OpenVR function table pointer is static and valid for the lifetime of the application.
-// Struct contains only data and a read-only function table pointer, making it safe to share across threads.
+// SAFETY: The OpenVR function table pointer is obtained via VR_GetGenericInterface which returns
+// a process-lifetime pointer to a static vtable. The pointer is valid for the lifetime of the
+// process and is never freed. The struct only holds this pointer plus data copies (base_pose,
+// original_pose), so sharing across threads does not introduce data races on the vtable itself.
+// The caller must ensure OpenVR is initialized before creating this struct.
 unsafe impl Send for PlayspaceController {}
 unsafe impl Sync for PlayspaceController {}
 
@@ -22,6 +25,11 @@ impl PlayspaceController {
         if ptr != 0 {
             let setup_ptr = ptr as *mut sys::VR_IVRChaperoneSetup_FnTable;
             let mut base_pose = sys::HmdMatrix34_t { m: [[0.0; 4]; 3] };
+
+            // Null-check the function table before dereferencing
+            if setup_ptr.is_null() {
+                return Err(sys::EVRInitError_VRInitError_Init_InterfaceNotFound);
+            }
 
             // Get current pose as base
             unsafe {

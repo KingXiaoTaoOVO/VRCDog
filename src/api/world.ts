@@ -1,7 +1,19 @@
 import { getStoredAuthCookie, parseExecuteResponse, request, safeInvoke } from './request';
+import { toCleanBase64 } from './utils';
 
-function toCleanBase64(imageData: string) {
-  return imageData.includes(',') ? imageData.split(',')[1] : imageData;
+export interface WorldQuery {
+  n?: number;
+  offset?: number;
+  search?: string;
+  tag?: string;
+  user?: string;
+  sort?: string;
+  order?: 'ascending' | 'descending';
+  releaseStatus?: string;
+  publicationStatus?: string;
+  featured?: boolean;
+  platform?: string;
+  [key: string]: unknown;
 }
 
 export const WorldApi = {
@@ -10,12 +22,22 @@ export const WorldApi = {
     return request(`/worlds/${worldId}`);
   },
 
-  getWorlds: (params: { search?: string, n?: number, offset?: number, user?: string, releaseStatus?: string, sort?: string }, option?: string) => {
+  getWorlds: (params: WorldQuery = {}, option?: string) => {
     let endpoint = 'worlds';
     if (option) {
       endpoint = `worlds/${option}`;
     }
     return request(endpoint, { method: 'GET', params });
+  },
+
+  getWorldsByUser: (params: WorldQuery & { userId: string }) => {
+    const { userId, ...query } = params;
+    return request('worlds', { method: 'GET', params: { ...query, user: userId } });
+  },
+
+  searchWorlds: (params: WorldQuery & { query: string }) => {
+    const { query, ...rest } = params;
+    return request('worlds', { method: 'GET', params: { ...rest, search: query } });
   },
 
   deleteWorld: (params: { worldId: string }) =>

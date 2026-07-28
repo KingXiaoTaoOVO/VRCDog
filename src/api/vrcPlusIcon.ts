@@ -1,8 +1,5 @@
 import { getStoredAuthCookie, parseExecuteResponse, request, safeInvoke } from './request';
-
-function toCleanBase64(imageData: string) {
-  return imageData.includes(',') ? imageData.split(',')[1] : imageData;
-}
+import { toCleanBase64 } from './utils';
 
 export const VrcPlusIconApi = {
   getFileList: (params: { tag?: string; userId?: string; n?: number; offset?: number } = {}) =>

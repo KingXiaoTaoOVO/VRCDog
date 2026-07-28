@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
-import { Bell, Loader2, UserPlus, Check, X, Megaphone, HelpCircle, UsersRound, MessageSquare, Info, UserCheck, UserX } from 'lucide-vue-next';
+import { Bell, Loader2, UserPlus, Check, X, Megaphone, HelpCircle, UsersRound, MessageSquare, Info, UserCheck, UserX, MapPin, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcNotification } from '../types/vrc';
 import { useToast } from '../composables/useToast';
@@ -13,7 +13,7 @@ const notifications = ref<VrcNotification[]>([]);
 const loading = ref(true);
 const errorMsg = ref('');
 const processingId = ref<string | null>(null);
-const localNotificationTypes = new Set(['friend-online', 'friend-offline']);
+const localNotificationTypes = new Set(['friend-online', 'friend-offline', 'friend-location']);
 const actionableNotificationTypes = new Set(['friendRequest', 'invite', 'requestInvite', 'group.invite', 'group.request']);
 
 const getNotificationTitle = (notif: VrcNotification) => {
@@ -36,6 +36,8 @@ const getNotificationTitle = (notif: VrcNotification) => {
       return sender ? `${sender} 已上线` : '好友已上线';
     case 'friend-offline':
       return sender ? `${sender} 已下线` : '好友已下线';
+    case 'friend-location':
+      return sender ? `${sender} 切换了世界` : '好友切换世界';
     default:
       return sender || '';
   }
@@ -187,8 +189,36 @@ onUnmounted(() => {
 
 const handlePipelineEvent = (e: Event) => {
   const json = (e as CustomEvent).detail;
-  if (json && ['notification', 'hide-notification', 'clear-notification', 'friend-online', 'friend-offline'].includes(json.type)) {
+  if (json && ['notification', 'hide-notification', 'clear-notification', 'friend-online', 'friend-offline', 'friend-location'].includes(json.type)) {
     fetchNotifications(false);
+  }
+};
+
+const filterTab = ref<'all' | 'friend' | 'invite' | 'other'>('all');
+
+const filteredNotifications = computed(() => {
+  if (filterTab.value === 'all') return notifications.value;
+  if (filterTab.value === 'friend') {
+    return notifications.value.filter(n => ['friend-online', 'friend-offline', 'friend-location'].includes(n.type));
+  }
+  if (filterTab.value === 'invite') {
+    return notifications.value.filter(n => ['invite', 'requestInvite', 'group.invite', 'group.request'].includes(n.type));
+  }
+  return notifications.value.filter(n => !['friend-online', 'friend-offline', 'friend-location', 'invite', 'requestInvite', 'group.invite', 'group.request'].includes(n.type));
+});
+
+const clearAllNotifications = async () => {
+  if (notifications.value.length === 0) return;
+  loading.value = true;
+  try {
+    await Promise.allSettled(notifications.value.map((notif) => DbApi.deleteNotification({ id: notif.id })));
+    notifications.value = [];
+    toast.success('已清空所有通知');
+  } catch (err: any) {
+    errorMsg.value = err?.message || String(err);
+    toast.error(`清空失败：${errorMsg.value}`);
+  } finally {
+    loading.value = false;
   }
 };
 
@@ -196,6 +226,7 @@ const getNotificationIcon = (type: string) => {
   switch (type) {
     case 'friend-online': return UserCheck;
     case 'friend-offline': return UserX;
+    case 'friend-location': return MapPin;
     case 'friendRequest': return UserPlus;
     case 'invite': 
     case 'requestInvite': return Megaphone;
@@ -257,6 +288,35 @@ const renderDetails = (details: any) => {
       </button>
     </div>
 
+    <!-- Filter Tabs + Clear All -->
+    <div class="flex items-center gap-2 mb-4 shrink-0 z-10">
+      <div class="flex gap-1 bg-surface rounded-xl p-1 border-border-soft shadow-sm">
+        <button
+          v-for="tab in [
+            { key: 'all', label: '全部' },
+            { key: 'friend', label: '好友' },
+            { key: 'invite', label: '邀请' },
+            { key: 'other', label: '其他' },
+          ]"
+          :key="tab.key"
+          class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+          :class="filterTab === tab.key ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover'"
+          @click="filterTab = tab.key as any"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <button
+        v-if="notifications.length > 0"
+        :disabled="loading"
+        class="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 text-red-500 hover:bg-red-100 transition-all disabled:opacity-50 flex items-center gap-1.5 border border-red-200"
+        @click="clearAllNotifications"
+      >
+        <Trash2 :size="14" />
+        清空全部
+      </button>
+    </div>
+
     <!-- 错误 -->
     <div
       v-if="errorMsg"
@@ -278,7 +338,7 @@ const renderDetails = (details: any) => {
       </div>
 
       <div
-        v-else-if="notifications.length === 0"
+        v-else-if="filteredNotifications.length === 0"
         class="h-full flex flex-col items-center justify-center text-border-strong"
       >
         <Bell
@@ -295,7 +355,7 @@ const renderDetails = (details: any) => {
         class="grid gap-3 pb-10"
       >
         <div
-          v-for="notif in notifications"
+          v-for="notif in filteredNotifications"
           :key="notif.id" 
           class="bg-surface backdrop-blur-xl rounded-2xl p-4 border-border-soft shadow-sm flex items-start gap-4 transition-all hover:border-primary hover:shadow-md group"
         >

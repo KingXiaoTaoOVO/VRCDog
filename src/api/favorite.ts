@@ -1,11 +1,5 @@
 import { request } from './request';
-
-async function resolveCurrentUserId(userId?: string) {
-  if (userId && userId !== 'me') return userId;
-  const currentUser: any = await request('/auth/user', { method: 'GET' });
-  if (!currentUser?.id) throw new Error('Unable to resolve current VRChat user id');
-  return currentUser.id;
-}
+import { resolveCurrentUserId } from './utils';
 
 export const FavoriteApi = {
   getFavorites: (params: { n?: number, offset?: number, type?: string }) =>

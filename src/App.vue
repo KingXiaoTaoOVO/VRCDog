@@ -21,6 +21,7 @@ import ServerDashboardView from './components/ServerDashboardView.vue';
 import RoleSelectView from './components/RoleSelectView.vue';
 import LoginView from './components/LoginView.vue';
 import OverlayView from './components/OverlayView.vue';
+import VrpianoOverlayView from './components/VrpianoOverlayView.vue';
 import ModeSelect from './components/layout/ModeSelect.vue';
 import VrLayout from './components/layout/VrLayout.vue';
 import PcLayout from './components/layout/PcLayout.vue';
@@ -106,9 +107,14 @@ const envStore = useEnvStore();
 const { appRole, isLoggedIn, autoLoginLoading, banMessage, serverConnected, reconnectCountdown, clientServerUrl, currentUser } = storeToRefs(authStore);
 const { appMode, activeTab } = storeToRefs(uiStore);
 
-const isOverlayMode = window.location.search.includes('mode=overlay');
-document.documentElement.classList.toggle('translation-overlay-mode', isOverlayMode);
-document.body.classList.toggle('translation-overlay-mode', isOverlayMode);
+const overlayMode = new URLSearchParams(window.location.search).get('mode');
+const isTranslationOverlayMode = overlayMode === 'overlay';
+const isVrpianoOverlayMode = overlayMode === 'vrpiano-overlay';
+const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode;
+document.documentElement.classList.toggle('translation-overlay-mode', isTranslationOverlayMode);
+document.body.classList.toggle('translation-overlay-mode', isTranslationOverlayMode);
+document.documentElement.classList.toggle('vrpiano-overlay-mode', isVrpianoOverlayMode);
+document.body.classList.toggle('vrpiano-overlay-mode', isVrpianoOverlayMode);
 const serverDashboardTarget = ref<{
   mode: 'local' | 'remote';
   url: string;
@@ -203,6 +209,7 @@ const applyProxyFromSettings = async (settings: any) => {
 };
 
 onMounted(async () => {
+  if (isOverlayMode) return;
   const sysCtx = useSystemContextStore();
   sysCtx.startPolling();
   await uiStore.loadCustomNavConfig();
@@ -262,7 +269,7 @@ onMounted(async () => {
     });
     
     if (isLoggedIn.value) {
-      authStore.syncInitialFriends(); 
+      authStore.startFriendsSync();
     }
 
   }
@@ -271,7 +278,7 @@ onMounted(async () => {
 // Window close: notify server
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
-    if (clientServerUrl.value && currentUser.value) {
+    if (!isOverlayMode && clientServerUrl.value && currentUser.value) {
       const uid = currentUser.value.id || currentUser.value.displayName;
       fetch(`${authStore.getBaseUrl()}/api/client/disconnect`, {
         method: 'POST',
@@ -332,7 +339,8 @@ if (typeof window !== 'undefined') {
     <div class="blob blob-2"></div>
   </div>
 
-  <OverlayView v-if="isOverlayMode" />
+  <OverlayView v-if="isTranslationOverlayMode" />
+  <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
   
   <ServerDashboardView
     v-else-if="appRole === 'server'"

@@ -92,11 +92,7 @@ fn capture_loop(
     Ok(())
 }
 
-fn encode_frame(
-    bgra: &[u8],
-    source_width: u32,
-    source_height: u32,
-) -> Result<Vec<u8>, String> {
+fn encode_frame(bgra: &[u8], source_width: u32, source_height: u32) -> Result<Vec<u8>, String> {
     let row_stride = bgra
         .len()
         .checked_div(source_height as usize)

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "node scripts/kill-port-1420.mjs && pnpm exec vite",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build:desktop",
     "frontendDist": "../dist"
   },
   "app": {
@@ -55,9 +55,31 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "OVRAS/*"
+      "OVRAS/*",
+      "vrcdog_actions.json",
+      "bindings_index.json",
+      "bindings_vive.json",
+      "bindings_touch.json",
+      "bindings_pico_neo3.json",
+      "bindings_pico4.json",
+      "bindings_wmr.json",
+      "bindings_cosmos.json",
+      "bindings_hpmotion.json",
+      "../src-python/*.py",
+      "../src-python/midishow-downloader/package.json",
+      "../src-python/midishow-downloader/dist/*",
+      "../src-python/midishow-downloader/node_modules/**/*",
+      "../src-python/songs/*"
     ],
     "windows": {
+      "wix": {
+        "template": "wix/main.wxs",
+        "language": {
+          "en-US": {
+            "localePath": "wix/locale.wxl"
+          }
+        }
+      },
       "nsis": {
         "headerImage": "icons/header.bmp",
         "sidebarImage": "icons/sidebar.bmp",

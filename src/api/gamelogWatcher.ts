@@ -2,17 +2,16 @@ import { GamelogApi, DbApi, SysApi } from './index';
 
 let watcherTimer: number | null = null;
 let isWatching = false;
-const lastLogCount = 0;
 
 export async function initGamelogWatcher() {
   if (isWatching) return;
   isWatching = true;
   console.log('[LogWatcher] Started monitoring VRChat output_log.txt');
-  
-  // 首次运行
+
+  // Initial poll
   await pollGamelog();
-  
-  // 每 10 秒轮询一次日志文件
+
+  // Poll every 10 seconds
   watcherTimer = setInterval(pollGamelog, 10000) as unknown as number;
 }
 
@@ -27,19 +26,20 @@ export function stopGamelogWatcher() {
 
 async function pollGamelog() {
   try {
-    // 读取最新的日志（倒序返回，最新的在前面）
+    // Skip polling if VRChat is not running
+    const vrcRunning = await SysApi.isVrcRunning().catch(() => false);
+    if (!vrcRunning) return;
+
     const logs = await GamelogApi.getLatestGamelogs({ maxLines: 500 });
-    
+
     if (!logs || logs.length === 0) return;
-    
-    // 我们只需要把它们批量塞进数据库
-    // 数据库使用 `INSERT ... WHERE NOT EXISTS` 来保证不重复插入
+
     const savedCount = await DbApi.saveGameLogs({ logsJson: JSON.stringify(logs) });
-    
+
     if (savedCount > 0) {
       console.log(`[LogWatcher] Found ${savedCount} new game log events.`);
       window.dispatchEvent(new CustomEvent('vrc-gamelog-updated'));
-      
+
       // Dynamic Discord RPC update
       try {
         const settings = await DbApi.getAllSettings();
@@ -54,7 +54,7 @@ async function pollGamelog() {
           }
         }
       } catch (err) {
-        console.warn('Failed to update dynamic discord RPC', err);
+        console.warn('[LogWatcher] Failed to update dynamic discord RPC', err);
       }
     }
   } catch (err) {

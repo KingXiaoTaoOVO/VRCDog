@@ -20,7 +20,10 @@ pub struct GptSovitsSynthesisRequest {
 }
 
 fn non_empty(value: &Option<String>) -> Option<&str> {
-    value.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 async fn set_gpt_sovits_weight(
@@ -94,13 +97,7 @@ pub async fn sys_gpt_sovits_synthesize(
         .map_err(|error| format!("Failed to create TTS client: {error}"))?;
 
     if let Some(weights_path) = non_empty(&request.sovits_weights) {
-        set_gpt_sovits_weight(
-            &client,
-            base_url,
-            "set_sovits_weights",
-            weights_path,
-        )
-        .await?;
+        set_gpt_sovits_weight(&client, base_url, "set_sovits_weights", weights_path).await?;
     }
     if let Some(weights_path) = non_empty(&request.gpt_weights) {
         set_gpt_sovits_weight(&client, base_url, "set_gpt_weights", weights_path).await?;
@@ -132,9 +129,7 @@ pub async fn sys_gpt_sovits_synthesize(
         .await;
 
     let audio = match post_result {
-        Ok(response) if response.status().is_success() => {
-            gpt_sovits_audio_response(response).await
-        }
+        Ok(response) if response.status().is_success() => gpt_sovits_audio_response(response).await,
         Ok(response) => {
             let post_status = response.status();
             let post_error = response.text().await.unwrap_or_default();
