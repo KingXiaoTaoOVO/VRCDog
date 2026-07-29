@@ -15,6 +15,7 @@ pub mod ovr;
 pub mod playspace;
 pub mod remote_assist;
 pub mod remote_assist_hub;
+pub mod server_survey;
 pub mod sys;
 pub mod toolchain;
 pub mod translate;
@@ -368,6 +369,7 @@ pub fn run() {
             osc::osc_stop_automation,
             osc::osc_get_status,
             sys::sys_save_text_file,
+            sys::sys_save_binary_file,
             sys::sys_set_autostart,
             sys::sys_register_url_scheme,
             sys::sys_get_launch_args,

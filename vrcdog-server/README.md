@@ -4,6 +4,11 @@ This directory is a self-contained server project that implements the same HTTP
 API used by the embedded VRCDog server. It can run on Windows or Linux, or be
 deployed with Docker.
 
+For a production-oriented 1Panel deployment, see
+[`docs/deployment/1panel-vrcdog-server.md`](../docs/deployment/1panel-vrcdog-server.md).
+The current compatibility and security limits are tracked in
+[`docs/audits/vrcdog-server-feature-adaptation.md`](../docs/audits/vrcdog-server-feature-adaptation.md).
+
 ## Run with Rust
 
 ```bash
@@ -22,7 +27,8 @@ docker compose up -d --build
 ```
 
 Persisted users, bans, freezes, and roles are stored in
-`data/server-state.json`. Keep the `data` directory on a persistent volume.
+`data/server-state.json`. Surveys and submissions use the same file. Keep the
+`data` directory on a persistent volume.
 
 ## Reverse proxy
 

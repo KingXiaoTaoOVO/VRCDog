@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, ref, watch, watchEffect } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref, watch, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -18,6 +18,7 @@ import { initGamelogWatcher } from './api/gamelogWatcher';
 // Layouts and components
 import ToastContainer from './components/ToastContainer.vue';
 import ServerDashboardView from './components/ServerDashboardView.vue';
+import SurveyCenter from './components/SurveyCenter.vue';
 import RoleSelectView from './components/RoleSelectView.vue';
 import LoginView from './components/LoginView.vue';
 import OverlayView from './components/OverlayView.vue';
@@ -104,7 +105,7 @@ const authStore = useAuthStore();
 const uiStore = useUiStore();
 const envStore = useEnvStore();
 
-const { appRole, isLoggedIn, autoLoginLoading, banMessage, serverConnected, reconnectCountdown, clientServerUrl, currentUser } = storeToRefs(authStore);
+const { appRole, isLoggedIn, autoLoginLoading, banMessage, serverConnected, reconnectCountdown, clientServerUrl, currentUser, pendingSurveyCount, surveyRequired } = storeToRefs(authStore);
 const { appMode, activeTab } = storeToRefs(uiStore);
 
 const overlayMode = new URLSearchParams(window.location.search).get('mode');
@@ -127,6 +128,28 @@ const serverDashboardTarget = ref<{
 const disconnectedServerUrl = ref('');
 const reconnectingServer = ref(false);
 const reconnectServerError = ref('');
+const surveyCenterOpen = ref(false);
+const surveyCenterInitialTab = ref<'pending' | 'history'>('pending');
+const currentSurveyUserId = computed(() => currentUser.value?.id || currentUser.value?.displayName || '');
+
+watch([pendingSurveyCount, isLoggedIn], ([pending, loggedIn]) => {
+  if (loggedIn && pending > 0) {
+    surveyCenterInitialTab.value = 'pending';
+    surveyCenterOpen.value = true;
+  }
+}, { immediate: true });
+
+const handleSurveyResolved = (pending: number, required: boolean) => {
+  authStore.resolveSurveyPrompt(pending, required);
+  if (pending === 0 && surveyCenterInitialTab.value === 'pending') surveyCenterOpen.value = false;
+};
+
+const openSurveyHistory = () => {
+  surveyCenterInitialTab.value = 'history';
+  surveyCenterOpen.value = true;
+};
+
+window.addEventListener('open-survey-center', openSurveyHistory);
 
 watch(clientServerUrl, (value) => {
   disconnectedServerUrl.value = value;
@@ -503,6 +526,17 @@ if (typeof window !== 'undefined') {
       </div>
     </div>
   </template>
+
+  <SurveyCenter
+    v-if="isLoggedIn && surveyCenterOpen && currentSurveyUserId && clientServerUrl"
+    :key="`${currentSurveyUserId}:${surveyCenterInitialTab}`"
+    :server-url="authStore.getBaseUrl()"
+    :user-id="currentSurveyUserId"
+    :forced="surveyRequired"
+    :initial-tab="surveyCenterInitialTab"
+    @resolved="handleSurveyResolved"
+    @close="surveyCenterOpen = false"
+  />
 </template>
 
 <style scoped>

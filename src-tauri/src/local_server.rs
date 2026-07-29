@@ -15,6 +15,8 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::server_survey::{self, Survey, SurveySettings, SurveySubmission};
+
 // ===== Data Models =====
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -131,6 +133,9 @@ pub struct SharedState {
     pub bans: Arc<Mutex<HashMap<String, BanInfo>>>,
     pub frozen: Arc<Mutex<HashMap<String, FreezeInfo>>>,
     pub roles: Arc<Mutex<HashMap<String, Role>>>,
+    pub survey_settings: Arc<Mutex<SurveySettings>>,
+    pub surveys: Arc<Mutex<HashMap<String, Survey>>>,
+    pub survey_submissions: Arc<Mutex<HashMap<String, SurveySubmission>>>,
     pub shutdown: CancellationToken,
     pub remote_assist: crate::remote_assist_hub::RemoteAssistHub,
 }
@@ -195,6 +200,33 @@ struct SetUserRoleRequest {
 }
 
 #[derive(Deserialize)]
+struct SurveyIdRequest {
+    survey_id: String,
+}
+
+#[derive(Deserialize)]
+struct SubmitSurveyRequest {
+    user_id: String,
+    survey_id: String,
+    survey_revision: u32,
+    #[serde(default)]
+    answers: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct DismissSurveyRequest {
+    user_id: String,
+    survey_id: String,
+    survey_revision: u32,
+}
+
+#[derive(Deserialize)]
+struct DeleteSubmissionRequest {
+    user_id: String,
+    submission_id: String,
+}
+
+#[derive(Deserialize)]
 struct AdminAuthRequest {
     password: String,
 }
@@ -225,6 +257,19 @@ struct RoleListResponse {
 // ===== Helper =====
 fn now_str() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+async fn survey_gate_payload(state: &SharedState, user_id: &str) -> serde_json::Value {
+    let settings = state.survey_settings.lock().await.clone();
+    let surveys = state.surveys.lock().await.clone();
+    let submissions = state.survey_submissions.lock().await.clone();
+    let pending = server_survey::pending_surveys(settings.enabled, &surveys, &submissions, user_id);
+    let required = pending.iter().any(|survey| survey.required_for_access);
+    serde_json::json!({
+        "status": if required { "survey_required" } else if pending.is_empty() { "ok" } else { "survey_available" },
+        "pending_survey_count": pending.len(),
+        "survey_required": required
+    })
 }
 
 fn is_ban_expired(ban: &BanInfo) -> bool {
@@ -288,6 +333,9 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         bans: Arc::new(Mutex::new(HashMap::new())),
         frozen: Arc::new(Mutex::new(HashMap::new())),
         roles: Arc::new(Mutex::new(initial_roles)),
+        survey_settings: Arc::new(Mutex::new(SurveySettings::default())),
+        surveys: Arc::new(Mutex::new(HashMap::new())),
+        survey_submissions: Arc::new(Mutex::new(HashMap::new())),
         shutdown: shutdown.clone(),
         remote_assist: crate::remote_assist_hub::RemoteAssistHub::default(),
     };
@@ -318,6 +366,30 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
             "/api/admin/users/set_role",
             post(handle_admin_set_user_role),
         )
+        .route(
+            "/api/admin/survey-settings",
+            get(handle_admin_survey_settings).post(handle_admin_save_survey_settings),
+        )
+        .route(
+            "/api/admin/surveys",
+            get(handle_admin_surveys).post(handle_admin_save_survey),
+        )
+        .route(
+            "/api/admin/surveys/publish",
+            post(handle_admin_publish_survey),
+        )
+        .route(
+            "/api/admin/surveys/resend",
+            post(handle_admin_resend_survey),
+        )
+        .route(
+            "/api/admin/surveys/delete",
+            post(handle_admin_delete_survey),
+        )
+        .route(
+            "/api/admin/survey-submissions",
+            get(handle_admin_survey_submissions),
+        )
         .route_layer(middleware::from_fn(require_admin_password));
 
     let app = Router::new()
@@ -334,6 +406,23 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         .route(
             "/api/client/features/{user_id}",
             get(handle_get_features_public),
+        )
+        .route("/api/client/surveys/{user_id}", get(handle_client_surveys))
+        .route(
+            "/api/client/surveys/submit",
+            post(handle_client_submit_survey),
+        )
+        .route(
+            "/api/client/surveys/dismiss",
+            post(handle_client_dismiss_survey),
+        )
+        .route(
+            "/api/client/survey-history/{user_id}",
+            get(handle_client_survey_history),
+        )
+        .route(
+            "/api/client/survey-history/delete",
+            post(handle_client_delete_submission),
         )
         .merge(admin_routes)
         .layer(cors)
@@ -559,7 +648,9 @@ async fn handle_client_register(
     );
     let _ = state.app_handle.emit("clients_updated", "");
 
-    Json(serde_json::json!({ "status": "ok", "message": "注册成功" }))
+    let mut response = survey_gate_payload(&state, &req.user_id).await;
+    response["message"] = serde_json::json!("registered");
+    Json(response)
 }
 
 async fn handle_client_heartbeat(
@@ -602,7 +693,7 @@ async fn handle_client_heartbeat(
         }
     }
 
-    Json(serde_json::json!({ "status": "ok" }))
+    Json(survey_gate_payload(&state, &req.user_id).await)
 }
 
 async fn handle_client_disconnect(
@@ -698,6 +789,133 @@ async fn handle_get_features_public(
         themes: current_config.themes,
         modes: current_config.modes,
     })
+}
+
+async fn handle_client_surveys(
+    State(state): State<SharedState>,
+    Path(user_id): Path<String>,
+) -> impl IntoResponse {
+    let enabled = state.survey_settings.lock().await.enabled;
+    let surveys = state.surveys.lock().await.clone();
+    let submissions = state.survey_submissions.lock().await.clone();
+    let pending = server_survey::pending_surveys(enabled, &surveys, &submissions, &user_id);
+    Json(serde_json::json!({ "enabled": enabled, "surveys": pending }))
+}
+
+async fn handle_client_submit_survey(
+    State(state): State<SharedState>,
+    Json(req): Json<SubmitSurveyRequest>,
+) -> impl IntoResponse {
+    let survey = {
+        let surveys = state.surveys.lock().await;
+        surveys.get(&req.survey_id).cloned()
+    };
+    let Some(survey) = survey else {
+        return Json(serde_json::json!({ "success": false, "message": "Survey not found" }));
+    };
+    if survey.status != "published" || survey.revision != req.survey_revision {
+        return Json(
+            serde_json::json!({ "success": false, "message": "Survey version is no longer active" }),
+        );
+    }
+    let evaluation = server_survey::evaluate(&survey, &req.answers);
+    let submission_id = server_survey::new_id("submission");
+    let status = if evaluation.passed {
+        "passed"
+    } else {
+        "failed"
+    };
+    state.survey_submissions.lock().await.insert(
+        submission_id.clone(),
+        SurveySubmission {
+            submission_id: submission_id.clone(),
+            survey_id: survey.survey_id.clone(),
+            survey_revision: survey.revision,
+            survey_title: survey.title.clone(),
+            user_id: req.user_id,
+            submitted_at: now_str(),
+            status: status.to_string(),
+            passed: evaluation.passed,
+            answers: req.answers,
+            failed_question_ids: evaluation.failed_question_ids.clone(),
+        },
+    );
+    Json(serde_json::json!({
+        "success": true,
+        "submission_id": submission_id,
+        "passed": evaluation.passed,
+        "failed_question_ids": evaluation.failed_question_ids,
+        "access_granted": evaluation.passed || !survey.required_for_access
+    }))
+}
+
+async fn handle_client_dismiss_survey(
+    State(state): State<SharedState>,
+    Json(req): Json<DismissSurveyRequest>,
+) -> impl IntoResponse {
+    let survey = {
+        let surveys = state.surveys.lock().await;
+        surveys.get(&req.survey_id).cloned()
+    };
+    let Some(survey) = survey else {
+        return Json(serde_json::json!({ "success": false, "message": "Survey not found" }));
+    };
+    if survey.required_for_access {
+        return Json(serde_json::json!({ "success": false, "message": "This survey is required" }));
+    }
+    if survey.status != "published" || survey.revision != req.survey_revision {
+        return Json(
+            serde_json::json!({ "success": false, "message": "Survey version is no longer active" }),
+        );
+    }
+    let submission_id = server_survey::new_id("submission");
+    state.survey_submissions.lock().await.insert(
+        submission_id.clone(),
+        SurveySubmission {
+            submission_id,
+            survey_id: survey.survey_id,
+            survey_revision: survey.revision,
+            survey_title: survey.title,
+            user_id: req.user_id,
+            submitted_at: now_str(),
+            status: "dismissed".to_string(),
+            passed: false,
+            answers: HashMap::new(),
+            failed_question_ids: Vec::new(),
+        },
+    );
+    Json(serde_json::json!({ "success": true, "message": "Survey dismissed" }))
+}
+
+async fn handle_client_survey_history(
+    State(state): State<SharedState>,
+    Path(user_id): Path<String>,
+) -> impl IntoResponse {
+    let submissions = state.survey_submissions.lock().await;
+    let mut history: Vec<SurveySubmission> = submissions
+        .values()
+        .filter(|submission| submission.user_id == user_id)
+        .cloned()
+        .collect();
+    history.sort_by(|left, right| right.submitted_at.cmp(&left.submitted_at));
+    Json(serde_json::json!({ "submissions": history }))
+}
+
+async fn handle_client_delete_submission(
+    State(state): State<SharedState>,
+    Json(req): Json<DeleteSubmissionRequest>,
+) -> impl IntoResponse {
+    let mut submissions = state.survey_submissions.lock().await;
+    let owned = submissions
+        .get(&req.submission_id)
+        .is_some_and(|submission| submission.user_id == req.user_id);
+    if owned {
+        submissions.remove(&req.submission_id);
+    }
+    Json(serde_json::json!({
+        "success": owned,
+        "message": if owned { "Submission deleted" } else { "Submission not found" }
+    }))
 }
 
 // ===== Handlers: Admin =====
@@ -1106,4 +1324,136 @@ async fn handle_admin_set_user_role(
             message: "用户不存在".to_string(),
         })
     }
+}
+
+async fn handle_admin_survey_settings(State(state): State<SharedState>) -> impl IntoResponse {
+    Json(state.survey_settings.lock().await.clone())
+}
+
+async fn handle_admin_save_survey_settings(
+    State(state): State<SharedState>,
+    Json(settings): Json<SurveySettings>,
+) -> impl IntoResponse {
+    *state.survey_settings.lock().await = settings.clone();
+    Json(serde_json::json!({
+        "success": true,
+        "enabled": settings.enabled,
+        "message": "Survey settings saved"
+    }))
+}
+
+async fn handle_admin_surveys(State(state): State<SharedState>) -> impl IntoResponse {
+    let surveys = state.surveys.lock().await;
+    let mut list: Vec<Survey> = surveys.values().cloned().collect();
+    list.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    Json(serde_json::json!({ "surveys": list }))
+}
+
+async fn handle_admin_save_survey(
+    State(state): State<SharedState>,
+    Json(mut incoming): Json<Survey>,
+) -> impl IntoResponse {
+    if let Err(message) = server_survey::validate_survey(&mut incoming) {
+        return Json(serde_json::json!({ "success": false, "message": message }));
+    }
+    let now = now_str();
+    let mut surveys = state.surveys.lock().await;
+    if let Some(existing) = surveys.get(&incoming.survey_id) {
+        incoming.created_at = existing.created_at.clone();
+        incoming.revision = existing.revision.max(1);
+        if existing.status == "published" {
+            let content_changed = existing.title != incoming.title
+                || existing.description != incoming.description
+                || existing.required_for_access != incoming.required_for_access
+                || existing.questions != incoming.questions;
+            if content_changed {
+                incoming.revision += 1;
+                incoming.status = "published".into();
+                incoming.published_at = Some(now.clone());
+            } else {
+                incoming.published_at = existing.published_at.clone();
+            }
+        }
+    } else {
+        incoming.created_at = now.clone();
+        incoming.revision = 1;
+        if incoming.status == "published" {
+            incoming.published_at = Some(now.clone());
+        }
+    }
+    incoming.updated_at = now;
+    let survey_id = incoming.survey_id.clone();
+    let revision = incoming.revision;
+    surveys.insert(survey_id.clone(), incoming);
+    Json(serde_json::json!({
+        "success": true,
+        "survey_id": survey_id,
+        "revision": revision,
+        "message": "Survey saved"
+    }))
+}
+
+async fn handle_admin_publish_survey(
+    State(state): State<SharedState>,
+    Json(req): Json<SurveyIdRequest>,
+) -> impl IntoResponse {
+    let mut surveys = state.surveys.lock().await;
+    let Some(survey) = surveys.get_mut(&req.survey_id) else {
+        return Json(serde_json::json!({ "success": false, "message": "Survey not found" }));
+    };
+    if survey.status == "published" {
+        survey.revision += 1;
+    }
+    survey.status = "published".into();
+    survey.published_at = Some(now_str());
+    survey.updated_at = now_str();
+    Json(
+        serde_json::json!({ "success": true, "revision": survey.revision, "message": "Survey published" }),
+    )
+}
+
+async fn handle_admin_resend_survey(
+    State(state): State<SharedState>,
+    Json(req): Json<SurveyIdRequest>,
+) -> impl IntoResponse {
+    let mut surveys = state.surveys.lock().await;
+    let Some(survey) = surveys.get_mut(&req.survey_id) else {
+        return Json(serde_json::json!({ "success": false, "message": "Survey not found" }));
+    };
+    if survey.status != "published" {
+        return Json(
+            serde_json::json!({ "success": false, "message": "Publish the survey before resending" }),
+        );
+    }
+    survey.revision += 1;
+    survey.published_at = Some(now_str());
+    survey.updated_at = now_str();
+    Json(
+        serde_json::json!({ "success": true, "revision": survey.revision, "message": "Survey resent to all users" }),
+    )
+}
+
+async fn handle_admin_delete_survey(
+    State(state): State<SharedState>,
+    Json(req): Json<SurveyIdRequest>,
+) -> impl IntoResponse {
+    let removed = state.surveys.lock().await.remove(&req.survey_id).is_some();
+    if removed {
+        state
+            .survey_submissions
+            .lock()
+            .await
+            .retain(|_, submission| submission.survey_id != req.survey_id);
+    }
+    Json(serde_json::json!({
+        "success": removed,
+        "message": if removed { "Survey and its submissions deleted" } else { "Survey not found" }
+    }))
+}
+
+async fn handle_admin_survey_submissions(State(state): State<SharedState>) -> impl IntoResponse {
+    let submissions = state.survey_submissions.lock().await;
+    let mut list: Vec<SurveySubmission> = submissions.values().cloned().collect();
+    list.sort_by(|left, right| right.submitted_at.cmp(&left.submitted_at));
+    Json(serde_json::json!({ "submissions": list }))
 }

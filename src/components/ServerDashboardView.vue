@@ -583,6 +583,15 @@
             {{ t('role.select_or_create_role') }}
           </div>
         </div>
+
+        <div v-show="activeTab === 'surveys'" class="flex-1 min-h-0 overflow-hidden">
+          <AdminSurveyPanel
+            :server-url="serverUrl"
+            :admin-password="adminPassword"
+            :active="isRunning && activeTab === 'surveys'"
+            @log="addLog"
+          />
+        </div>
       </div>
     </div>
 
@@ -688,6 +697,7 @@
 
 <script setup lang="ts">
 import CustomSelect from './CustomSelect.vue';
+import AdminSurveyPanel from './AdminSurveyPanel.vue';
 import { useToast } from "../composables/useToast";
 
 const toast = useToast();
@@ -755,6 +765,7 @@ const tabs = computed(() => [
   { key: 'logs', label: t('role.dashboard_logs_tab') },
   { key: 'users', label: t('role.dashboard_users_tab') },
   { key: 'features', label: t('role.dashboard_roles_tab') },
+  { key: 'surveys', label: '问卷管理' },
 ]);
 
 const toastMessage = ref('');

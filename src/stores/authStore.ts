@@ -20,6 +20,8 @@ export const useAuthStore = defineStore('auth', () => {
   const autoLoginLoading = ref(false);
   const clientServerUrl = ref<string>('');
   const banMessage = ref<string>('');
+  const pendingSurveyCount = ref(0);
+  const surveyRequired = ref(false);
 
   const serverConnected = ref(true);
   const reconnectCountdown = ref(0);
@@ -29,6 +31,16 @@ export const useAuthStore = defineStore('auth', () => {
   let serverEventsRegistered = false;
 
   const getBaseUrl = () => clientServerUrl.value.replace(/\/+$/, '');
+
+  const applySurveyStatus = (data: any) => {
+    pendingSurveyCount.value = Number(data?.pending_survey_count || 0);
+    surveyRequired.value = Boolean(data?.survey_required || data?.status === 'survey_required');
+  };
+
+  const resolveSurveyPrompt = (pendingCount = 0, required = false) => {
+    pendingSurveyCount.value = Math.max(0, pendingCount);
+    surveyRequired.value = required;
+  };
 
   const normalizeServerEventUserId = (payload: any): string => {
     if (typeof payload === 'string') return payload;
@@ -118,6 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
     consecutiveFailures = 0;
     currentUser.value = null;
     isLoggedIn.value = false;
+    resolveSurveyPrompt();
     // ⚠️ Key fix: only return to role selection on full user logout (keepVrcAuth=false)
     // Auth expiry/kick/ban (keepVrcAuth=true) only returns to login page, preserving role choice
     if (!keepVrcAuth) {
@@ -147,12 +160,17 @@ export const useAuthStore = defineStore('auth', () => {
       serverConnected.value = true;
       consecutiveFailures = 0;
       reconnectCountdown.value = 0;
+      applySurveyStatus(data);
       if (data.status === 'banned') {
         banMessage.value = `Account Banned! Reason: ${data.reason}${data.duration_hours ? t('auto_edf6fe7c') + data.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`;
         handleLogout(true);
         return false;
       } else if (data.status === 'frozen') {
         banMessage.value = `Account Frozen! Reason: ${data.reason}`;
+        handleLogout(true);
+        return false;
+      } else if (data.status === 'kicked') {
+        banMessage.value = t('auto_e1b5d9e2');
         handleLogout(true);
         return false;
       }
@@ -251,6 +269,9 @@ export const useAuthStore = defineStore('auth', () => {
           handleLogout(true);
         } else if (data.status === 'register_required') {
           await registerWithServer(currentUser.value);
+        }
+        if (data.status === 'survey_required' || data.status === 'survey_available' || data.status === 'ok') {
+          applySurveyStatus(data);
         }
       } catch (err) {
         console.warn(t('auto_a46150ae'), err);
@@ -469,6 +490,8 @@ export const useAuthStore = defineStore('auth', () => {
     autoLoginLoading,
     clientServerUrl,
     banMessage,
+    pendingSurveyCount,
+    surveyRequired,
     serverConnected,
     reconnectCountdown,
     updateClientServerUrl,
@@ -478,6 +501,7 @@ export const useAuthStore = defineStore('auth', () => {
     handleLoginSuccess,
     tryAutoLogin,
     startHeartbeat,
-    startFriendsSync
+    startFriendsSync,
+    resolveSurveyPrompt
   };
 });

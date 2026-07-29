@@ -743,6 +743,7 @@ export const SysApi = {
   sendOscChatbox: (params: { text: string; complete: boolean }) => safeInvoke<void>('sys_send_osc_chatbox', params),
   setDiscordRpc: (params: { details: string; state: string }) => safeInvoke<void>('sys_set_discord_rpc', params),
   saveTextFile: (params: { path: string; content: string }) => safeInvoke<void>('sys_save_text_file', params),
+  saveBinaryFile: (params: { path: string; content: number[] }) => safeInvoke<void>('sys_save_binary_file', params),
   startAudioCapture: (params: { sourceLang: string, engine: string }) => safeInvoke<void>('sys_start_audio_capture', params),
   stopAudioCapture: () => safeInvoke<void>('sys_stop_audio_capture'),
   startOscAutomation: () => safeInvoke<void>('sys_start_osc_automation'),
