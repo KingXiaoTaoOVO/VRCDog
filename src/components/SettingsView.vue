@@ -3,7 +3,7 @@ import { useToast } from "../composables/useToast";
 
 const toast = useToast();
 import { ref, onMounted, computed, watch, onErrorCaptured } from 'vue';
-import { Settings, Save, Trash2, Globe, Monitor, Shield, HardDrive, Bell, Gamepad2, Check, DownloadCloud, Play, Rocket, Loader2, Zap, Radio, FileJson, FolderOpen, AlertTriangle, Camera, AlertCircle, Eye, EyeOff, Lock, UserCheck, History, Smartphone, Laptop, Fingerprint, Activity, Layers, Sliders, Languages, Cpu, Info, ChevronRight, Glasses, Search } from 'lucide-vue-next';
+import { Settings, Save, Trash2, Globe, Monitor, Shield, HardDrive, Bell, Gamepad2, Check, DownloadCloud, Play, Rocket, Loader2, Zap, Radio, FileJson, FolderOpen, AlertTriangle, Camera, AlertCircle, Eye, EyeOff, Lock, UserCheck, History, Smartphone, Laptop, Fingerprint, Activity, Layers, Sliders, Languages, Cpu, Info, ChevronRight, Glasses, Search, ClipboardList } from 'lucide-vue-next';
 import { SysApi, DbApi } from '../api';
 import { useI18n } from 'vue-i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -22,6 +22,7 @@ const { t, locale } = useI18n();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 const clientConfigPath = ref('');
+const openSurveyCenter = () => window.dispatchEvent(new CustomEvent('open-survey-center'));
 
 const tabs = [
   { id: 'general', label: 'settings.nav_general', icon: Settings },
@@ -1028,14 +1029,24 @@ const testNotification = () => {
                     <code v-if="clientConfigPath" class="block mt-1 break-all text-[var(--theme-primary)]">{{ clientConfigPath }}</code>
                   </span>
                 </div>
-                <button
-                  type="button"
-                  class="mt-3 px-3 py-2 border border-[var(--theme-border-soft)] rounded-lg text-[12px] font-bold text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)] flex items-center gap-2"
-                  @click="SysApi.openDir({ target: 'client_config' })"
-                >
-                  <FolderOpen class="w-4 h-4" />
-                  {{ t('settings.open_client_config_dir') }}
-                </button>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="px-3 py-2 border border-[var(--theme-border-soft)] rounded-lg text-[12px] font-bold text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)] flex items-center gap-2"
+                    @click="SysApi.openDir({ target: 'client_config' })"
+                  >
+                    <FolderOpen class="w-4 h-4" />
+                    {{ t('settings.open_client_config_dir') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="px-3 py-2 border border-[var(--theme-border-soft)] rounded-lg text-[12px] font-bold text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)] flex items-center gap-2"
+                    @click="openSurveyCenter"
+                  >
+                    <ClipboardList class="w-4 h-4" />
+                    我的问卷记录
+                  </button>
+                </div>
               </div>
             </div>
             <div>

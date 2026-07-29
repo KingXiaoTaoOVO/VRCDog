@@ -247,6 +247,11 @@ pub async fn sys_save_text_file(path: String, content: String) -> Result<(), Str
 }
 
 #[tauri::command]
+pub async fn sys_save_binary_file(path: String, content: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn sys_check_steamvr() -> crate::AppResult<bool> {
     use sysinfo::System;
     let sys = System::new_all();
