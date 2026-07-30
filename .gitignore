@@ -45,3 +45,4 @@ docs/agents/
 # AtomCode local-scope configs (machine-specific)
 .atomcode/local/
 bun.lock
+/src-tauri/resources/python-runtime*/

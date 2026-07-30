@@ -607,29 +607,36 @@ pub async fn sys_open_steamvr_bindings() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+fn validate_external_url(url: &str) -> Result<(), String> {
+    let normalized = url.trim().to_ascii_lowercase();
+    if normalized.starts_with("https://") || normalized.starts_with("http://") {
+        Ok(())
+    } else {
+        Err("Only HTTP and HTTPS links can be opened".to_string())
+    }
+}
+
 #[tauri::command]
-pub async fn sys_open_url(url: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| format!("Failed to open URL: {}", e))?;
+pub async fn sys_open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    validate_external_url(&url)?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|error| format!("Failed to open the system browser: {error}"))
+}
+
+#[cfg(test)]
+mod external_url_tests {
+    use super::validate_external_url;
+
+    #[test]
+    fn accepts_http_links_and_rejects_other_schemes() {
+        assert!(validate_external_url("https://www.midishow.com/user/account/signup").is_ok());
+        assert!(validate_external_url("http://127.0.0.1:1420").is_ok());
+        assert!(validate_external_url("file:///C:/Windows/System32").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Simple fallback
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .unwrap_or_else(|_| {
-                std::process::Command::new("open")
-                    .arg(&url)
-                    .spawn()
-                    .unwrap()
-            });
-    }
-    Ok(())
 }
 
 #[tauri::command]
