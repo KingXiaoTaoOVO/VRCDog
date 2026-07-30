@@ -106,7 +106,9 @@ async function prepare() {
     if (movedPrevious) await rename(previousRuntime, RUNTIME_DIR);
     throw error;
   }
-  if (movedPrevious) await rm(previousRuntime, { recursive: true, force: true });
+  if (movedPrevious) {
+    console.warn(`Previous embedded runtime retained for deferred cleanup: ${previousRuntime}`);
+  }
   console.log(`Embedded Python runtime ready: ${RUNTIME_DIR}`);
 }
 
