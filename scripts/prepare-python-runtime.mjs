@@ -16,6 +16,7 @@ const PYTHON_URL = `https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON
 const PYTHON_SHA256 = '76f238f606250c87c6beac75dccd35ee99070a13490555936abb6cb64ecce3d0';
 const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
 const GET_PIP_SHA256 = 'a341e1a43e38001c551a1508a73ff23636a11970b61d901d9a1cad2a18f57055';
+const PIP_VERSION = '26.2';
 const WINDOWS_TAR = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
 
 const run = (command, args, options = {}) => new Promise((resolve, reject) => {
@@ -61,7 +62,7 @@ async function prepare() {
 
   const python = path.join(stagedRuntime, 'python.exe');
   const isolatedEnv = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONUTF8: '1' };
-  await run(python, [getPip, '--disable-pip-version-check', '--no-warn-script-location'], { env: isolatedEnv });
+  await run(python, [getPip, '--disable-pip-version-check', '--no-warn-script-location', `pip==${PIP_VERSION}`], { env: isolatedEnv });
   await run(python, [
     '-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location',
     '--no-cache-dir', '--only-binary=:all:', '--no-compile',
@@ -76,7 +77,7 @@ async function prepare() {
   ], { env: isolatedEnv });
   await rm(path.join(stagedRuntime, 'Scripts'), { recursive: true, force: true });
   await rm(path.join(stagedRuntime, 'Lib', 'site-packages', 'pip'), { recursive: true, force: true });
-  await rm(path.join(stagedRuntime, 'Lib', 'site-packages', 'pip-26.1.2.dist-info'), { recursive: true, force: true });
+  await rm(path.join(stagedRuntime, 'Lib', 'site-packages', `pip-${PIP_VERSION}.dist-info`), { recursive: true, force: true });
   await run(python, ['-I', '-c', 'import requests, bs4, certifi, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
 
   await writeFile(path.join(stagedRuntime, 'vrcdog-runtime.json'), JSON.stringify({
