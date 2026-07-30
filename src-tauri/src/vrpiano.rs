@@ -3,7 +3,7 @@ use midly::{MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{
@@ -108,12 +108,16 @@ fn find_vrpiano_project_root(app: Option<&tauri::AppHandle>) -> Option<PathBuf> 
         }
     }
 
-    // App resource directory (bundled modules)
+    // App resource directory (bundled modules). Tauri rewrites a leading
+    // `../` in resource paths to `_up_`, so the packaged src-python folder is
+    // normally located at `$RESOURCE/_up_/src-python`.
     if let Some(app_handle) = app {
         if let Ok(resource_dir) = app_handle.path().resource_dir() {
             candidates.push(resource_dir.clone());
             candidates.push(resource_dir.join("VRPiano-auto-play"));
             candidates.push(resource_dir.join("src-python"));
+            candidates.push(resource_dir.join("_up_"));
+            candidates.push(resource_dir.join("_up_").join("src-python"));
         }
     }
 
@@ -615,7 +619,7 @@ pub async fn vrpiano_midishow_login(
     let project_path_str = project_path.to_string_lossy();
     if cookie.is_empty() {
         if let Err(native_error) = verify_midishow_login_direct(&username, &password).await {
-            verify_midishow_login(&project_path_str, &username, &password).map_err(
+            verify_midishow_login(&app, &project_path_str, &username, &password).map_err(
                 |python_error| {
                     format!(
                         "Midishow login failed: {native_error}; Python fallback failed: {python_error}"
@@ -2457,6 +2461,7 @@ async fn download_midishow_file(
                 Ok((data, title)) => return Ok((validate_midi_bytes(data)?, title)),
                 Err(account_error) => {
                     match download_midishow_with_python(
+                        app,
                         &project_path.to_string_lossy(),
                         midi_id,
                         &account,
@@ -2564,7 +2569,12 @@ fn default_midishow_account(
     Ok(load_midishow_accounts(app)?.into_iter().next())
 }
 
-fn verify_midishow_login(project_path: &str, username: &str, password: &str) -> Result<(), String> {
+fn verify_midishow_login(
+    app: &tauri::AppHandle,
+    project_path: &str,
+    username: &str,
+    password: &str,
+) -> Result<(), String> {
     let script = r#"
 import json, sys, os
 project = os.path.realpath(sys.argv[1])
@@ -2589,6 +2599,8 @@ except Exception as e:
     print(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 "#;
     let value = run_python_json(
+        app,
+        project_path,
         script,
         &[project_path, username, password],
         Duration::from_secs(45),
@@ -2610,6 +2622,7 @@ except Exception as e:
 }
 
 fn download_midishow_with_python(
+    app: &tauri::AppHandle,
     project_path: &str,
     midi_id: u64,
     account: &StoredMidishowAccount,
@@ -2647,6 +2660,8 @@ except Exception as e:
     }, ensure_ascii=False))
 "#;
     let value = run_python_json(
+        app,
+        project_path,
         script,
         &[project_path, &account.username, &account.password, &url],
         Duration::from_secs(60),
@@ -2675,125 +2690,168 @@ except Exception as e:
     Ok((data, title))
 }
 
+fn embedded_python_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("python-runtime").join("python.exe"));
+        candidates.push(
+            resource_dir
+                .join("resources")
+                .join("python-runtime")
+                .join("python.exe"),
+        );
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join("python-runtime").join("python.exe"));
+            candidates.push(
+                exe_dir
+                    .join("resources")
+                    .join("python-runtime")
+                    .join("python.exe"),
+            );
+        }
+    }
+    candidates.retain(|candidate| candidate.exists());
+    candidates.dedup();
+    candidates
+}
+
 fn run_python_json(
+    app: &tauri::AppHandle,
+    project_path: &str,
     script: &str,
     args: &[&str],
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    // Collect all possible Python executable paths to try
-    let mut candidates: Vec<String> = Vec::new();
-    candidates.extend(["python", "py", "python3"].iter().map(|s| s.to_string()));
+    let cookie_cache = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法解析应用数据目录：{e}"))?
+        .join("vrpiano")
+        .join("midishow_python_cookies.json");
+    if let Some(parent) = cookie_cache.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("无法创建 Midishow 缓存目录：{e}"))?;
+    }
 
-    // On Windows, also check common Python installation paths
+    let mut candidates = embedded_python_candidates(app)
+        .into_iter()
+        .map(|path| (path, true))
+        .collect::<Vec<_>>();
+    candidates.extend(
+        ["python", "py", "python3"]
+            .into_iter()
+            .map(|name| (PathBuf::from(name), false)),
+    );
+
     #[cfg(target_os = "windows")]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            let base = Path::new(&local_app_data).join("Programs").join("Python");
-            if let Ok(entries) = std::fs::read_dir(&base) {
-                for entry in entries.flatten() {
-                    let py_path = entry.path().join("python.exe");
-                    if py_path.exists() {
-                        candidates.push(py_path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-        if let Ok(program_files) = std::env::var("ProgramFiles") {
-            let base = Path::new(&program_files).join("Python");
-            if let Ok(entries) = std::fs::read_dir(&base) {
-                for entry in entries.flatten() {
-                    let py_path = entry.path().join("python.exe");
-                    if py_path.exists() {
-                        candidates.push(py_path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-        // Also try the Microsoft Store Python path
-        let store_path =
-            Path::new(r"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python*");
-        if let Ok(entries) = std::fs::read_dir(store_path.parent().unwrap_or(Path::new("C:\\"))) {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let base = Path::new(&local_app_data).join("Programs").join("Python");
+        if let Ok(entries) = std::fs::read_dir(&base) {
             for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("PythonSoftwareFoundation.Python") {
-                    let py_path = entry.path().join("python.exe");
-                    if py_path.exists() {
-                        candidates.push(py_path.to_string_lossy().to_string());
-                    }
+                let python = entry.path().join("python.exe");
+                if python.exists() {
+                    candidates.push((python, false));
                 }
             }
         }
     }
 
-    // Track whether every candidate failed to even start (Python missing) vs
-    // Python ran but the script/import failed (module missing, etc.).
-    let mut started_any = false;
-    let mut last_error = String::from("No Python interpreter candidate succeeded");
-    for executable in &candidates {
-        let mut process_args = vec!["-c", script];
+    let mut last_error = String::from("没有可用的 Python 运行时");
+    for (executable, embedded) in candidates {
+        let mut process_args = vec!["-I", "-c", script];
         process_args.extend_from_slice(args);
-        match run_process_json(executable, &process_args, timeout) {
+        match run_process_json(
+            &executable,
+            &process_args,
+            timeout,
+            embedded.then_some(project_path),
+            &cookie_cache,
+        ) {
             Ok(value) => return Ok(value),
             Err(error) => {
-                if error.contains("Failed to start") {
-                    last_error = format!("Python 不可用（无法启动 {executable}）");
-                } else {
-                    started_any = true;
-                    last_error = error;
-                }
+                last_error = error;
             }
         }
     }
-    if started_any {
-        Err(format!(
-            "Midishow Python 桥接失败：{last_error}。请确认 Midishow 模块已随程序打包（src-python/midishow.py）。"
-        ))
-    } else {
-        Err(format!(
-            "Python 不可用或 Midishow Python 桥接失败：{last_error}。请从 https://python.org 安装 Python 并确保其在 PATH 中。"
-        ))
-    }
+    Err(format!(
+        "内置 Python 运行时或 Midishow 桥接不可用：{last_error}。请重新安装当前版本，程序不需要也不会要求系统另装 Python。"
+    ))
 }
 
 fn run_process_json(
-    executable: &str,
+    executable: &Path,
     args: &[&str],
     timeout: Duration,
+    project_path: Option<&str>,
+    cookie_cache: &Path,
 ) -> Result<serde_json::Value, String> {
-    let mut child = std::process::Command::new(executable)
+    let mut command = std::process::Command::new(executable);
+    command
         .args(args)
+        .env("VRCDOG_MIDISHOW_COOKIE_CACHE", cookie_cache);
+    if let Some(project_path) = project_path {
+        command
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONNOUSERSITE", "1")
+            .env("PYTHONPATH", project_path);
+    }
+    let mut child = command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to start {executable}: {e}"))?;
+        .map_err(|e| format!("无法启动 {}：{e}", executable.display()))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("无法读取 {} 标准输出", executable.display()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("无法读取 {} 错误输出", executable.display()))?;
+    let stdout_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        stdout.read_to_end(&mut buffer).map(|_| buffer)
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        stderr.read_to_end(&mut buffer).map(|_| buffer)
+    });
     let started = std::time::Instant::now();
-    loop {
-        if child
+    let status = loop {
+        if let Some(status) = child
             .try_wait()
-            .map_err(|e| format!("Failed to wait for {executable}: {e}"))?
-            .is_some()
+            .map_err(|e| format!("等待 {} 失败：{e}", executable.display()))?
         {
-            break;
+            break status;
         }
         if started.elapsed() > timeout {
             let _ = child.kill();
-            return Err(format!("{executable} request timed out"));
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(format!("{} 请求超时", executable.display()));
         }
         thread::sleep(Duration::from_millis(80));
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to read {executable} output: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    };
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| format!("读取 {} 标准输出失败", executable.display()))?
+        .map_err(|e| format!("读取 {} 标准输出失败：{e}", executable.display()))?;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| format!("读取 {} 错误输出失败", executable.display()))?
+        .map_err(|e| format!("读取 {} 错误输出失败：{e}", executable.display()))?;
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("{executable} exited with {}", output.status)
+            format!("{} 退出，状态为 {}", executable.display(), status)
         } else {
             stderr
         });
     }
-    parse_json_from_process_stdout(&output.stdout)
-        .map_err(|e| format!("Failed to parse {executable} JSON response: {e}"))
+    parse_json_from_process_stdout(&stdout)
+        .map_err(|e| format!("解析 {} JSON 响应失败：{e}", executable.display()))
 }
 
 fn midishow_title(project_path: &Path, midi_id: u64) -> Option<String> {

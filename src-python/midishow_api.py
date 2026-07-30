@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 # ================================================================
 # Cookie 缓存（文件版，无需 Redis）
 # ================================================================
-COOKIE_CACHE_FILE = os.path.join(
+COOKIE_CACHE_FILE = os.environ.get("VRCDOG_MIDISHOW_COOKIE_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     ".midishow_cookies.json"
 )

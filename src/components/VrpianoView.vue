@@ -85,6 +85,8 @@ const midishowPassword = ref('');
 const midishowCookie = ref('');
 const midishowLoginOpen = ref(false);
 const accountLoading = ref(false);
+const externalLinkLoading = ref(false);
+const signupUrl = 'https://www.midishow.com/user/account/signup';
 const songIcons = ref<Record<string, string>>({});
 const iconFileInput = ref<HTMLInputElement | null>(null);
 const iconTargetPath = ref('');
@@ -515,11 +517,27 @@ const loadMidishowAccounts = async () => {
   }
 };
 
-const openMidishowSignup = async () => {
+const copySignupUrl = async () => {
+  error.value = '';
   try {
-    await SysApi.openUrl({ url: 'https://www.midishow.com/en/user/account/signup' });
+    await navigator.clipboard.writeText(signupUrl);
+    addLog('Midishow 注册链接已复制');
   } catch (e: any) {
-    error.value = e.message || String(e);
+    error.value = `复制注册链接失败：${e.message || String(e)}。请手动复制：${signupUrl}`;
+  }
+};
+
+const openMidishowSignup = async () => {
+  if (externalLinkLoading.value) return;
+  externalLinkLoading.value = true;
+  error.value = '';
+  try {
+    await SysApi.openUrl({ url: signupUrl });
+    addLog('已在默认浏览器打开 Midishow 注册页面');
+  } catch (e: any) {
+    error.value = `无法打开默认浏览器：${e.message || String(e)}。请复制注册链接后手动打开。`;
+  } finally {
+    externalLinkLoading.value = false;
   }
 };
 
@@ -1221,8 +1239,12 @@ onUnmounted(() => {
                 <Loader2 v-if="accountLoading" :size="16" class="spin" />
                 <span v-else>保存登录</span>
               </button>
-              <button type="button" class="account-btn ghost" @click="openMidishowSignup">
-                <ExternalLink :size="15" /> 注册
+              <button type="button" class="account-btn ghost" :disabled="externalLinkLoading" @click="openMidishowSignup">
+                <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
+                <ExternalLink v-else :size="15" /> 注册
+              </button>
+              <button type="button" class="account-btn ghost" title="复制注册链接" @click="copySignupUrl">
+                复制链接
               </button>
             </div>
           </form>
