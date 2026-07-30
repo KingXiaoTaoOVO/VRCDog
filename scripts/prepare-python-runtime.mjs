@@ -77,7 +77,7 @@ async function prepare() {
   ], { env: isolatedEnv });
   await rm(path.join(stagedRuntime, 'Scripts'), { recursive: true, force: true });
   await rm(path.join(stagedRuntime, 'Lib', 'site-packages', 'pip'), { recursive: true, force: true });
-  await rm(path.join(stagedRuntime, 'Lib', 'site-packages', `pip-${PIP_VERSION}.dist-info`), { recursive: true, force: true });
+  await rm(path.join(stagedRuntime, 'Lib', 'site-packages', `pip-${PIP_VERSION}.dist-info`), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   await run(python, ['-I', '-c', 'import requests, bs4, certifi, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
 
   await writeFile(path.join(stagedRuntime, 'vrcdog-runtime.json'), JSON.stringify({
