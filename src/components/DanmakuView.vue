@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { useStorage } from '@vueuse/core';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { DbApi, DanmakuApi, OvrApi, type DanmakuConfig, type DanmakuMessage, type DanmakuStatus } from '../api';
 
 const STORAGE_KEY = 'danmaku_config_v2';
+const liveThemeEnabled = useStorage('danmaku-live-theme', false);
+const liveThemeLabel = computed(() => (liveThemeEnabled.value ? '直播姬风格' : '软件主题'));
+
+const toggleLiveTheme = () => {
+  liveThemeEnabled.value = !liveThemeEnabled.value;
+};
 
 const hmdDefault = {
   x: -0.4,
@@ -437,10 +444,13 @@ const eventLabel = (message: DanmakuMessage) => {
   return '弹幕';
 };
 
-const formatMessageLine = (message: DanmakuMessage) => {
-  const time = new Date(message.timestamp_ms).toLocaleTimeString('zh-CN', { hour12: false });
-  return `${time} [${eventLabel(message)}] ${message.user}${message.text ? `: ${message.text}` : ''}`;
-};
+const formatMessageTime = (message: DanmakuMessage) => new Date(message.timestamp_ms).toLocaleTimeString('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const messageClass = (message: DanmakuMessage) => `type-${message.message_type.replace(/[^a-z0-9_-]/gi, '')}`;
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -503,7 +513,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="vrcdog-shell">
+  <div class="vrcdog-shell" :class="{ 'live-theme': liveThemeEnabled }">
     <aside class="vrcdog-sidebar">
       <header class="vrcdog-header">
         <strong>VrcDog</strong>
@@ -670,21 +680,72 @@ onUnmounted(() => {
     </aside>
 
     <main class="vrcdog-main">
-      <header class="log-header">
-        <span>日志</span>
-        <button class="small-btn" @click="clearLog">清空</button>
+      <header class="log-header live-header">
+        <div>
+          <strong>直播互动</strong>
+          <span>桌面与 SteamVR 实时同步</span>
+        </div>
+        <div class="live-summary">
+          <span>人气 {{ status.online }}</span>
+          <span>消息 {{ status.message_count }}</span>
+          <button class="small-btn" :title="`切换到${liveThemeEnabled ? '软件主题' : '直播姬风格'}`" @click="toggleLiveTheme">{{ liveThemeLabel }}</button>
+          <button class="small-btn" @click="clearMessages">清空消息</button>
+        </div>
       </header>
 
       <div v-if="error || status.last_error" class="error-banner">
         {{ error || status.last_error }}
       </div>
 
-      <div class="log-body">
-        <div v-for="line in logs" :key="line" class="log-entry">{{ line }}</div>
-        <div v-for="message in activeMessages" :key="message.id" class="log-entry message">
-          {{ formatMessageLine(message) }}
-        </div>
+      <div class="live-toolbar" aria-label="消息分类">
+        <span class="filter-pill active">全部</span>
+        <span class="filter-pill">弹幕</span>
+        <span class="filter-pill">礼物</span>
+        <span class="filter-pill">SC</span>
+        <span class="filter-pill">舰长</span>
       </div>
+
+      <div class="live-feed">
+        <div v-if="!activeMessages.length" class="live-empty">
+          <strong>{{ status.running ? '正在等待真实直播消息' : '连接直播间后显示互动消息' }}</strong>
+          <span>普通弹幕、礼物、SC、舰长、进入与关注会分层显示，并同步到 VR 面板。</span>
+        </div>
+
+        <article
+          v-for="message in activeMessages"
+          :key="message.id"
+          class="message-card"
+          :class="messageClass(message)"
+        >
+          <div class="message-avatar" aria-hidden="true">{{ message.user.trim().charAt(0) || '哔' }}</div>
+          <div class="message-content">
+            <div class="message-meta">
+              <strong :title="message.user">{{ message.user || '系统' }}</strong>
+              <span v-if="message.medal_name" class="medal-badge">
+                {{ message.medal_name }} {{ message.medal_level || '' }}
+              </span>
+              <span class="event-badge">{{ eventLabel(message) }}</span>
+              <time>{{ formatMessageTime(message) }}</time>
+            </div>
+            <p v-if="message.text" :title="message.text">{{ message.text }}</p>
+            <p v-else class="message-placeholder">{{ eventLabel(message) }}消息</p>
+            <div v-if="message.price || message.gift_count" class="message-value">
+              <span v-if="message.price">¥{{ message.price.toFixed(2) }}</span>
+              <span v-if="message.gift_count">× {{ message.gift_count }}</span>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <details class="runtime-log">
+        <summary>运行日志 <span>{{ logs.length }}</span></summary>
+        <div class="runtime-log-actions">
+          <button class="small-btn" @click="clearLog">清空日志</button>
+        </div>
+        <div class="runtime-log-body">
+          <div v-for="line in logs" :key="line" class="log-entry">{{ line }}</div>
+        </div>
+      </details>
     </main>
 
     <div v-if="qrModalOpen" class="modal-mask">
@@ -706,17 +767,21 @@ onUnmounted(() => {
 
 <style scoped>
 .vrcdog-shell {
-  --dm-bg: rgba(255, 255, 255, 0.16);
-  --dm-side: var(--theme-surface, rgba(255, 252, 240, 0.64));
-  --dm-panel: var(--theme-surface-hover, rgba(255, 252, 240, 0.78));
-  --dm-hover: var(--theme-active-bg, rgba(251, 191, 36, 0.18));
-  --dm-border: var(--theme-border-soft, rgba(120, 53, 15, 0.12));
-  --dm-text: var(--theme-text-strong, #451a03);
-  --dm-muted: var(--theme-text-soft, #7c5a2a);
+  --dm-bg: var(--theme-bg-main, #f7f5ef);
+  --dm-side: var(--theme-surface, #fffdf7);
+  --dm-panel: var(--theme-surface-hover, #f1eadf);
+  --dm-hover: color-mix(in srgb, var(--theme-primary, #d97706) 12%, var(--dm-panel));
+  --dm-border: var(--theme-border-soft, rgba(74, 45, 15, 0.14));
+  --dm-text: var(--theme-text, #2d2117);
+  --dm-muted: var(--theme-text-soft, #76552d);
   --dm-dim: var(--theme-text-muted, #9a7b4f);
-  --dm-accent: var(--theme-primary, #f59e0b);
-  --dm-accent-hover: var(--theme-primary-hover, #d97706);
-  --dm-success: #22c55e;
+  --dm-accent: var(--theme-primary, #d97706);
+  --dm-accent-hover: var(--theme-primary-hover, #b45309);
+  --dm-success: var(--theme-success, #15803d);
+  --dm-info: var(--theme-info, #1d4ed8);
+  --dm-warning: var(--theme-warning, #a16207);
+  --dm-danger: var(--theme-danger, #b91c1c);
+  --dm-gold: var(--theme-gold, #a16207);
   height: 100%;
   min-height: 0;
   display: flex;
@@ -725,10 +790,29 @@ onUnmounted(() => {
   color: var(--dm-text);
   border: 1px solid var(--dm-border);
   border-radius: 24px;
-  box-shadow: 0 20px 50px rgba(74, 45, 15, 0.08);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(18px);
   font-size: 13px;
 }
+
+.vrcdog-shell.live-theme {
+  --dm-bg: #0f1015;
+  --dm-side: #171820;
+  --dm-panel: #20212b;
+  --dm-hover: #2b2633;
+  --dm-border: rgba(255, 255, 255, 0.09);
+  --dm-text: #f7f7fa;
+  --dm-muted: #b8bac5;
+  --dm-dim: #7d808d;
+  --dm-accent: #fb7299;
+  --dm-accent-hover: #ff85ad;
+  --dm-success: #32d583;
+  --dm-info: #93c5fd;
+  --dm-warning: #facc15;
+  --dm-danger: #fca5a5;
+  --dm-gold: #ffd17a;
+}
+
 .vrcdog-sidebar {
   width: 320px;
   min-width: 320px;
@@ -925,29 +1009,198 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--dm-panel) 62%, transparent);
+  background: color-mix(in srgb, var(--dm-bg) 82%, var(--dm-panel));
 }
-.log-body {
-  flex: 1;
-  padding: 12px 16px;
-  font-family: Consolas, "SF Mono", monospace;
+.live-header > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.live-header strong {
+  font-size: 16px;
+}
+.live-header > div:first-child span {
+  color: var(--dm-dim);
+  font-size: 11px;
+}
+.live-summary,
+.live-toolbar,
+.message-meta,
+.message-value,
+.runtime-log-actions {
+  display: flex;
+  align-items: center;
+}
+.live-summary {
+  gap: 12px;
+  color: var(--dm-muted);
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.18);
+}
+.live-toolbar {
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+.filter-pill {
+  padding: 6px 12px;
+  border: 1px solid var(--dm-border);
+  border-radius: 999px;
+  color: var(--dm-muted);
+  background: var(--dm-panel);
+  font-size: 12px;
+}
+.filter-pill.active {
+  color: var(--dm-accent);
+  border-color: color-mix(in srgb, var(--dm-accent) 48%, var(--dm-border));
+  background: color-mix(in srgb, var(--dm-accent) 13%, transparent);
+}
+.live-feed {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 18px;
+}
+.live-empty {
+  min-height: 240px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 30px;
+  text-align: center;
+  color: var(--dm-dim);
+}
+.live-empty strong {
+  color: var(--dm-muted);
+  font-size: 15px;
+}
+.message-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 11px 12px;
+  overflow: hidden;
+  border: 1px solid var(--dm-border);
+  border-radius: 10px;
+  background: var(--dm-panel);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--dm-text) 9%, transparent);
+}
+.message-card.type-sc {
+  border-color: color-mix(in srgb, var(--dm-gold) 52%, var(--dm-border));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--dm-gold) 14%, transparent), var(--dm-panel) 38%);
+}
+.message-card.type-gift {
+  border-color: color-mix(in srgb, var(--dm-accent) 42%, var(--dm-border));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--dm-accent) 13%, transparent), var(--dm-panel) 38%);
+}
+.message-card.type-guard,
+.message-card.type-vip_enter {
+  border-color: color-mix(in srgb, var(--dm-warning) 48%, var(--dm-border));
+}
+.message-card.type-warning {
+  border-color: color-mix(in srgb, var(--dm-danger) 48%, var(--dm-border));
+  background: color-mix(in srgb, var(--dm-danger) 11%, var(--dm-panel));
+}
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, var(--dm-accent), var(--dm-accent-hover));
+  font-weight: 800;
+}
+.message-content,
+.message-meta,
+.message-meta strong,
+.message-content p {
+  min-width: 0;
+}
+.message-meta {
+  gap: 7px;
+  color: var(--dm-dim);
+  font-size: 11px;
+}
+.message-meta strong {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--dm-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-meta time {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.medal-badge,
+.event-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.medal-badge {
+  color: var(--dm-info);
+  background: color-mix(in srgb, var(--dm-info) 14%, transparent);
+}
+.event-badge {
+  color: var(--dm-accent);
+  background: color-mix(in srgb, var(--dm-accent) 13%, transparent);
+}
+.message-content p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--dm-text);
+  line-height: 1.55;
+}
+.message-placeholder {
+  color: var(--dm-muted) !important;
+}
+.message-value {
+  gap: 12px;
+  margin-top: 6px;
+  color: var(--dm-gold);
+  font-weight: 800;
+}
+.runtime-log {
+  flex: none;
+  max-height: 180px;
+  overflow: hidden;
+  border-top: 1px solid var(--dm-border);
+  color: var(--dm-muted);
+  background: var(--dm-side);
+}
+.runtime-log summary {
+  padding: 9px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+.runtime-log summary span {
+  color: var(--dm-dim);
+}
+.runtime-log-actions {
+  justify-content: flex-end;
+  padding: 0 12px 6px;
+}
+.runtime-log-body {
+  max-height: 118px;
+  overflow-y: auto;
+  padding: 0 16px 10px;
+  font-family: Consolas, "SF Mono", monospace;
+  font-size: 11px;
 }
 .log-entry {
   padding: 3px 0;
-  color: var(--dm-text);
-  word-break: break-all;
-}
-.log-entry.message {
   color: var(--dm-muted);
+  overflow-wrap: anywhere;
 }
 .error-banner {
   margin: 12px 16px 0;
   padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--dm-danger) 38%, transparent);
   border-radius: 6px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #b91c1c;
+  background: color-mix(in srgb, var(--dm-danger) 10%, var(--dm-panel));
+  color: var(--dm-danger);
 }
 .modal-mask {
   position: fixed;

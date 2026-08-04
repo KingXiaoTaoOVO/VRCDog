@@ -819,16 +819,13 @@ async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<
                 if err == last_logged_error {
                     repeated_error_count = repeated_error_count.saturating_add(1);
                     if repeated_error_count == 10 {
-                        emit_log(
-                            &runtime.app,
-                            &format!("Bilibili 连接仍在重试，同一错误已重复 10 次：{err}"),
-                        );
+                        emit_log(&runtime.app, "Bilibili 连接仍在重试，请稍候。");
                         repeated_error_count = 0;
                     }
                 } else {
                     last_logged_error = err.clone();
                     repeated_error_count = 0;
-                    emit_log(&runtime.app, &format!("Bilibili 连接失败：{err}"));
+                    emit_log(&runtime.app, "Bilibili 连接未完成，正在自动重试。");
                 }
                 let delay = Duration::from_secs((3 * reconnect_count.min(10)) as u64);
                 tokio::time::sleep(delay).await;
@@ -928,9 +925,9 @@ async fn run_bilibili_once(
 
     set_status(&runtime, |status| {
         status.room_id = real_room_id;
-        status.bili_connected = true;
+        status.bili_connected = false;
         status.last_error.clear();
-        status.last_event = "bilibili_connected".to_string();
+        status.last_event = "bilibili_authenticating".to_string();
     });
     emit_status(&runtime.app, &runtime.status);
 
@@ -952,7 +949,7 @@ async fn run_bilibili_once(
                     Some(Ok(Message::Binary(bytes))) => {
                         let frames = collect_bili_frames(&bytes);
                         for frame in frames {
-                            handle_bili_frame(&runtime, &tx, frame).await;
+                            handle_bili_frame(&runtime, &tx, frame).await?;
                         }
                     }
                     Some(Ok(Message::Text(text))) => {
@@ -1217,7 +1214,7 @@ async fn handle_bili_frame(
     runtime: &DanmakuRuntime,
     tx: &mpsc::UnboundedSender<DanmakuMessage>,
     frame: BiliFrame,
-) {
+) -> Result<(), String> {
     match frame.op {
         BILI_OP_HEARTBEAT_REPLY => {
             if frame.body.len() >= 4 {
@@ -1234,13 +1231,26 @@ async fn handle_bili_frame(
                 emit_status(&runtime.app, &runtime.status);
             }
         }
-        BILI_OP_AUTH_REPLY => {
-            set_status(runtime, |status| {
-                status.bili_connected = true;
-                status.last_event = "bilibili_auth_ok".to_string();
-            });
-            emit_status(&runtime.app, &runtime.status);
-        }
+        BILI_OP_AUTH_REPLY => match parse_bili_auth_reply(&frame.body) {
+            Ok(()) => {
+                set_status(runtime, |status| {
+                    status.bili_connected = true;
+                    status.last_error.clear();
+                    status.last_event = "bilibili_auth_ok".to_string();
+                });
+                emit_status(&runtime.app, &runtime.status);
+            }
+            Err(message) => {
+                let status_message = message.clone();
+                set_status(runtime, |status| {
+                    status.bili_connected = false;
+                    status.last_error = status_message;
+                    status.last_event = "bilibili_auth_failed".to_string();
+                });
+                emit_status(&runtime.app, &runtime.status);
+                return Err(message);
+            }
+        },
         BILI_OP_MESSAGE => {
             if frame.version == 0 || frame.version == 1 {
                 if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&frame.body) {
@@ -1249,6 +1259,16 @@ async fn handle_bili_frame(
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn parse_bili_auth_reply(body: &[u8]) -> Result<(), String> {
+    let value = serde_json::from_slice::<serde_json::Value>(body)
+        .map_err(|_| "Bilibili 连接未完成，正在重试".to_string())?;
+    match value.get("code").and_then(serde_json::Value::as_i64) {
+        Some(0) => Ok(()),
+        Some(_) | None => Err("Bilibili 连接未完成，正在重试".to_string()),
     }
 }
 
@@ -2365,7 +2385,8 @@ fn render_live_panel_overlay_clean(
     let width = DANMAKU_OVERLAY_WIDTH;
     let height = DANMAKU_OVERLAY_HEIGHT;
     let mut pixels = vec![0u8; (width * height * 4) as usize];
-    let panel_alpha = ((cfg.bg_alpha.clamp(0.72, 1.0) * 255.0).round() as u8).max(210);
+    let panel_alpha = (cfg.bg_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let surface_alpha = (cfg.bg_alpha.clamp(0.0, 1.0) * 245.0).round() as u8;
 
     fill_rounded_rect(
         &mut pixels,
@@ -2442,7 +2463,7 @@ fn render_live_panel_overlay_clean(
         &mut pixels,
         width,
         height,
-        "Live Interaction",
+        "Bilibili 直播互动",
         22.0,
         40.0,
         title,
@@ -2466,7 +2487,7 @@ fn render_live_panel_overlay_clean(
         &mut pixels,
         width,
         height,
-        "Like 0",
+        "点赞 0",
         112.0,
         116.0,
         small,
@@ -2475,9 +2496,9 @@ fn render_live_panel_overlay_clean(
 
     let revenue = messages.iter().filter_map(|msg| msg.price).sum::<f64>();
     let revenue_text = if revenue > 0.0 {
-        format!("RMB {:.0}", revenue)
+        format!("¥{:.0}", revenue)
     } else {
-        "RMB 0".to_string()
+        "¥0".to_string()
     };
     draw_text_line(
         font,
@@ -2495,7 +2516,7 @@ fn render_live_panel_overlay_clean(
         &mut pixels,
         width,
         height,
-        "Hide amount",
+        "收益概览",
         width as f32 - 20.0,
         116.0,
         small,
@@ -2503,14 +2524,14 @@ fn render_live_panel_overlay_clean(
     );
 
     let mut pill_x = 16u32;
-    pill_x = draw_live_pill(font, &mut pixels, width, height, "Gift", pill_x, 162);
-    pill_x = draw_live_pill(font, &mut pixels, width, height, "Guard", pill_x + 10, 162);
+    pill_x = draw_live_pill(font, &mut pixels, width, height, "礼物", pill_x, 162);
+    pill_x = draw_live_pill(font, &mut pixels, width, height, "舰长", pill_x + 10, 162);
     let _ = draw_live_pill(
         font,
         &mut pixels,
         width,
         height,
-        "Super Chat",
+        "醒目留言",
         pill_x + 10,
         162,
     );
@@ -2519,7 +2540,7 @@ fn render_live_panel_overlay_clean(
         &mut pixels,
         width,
         height,
-        "Filters",
+        "消息筛选",
         width as f32 - 20.0,
         184.0,
         normal,
@@ -2530,7 +2551,7 @@ fn render_live_panel_overlay_clean(
         &mut pixels,
         width,
         height,
-        "Gifts, Super Chats and guard messages appear here",
+        "礼物、醒目留言与舰长消息会重点显示",
         260.0,
         hint,
         [135, 138, 148],
@@ -2551,7 +2572,7 @@ fn render_live_panel_overlay_clean(
             &mut pixels,
             width,
             height,
-            "Waiting for live danmaku messages",
+            "正在等待真实直播弹幕",
             432.0,
             normal,
             [135, 138, 148],
@@ -2562,7 +2583,7 @@ fn render_live_panel_overlay_clean(
                 &mut pixels,
                 width,
                 height,
-                "Start the danmaku service to sync messages",
+                "启动弹幕服务后同步桌面与 VR 面板",
                 470.0,
                 small,
                 [103, 107, 118],
@@ -2637,13 +2658,13 @@ fn render_live_panel_overlay_clean(
         width - 36,
         56,
         10,
-        [49, 52, 58, 245],
+        [49, 52, 58, surface_alpha],
     );
     let input_text = truncate_chars(&cfg.vr_input_text, 36);
     let placeholder = if status.vr_keyboard_open {
-        "SteamVR keyboard is open..."
+        "SteamVR 键盘已打开..."
     } else {
-        "Open menu, tap trigger to type"
+        "打开菜单，按扳机输入内容"
     };
     let display_text = if input_text.is_empty() {
         placeholder
@@ -2682,7 +2703,7 @@ fn render_live_panel_overlay_clean(
         &mut pixels,
         width,
         height,
-        "Send",
+        "发送",
         width as f32 - 70.0,
         height as f32 - 38.0,
         small,
@@ -2696,13 +2717,13 @@ fn render_live_panel_overlay_clean(
 fn live_message_label(msg: &DanmakuMessage) -> &'static str {
     match msg.message_type.as_str() {
         "sc" => "SC",
-        "gift" => "Gift",
-        "enter" => "Enter",
-        "follow" => "Follow",
-        "guard" | "vip_enter" => "Guard",
-        "warning" => "Warning",
+        "gift" => "礼物",
+        "enter" => "进入",
+        "follow" => "关注",
+        "guard" | "vip_enter" => "舰长",
+        "warning" => "警告",
         "osc" => "OSC",
-        "input" => "Input",
+        "input" => "输入",
         _ => "",
     }
 }
@@ -3006,6 +3027,25 @@ fn set_pixel(pixels: &mut [u8], width: u32, height: u32, x: i32, y: i32, color: 
     if x >= 0 && y >= 0 && (x as u32) < width && (y as u32) < height {
         let idx = (((y as u32) * width + x as u32) * 4) as usize;
         pixels[idx..idx + 4].copy_from_slice(&color);
+    }
+}
+
+#[cfg(test)]
+mod bilibili_protocol_tests {
+    use super::{parse_bili_auth_reply, truncate_chars};
+
+    #[test]
+    fn accepts_only_successful_bilibili_auth_reply() {
+        assert!(parse_bili_auth_reply(br#"{"code":0}"#).is_ok());
+        assert!(parse_bili_auth_reply(br#"{"code":-101}"#).is_err());
+        assert!(parse_bili_auth_reply(br#"{"message":"missing code"}"#).is_err());
+        assert!(parse_bili_auth_reply(b"not-json").is_err());
+    }
+
+    #[test]
+    fn truncates_overlay_text_without_splitting_unicode() {
+        assert_eq!(truncate_chars("老板的小搭", 3), "老板的...");
+        assert_eq!(truncate_chars("弹幕", 8), "弹幕");
     }
 }
 

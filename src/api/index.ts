@@ -22,10 +22,30 @@ import { QueryRequestApi } from './queryRequest';
 import { getStoredAuthCookie, parseExecuteResponse, request as baseRequest, VrcRequestError } from './request';
 import { isDebugLogEnabled } from './debugConfig';
 import { toCleanBase64 } from './utils';
+import { normalizeTwoFactorMethod } from './twoFactor';
+
+const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|token|access[_-]?token|refresh[_-]?token|secret)$/i;
+
+const sanitizeInvokeValue = (value: unknown, seen = new WeakSet<object>()): unknown => {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value as object)) return '[Circular]';
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeInvokeValue(item, seen));
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+      key,
+      SENSITIVE_ARG_KEYS.test(key) ? '***' : sanitizeInvokeValue(nested, seen),
+    ]),
+  );
+};
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    console.warn(`[Browser Mock] API Command: ${cmd}`, args);
+    console.warn(`[Browser Mock] API Command: ${cmd}`, sanitizeInvokeValue(args));
     const mockDanmakuStatus = (overrides: Record<string, unknown> = {}) => ({
       running: false,
       bili_connected: false,
@@ -283,30 +303,25 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       return Promise.resolve({ name: request.title || `MIDI_${request.midi_id}`, data: 'TVRoZAAAAAYAAAABAGBNVHJrAAAAEwD/UQMHoSAAkDxkYIA8AAD/LwA=' }) as any;
     }
     if (cmd === 'vrpiano_midishow_accounts') return Promise.resolve([]) as any;
-    if (cmd === 'vrpiano_midishow_login') return Promise.resolve([{ username: String((args?.request as any)?.username || 'preview') }]) as any;
+    if (cmd === 'vrpiano_midishow_login') {
+      const account = String((args?.request as any)?.account || 'preview');
+      return Promise.resolve({ state: 'signed_in', message: '登录成功', username: account }) as any;
+    }
+    if (cmd === 'vrpiano_midishow_login_status') {
+      return Promise.resolve({ state: 'signed_in', message: '登录成功', username: 'preview' }) as any;
+    }
     if (cmd === 'vrpiano_midishow_remove_account') return Promise.resolve([]) as any;
     if (cmd === 'vrpiano_open_songs_dir') return Promise.resolve(undefined) as any;
     return Promise.resolve({}) as any;
   }
   const startTime = performance.now();
 
-  const sanitizeArgs = (originalArgs?: Record<string, unknown>) => {
-    if (!originalArgs) return originalArgs;
-    const safe: any = JSON.parse(JSON.stringify(originalArgs));
-    if (safe.password) safe.password = '***';
-    if (safe.authCookie) safe.authCookie = '***';
-    if (safe.cookie) safe.cookie = '***';
-    if (safe.options?.headers?.Authorization) safe.options.headers.Authorization = '***';
-    if (safe.options?.auth_cookie) safe.options.auth_cookie = '***';
-    return safe;
-  };
-
   try {
     const res = await invoke<T>(cmd, args);
     const duration = performance.now() - startTime;
     if (isDebugLogEnabled()) {
       window.dispatchEvent(new CustomEvent('app-debug-log', {
-        detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
+        detail: { type: 'success', cmd, args: sanitizeInvokeValue(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
       }));
     }
     return res;
@@ -316,7 +331,7 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     console.error(`[Tauri API Error] ${cmd}:`, error);
     if (isDebugLogEnabled()) {
       window.dispatchEvent(new CustomEvent('app-debug-log', {
-        detail: { type: 'error', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), error: errorMsg, timestamp: new Date().toLocaleTimeString() }
+        detail: { type: 'error', cmd, args: sanitizeInvokeValue(args), duration: duration.toFixed(1), error: errorMsg, timestamp: new Date().toLocaleTimeString() }
       }));
     }
     throw new Error(errorMsg);
@@ -366,10 +381,11 @@ export const VrcApi = {
   verifyTOTP: AuthApi.verifyTOTP,
   verifyEmailOTP: AuthApi.verifyEmailOTP,
   verify2fa: async (params: any) => {
-    const method = params.method?.toLowerCase() || 'totp';
-    if (method === 'emailotp') return AuthApi.verifyEmailOTP({ code: params.code });
-    if (method === 'otp') return AuthApi.verifyOTP({ code: params.code });
-    return AuthApi.verifyTOTP({ code: params.code });
+    const method = normalizeTwoFactorMethod(params.method) || 'totp';
+    const requestParams = { code: params.code, authCookie: params.authCookie };
+    if (method === 'emailOtp') return AuthApi.verifyEmailOTP(requestParams);
+    if (method === 'otp') return AuthApi.verifyOTP(requestParams);
+    return AuthApi.verifyTOTP(requestParams);
   },
   logout: () => safeInvoke('vrc_set_proxy', { proxyUrl: null, authCookie: null }),
   getConfig: AuthApi.getConfig,
@@ -396,7 +412,8 @@ export const VrcApi = {
   },
 
   // 用户模块
-  getCurrentUser: () => baseRequest('/auth/user'),
+  getCurrentUser: (params: { authCookie?: string } = {}) =>
+    baseRequest('/auth/user', { authCookie: params.authCookie }),
   getUser: UserApi.getUser,
   searchUsers: (params: any) => UserApi.getUsers({ search: params.query || params.search, ...params }),
   updateStatus: UserApi.updateStatus,
@@ -1018,6 +1035,12 @@ export interface VrpianoMidishowAccount {
   login_type?: string;
 }
 
+export interface VrpianoMidishowLoginStatus {
+  state: 'idle' | 'opening' | 'waiting' | 'needs_confirmation' | 'signed_in' | 'failed';
+  message: string;
+  username?: string | null;
+}
+
 export interface VrpianoMidiData {
   name: string;
   data: string;
@@ -1062,13 +1085,13 @@ export const VrpianoApi = {
     },
   }),
   midishowAccounts: () => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_accounts'),
-  midishowLogin: (params: { username: string; password?: string; cookie?: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_login', {
+  midishowLogin: (params: { account: string; password: string }) => safeInvoke<VrpianoMidishowLoginStatus>('vrpiano_midishow_login', {
     request: {
-      username: params.username,
-      password: params.password || '',
-      cookie: params.cookie || null,
+      account: params.account,
+      password: params.password,
     },
   }),
+  midishowLoginStatus: () => safeInvoke<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status'),
   midishowRemoveAccount: (params: { username: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_remove_account', {
     username: params.username,
   }),
