@@ -30,6 +30,7 @@ dist-ssr
 
 # Agent and temporary files
 skills使用说明
+*.tsbuildinfo
 .scratch/
 /.cargo-target/
 logs/
@@ -44,5 +45,5 @@ docs/agents/
 
 # AtomCode local-scope configs (machine-specific)
 .atomcode/local/
-bun.lock
 /src-tauri/resources/python-runtime*/
+/src-tauri/scripts/.ffmpeg-download/

@@ -15,7 +15,7 @@ const PYTHON_ARCHIVE = `python-${PYTHON_VERSION}-embed-amd64.zip`;
 const PYTHON_URL = `https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_ARCHIVE}`;
 const PYTHON_SHA256 = '76f238f606250c87c6beac75dccd35ee99070a13490555936abb6cb64ecce3d0';
 const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
-const GET_PIP_SHA256 = 'a341e1a43e38001c551a1508a73ff23636a11970b61d901d9a1cad2a18f57055';
+const GET_PIP_SHA256 = '25b5c39ade96bab5eabe6404ce83cab6da2deb5fe3c07d9881f43803edb6f9c8';
 const PIP_VERSION = '26.2';
 const WINDOWS_TAR = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
 

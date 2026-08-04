@@ -1,11 +1,19 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 const host = process.env.TAURI_DEV_HOST || "127.0.0.1";
+const normalizedPath = (value: string) => value.replace(/\\/g, "/").toLowerCase();
+const shouldIgnoreWatchPath = (value: string) => {
+  const path = normalizedPath(value);
+  return /\/(?:\.cargo-target|target)(?:\/|$)/.test(path) || /\/src-tauri(?:\/|$)/.test(path) || /\/vrcdog-server\/target(?:\/|$)/.test(path);
+};
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  root: projectRoot,
   plugins: [vue(), tailwindcss()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -23,8 +31,9 @@ export default defineConfig(async () => ({
       clientPort: 1420,
     },
     watch: {
-      // 3. tell Vite to ignore watching generated/backend-heavy folders.
-      ignored: ["**/src-tauri/**"],
+      // 3. Keep Rust/Tauri outputs out of chokidar. On Windows the linker and
+      // antivirus can hold generated .exe files open, causing fs.watch EBUSY.
+      ignored: shouldIgnoreWatchPath,
     },
   },
   optimizeDeps: {

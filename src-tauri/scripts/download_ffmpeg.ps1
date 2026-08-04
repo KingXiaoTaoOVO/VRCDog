@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BinDir = Join-Path $ScriptDir "..\bin"
 $FfmpegExe = Join-Path $BinDir "ffmpeg-x86_64-pc-windows-msvc.exe"
-$WorkDir = Join-Path $ScriptDir ".ffmpeg-download"
+$WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) "vrcdog-ffmpeg-download"
 $ZipPath = Join-Path $WorkDir "ffmpeg.zip"
 $ExtractDir = Join-Path $WorkDir "ffmpeg_extracted"
 

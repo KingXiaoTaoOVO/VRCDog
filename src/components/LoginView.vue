@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { VrcApi, DbApi, SysApi, GamelogApi } from "../api";
+import { VrcApi, DbApi } from "../api";
 import { Bone, Key, User, Loader2, Globe, ArrowLeft, Trash2, Settings, ArrowDownToLine, Languages, Check, X, ChevronDown, AlertCircle } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { getLocaleLabel, localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 import { getVersion } from '@tauri-apps/api/app';
 import { currentTheme } from '../theme';
 import { mergeCookiesAndSave, normalizeAuthCookieJson, parseCookieInput } from '../api/cookies';
+import {
+  chooseDefaultTwoFactorMethod,
+  getTwoFactorErrorMessage,
+  getTwoFactorResponseCookie,
+  isTwoFactorVerified,
+  isValidTwoFactorCode,
+  normalizeTwoFactorCode,
+  normalizeTwoFactorMethods,
+  type TwoFactorMethod,
+} from '../api/twoFactor';
 
 const { t, locale } = useI18n({ useScope: 'global' });
 const appVersion = ref('');
@@ -110,8 +120,7 @@ async function loginWithSavedAccount(account: SavedAccount) {
         errorMsg.value = msg;
       }
     } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
-      show2FA.value = true;
-      twoFactorMethods.value = Array.isArray(res.requiresTwoFactorAuth) ? res.requiresTwoFactorAuth : Array.isArray(res.requires_two_factor_auth) ? res.requires_two_factor_auth : ['totp'];
+      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth);
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
         await mergeCookiesAndSave(res.auth_cookie);
@@ -138,8 +147,7 @@ async function loginWithSavedAccount(account: SavedAccount) {
   } catch (err: any) {
     const msg = err.message || JSON.stringify(err);
     if (msg.includes("hold your horses") || msg.toLowerCase().includes("twofactor")) {
-      show2FA.value = true;
-      twoFactorMethods.value = ["emailOtp"];
+      beginTwoFactor(['emailOtp']);
     } else if (/missing credentials|401|unauthorized|expired|invalid/i.test(msg)) {
       prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
     } else {
@@ -297,8 +305,22 @@ const loading = ref(false);
 const errorMsg = ref('');
 
 const show2FA = ref(false);
-const twoFactorMethods = ref<string[]>([]);
+const twoFactorMethods = ref<TwoFactorMethod[]>([]);
+const selectedTwoFactorMethod = ref<TwoFactorMethod>('totp');
 const twoFactorCode = ref('');
+
+function beginTwoFactor(methods: unknown) {
+  const normalized = normalizeTwoFactorMethods(methods);
+  twoFactorMethods.value = normalized.length > 0 ? normalized : ['totp'];
+  selectedTwoFactorMethod.value = chooseDefaultTwoFactorMethod(twoFactorMethods.value);
+  twoFactorCode.value = '';
+  errorMsg.value = '';
+  show2FA.value = true;
+}
+
+function twoFactorMethodLabel(method: TwoFactorMethod): string {
+  return method === 'totp' ? t('login.2fa_method_totp') : t('login.2fa_method_email');
+}
 
 const handleLogin = async () => {
   if (!username.value || !password.value) {
@@ -329,9 +351,8 @@ const handleLogin = async () => {
     if (res.error) {
       errorMsg.value = res.error.message || JSON.stringify(res.error);
     } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
-      show2FA.value = true;
-      twoFactorMethods.value = Array.isArray(res.requiresTwoFactorAuth) ? res.requiresTwoFactorAuth : Array.isArray(res.requires_two_factor_auth) ? res.requires_two_factor_auth : ['totp'];
-      
+      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth);
+
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
         await mergeCookiesAndSave(res.auth_cookie);
@@ -351,8 +372,7 @@ const handleLogin = async () => {
   } catch (err: any) {
     const msg = err.message || JSON.stringify(err);
     if (msg.includes("hold your horses") || msg.toLowerCase().includes("twofactor")) {
-      show2FA.value = true;
-      twoFactorMethods.value = ["emailOtp"];
+      beginTwoFactor(['emailOtp']);
     } else {
       errorMsg.value = msg;
     }
@@ -362,37 +382,45 @@ const handleLogin = async () => {
 };
 
 const handle2FA = async () => {
-  if (!twoFactorCode.value) return;
+  const code = normalizeTwoFactorCode(twoFactorCode.value);
+  twoFactorCode.value = code;
+  if (!isValidTwoFactorCode(code)) {
+    errorMsg.value = t('login.error_code_format');
+    return;
+  }
 
   loading.value = true;
   errorMsg.value = '';
 
   try {
-    const method = twoFactorMethods.value.includes('totp') ? 'totp'
-                  : twoFactorMethods.value.includes('emailOtp') ? 'emailOtp'
-                  : 'otp';
     const verifyRes: any = await VrcApi.verify2fa({
-      code: twoFactorCode.value,
-      method,
-      authCookie: authCookie.value
+      code,
+      method: selectedTwoFactorMethod.value,
+      authCookie: authCookie.value || undefined
     });
 
-    const verified = verifyRes?.verified === true;
-    if (verified) {
-      const user: any = await VrcApi.getCurrentUser();
-      if (user) {
-        // 保存账号
-        const finalCookie = await DbApi.getAuth().catch(() => null);
-        await saveCurrentAccount(user, normalizeAuthCookieJson(finalCookie || authCookie.value));
-        emit('login-success', user);
+    if (isTwoFactorVerified(verifyRes)) {
+      const responseCookie = getTwoFactorResponseCookie(verifyRes);
+      if (responseCookie) {
+        const merged = await mergeCookiesAndSave(responseCookie);
+        authCookie.value = merged || responseCookie;
+      }
+
+      const finalCookie = await DbApi.getAuth().catch(() => null);
+      const effectiveCookie = normalizeAuthCookieJson(finalCookie || authCookie.value);
+      const user: any = await VrcApi.getCurrentUser({ authCookie: effectiveCookie });
+      if (user?.id || user?.currentUser || user?.current_user) {
+        const currentUser = user.currentUser || user.current_user || user;
+        await saveCurrentAccount(currentUser, effectiveCookie);
+        emit('login-success', currentUser);
       } else {
         errorMsg.value = t('login.error_verify_failed');
       }
     } else {
-      errorMsg.value = t('login.error_code_wrong');
+      errorMsg.value = getTwoFactorErrorMessage(verifyRes) || t('login.error_code_wrong');
     }
   } catch (err: any) {
-    errorMsg.value = err.message || err;
+    errorMsg.value = err.message || String(err);
   } finally {
     loading.value = false;
   }
@@ -560,13 +588,33 @@ onUnmounted(() => {
               {{ t('login.2fa_title') }}
             </p>
             <p class="text-sm text-orange-600/80">
-              {{ t('login.2fa_desc', { method: twoFactorMethods.includes('totp') ? t('login.2fa_method_totp') : t('login.2fa_method_email') }) }}
+              {{ t('login.2fa_desc', { method: twoFactorMethodLabel(selectedTwoFactorMethod) }) }}
             </p>
+          </div>
+          <div v-if="twoFactorMethods.length > 1" class="grid grid-cols-2 gap-2" role="radiogroup" :aria-label="t('login.2fa_choose_method')">
+            <button
+              v-for="method in twoFactorMethods"
+              :key="method"
+              type="button"
+              role="radio"
+              :aria-checked="selectedTwoFactorMethod === method"
+              class="rounded-xl border px-3 py-2 text-sm font-bold transition-colors"
+              :class="selectedTwoFactorMethod === method
+                ? 'border-[var(--theme-primary)] bg-[var(--theme-primary)] text-white'
+                : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface)] text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)]'"
+              @click="selectedTwoFactorMethod = method; twoFactorCode = ''; errorMsg = ''"
+            >
+              {{ twoFactorMethodLabel(method) }}
+            </button>
           </div>
           <div>
             <input
               v-model="twoFactorCode"
               type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="12"
+              :aria-label="t('login.2fa_placeholder')"
               :placeholder="t('login.2fa_placeholder')"
               class="w-full px-4 py-4 rounded-xl border border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-600 text-center text-2xl tracking-[0.5em] font-mono font-bold"
               @keyup.enter="handle2FA"

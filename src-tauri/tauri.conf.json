@@ -4,9 +4,9 @@
   "version": "5.0.1",
   "identifier": "com.vrcenvbuilder.dev",
   "build": {
-    "beforeDevCommand": "node scripts/kill-port-1420.mjs && pnpm exec vite",
+    "beforeDevCommand": "node scripts/dev-vite.mjs",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build:desktop",
+    "beforeBuildCommand": "node scripts/run-package-script.mjs build:desktop",
     "frontendDist": "../dist"
   },
   "app": {
