@@ -13,6 +13,9 @@ fn main() {
     if target_os == "macos" {
         config.define("BUILD_UNIVERSAL", "OFF");
     } else if target_os == "windows" {
+        // Build OpenVR without Debug CRT references so Rust test binaries can link it.
+        config.define("CMAKE_BUILD_TYPE", "Release");
+        config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
         // Work around broken cmake build.
         config.cxxflag("/DWIN32");
     }

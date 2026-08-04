@@ -31,7 +31,7 @@ import {
   Volume2,
   X,
 } from 'lucide-vue-next';
-import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
+import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoMidishowLoginStatus, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
 import { SysApi } from '../api';
 import {
   GENERAL_MIDI_GROUPS,
@@ -80,10 +80,14 @@ const urlInput = ref('');
 const urlFilename = ref('');
 const logs = ref<string[]>([]);
 const midishowAccounts = ref<VrpianoMidishowAccount[]>([]);
-const midishowUsername = ref('');
+const midishowAccount = ref('');
 const midishowPassword = ref('');
-const midishowCookie = ref('');
 const midishowLoginOpen = ref(false);
+const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
+  state: 'idle',
+  message: '等待登录',
+  username: null,
+});
 const accountLoading = ref(false);
 const externalLinkLoading = ref(false);
 const signupUrl = 'https://www.midishow.com/user/account/signup';
@@ -108,21 +112,20 @@ const overlayOpen = ref(false);
 
 const formatVrpianoError = (e: unknown) => {
   const message = e instanceof Error ? e.message : String(e);
-  if (/interactive browser verification|Cloudflare|challenge|cf_chl/i.test(message)) {
-    return 'Midishow 要求浏览器验证。已登录后请在浏览器使用官方下载，或将公开 .mid/.midi 直链粘贴到下方下载框。';
+  if (/403|cloudflare|challenge|cookie|cf_chl|javascript/i.test(message)) {
+    return '当前操作未完成，请重新登录后再试。';
   }
-  if (/status code 403|HTTP 403|403 Forbidden|status 403/i.test(message)) {
-    return 'Midishow 拒绝了本次请求（403）。请登录后保存浏览器中已登录 Midishow 的最新 Cookie，再重试。';
+  if (/invalid|expired|会话已失效/i.test(message)) {
+    return '登录状态已失效，请重新登录。';
   }
-  if (/JavaScript\/cookies|Cloudflare|challenge|cf_chl/i.test(message)) {
-    return 'Midishow 需要浏览器 Cookie 验证。请先在浏览器打开并登录 Midishow，再把 Cookie 粘贴到登录表单。';
-  }
-  return message;
+  return message || '操作未完成，请稍后重试。';
 };
 
 let unlistenStatus: (() => void) | null = null;
 let unlistenOverlayClosed: (() => void) | null = null;
+let unlistenMidishowLogin: (() => void) | null = null;
 let pollTimer: number | null = null;
+let midishowLoginPollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
 let hotkeyApplyTimer: number | null = null;
 let audioContext: AudioContext | null = null;
@@ -152,11 +155,9 @@ const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status
 const canStart = computed(() => Boolean(selectedSong.value) && !status.value.running && !loading.value);
 const speedText = computed(() => `${clampSpeed(speed.value).toFixed(2)}x`);
 const defaultMidishowAccount = computed(() => midishowAccounts.value[0] || null);
-const defaultMidishowLoginTypeText = computed(() => {
-  const type = defaultMidishowAccount.value?.login_type;
-  if (!type) return '';
-  return type === 'cookie' ? 'Cookie' : '密码';
-});
+const defaultMidishowLoginTypeText = computed(() => (
+  defaultMidishowAccount.value?.login_type ? '登录会话' : ''
+));
 const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length || selectedSong.value) && !playerLoading.value);
 const onlineEmptyText = computed(() => {
   if (!hasSearchedOnline.value) return '输入关键词搜索，或直接粘贴 URL / ID 下载。';
@@ -553,28 +554,71 @@ const openMidishowSearch = async () => {
   }
 };
 
+const stopMidishowLoginPolling = () => {
+  if (midishowLoginPollTimer !== null) {
+    window.clearInterval(midishowLoginPollTimer);
+    midishowLoginPollTimer = null;
+  }
+};
+
+const applyMidishowLoginStatus = async (next: VrpianoMidishowLoginStatus) => {
+  const alreadySignedIn = midishowLoginStatus.value.state === 'signed_in'
+    && midishowLoginStatus.value.username === next.username;
+  midishowLoginStatus.value = next;
+  if (next.state === 'idle' || next.state === 'failed') {
+    stopMidishowLoginPolling();
+    accountLoading.value = false;
+    if (next.state === 'failed') error.value = next.message;
+    return;
+  }
+  if (next.state !== 'signed_in') return;
+  stopMidishowLoginPolling();
+  midishowPassword.value = '';
+  await loadMidishowAccounts();
+  midishowLoginOpen.value = false;
+  accountLoading.value = false;
+  if (!alreadySignedIn) {
+    addLog(next.username ? `Midishow 登录成功：${next.username}` : 'Midishow 登录成功');
+  }
+};
+
+const refreshMidishowLoginStatus = async () => {
+  try {
+    await applyMidishowLoginStatus(await VrpianoApi.midishowLoginStatus());
+  } catch (e) {
+    stopMidishowLoginPolling();
+    accountLoading.value = false;
+    error.value = formatVrpianoError(e);
+  }
+};
+
+const startMidishowLoginPolling = () => {
+  stopMidishowLoginPolling();
+  midishowLoginPollTimer = window.setInterval(refreshMidishowLoginStatus, 1200);
+};
+
 const loginMidishow = async () => {
-  if (!midishowUsername.value.trim() || (!midishowPassword.value && !midishowCookie.value.trim())) {
-    error.value = '请输入 Midishow 账号名，并填写密码或 Cookie';
+  const account = midishowAccount.value.trim();
+  const password = midishowPassword.value;
+  if (!account || !password) {
+    error.value = '请输入 Midishow 账号和密码';
     return;
   }
   accountLoading.value = true;
   error.value = '';
   try {
-    midishowAccounts.value = await VrpianoApi.midishowLogin({
-      username: midishowUsername.value.trim(),
-      password: midishowPassword.value,
-      cookie: midishowCookie.value.trim() || undefined,
-    });
+    const next = await VrpianoApi.midishowLogin({ account, password });
     midishowPassword.value = '';
-    midishowCookie.value = '';
-    midishowLoginOpen.value = false;
-    addLog(`Midishow 已登录：${midishowUsername.value.trim()}`);
-  } catch (e: any) {
-    error.value = formatVrpianoError(e);
-    addLog(`Midishow 登录失败：${error.value}`);
-  } finally {
+    await applyMidishowLoginStatus(next);
+    if (next.state !== 'signed_in') {
+      startMidishowLoginPolling();
+      addLog('Midishow 正在自动登录');
+    }
+  } catch (e) {
+    midishowPassword.value = '';
     accountLoading.value = false;
+    error.value = formatVrpianoError(e);
+    addLog(`Midishow 登录未完成：${error.value}`);
   }
 };
 
@@ -967,6 +1011,9 @@ onMounted(async () => {
     unlistenOverlayClosed = await listen('vrpiano-overlay-closed', () => {
       overlayOpen.value = false;
     });
+    unlistenMidishowLogin = await listen<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status', (event) => {
+      void applyMidishowLoginStatus(event.payload);
+    });
     unlistenStatus = await listen<VrpianoStatus>('vrpiano_status', (event) => {
       status.value = event.payload;
       if (Number.isFinite(event.payload.speed)) speed.value = event.payload.speed;
@@ -989,6 +1036,8 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unlistenStatus) unlistenStatus();
   if (unlistenOverlayClosed) unlistenOverlayClosed();
+  if (unlistenMidishowLogin) unlistenMidishowLogin();
+  stopMidishowLoginPolling();
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (speedApplyTimer !== null) window.clearTimeout(speedApplyTimer);
   if (hotkeyApplyTimer !== null) window.clearTimeout(hotkeyApplyTimer);
@@ -1101,8 +1150,8 @@ onUnmounted(() => {
       <section class="control-pane">
         <div class="now-playing">
           <span>当前曲目</span>
-          <strong>{{ selectedSong?.name || '未选择' }}</strong>
-          <small>{{ selectedSong?.path || status.songs_dir }}</small>
+          <strong :title="selectedSong?.name || '未选择'">{{ selectedSong?.name || '未选择' }}</strong>
+          <small :title="selectedSong?.path || status.songs_dir">{{ selectedSong?.path || status.songs_dir }}</small>
         </div>
 
         <section class="player-panel">
@@ -1225,25 +1274,30 @@ onUnmounted(() => {
           </div>
 
           <form v-if="midishowLoginOpen && !defaultMidishowAccount" class="login-form" @submit.prevent="loginMidishow">
-            <input v-model="midishowUsername" autocomplete="username" placeholder="Midishow 用户名 / 邮箱">
-            <input v-model="midishowPassword" autocomplete="current-password" type="password" placeholder="密码">
-            <textarea
-              v-model="midishowCookie"
-              class="cookie-input"
-              autocomplete="off"
-              placeholder="可选：浏览器 Cookie（遇到 Midishow 验证 / 403 时使用）"
-              rows="2"
-            />
+            <label class="login-field">
+              <span>账号</span>
+              <input v-model="midishowAccount" autocomplete="username" placeholder="Midishow 用户名或邮箱">
+            </label>
+            <label class="login-field">
+              <span>密码</span>
+              <input v-model="midishowPassword" type="password" autocomplete="current-password" placeholder="密码仅用于本次登录">
+            </label>
+            <p class="login-hint">点击登录后会自动完成。只有页面需要确认时才会显示登录窗口。</p>
+            <p v-if="accountLoading" class="login-status" aria-live="polite">
+              <Loader2 :size="15" class="spin" />
+              {{ midishowLoginStatus.message }}
+            </p>
             <div class="login-form-actions">
-              <button type="submit" :disabled="accountLoading">
+              <button type="submit" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
                 <Loader2 v-if="accountLoading" :size="16" class="spin" />
-                <span v-else>保存登录</span>
+                <LogIn v-else :size="16" />
+                <span>{{ accountLoading ? '正在登录' : '登录' }}</span>
               </button>
-              <button type="button" class="account-btn ghost" :disabled="externalLinkLoading" @click="openMidishowSignup">
+              <button type="button" class="account-btn ghost" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
                 <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
                 <ExternalLink v-else :size="15" /> 注册
               </button>
-              <button type="button" class="account-btn ghost" title="复制注册链接" @click="copySignupUrl">
+              <button type="button" class="account-btn ghost" title="复制注册链接" :disabled="accountLoading" @click="copySignupUrl">
                 复制链接
               </button>
             </div>
@@ -1749,6 +1803,12 @@ input {
   padding: 14px;
   gap: 14px;
   overflow-y: auto;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.control-pane > * {
+  flex: 0 0 auto;
 }
 
 .now-playing,
@@ -1762,9 +1822,27 @@ input {
 }
 
 .now-playing {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   display: grid;
   gap: 6px;
   padding: 12px;
+}
+
+.now-playing > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.now-playing small {
+  overflow: hidden;
+  display: -webkit-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
 }
 
 .progress-area {
@@ -2101,8 +2179,18 @@ input {
 
 .midishow-account div {
   min-width: 0;
+  max-width: 100%;
   display: grid;
   gap: 3px;
+}
+
+.midishow-account strong,
+.midishow-account span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .account-btn {
@@ -2117,18 +2205,29 @@ input {
 }
 
 .login-form {
-  padding: 8px;
+  padding: 10px;
   border-radius: 8px;
   background: var(--vp-surface);
   box-shadow: inset 0 0 0 1px var(--vp-border);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 8px;
 }
 
-.login-form input,
-.login-form textarea {
+.login-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.login-field span {
+  color: var(--vp-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.login-form input {
   min-width: 0;
   width: 100%;
   border: 1px solid var(--vp-border);
@@ -2139,13 +2238,21 @@ input {
   outline: none;
 }
 
-.login-form textarea {
-  min-height: 58px;
-  resize: vertical;
+.login-hint,
+.login-status {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--vp-dim);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.cookie-input {
-  grid-column: 1 / -1;
+.login-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--vp-primary);
+  font-weight: 750;
 }
 
 .login-form button {
@@ -2154,10 +2261,19 @@ input {
 }
 
 .login-form-actions {
-  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.login-form-actions button {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .online-head strong {
@@ -2486,6 +2602,10 @@ input {
     grid-template-columns: 1fr;
   }
 
+  .login-form-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .danger-action,
   .toggle-btn {
     width: 100%;
@@ -2499,6 +2619,17 @@ input {
 
   .input-row button,
   .name-input {
+    grid-column: 1 / -1;
+  }
+
+}
+
+@media (max-width: 620px) {
+  .login-form-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .login-form-actions button:first-child {
     grid-column: 1 / -1;
   }
 }

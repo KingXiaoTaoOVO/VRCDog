@@ -3,7 +3,7 @@ use midly::{MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{
@@ -17,6 +17,12 @@ use tauri::{Emitter, Manager};
 const NOTE_HOLD_MS: u64 = 28;
 const SPEED_STEP: f64 = 0.1;
 const MAX_MIDI_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
+const MIDISHOW_LOGIN_WINDOW_LABEL: &str = "midishow-login";
+const MIDISHOW_LOGIN_URL: &str = "https://www.midishow.com/user/account/login";
+const MIDISHOW_ACCOUNT_URL: &str = "https://www.midishow.com/user/account";
+const MIDISHOW_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const MIDISHOW_LOGIN_TIMEOUT_MS: u64 = 75_000;
+const MIDISHOW_LOGIN_TITLE_PREFIX: &str = "VRCDOG_MIDISHOW:";
 
 /// Regex patterns compiled once and reused across all calls.
 mod regex_patterns {
@@ -194,7 +200,7 @@ pub struct VrpianoMidiData {
 #[derive(Clone, Serialize, Deserialize)]
 struct StoredMidishowAccount {
     username: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     password: String,
     #[serde(default)]
     cookie: String,
@@ -258,9 +264,27 @@ pub struct VrpianoMidishowDownloadRequest {
 
 #[derive(Clone, Deserialize)]
 pub struct VrpianoMidishowLoginRequest {
-    username: String,
+    account: String,
     password: String,
-    cookie: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct VrpianoMidishowLoginStatus {
+    state: String,
+    message: String,
+    username: Option<String>,
+}
+
+#[derive(Clone, Default)]
+struct MidishowLoginRuntime {
+    started_at_ms: u64,
+    state: String,
+    message: String,
+}
+
+fn midishow_login_runtime() -> &'static Mutex<MidishowLoginRuntime> {
+    static RUNTIME: OnceLock<Mutex<MidishowLoginRuntime>> = OnceLock::new();
+    RUNTIME.get_or_init(|| Mutex::new(MidishowLoginRuntime::default()))
 }
 
 #[derive(Clone)]
@@ -592,12 +616,11 @@ pub async fn vrpiano_midishow_accounts(
 ) -> Result<Vec<VrpianoMidishowAccount>, String> {
     Ok(load_midishow_accounts(&app)?
         .into_iter()
+        // Password-only records were created by the old login flow. Do not
+        // expose them as active sessions; the user must complete browser login.
+        .filter(|account| !account.cookie.trim().is_empty())
         .map(|account| VrpianoMidishowAccount {
-            login_type: if account.cookie.trim().is_empty() {
-                "password".to_string()
-            } else {
-                "cookie".to_string()
-            },
+            login_type: "browser-cookie".to_string(),
             username: account.username,
         })
         .collect())
@@ -607,45 +630,167 @@ pub async fn vrpiano_midishow_accounts(
 pub async fn vrpiano_midishow_login(
     app: tauri::AppHandle,
     request: VrpianoMidishowLoginRequest,
-) -> Result<Vec<VrpianoMidishowAccount>, String> {
-    let username = request.username.trim().to_string();
-    let password = request.password.trim().to_string();
-    let cookie = request.cookie.unwrap_or_default();
-    let cookie = normalize_midishow_cookie_header(&cookie)?;
-    if username.is_empty() || (password.is_empty() && cookie.is_empty()) {
-        return Err("Please enter a Midishow username plus password or Cookie".to_string());
+) -> Result<VrpianoMidishowLoginStatus, String> {
+    let account = request.account.trim().to_string();
+    if account.is_empty() || request.password.is_empty() {
+        return Err("请输入 Midishow 账号和密码".to_string());
     }
-    let project_path = resolve_vrpiano_project_path(Some(&app));
-    let project_path_str = project_path.to_string_lossy();
-    if cookie.is_empty() {
-        if let Err(native_error) = verify_midishow_login_direct(&username, &password).await {
-            verify_midishow_login(&app, &project_path_str, &username, &password).map_err(
-                |python_error| {
-                    format!(
-                        "Midishow login failed: {native_error}; Python fallback failed: {python_error}"
-                    )
-                },
-            )?;
-        }
-    } else {
-        verify_midishow_cookie_direct(&cookie).await?;
+
+    if let Some(window) = app.get_webview_window(MIDISHOW_LOGIN_WINDOW_LABEL) {
+        let _ = window.close();
     }
-    let mut accounts = load_midishow_accounts(&app)?;
-    if let Some(account) = accounts
-        .iter_mut()
-        .find(|account| account.username == username)
+
+    let account_js = serde_json::to_string(&account).map_err(|_| "无法准备登录信息".to_string())?;
+    let password_js =
+        serde_json::to_string(&request.password).map_err(|_| "无法准备登录信息".to_string())?;
+    let login_script = Arc::new(Mutex::new(Some(midishow_login_script(
+        &account_js,
+        &password_js,
+    ))));
+    drop(password_js);
+    drop(request.password);
+
     {
-        account.password = password;
-        account.cookie = cookie;
-    } else {
-        accounts.push(StoredMidishowAccount {
-            username,
-            password,
-            cookie,
-        });
+        let mut runtime = midishow_login_runtime()
+            .lock()
+            .map_err(|_| "暂时无法开始登录，请稍后重试".to_string())?;
+        runtime.started_at_ms = current_time_ms();
+        runtime.state = "opening".to_string();
+        runtime.message = "正在准备登录".to_string();
     }
-    save_midishow_accounts(&app, &accounts)?;
-    vrpiano_midishow_accounts(app).await
+
+    let page_script = Arc::clone(&login_script);
+    let monitor_script = midishow_login_monitor_script();
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        MIDISHOW_LOGIN_WINDOW_LABEL,
+        tauri::WebviewUrl::External(
+            MIDISHOW_LOGIN_URL
+                .parse::<tauri::Url>()
+                .map_err(|_| "登录地址不可用".to_string())?,
+        ),
+    )
+    .title("登录 Midishow")
+    .user_agent(MIDISHOW_USER_AGENT)
+    .inner_size(980.0, 760.0)
+    .resizable(true)
+    .visible(false)
+    .on_page_load(move |window, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished
+            && is_midishow_login_url(payload.url().as_str())
+        {
+            let script = page_script.lock().ok().and_then(|mut value| value.take());
+            if let Some(script) = script {
+                let _ = window.eval(&script);
+            } else {
+                let _ = window.eval(&monitor_script);
+            }
+        }
+    })
+    .build()
+    .map_err(|_| "暂时无法开始登录，请稍后重试".to_string())?;
+
+    let status = VrpianoMidishowLoginStatus {
+        state: "waiting".to_string(),
+        message: "正在自动登录".to_string(),
+        username: None,
+    };
+    update_midishow_login_runtime(&status);
+    let _ = app.emit("vrpiano_midishow_login_status", status.clone());
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_midishow_login_status(
+    app: tauri::AppHandle,
+) -> Result<VrpianoMidishowLoginStatus, String> {
+    let Some(window) = app.get_webview_window(MIDISHOW_LOGIN_WINDOW_LABEL) else {
+        let current = current_midishow_login_status();
+        if matches!(
+            current.state.as_str(),
+            "opening" | "waiting" | "needs_confirmation"
+        ) {
+            return Ok(finish_midishow_login(
+                &app,
+                "failed",
+                "登录窗口已关闭，请重新尝试",
+            ));
+        }
+        return Ok(current);
+    };
+
+    let elapsed = current_time_ms().saturating_sub(midishow_login_started_at_ms());
+    if elapsed >= MIDISHOW_LOGIN_TIMEOUT_MS {
+        let _ = window.close();
+        return Ok(finish_midishow_login(
+            &app,
+            "failed",
+            "登录等待时间过长，请重新尝试",
+        ));
+    }
+
+    let cookie = read_midishow_browser_cookie(window.clone()).await?;
+    if !cookie.is_empty() {
+        if let Some(username) = inspect_midishow_session(&cookie).await? {
+            persist_midishow_session(&app, &username, cookie)?;
+            let _ = window.close();
+            let status = VrpianoMidishowLoginStatus {
+                state: "signed_in".to_string(),
+                message: format!("已登录 {username}"),
+                username: Some(username),
+            };
+            update_midishow_login_runtime(&status);
+            let _ = app.emit("vrpiano_midishow_login_status", status.clone());
+            return Ok(status);
+        }
+    }
+
+    let title = window.title().unwrap_or_default();
+    if let Some(signal) = parse_midishow_login_title(&title) {
+        match signal {
+            MidishowLoginSignal::CredentialsRejected => {
+                let _ = window.close();
+                return Ok(finish_midishow_login(
+                    &app,
+                    "failed",
+                    "账号或密码不正确，请检查后重试",
+                ));
+            }
+            MidishowLoginSignal::NeedsConfirmation => {
+                let already_visible = window.is_visible().unwrap_or(false);
+                if !already_visible {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let current = current_midishow_login_status();
+                if current.state == "needs_confirmation" {
+                    return Ok(current);
+                }
+                return Ok(finish_midishow_login(
+                    &app,
+                    "needs_confirmation",
+                    "请在登录窗口完成确认，完成后会自动继续",
+                ));
+            }
+            MidishowLoginSignal::FormMissing => {
+                let _ = window.close();
+                return Ok(finish_midishow_login(
+                    &app,
+                    "failed",
+                    "暂时无法完成登录，请稍后重试",
+                ));
+            }
+            MidishowLoginSignal::Submitted | MidishowLoginSignal::Ready => {}
+        }
+    }
+
+    let status = VrpianoMidishowLoginStatus {
+        state: "waiting".to_string(),
+        message: "正在自动登录".to_string(),
+        username: None,
+    };
+    update_midishow_login_runtime(&status);
+    Ok(status)
 }
 
 #[tauri::command]
@@ -1725,8 +1870,8 @@ async fn search_midishow_http(
     let cookie = account
         .map(|account| account.cookie.trim())
         .filter(|cookie| !cookie.is_empty());
-    if let Some(account) = account.filter(|_| cookie.is_none()) {
-        login_midishow_direct(&client, &account.username, &account.password).await?;
+    if account.is_some() && cookie.is_none() {
+        return Err("Midishow 登录状态已失效，请重新登录".to_string());
     }
 
     let response = with_midishow_cookie(
@@ -1740,17 +1885,14 @@ async fn search_midishow_http(
     )
     .send()
     .await
-    .map_err(|e| format!("Midishow search failed: {e}"))?;
+    .map_err(|_| "暂时无法搜索 Midishow 曲库，请稍后重试".to_string())?;
     let status = response.status();
     let html = response
         .text()
         .await
-        .map_err(|e| format!("Failed to read Midishow response: {e}"))?;
-    if is_cloudflare_challenge(&html) {
-        return Err("Midishow requires browser JavaScript/cookies before search. Open Midishow in a browser first, then use Cookie login in VRPiano.".to_string());
-    }
-    if !status.is_success() {
-        return Err(format!("Midishow search returned HTTP {status}"));
+        .map_err(|_| "暂时无法读取 Midishow 搜索结果，请稍后重试".to_string())?;
+    if is_cloudflare_challenge(&html) || !status.is_success() {
+        return Err("当前搜索未完成，请重新登录后再试".to_string());
     }
 
     let mut results = Vec::new();
@@ -1965,122 +2107,285 @@ fn midishow_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("Failed to create Midishow client: {e}"))
 }
 
-async fn verify_midishow_login_direct(username: &str, password: &str) -> Result<(), String> {
-    let client = midishow_client()?;
-    login_midishow_direct(&client, username, password).await
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MidishowLoginSignal {
+    Ready,
+    Submitted,
+    CredentialsRejected,
+    NeedsConfirmation,
+    FormMissing,
 }
 
-async fn verify_midishow_cookie_direct(cookie: &str) -> Result<(), String> {
-    let client = midishow_client()?;
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn is_midishow_login_url(url: &str) -> bool {
+    url.starts_with("https://www.midishow.com/") && url.contains("/user/account/login")
+}
+
+fn update_midishow_login_runtime(status: &VrpianoMidishowLoginStatus) {
+    if let Ok(mut runtime) = midishow_login_runtime().lock() {
+        runtime.state.clone_from(&status.state);
+        runtime.message.clone_from(&status.message);
+    }
+}
+
+fn current_midishow_login_status() -> VrpianoMidishowLoginStatus {
+    let runtime = midishow_login_runtime().lock().ok();
+    let state = runtime
+        .as_ref()
+        .map(|value| value.state.clone())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "idle".to_string());
+    let message = runtime
+        .as_ref()
+        .map(|value| value.message.clone())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "等待登录".to_string());
+    VrpianoMidishowLoginStatus {
+        state,
+        message,
+        username: None,
+    }
+}
+
+fn midishow_login_started_at_ms() -> u64 {
+    midishow_login_runtime()
+        .lock()
+        .map(|runtime| runtime.started_at_ms)
+        .unwrap_or_default()
+}
+
+fn finish_midishow_login(
+    app: &tauri::AppHandle,
+    state: &str,
+    message: &str,
+) -> VrpianoMidishowLoginStatus {
+    let status = VrpianoMidishowLoginStatus {
+        state: state.to_string(),
+        message: message.to_string(),
+        username: None,
+    };
+    update_midishow_login_runtime(&status);
+    let _ = app.emit("vrpiano_midishow_login_status", status.clone());
+    status
+}
+
+fn parse_midishow_login_title(title: &str) -> Option<MidishowLoginSignal> {
+    let signal = title.strip_prefix(MIDISHOW_LOGIN_TITLE_PREFIX)?;
+    match signal.trim().to_ascii_lowercase().as_str() {
+        "ready" => Some(MidishowLoginSignal::Ready),
+        "submitted" => Some(MidishowLoginSignal::Submitted),
+        "credentials_rejected" => Some(MidishowLoginSignal::CredentialsRejected),
+        "needs_confirmation" => Some(MidishowLoginSignal::NeedsConfirmation),
+        "form_missing" => Some(MidishowLoginSignal::FormMissing),
+        _ => None,
+    }
+}
+
+fn midishow_login_monitor_script() -> String {
+    format!(
+        r#"(() => {{
+  if (window.__vrcdogMidishowLoginMonitorStarted) return;
+  window.__vrcdogMidishowLoginMonitorStarted = true;
+  const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
+  const text = () => (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+  const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
+  const inspect = () => {{
+    const pageText = text();
+    if (hasAny(pageText, ['用户名或密码错误', '账号或密码错误', '密码错误', '账户不存在', '用户不存在', '登录信息有误'])) {{
+      signal('credentials_rejected');
+      return true;
+    }}
+    if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证'])) {{
+      signal('needs_confirmation');
+      return true;
+    }}
+    return false;
+  }};
+  if (inspect()) return;
+  const observer = new MutationObserver(() => {{
+    if (inspect()) observer.disconnect();
+  }});
+  if (document.body) observer.observe(document.body, {{ childList: true, subtree: true, characterData: true }});
+  window.setTimeout(() => observer.disconnect(), 75000);
+}})();"#
+    )
+}
+
+fn midishow_login_script(account_js: &str, password_js: &str) -> String {
+    format!(
+        r#"(() => {{
+  if (window.__vrcdogMidishowLoginStarted) return;
+  window.__vrcdogMidishowLoginStarted = true;
+  const account = {account_js};
+  let password = {password_js};
+  let attempts = 0;
+  let submitted = false;
+  const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
+  const text = () => (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+  const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
+  const findVisible = (selectors) => selectors
+    .map((selector) => document.querySelector(selector))
+    .find((element) => element && element instanceof HTMLInputElement && !element.disabled && element.offsetParent !== null);
+  const fill = (element, value) => {{
+    if (!element) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    if (setter) setter.call(element, value); else element.value = value;
+    element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+    return true;
+  }};
+  signal('ready');
+  const timer = window.setInterval(() => {{
+    attempts += 1;
+    const pageText = text();
+    if (hasAny(pageText, ['用户名或密码错误', '账号或密码错误', '密码错误', '账户不存在', '用户不存在', '登录信息有误'])) {{
+      password = '';
+      window.clearInterval(timer);
+      signal('credentials_rejected');
+      return;
+    }}
+    if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证'])) {{
+      window.clearInterval(timer);
+      signal('needs_confirmation');
+      return;
+    }}
+    if (!location.pathname.includes('/user/account/login')) {{
+      password = '';
+      window.clearInterval(timer);
+      return;
+    }}
+    if (submitted) return;
+    const accountInput = findVisible([
+      'input[autocomplete="username"]',
+      'input[name="username"]',
+      'input[name="email"]',
+      'input[type="email"]',
+      'input[name="login"]',
+      'input[type="text"]'
+    ]);
+    const passwordInput = findVisible([
+      'input[autocomplete="current-password"]',
+      'input[name="password"]',
+      'input[type="password"]'
+    ]);
+    if (!fill(accountInput, account) || !fill(passwordInput, password)) {{
+      if (attempts >= 80) {{
+        password = '';
+        window.clearInterval(timer);
+        signal('form_missing');
+      }}
+      return;
+    }}
+    const form = passwordInput.form || accountInput.form || document.querySelector('form');
+    const submit = form?.querySelector('button[type="submit"], input[type="submit"]');
+    submitted = true;
+    signal('submitted');
+    window.setTimeout(() => {{
+      if (submit instanceof HTMLElement) submit.click();
+      else if (form instanceof HTMLFormElement) form.requestSubmit();
+      password = '';
+    }}, 180);
+  }}, 250);
+}})();"#
+    )
+}
+
+async fn read_midishow_browser_cookie(window: tauri::WebviewWindow) -> Result<String, String> {
+    let cookies = tauri::async_runtime::spawn_blocking(move || {
+        let url = MIDISHOW_ACCOUNT_URL
+            .parse::<tauri::Url>()
+            .map_err(|_| "登录地址不可用".to_string())?;
+        window
+            .cookies_for_url(url)
+            .map_err(|_| "暂时无法读取登录状态".to_string())
+    })
+    .await
+    .map_err(|_| "暂时无法读取登录状态".to_string())??;
+
+    let raw = cookies
+        .iter()
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    normalize_midishow_cookie_header(&raw).map_err(|_| "暂时无法读取登录状态".to_string())
+}
+
+async fn inspect_midishow_session(cookie: &str) -> Result<Option<String>, String> {
+    let client = midishow_client().map_err(|_| "暂时无法确认登录状态".to_string())?;
     let response = with_midishow_cookie(
         client
-            .get("https://www.midishow.com/en/user/account")
+            .get(MIDISHOW_ACCOUNT_URL)
             .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
-            .header(
-                reqwest::header::REFERER,
-                "https://www.midishow.com/en/user/account/login",
-            ),
+            .header(reqwest::header::REFERER, MIDISHOW_LOGIN_URL),
         Some(cookie),
     )
     .send()
     .await
-    .map_err(|e| format!("Failed to verify Midishow Cookie: {e}"))?;
-    let status = response.status();
+    .map_err(|_| "暂时无法确认登录状态，请稍后重试".to_string())?;
     let final_url = response.url().as_str().to_string();
     let body = response.text().await.unwrap_or_default();
-    if is_cloudflare_challenge(&body) {
-        return Err("Midishow requires browser JavaScript/cookies. Please paste a fresh Cookie from a browser session that has already opened Midishow.".to_string());
+    if !midishow_login_succeeded(&final_url, &body) {
+        return Ok(None);
     }
-    if status.is_success() && midishow_login_succeeded(&final_url, &body) {
-        Ok(())
+    Ok(extract_midishow_username(&body))
+}
+
+fn extract_midishow_username(body: &str) -> Option<String> {
+    let patterns = [
+        r#"(?is)<meta[^>]+name=["'](?:username|user-name)["'][^>]+content=["']([^"']+)["']"#,
+        r#"(?is)<meta[^>]+content=["']([^"']+)["'][^>]+name=["'](?:username|user-name)["']"#,
+        r#"(?is)data-(?:username|user-name)=["']([^"']+)["']"#,
+        r#"(?is)class=["'][^"']*(?:username|user-name|nickname)[^"']*["'][^>]*>\s*([^<]{1,80})\s*<"#,
+        r#"(?is)<input[^>]+name=["']username["'][^>]+value=["']([^"']+)["']"#,
+        r#"(?is)<input[^>]+value=["']([^"']+)["'][^>]+name=["']username["']"#,
+    ];
+    patterns.into_iter().find_map(|pattern| {
+        regex::Regex::new(pattern)
+            .ok()?
+            .captures(body)?
+            .get(1)
+            .map(|value| html_unescape(value.as_str()).trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn html_unescape(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
+fn persist_midishow_session(
+    app: &tauri::AppHandle,
+    username: &str,
+    cookie: String,
+) -> Result<(), String> {
+    let mut accounts = load_midishow_accounts(app)?;
+    for account in &mut accounts {
+        account.password.clear();
+    }
+    if let Some(account) = accounts
+        .iter_mut()
+        .find(|account| account.username == username)
+    {
+        account.cookie = cookie;
     } else {
-        Err("Midishow Cookie is invalid or expired".to_string())
+        accounts.push(StoredMidishowAccount {
+            username: username.to_string(),
+            password: String::new(),
+            cookie,
+        });
     }
-}
-
-async fn login_midishow_direct(
-    client: &reqwest::Client,
-    username: &str,
-    password: &str,
-) -> Result<(), String> {
-    let login_urls = [
-        "https://www.midishow.com/en/user/account/login",
-        "https://www.midishow.com/user/account/login",
-    ];
-    let mut last_error = String::from("Midishow login failed");
-
-    for login_url in login_urls {
-        match try_midishow_login_url(client, login_url, username, password).await {
-            Ok(()) => return Ok(()),
-            Err(error) => last_error = error,
-        }
-    }
-
-    Err(last_error)
-}
-
-async fn try_midishow_login_url(
-    client: &reqwest::Client,
-    login_url: &str,
-    username: &str,
-    password: &str,
-) -> Result<(), String> {
-    let page = client
-        .get(login_url)
-        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
-        .header(reqwest::header::REFERER, login_url)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to open Midishow login page: {e}"))?;
-    if !page.status().is_success() {
-        return Err(format!(
-            "Midishow login page returned HTTP {}",
-            page.status()
-        ));
-    }
-    let page_html = page
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read Midishow login page: {e}"))?;
-    if is_cloudflare_challenge(&page_html) {
-        return Err("Midishow requires browser JavaScript/cookies. Please use Cookie login after opening Midishow in a browser.".to_string());
-    }
-    let csrf = extract_csrf_token(&page_html)
-        .ok_or_else(|| "Midishow login page did not include a CSRF token".to_string())?;
-
-    let form = [
-        ("_csrf", csrf.as_str()),
-        ("LoginForm[identity]", username),
-        ("LoginForm[password]", password),
-        ("login-button", ""),
-    ];
-    let response = client
-        .post(login_url)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .header(reqwest::header::ORIGIN, "https://www.midishow.com")
-        .header(reqwest::header::REFERER, login_url)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| format!("Midishow login request failed: {e}"))?;
-    let status = response.status();
-    let final_url = response.url().as_str().to_string();
-    let body = response.text().await.unwrap_or_default();
-
-    if status.is_success() && midishow_login_succeeded(&final_url, &body) {
-        return Ok(());
-    }
-
-    Err(extract_midishow_error(&body).unwrap_or_else(|| {
-        if status.as_u16() == 403 {
-            "Midishow rejected the login request (HTTP 403)".to_string()
-        } else {
-            format!("Midishow login was not accepted (HTTP {status})")
-        }
-    }))
+    save_midishow_accounts(app, &accounts)
 }
 
 fn midishow_login_succeeded(final_url: &str, body: &str) -> bool {
@@ -2089,19 +2394,6 @@ fn midishow_login_succeeded(final_url: &str, body: &str) -> bool {
     (!url.contains("/user/account/login")
         && (url.contains("/user") || body.contains("/user/account/logout")))
         || body.contains("logout")
-}
-
-fn extract_midishow_error(html: &str) -> Option<String> {
-    let re = regex::Regex::new(
-        r#"(?is)<[^>]+class=["'][^"']*(?:help-block|error|alert)[^"']*["'][^>]*>(.*?)</[^>]+>"#,
-    )
-    .ok()?;
-    let error = re
-        .captures_iter(html)
-        .filter_map(|captures| captures.get(1))
-        .map(|value| clean_midishow_text(&strip_html(value.as_str())))
-        .find(|value| !value.is_empty());
-    error
 }
 
 fn normalize_midishow_cookie_header(raw: &str) -> Result<String, String> {
@@ -2195,8 +2487,8 @@ async fn download_midishow_direct(
     let cookie = account
         .map(|account| account.cookie.trim())
         .filter(|cookie| !cookie.is_empty());
-    if let Some(account) = account.filter(|_| cookie.is_none()) {
-        login_midishow_direct(&client, &account.username, &account.password).await?;
+    if account.is_some() && cookie.is_none() {
+        return Err("Midishow 登录状态已失效，请重新登录".to_string());
     }
 
     let page_url = format!("https://www.midishow.com/en/midi/{midi_id}.html");
@@ -2453,67 +2745,34 @@ async fn download_midishow_file(
     midi_id: u64,
 ) -> Result<(Vec<u8>, String), String> {
     let project_path = resolve_vrpiano_project_path(Some(app));
-    let max_retries = 2;
 
-    for attempt in 0..=max_retries {
-        if let Some(account) = default_midishow_account(app)? {
-            match download_midishow_direct(midi_id, Some(&account)).await {
-                Ok((data, title)) => return Ok((validate_midi_bytes(data)?, title)),
-                Err(account_error) => {
-                    match download_midishow_with_python(
-                        app,
-                        &project_path.to_string_lossy(),
-                        midi_id,
-                        &account,
-                    ) {
-                        Ok((data, title)) => return Ok((validate_midi_bytes(data)?, title)),
-                        Err(python_error) => {
-                            if attempt < max_retries {
-                                if attempt == 0 {
-                                    clear_midishow_cookie_cache(&project_path);
-                                }
-                                continue;
-                            }
-                            let direct_public_result =
-                                download_midishow_direct(midi_id, None).await;
-                            if let Ok((data, title)) = direct_public_result {
-                                return Ok((validate_midi_bytes(data)?, title));
-                            }
-                            let cli_result =
-                                download_midishow_file_with_cli(&project_path, midi_id);
-                            return cli_result.map_err(|cli_error| {
-                                format!("Midishow account download failed: {account_error}; Python fallback failed: {python_error}; public/CLI fallback failed: {cli_error}")
-                            });
-                        }
-                    }
+    if let Some(account) = default_midishow_account(app)? {
+        match download_midishow_direct(midi_id, Some(&account)).await {
+            Ok((data, title)) => return Ok((validate_midi_bytes(data)?, title)),
+            Err(account_error) => {
+                // Do not retry with the legacy password/Python flow. Midishow's
+                // browser challenge rejects those non-browser login requests and
+                // can turn a clear session-expired error into repeated HTTP 403s.
+                if let Ok((data, title)) = download_midishow_direct(midi_id, None).await {
+                    return Ok((validate_midi_bytes(data)?, title));
                 }
+                return download_midishow_file_with_cli(&project_path, midi_id).map_err(
+                    |cli_error| {
+                        format!(
+                            "Midishow browser session download failed: {account_error}; public/CLI fallback failed: {cli_error}"
+                        )
+                    },
+                );
             }
-        } else {
-            return download_midishow_direct(midi_id, None)
-                .await
-                .or_else(|direct_error| {
-                    download_midishow_file_with_cli(&project_path, midi_id).map_err(|cli_error| {
-                        format!("{direct_error}; CLI fallback failed: {cli_error}")
-                    })
-                });
         }
     }
-    Err("Midishow download failed after retries".to_string())
-}
 
-/// Clear the Midishow cookie cache file to force re-login on next attempt.
-fn clear_midishow_cookie_cache(project_path: &Path) {
-    let cookie_path = project_path
-        .join("src-python")
-        .join(".midishow_cookies.json");
-    if cookie_path.exists() {
-        let _ = fs::remove_file(&cookie_path);
-    }
-    // Also check the project root
-    let cookie_path_root = project_path.join(".midishow_cookies.json");
-    if cookie_path_root.exists() {
-        let _ = fs::remove_file(&cookie_path_root);
-    }
+    download_midishow_direct(midi_id, None)
+        .await
+        .or_else(|direct_error| {
+            download_midishow_file_with_cli(&project_path, midi_id)
+                .map_err(|cli_error| format!("{direct_error}; CLI fallback failed: {cli_error}"))
+        })
 }
 
 fn download_midishow_file_with_cli(
@@ -2550,7 +2809,15 @@ fn save_midishow_accounts(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create account folder: {e}"))?;
     }
-    let text = serde_json::to_string_pretty(accounts).map_err(|e| e.to_string())?;
+    let safe_accounts = accounts
+        .iter()
+        .map(|account| StoredMidishowAccount {
+            username: account.username.clone(),
+            password: String::new(),
+            cookie: account.cookie.clone(),
+        })
+        .collect::<Vec<_>>();
+    let text = serde_json::to_string_pretty(&safe_accounts).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| format!("Failed to save Midishow accounts: {e}"))
 }
 
@@ -2566,292 +2833,9 @@ fn midishow_accounts_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 fn default_midishow_account(
     app: &tauri::AppHandle,
 ) -> Result<Option<StoredMidishowAccount>, String> {
-    Ok(load_midishow_accounts(app)?.into_iter().next())
-}
-
-fn verify_midishow_login(
-    app: &tauri::AppHandle,
-    project_path: &str,
-    username: &str,
-    password: &str,
-) -> Result<(), String> {
-    let script = r#"
-import json, sys, os
-project = os.path.realpath(sys.argv[1])
-src_python = os.path.join(project, "src-python")
-# Add both project root and src-python to path (src-python first for midishow.py)
-sys.path.insert(0, src_python)
-sys.path.insert(0, project)
-# Also try relative to this script's location if running from a bundle
-try:
-    exe_dir = os.path.dirname(os.path.realpath(sys.executable))
-    for rel in [".", "src-python", "../src-python", "VRPiano-auto-play/src-python"]:
-        p = os.path.normpath(os.path.join(exe_dir, rel))
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.insert(0, p)
-except Exception:
-    pass
-try:
-    from midishow import login_midi
-    ok = login_midi(sys.argv[2], sys.argv[3])
-    print(json.dumps({"success": bool(ok), "error": ""}, ensure_ascii=False))
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
-"#;
-    let value = run_python_json(
-        app,
-        project_path,
-        script,
-        &[project_path, username, password],
-        Duration::from_secs(45),
-    )?;
-    let success = value
-        .get("success")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    if success {
-        Ok(())
-    } else {
-        let error_msg = value
-            .get("error")
-            .and_then(|value| value.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Midishow login failed");
-        Err(error_msg.to_string())
-    }
-}
-
-fn download_midishow_with_python(
-    app: &tauri::AppHandle,
-    project_path: &str,
-    midi_id: u64,
-    account: &StoredMidishowAccount,
-) -> Result<(Vec<u8>, String), String> {
-    let url = format!("https://www.midishow.com/en/midi/{midi_id}.html");
-    let script = r#"
-import base64, json, sys, os
-project = os.path.realpath(sys.argv[1])
-src_python = os.path.join(project, "src-python")
-sys.path.insert(0, src_python)
-sys.path.insert(0, project)
-try:
-    exe_dir = os.path.dirname(os.path.realpath(sys.executable))
-    for rel in [".", "src-python", "../src-python", "VRPiano-auto-play/src-python"]:
-        p = os.path.normpath(os.path.join(exe_dir, rel))
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.insert(0, p)
-except Exception:
-    pass
-try:
-    from midishow_api import get_account_manager, download_midi_url
-    mgr = get_account_manager()
-    mgr.add_account(sys.argv[2], sys.argv[3])
-    data, title = download_midi_url(sys.argv[4], sys.argv[2])
-    print(json.dumps({
-        "title": title or "",
-        "data": base64.b64encode(data).decode("ascii"),
-        "error": ""
-    }, ensure_ascii=False))
-except Exception as e:
-    print(json.dumps({
-        "title": "",
-        "data": "",
-        "error": str(e)
-    }, ensure_ascii=False))
-"#;
-    let value = run_python_json(
-        app,
-        project_path,
-        script,
-        &[project_path, &account.username, &account.password, &url],
-        Duration::from_secs(60),
-    )?;
-    // Check for error from Python
-    if let Some(error) = value.get("error").and_then(|value| value.as_str()) {
-        if !error.is_empty() {
-            return Err(error.to_string());
-        }
-    }
-    let encoded = value
-        .get("data")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| "Python Midishow downloader did not return MIDI data".to_string())?;
-    if encoded.is_empty() {
-        return Err("Python Midishow downloader returned empty data".to_string());
-    }
-    let title = value
-        .get("title")
-        .and_then(|value| value.as_str())
-        .unwrap_or("")
-        .to_string();
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .map_err(|e| format!("Failed to decode Python Midishow MIDI: {e}"))?;
-    Ok((data, title))
-}
-
-fn embedded_python_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join("python-runtime").join("python.exe"));
-        candidates.push(
-            resource_dir
-                .join("resources")
-                .join("python-runtime")
-                .join("python.exe"),
-        );
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            candidates.push(exe_dir.join("python-runtime").join("python.exe"));
-            candidates.push(
-                exe_dir
-                    .join("resources")
-                    .join("python-runtime")
-                    .join("python.exe"),
-            );
-        }
-    }
-    candidates.retain(|candidate| candidate.exists());
-    candidates.dedup();
-    candidates
-}
-
-fn run_python_json(
-    app: &tauri::AppHandle,
-    project_path: &str,
-    script: &str,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let cookie_cache = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法解析应用数据目录：{e}"))?
-        .join("vrpiano")
-        .join("midishow_python_cookies.json");
-    if let Some(parent) = cookie_cache.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("无法创建 Midishow 缓存目录：{e}"))?;
-    }
-
-    let mut candidates = embedded_python_candidates(app)
+    Ok(load_midishow_accounts(app)?
         .into_iter()
-        .map(|path| (path, true))
-        .collect::<Vec<_>>();
-    candidates.extend(
-        ["python", "py", "python3"]
-            .into_iter()
-            .map(|name| (PathBuf::from(name), false)),
-    );
-
-    #[cfg(target_os = "windows")]
-    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        let base = Path::new(&local_app_data).join("Programs").join("Python");
-        if let Ok(entries) = std::fs::read_dir(&base) {
-            for entry in entries.flatten() {
-                let python = entry.path().join("python.exe");
-                if python.exists() {
-                    candidates.push((python, false));
-                }
-            }
-        }
-    }
-
-    let mut last_error = String::from("没有可用的 Python 运行时");
-    for (executable, embedded) in candidates {
-        let mut process_args = vec!["-I", "-c", script];
-        process_args.extend_from_slice(args);
-        match run_process_json(
-            &executable,
-            &process_args,
-            timeout,
-            embedded.then_some(project_path),
-            &cookie_cache,
-        ) {
-            Ok(value) => return Ok(value),
-            Err(error) => {
-                last_error = error;
-            }
-        }
-    }
-    Err(format!(
-        "内置 Python 运行时或 Midishow 桥接不可用：{last_error}。请重新安装当前版本，程序不需要也不会要求系统另装 Python。"
-    ))
-}
-
-fn run_process_json(
-    executable: &Path,
-    args: &[&str],
-    timeout: Duration,
-    project_path: Option<&str>,
-    cookie_cache: &Path,
-) -> Result<serde_json::Value, String> {
-    let mut command = std::process::Command::new(executable);
-    command
-        .args(args)
-        .env("VRCDOG_MIDISHOW_COOKIE_CACHE", cookie_cache);
-    if let Some(project_path) = project_path {
-        command
-            .env("PYTHONUTF8", "1")
-            .env("PYTHONNOUSERSITE", "1")
-            .env("PYTHONPATH", project_path);
-    }
-    let mut child = command
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("无法启动 {}：{e}", executable.display()))?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| format!("无法读取 {} 标准输出", executable.display()))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| format!("无法读取 {} 错误输出", executable.display()))?;
-    let stdout_reader = thread::spawn(move || {
-        let mut buffer = Vec::new();
-        stdout.read_to_end(&mut buffer).map(|_| buffer)
-    });
-    let stderr_reader = thread::spawn(move || {
-        let mut buffer = Vec::new();
-        stderr.read_to_end(&mut buffer).map(|_| buffer)
-    });
-    let started = std::time::Instant::now();
-    let status = loop {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|e| format!("等待 {} 失败：{e}", executable.display()))?
-        {
-            break status;
-        }
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(format!("{} 请求超时", executable.display()));
-        }
-        thread::sleep(Duration::from_millis(80));
-    };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| format!("读取 {} 标准输出失败", executable.display()))?
-        .map_err(|e| format!("读取 {} 标准输出失败：{e}", executable.display()))?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| format!("读取 {} 错误输出失败", executable.display()))?
-        .map_err(|e| format!("读取 {} 错误输出失败：{e}", executable.display()))?;
-    if !status.success() {
-        let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("{} 退出，状态为 {}", executable.display(), status)
-        } else {
-            stderr
-        });
-    }
-    parse_json_from_process_stdout(&stdout)
-        .map_err(|e| format!("解析 {} JSON 响应失败：{e}", executable.display()))
+        .find(|account| !account.cookie.trim().is_empty()))
 }
 
 fn midishow_title(project_path: &Path, midi_id: u64) -> Option<String> {
@@ -3116,7 +3100,11 @@ fn unique_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod vrpiano_download_tests {
-    use super::{filename_from_content_disposition, looks_like_direct_midi_url};
+    use super::{
+        extract_midishow_username, filename_from_content_disposition, is_midishow_login_url,
+        looks_like_direct_midi_url, midishow_login_monitor_script, midishow_login_script,
+        parse_midishow_login_title, MidishowLoginSignal, MIDISHOW_LOGIN_URL,
+    };
 
     #[test]
     fn identifies_public_midi_links_without_matching_page_urls() {
@@ -3141,5 +3129,63 @@ mod vrpiano_download_tests {
             filename_from_content_disposition("attachment; filename=../../unsafe.mid"),
             Some("_.._unsafe.mid".to_string())
         );
+    }
+
+    #[test]
+    fn extracts_real_midishow_username_without_fallback() {
+        assert_eq!(
+            extract_midishow_username(
+                r#"<div class="profile"><span class="nickname">小搭&amp;老板</span></div>"#,
+            ),
+            Some("小搭&老板".to_string())
+        );
+        assert_eq!(extract_midishow_username("<main>账户中心</main>"), None);
+    }
+
+    #[test]
+    fn login_script_uses_encoded_values_and_password_field() {
+        let account = serde_json::to_string("user@example.com").unwrap();
+        let password = serde_json::to_string("p\"ass").unwrap();
+        let script = midishow_login_script(&account, &password);
+        assert!(script.contains("input[autocomplete=\"username\"]"));
+        assert!(script.contains("input[type=\"password\"]"));
+        assert!(script.contains("user@example.com"));
+        assert!(script.contains("p\\\"ass"));
+        assert!(script.contains("credentials_rejected"));
+        assert!(script.contains("needs_confirmation"));
+        assert!(script.contains("password = ''"));
+    }
+
+    #[test]
+    fn login_monitor_detects_failures_without_credentials() {
+        let script = midishow_login_monitor_script();
+        assert!(script.contains("credentials_rejected"));
+        assert!(script.contains("needs_confirmation"));
+        assert!(!script.contains("password"));
+        assert!(!script.contains("account"));
+    }
+
+    #[test]
+    fn recognizes_midishow_login_signals_without_exposing_page_text() {
+        assert_eq!(
+            parse_midishow_login_title("VRCDOG_MIDISHOW:credentials_rejected"),
+            Some(MidishowLoginSignal::CredentialsRejected)
+        );
+        assert_eq!(
+            parse_midishow_login_title("VRCDOG_MIDISHOW:needs_confirmation"),
+            Some(MidishowLoginSignal::NeedsConfirmation)
+        );
+        assert_eq!(parse_midishow_login_title("普通页面"), None);
+    }
+
+    #[test]
+    fn accepts_only_midishow_login_url_for_script_injection() {
+        assert!(is_midishow_login_url(MIDISHOW_LOGIN_URL));
+        assert!(!is_midishow_login_url(
+            "https://example.com/user/account/login"
+        ));
+        assert!(!is_midishow_login_url(
+            "https://www.midishow.com.evil.test/user/account/login"
+        ));
     }
 }
