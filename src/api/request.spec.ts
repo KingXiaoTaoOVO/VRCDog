@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
+  mergeCookiesAndSave: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -10,7 +11,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 vi.mock('./cookies', () => ({
-  mergeCookiesAndSave: vi.fn(),
+  mergeCookiesAndSave: mocks.mergeCookiesAndSave,
   normalizeAuthCookieJson: (value: string) => value,
 }));
 
@@ -22,6 +23,7 @@ describe('request GET coalescing', () => {
   afterEach(() => {
     vi.useRealTimers();
     mocks.invoke.mockReset();
+    mocks.mergeCookiesAndSave.mockReset();
   });
 
   it('uses one native request for concurrent identical GETs', async () => {
@@ -108,6 +110,42 @@ describe('request GET coalescing', () => {
   it('rejects unsupported absolute URL schemes', async () => {
     await expect(request('file:///sensitive.txt')).rejects.toThrow('Unsupported API URL');
     expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it('passes an explicit auth cookie to a VRChat POST without putting it in the body', async () => {
+    mocks.invoke.mockResolvedValue({ status: 200, data: '{"verified":true}' });
+
+    await expect(request('/auth/twofactorauth/emailotp/verify', {
+      method: 'POST',
+      params: { code: '123456' },
+      authCookie: '["auth=session","twoFactorAuth=pending"]',
+    })).resolves.toEqual({ verified: true });
+
+    expect(mocks.invoke).toHaveBeenCalledWith('vrc_execute', {
+      options: expect.objectContaining({
+        url: 'https://api.vrchat.cloud/api/1/auth/twofactorauth/emailotp/verify',
+        method: 'POST',
+        body: '{"code":"123456"}',
+        auth_cookie: '["auth=session","twoFactorAuth=pending"]',
+      }),
+    });
+  });
+
+  it('attaches the merged response cookie to a successful object response', async () => {
+    mocks.invoke.mockResolvedValue({
+      status: 200,
+      data: '{"verified":true}',
+      auth_cookie: '["auth=refreshed"]',
+    });
+    mocks.mergeCookiesAndSave.mockResolvedValue('["auth=refreshed","twoFactorAuth=accepted"]');
+
+    await expect(request('/auth/twofactorauth/totp/verify', {
+      method: 'POST',
+      params: { code: '654321' },
+    })).resolves.toEqual({
+      verified: true,
+      auth_cookie: '["auth=refreshed","twoFactorAuth=accepted"]',
+    });
   });
 
   it('normalizes relative VRChat endpoints without duplicating api/1', () => {

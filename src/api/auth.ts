@@ -1,14 +1,31 @@
 import { request } from './request';
 
+export interface TwoFactorRequestParams {
+  code: string;
+  authCookie?: string;
+}
+
 export const AuthApi = {
-  verifyOTP: (params: { code: string }) => 
-    request('/auth/twofactorauth/otp/verify', { method: 'POST', params }),
+  verifyOTP: (params: TwoFactorRequestParams) =>
+    request('/auth/twofactorauth/otp/verify', {
+      method: 'POST',
+      params: { code: params.code },
+      authCookie: params.authCookie,
+    }),
 
-  verifyTOTP: (params: { code: string }) => 
-    request('/auth/twofactorauth/totp/verify', { method: 'POST', params }),
+  verifyTOTP: (params: TwoFactorRequestParams) =>
+    request('/auth/twofactorauth/totp/verify', {
+      method: 'POST',
+      params: { code: params.code },
+      authCookie: params.authCookie,
+    }),
 
-  verifyEmailOTP: (params: { code: string }) => 
-    request('/auth/twofactorauth/emailotp/verify', { method: 'POST', params }),
+  verifyEmailOTP: (params: TwoFactorRequestParams) =>
+    request('/auth/twofactorauth/emailotp/verify', {
+      method: 'POST',
+      params: { code: params.code },
+      authCookie: params.authCookie,
+    }),
 
   getConfig: () => 
     request('/config', { method: 'GET' }),

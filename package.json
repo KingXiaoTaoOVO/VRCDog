@@ -3,14 +3,17 @@
   "private": true,
   "version": "5.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "dev": "node scripts/kill-port-1420.mjs && pnpm exec vite",
+    "dev": "node scripts/dev-vite.mjs",
     "build": "vue-tsc --noEmit && vite build",
-    "prepare:midishow": "pnpm --dir src-python/midishow-downloader install --frozen-lockfile --prod --ignore-scripts --ignore-workspace",
+    "prepare:midishow": "node scripts/prepare-midishow.mjs",
     "prepare:python": "node scripts/prepare-python-runtime.mjs",
-    "build:desktop": "pnpm prepare:midishow && pnpm prepare:python && pnpm build",
+    "build:desktop": "node scripts/run-package-script.mjs prepare:midishow prepare:python build",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node scripts/tauri.mjs",
     "test": "vitest run --pool=forks --maxWorkers=1"
   },
   "dependencies": {
