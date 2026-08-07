@@ -24,10 +24,14 @@ reqwest = { version = "0.12", features = ["stream", "rustls-tls", "cookies", "js
 tokio = { version = "1", features = ["fs", "io-util", "rt", "macros", "net", "sync", "time"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-rustls = { version = "0.26", features = ["ring", "tls12"] }
+rustls = { version = "0.23", features = ["ring", "std"] }
+webpki-roots = "0.26"
 flate2 = "1"
 brotli = "8"
 winreg = "0.52"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6.0.0"

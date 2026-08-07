@@ -51,7 +51,8 @@ interface VrctMessageRecord {
   timestamp: string;
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
+const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 
 const tt = (key: string, fallback: string) => {
   const value = t(key);
@@ -239,7 +240,7 @@ const sendToChatbox = async (text: string) => {
   if (!text.trim()) return;
   try {
     await SysApi.sendOscChatbox({ text, complete: true });
-    setStatus('已发送到 VRChat Chatbox');
+    setStatus(l('已发送到 VRChat Chatbox', 'Sent to VRChat Chatbox'));
   } catch (error) {
     errorMsg.value = tt('translator.osc_error', 'Unable to send to VRChat: {err}').replace('{err}', errorText(error));
   }
@@ -387,7 +388,7 @@ const toggleOtherRecording = async () => {
       await SysApi.stopAudioCapture();
     } finally {
       isOtherRecording.value = false;
-      setStatus('已停止游戏语音监听');
+      setStatus(l('已停止游戏语音监听', 'Game audio listening stopped'));
     }
     return;
   }
@@ -395,7 +396,9 @@ const toggleOtherRecording = async () => {
   try {
     await SysApi.startAudioCapture({ sourceLang: otherSourceLang.value, engine: otherEngine.value });
     isOtherRecording.value = true;
-    setStatus(otherEngine.value === 'local' ? '本地语音识别启动中' : '游戏语音监听已开启');
+    setStatus(otherEngine.value === 'local'
+      ? l('本地语音识别启动中', 'Starting local speech recognition')
+      : l('游戏语音监听已开启', 'Game audio listening enabled'));
   } catch (error) {
     const message = errorText(error);
     if (message.includes('WASAPI') || message.includes('loopback')) {
@@ -432,7 +435,7 @@ const clearHistory = async () => {
 
 const toggleOverlay = async () => {
   if (!isTauri()) {
-    setStatus('浏览器预览中不创建 Tauri 悬浮窗');
+    setStatus(l('浏览器预览中不创建 Tauri 悬浮窗', 'The Tauri overlay is unavailable in browser preview'));
     return;
   }
 
@@ -539,8 +542,8 @@ onMounted(async () => {
         return;
       }
       if (payload.type === 'status') {
-        if (payload.message === 'starting') setStatus(`监听设备: ${payload.device || 'Default'}`);
-        if (payload.message === 'recognizing') setStatus('正在识别游戏语音');
+        if (payload.message === 'starting') setStatus(`${l('监听设备', 'Listening device')}: ${payload.device || 'Default'}`);
+        if (payload.message === 'recognizing') setStatus(l('正在识别游戏语音', 'Recognizing game audio'));
         return;
       }
       if (payload.type === 'result' && payload.text?.trim()) {
@@ -626,13 +629,13 @@ onUnmounted(async () => {
             </label>
             <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
               <input v-model="multiLangEnabled" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
-              <span class="text-sm font-bold text-text-muted truncate">多语言同时翻译</span>
+              <span class="text-sm font-bold text-text-muted truncate">{{ l('多语言同时翻译', 'Translate to multiple languages') }}</span>
             </label>
           </div>
 
           <!-- Multi-language target selector -->
           <div v-if="multiLangEnabled" class="md:col-span-2 mt-2 p-3 bg-surface-hover rounded-xl border border-border-soft">
-            <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">额外目标语言 (多语言 OSC)</label>
+            <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">{{ l('额外目标语言 (多语言 OSC)', 'Additional target languages (multi-language OSC)') }}</label>
             <div class="flex flex-wrap gap-2">
               <label
                 v-for="opt in languageOptions.filter(o => o.value !== 'auto' && o.value !== targetLang)"
@@ -649,7 +652,7 @@ onUnmounted(async () => {
                 {{ opt.label }}
               </label>
             </div>
-            <p class="text-[10px] text-text-muted mt-2">翻译结果将依次发送到 VRChat ChatBox（每条间隔约1.2秒）</p>
+            <p class="text-[10px] text-text-muted mt-2">{{ l('翻译结果将依次发送到 VRChat ChatBox（每条间隔约1.2秒）', 'Translations are sent to VRChat Chatbox in sequence, about 1.2 seconds apart.') }}</p>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -737,7 +740,7 @@ onUnmounted(async () => {
 
             <div class="space-y-4">
               <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.engine', '翻译引擎') }}</label>
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.engine', l('翻译引擎', 'Translation engine')) }}</label>
                 <CustomSelect v-model="translateEngine" :options="engineOptions" />
                 <p class="mt-1.5 text-[11px] text-text-muted font-semibold truncate">{{ currentEngine.hint }}</p>
               </div>
@@ -849,7 +852,7 @@ onUnmounted(async () => {
               v-model="manualText"
               rows="4"
               class="w-full resize-none px-4 py-3 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10"
-              placeholder="输入要翻译到 VRChat 的文字..."
+              :placeholder="l('输入要翻译到 VRChat 的文字...', 'Enter text to translate for VRChat...')"
               @keydown.ctrl.enter.prevent="translateManual"
             />
           </section>
@@ -897,7 +900,7 @@ onUnmounted(async () => {
           <div class="flex items-center justify-between gap-3 mb-4">
             <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
               <ClipboardList class="text-primary" :size="20" />
-              翻译历史
+              {{ l('翻译历史', 'Translation history') }}
             </h3>
             <button class="w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-red-500 transition-colors" @click="clearHistory">
               <RotateCcw :size="15" />
@@ -923,7 +926,7 @@ onUnmounted(async () => {
               </div>
             </button>
             <p v-if="history.length === 0" class="text-sm text-border-strong font-bold text-center py-10">
-              暂无历史记录
+              {{ l('暂无历史记录', 'No translation history yet') }}
             </p>
           </div>
         </aside>

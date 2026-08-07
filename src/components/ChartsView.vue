@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick, watch, onUnmounted } from 'vue';
 import { VrcApi, DbApi } from '../api';
-import { TrendingUp, Users, Clock, Globe2, Network, Trophy, LayoutDashboard } from 'lucide-vue-next';
+import { TrendingUp, Users, Clock, Globe2, Network, Trophy, LayoutDashboard, ChevronRight, ArrowUpRight, Activity } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { VrcUser, FriendLog } from '../types/vrc';
 import * as echarts from 'echarts';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useFriendsStore } from '../stores/friendsStore';
+import { useEntityModalStore } from '../stores/entityModal';
+import { markDataHealthy } from '../stores/dataHealth';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const profileStore = useUserProfileStore();
 const friendsStore = useFriendsStore();
+const entityStore = useEntityModalStore();
 
 const currentTab = ref<'overview' | 'network' | 'worlds'>('overview');
 const loading = ref(true);
@@ -18,6 +21,7 @@ const loading = ref(true);
 // 概览数据
 const friendStats = ref({ total: 0, online: 0, joinMe: 0, busy: 0, askMe: 0, offline: 0 });
 const weeklyActivity = ref<number[]>([0,0,0,0,0,0,0]);
+const hourlyActivity = ref<number[]>([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
 const recentLogs = ref<FriendLog[]>([]);
 const allFriends = ref<VrcUser[]>([]);
 
@@ -86,21 +90,27 @@ const fetchAll = async () => {
     // 2. 热门世界
     calculateTopWorlds(friends);
 
-    // 3. 周活跃数据
+    // 3. 周活跃 + 24小时活跃数据
     const heatmap = await DbApi.getHeatmap();
     const days = [0,0,0,0,0,0,0];
+    const hours = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
     if (Array.isArray(heatmap)) {
-      heatmap.forEach((cell: { day: number; count: number }) => {
+      heatmap.forEach((cell: { day: number; hour: number; count: number }) => {
         if (cell.day >= 0 && cell.day < 7) days[cell.day] += cell.count;
+        if (cell.hour >= 0 && cell.hour < 24) hours[cell.hour] += cell.count;
       });
     }
     weeklyActivity.value = days;
+    hourlyActivity.value = hours;
 
     // 4. 最近好友日志
     try {
       const logs = await DbApi.getFriendLogs({ limit: 20 });
       recentLogs.value = logs;
     } catch { recentLogs.value = []; }
+
+    // 数据已成功加载（好友 + 热力图 + 日志），标记数据服务健康
+    markDataHealthy();
 
   } catch (err) {
     console.warn(t('auto_6900bfa2'), err);
@@ -111,7 +121,65 @@ const fetchAll = async () => {
 
 onMounted(() => fetchAll());
 
-const maxWeekly = computed(() => Math.max(1, ...weeklyActivity.value));
+const peakWeekly = computed(() => Math.max(0, ...weeklyActivity.value));
+const maxWeekly = computed(() => Math.max(1, peakWeekly.value));
+const weeklyTotal = computed(() => weeklyActivity.value.reduce((sum, count) => sum + count, 0));
+const peakDayIndex = computed(() => weeklyActivity.value.indexOf(peakWeekly.value));
+const peakDayLabel = computed(() => dayLabels.value[peakDayIndex.value] || dayLabels.value[0]);
+
+const peakHourly = computed(() => Math.max(0, ...hourlyActivity.value));
+const maxHourly = computed(() => Math.max(1, peakHourly.value));
+const hourlyTotal = computed(() => hourlyActivity.value.reduce((sum, count) => sum + count, 0));
+const peakHourIndex = computed(() => hourlyActivity.value.indexOf(peakHourly.value));
+const peakHourLabel = computed(() => {
+  const h = peakHourIndex.value;
+  if (h < 0) return '--';
+  return `${String(h).padStart(2, '0')}:00`;
+});
+
+// 好友状态分段（用于分布条形图），按数量降序
+const statusBreakdown = computed(() => {
+  const s = friendStats.value;
+  const total = Math.max(1, s.total);
+  const order: Array<{ key: string; label: string; count: number; cls: string }> = [
+    { key: 'online', label: t('charts.online'), count: s.online, cls: 'st-online' },
+    { key: 'join_me', label: t('charts.join_me'), count: s.joinMe, cls: 'st-join' },
+    { key: 'busy', label: t('charts.busy'), count: s.busy, cls: 'st-busy' },
+    { key: 'ask_me', label: t('charts.ask_me'), count: s.askMe, cls: 'st-ask' },
+    { key: 'offline', label: t('charts.offline'), count: s.offline, cls: 'st-offline' },
+  ];
+  return order
+    .map((item) => ({ ...item, percent: Math.round((item.count / total) * 100) }))
+    .sort((a, b) => b.count - a.count);
+});
+
+const openWorldDetail = (worldId: string) => {
+  void entityStore.openWorld(worldId);
+};
+
+const openRecentUser = (log: FriendLog) => {
+  if (!log.user_id) return;
+  const friend = allFriends.value.find((item) => item.id === log.user_id);
+  profileStore.openProfile(log.user_id, friend || {
+    id: log.user_id,
+    displayName: log.display_name,
+    status: 'offline',
+    isFriend: true,
+  } as any);
+};
+
+const eventLabel = (eventType: string) => {
+  if (eventType === 'online') return t('status.online');
+  if (eventType === 'offline') return t('status.offline');
+  return t('charts.events');
+};
+
+const formatEventTime = (value: string) => {
+  if (!value) return '--:--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(11, 16);
+  return date.toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit', hour12: false });
+};
 
 // --- 共同好友拓扑图逻辑 (参考 VrcDog) ---
 const cssVar = (name: string, fallback: string) => {
@@ -377,304 +445,452 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-xl relative overflow-hidden">
-    <div class="absolute inset-0 pointer-events-none opacity-80" style="background: radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--theme-primary) 14%, transparent), transparent 32%), radial-gradient(circle at 96% 10%, color-mix(in srgb, var(--theme-primary-hover) 10%, transparent), transparent 28%);" />
-    <!-- 顶部导航 Tab -->
-    <div class="flex items-center gap-1 mb-6 shrink-0 z-10 bg-surface/75 backdrop-blur-xl border border-border-soft rounded-xl p-1 w-fit shadow-sm">
-      <button
-        :class="currentTab === 'overview' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover/70'"
-        class="py-2 px-3 rounded-lg transition-all text-sm flex items-center gap-2 font-bold"
-        @click="currentTab = 'overview'"
-      >
-        <LayoutDashboard :size="16" /> {{ t('charts.overview') }}
+  <section class="charts-view">
+    <nav class="charts-tabs" :aria-label="t('sidebar.charts')">
+      <button :class="{ active: currentTab === 'overview' }" @click="currentTab = 'overview'">
+        <LayoutDashboard :size="17" />
+        <span>{{ t('charts.overview') }}</span>
       </button>
-      <button
-        :class="currentTab === 'network' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover/70'"
-        class="py-2 px-3 rounded-lg transition-all text-sm flex items-center gap-2 font-bold"
-        @click="currentTab = 'network'"
-      >
-        <Network :size="16" /> {{ t('charts.network') }}
+      <button :class="{ active: currentTab === 'network' }" @click="currentTab = 'network'">
+        <Network :size="17" />
+        <span>{{ t('charts.network') }}</span>
       </button>
-      <button
-        :class="currentTab === 'worlds' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text hover:bg-surface-hover/70'"
-        class="py-2 px-3 rounded-lg transition-all text-sm flex items-center gap-2 font-bold"
-        @click="currentTab = 'worlds'"
-      >
-        <Trophy :size="16" /> {{ t('charts.top_worlds') }}
+      <button :class="{ active: currentTab === 'worlds' }" @click="currentTab = 'worlds'">
+        <Trophy :size="17" />
+        <span>{{ t('charts.top_worlds') }}</span>
       </button>
-    </div>
+    </nav>
 
-    <div class="flex-1 overflow-y-auto custom-scrollbar z-10 relative pr-2">
-      <div
-        v-if="loading"
-        class="flex flex-col items-center justify-center py-20 text-primary h-full"
-      >
-        <div class="w-10 h-10 border-4 border-primary/25 border-t-primary rounded-full animate-spin mb-4" />
-        <span class="font-extrabold text-lg tracking-wide">{{ t('charts.analyzing') }}</span>
+    <div class="charts-scroll custom-scrollbar">
+      <div v-if="loading" class="loading-layout" aria-live="polite">
+        <div class="loading-bars" aria-hidden="true">
+          <span v-for="height in [38, 68, 48, 82, 56, 73, 44]" :key="height" :style="{ height: `${height}%` }" />
+        </div>
+        <p>{{ t('charts.analyzing') }}</p>
       </div>
 
       <template v-else>
-        <!-- 概览面板 -->
-        <div
-          v-show="currentTab === 'overview'"
-          class="space-y-6"
-        >
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- 周活跃图表 -->
-            <div class="bg-surface/78 backdrop-blur-xl rounded-xl p-5 border border-border-soft shadow-sm flex flex-col min-h-0 overflow-hidden">
-              <h2 class="font-extrabold text-text mb-6 flex items-center gap-3 text-lg shrink-0">
-                <span class="p-1.5 bg-primary/10 rounded-lg text-primary border border-primary/20"><TrendingUp :size="20" /></span>
-                {{ t('charts.weekly_trend') }}
-              </h2>
-              <div class="flex-1 flex items-end justify-between gap-3 h-56 px-4 relative border border-border-soft rounded-xl bg-surface-hover/35 shadow-inner overflow-hidden pt-8 pb-4">
-                
-                <!-- Horizontal Grid Lines -->
-                <div class="absolute inset-0 z-0 flex flex-col justify-between pt-12 pb-10 px-6 pointer-events-none">
-                  <div class="w-full border-dashed border-border-soft opacity-40"></div>
-                  <div class="w-full border-dashed border-border-soft opacity-40"></div>
-                  <div class="w-full border-dashed border-border-soft opacity-40"></div>
-                  <div class="w-full border-dashed border-border-soft opacity-40"></div>
+        <div v-show="currentTab === 'overview'" class="overview-stack">
+          <div class="overview-layout">
+          <article class="analytics-panel trend-panel">
+            <header class="panel-heading">
+              <div class="heading-copy">
+                <span class="heading-icon"><TrendingUp :size="19" /></span>
+                <div>
+                  <h2>{{ t('charts.weekly_trend') }}</h2>
+                  <p>{{ weeklyTotal }} {{ t('charts.events') }}</p>
                 </div>
+              </div>
+              <div class="peak-summary">
+                <Activity :size="15" />
+                <span>{{ peakDayLabel }}</span>
+                <strong>{{ peakWeekly }}</strong>
+              </div>
+            </header>
 
-                <div
-                  v-for="(count, idx) in weeklyActivity"
-                  :key="idx"
-                  class="flex-1 flex flex-col items-center group z-10 w-full h-full justify-end relative"
-                >
-                  <!-- Background Track -->
-                  <div class="absolute bottom-[28px] top-0 w-full max-w-[34px] rounded-lg bg-surface/55 border border-border-soft/50 transition-colors"></div>
-
-                  <!-- Chart Bar Wrapper -->
-                  <div class="w-full max-w-[34px] flex flex-col justify-end relative mb-3"
-                       :style="{ height: 'calc(100% - 28px)' }">
-                       
-                    <!-- The Active Bar -->
+            <div class="chart-stage">
+              <div class="chart-grid" aria-hidden="true">
+                <span v-for="line in 4" :key="line" />
+              </div>
+              <div class="bar-grid">
+                <div v-for="(count, idx) in weeklyActivity" :key="idx" class="bar-column">
+                  <strong class="bar-value">{{ count }}</strong>
+                  <div class="bar-track">
                     <div
-                      class="w-full rounded-lg transition-all duration-700 ease-out relative shadow-sm cursor-pointer hover:brightness-110 border border-white/20" 
-                      :style="{ 
-                        height: count === 0 ? '10px' : `${Math.max((count / maxWeekly) * 100, 8)}%`,
-                        background: `linear-gradient(to top, var(--theme-primary), color-mix(in srgb, var(--theme-primary-hover) 62%, white))`,
-                        boxShadow: count === 0 ? 'none' : '0 10px 24px color-mix(in srgb, var(--theme-primary) 22%, transparent)',
-                        opacity: count === 0 ? 0.35 : 1
-                      }"
-                    >
-                      <!-- Tooltip -->
-                      <div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-surface/95 backdrop-blur-xl text-text text-xs font-bold py-1.5 px-3 rounded-lg transition-all whitespace-nowrap shadow-xl pointer-events-none z-20 border border-border-soft">
-                        {{ count }} <span class="text-text-muted font-normal">{{ t('charts.events') }}</span>
-                        <!-- little arrow -->
-                        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-surface rotate-45" />
-                      </div>
-                    </div>
+                      class="bar-fill"
+                      :class="{ peak: count === maxWeekly && count > 0, empty: count === 0 }"
+                      :style="{ height: count === 0 ? '4px' : `${Math.max((count / maxWeekly) * 100, 10)}%` }"
+                    />
                   </div>
-                  
-                  <!-- X-Axis Label -->
-                  <span class="text-xs font-bold text-text-muted h-[16px] flex items-center">
-                    {{ dayLabels[idx] }}
-                  </span>
+                  <span class="day-label">{{ dayLabels[idx] }}</span>
                 </div>
               </div>
             </div>
+          </article>
 
-            <!-- 最近事件摘要 -->
-            <div class="bg-surface/78 backdrop-blur-xl rounded-xl p-5 border border-border-soft shadow-sm flex flex-col overflow-hidden">
-              <h3 class="font-extrabold text-text mb-4 flex items-center gap-3 text-lg">
-                <span class="p-1.5 bg-primary/10 rounded-lg text-primary"><Clock :size="20" /></span>
-                {{ t('charts.recent_events') }}
-              </h3>
-              <div
-                v-if="recentLogs.length === 0"
-                class="flex-1 flex items-center justify-center text-sm text-border-strong font-bold"
-              >
-                {{ t('charts.no_events') }}
-              </div>
-              <div
-                v-else
-                class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-2"
-              >
-                <div
-                  v-for="log in recentLogs.slice(0, 10)"
-                  :key="log.id"
-                  class="flex items-center gap-3 p-3 bg-surface/55 hover:bg-surface-hover/70 rounded-xl border border-border-soft transition-colors shadow-sm"
-                >
-                  <span
-                    class="w-3 h-3 rounded-full flex-shrink-0 shadow-sm"
-                    :class="eventDotClass(log.event_type)"
-                  />
-                  <span class="text-text font-bold truncate flex-1 text-sm">{{ log.display_name || t('charts.system') }}</span>
-                  <span class="text-text-muted text-xs font-bold bg-surface-hover/70 border border-border-soft px-2.5 py-1 rounded-lg">{{ log.created_at?.slice(11, 16) }}</span>
+          <aside class="analytics-panel events-panel">
+            <header class="panel-heading compact">
+              <div class="heading-copy">
+                <span class="heading-icon"><Clock :size="19" /></span>
+                <div>
+                  <h2>{{ t('charts.recent_events') }}</h2>
+                  <p>{{ recentLogs.length }} {{ t('charts.events') }}</p>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
+            </header>
 
-        <!-- 关系网拓扑图面板 (共同好友) -->
-        <div
-          v-show="currentTab === 'network'"
-          class="h-full min-h-[500px] bg-surface/78 backdrop-blur-xl rounded-xl border border-border-soft shadow-sm p-5 flex flex-col overflow-hidden"
-        >
-          <div class="mb-4 flex justify-between items-start">
-            <div>
-              <h2 class="font-extrabold text-text flex items-center gap-3 text-lg">
-                <span class="p-1.5 bg-primary/10 rounded-lg text-primary"><Network :size="20" /></span>
-                {{ t('charts.mutual_topology') }}
-              </h2>
-              <p class="text-xs text-text-muted mt-2 font-medium ml-1">
-                {{ t('charts.mutual_desc') }}
-              </p>
+            <div v-if="recentLogs.length === 0" class="panel-empty">
+              <Clock :size="34" />
+              <span>{{ t('charts.no_events') }}</span>
             </div>
-            
-            <div class="flex items-center gap-4">
-              <div
-                v-if="isFetchingMutuals"
-                class="flex flex-col items-end"
+            <div v-else class="event-list custom-scrollbar">
+              <button
+                v-for="log in recentLogs.slice(0, 12)"
+                :key="log.id"
+                class="event-row"
+                :disabled="!log.user_id"
+                @click="openRecentUser(log)"
               >
-                <span class="text-xs font-bold text-primary mb-1.5">
-                  {{ t('charts.scanning') }} {{ mutualFetchProgress.current }} / {{ mutualFetchProgress.total }}
+                <span class="event-avatar">{{ (log.display_name || t('charts.system')).trim().charAt(0).toUpperCase() }}</span>
+                <span class="event-copy">
+                  <strong>{{ log.display_name || t('charts.system') }}</strong>
+                  <small><i :class="eventDotClass(log.event_type)" />{{ eventLabel(log.event_type) }}</small>
                 </span>
-                <div class="w-40 h-2.5 bg-surface-hover/70 rounded-full overflow-hidden shadow-inner border border-border-soft/50">
-                  <div
-                    class="h-full bg-primary transition-all duration-300"
-                    :style="{ width: `${mutualFetchProgress.total ? (mutualFetchProgress.current / mutualFetchProgress.total) * 100 : 0}%` }"
-                  />
-                </div>
-              </div>
-              <button 
-                v-else-if="!mutualGraphReady"
-                class="px-5 py-2.5 bg-primary text-white hover:brightness-110 text-sm font-bold rounded-xl shadow-sm shadow-primary/20 transition-all active:scale-95 flex items-center gap-2"
-                @click="fetchMutualFriends"
-              >
-                <Network :size="18" />
-                {{ t('charts.generate_topology') }}
-              </button>
-              <button 
-                v-else
-                class="px-5 py-2.5 bg-surface/80 border border-border-soft text-text-muted hover:text-primary hover:border-primary/50 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center gap-2"
-                @click="fetchMutualFriends"
-              >
-                {{ t('charts.regenerate') }}
+                <time>{{ formatEventTime(log.created_at) }}</time>
+                <ChevronRight :size="16" aria-hidden="true" />
               </button>
             </div>
+          </aside>
           </div>
 
-          <div
-            v-if="!mutualGraphReady && !isFetchingMutuals"
-            class="flex-1 flex flex-col items-center justify-center text-border-strong mt-2 border border-dashed border-border-soft rounded-2xl bg-surface/50"
-          >
-            <Network
-              :size="64"
-              class="mb-4 opacity-30 text-border-strong"
-            />
-            <p class="font-bold text-xl text-text-muted">
-              {{ t('charts.no_topology_data') }}
-            </p>
-            <p class="text-sm mt-2 text-center max-w-md font-medium">
-              {{ t('charts.topology_help') }}
-            </p>
-          </div>
-          
-          <div
-            v-else-if="isFetchingMutuals && mutualGraphNodes.length === 0"
-            class="flex-1 flex flex-col items-center justify-center text-primary mt-2 border border-dashed border-primary/50 rounded-2xl bg-primary/10"
-          >
-            <div class="w-12 h-12 border-4 border-primary/25 border-t-primary rounded-full animate-spin mb-6" />
-            <p class="font-extrabold text-xl tracking-wide animate-pulse">
-              {{ t('charts.traversing_network') }}
-            </p>
-            <p class="text-sm text-primary mt-2 font-bold">
-              {{ t('charts.pulling_data') }}
-            </p>
-          </div>
-
-          <div
-            v-show="mutualGraphReady"
-            ref="networkChartRef"
-            class="flex-1 w-full rounded-2xl bg-surface/50 mt-2 border border-border-soft shadow-inner overflow-hidden relative"
-          >
-            <div
-              v-if="isFetchingMutuals"
-              class="absolute top-4 right-4 z-10 bg-surface/85 backdrop-blur-xl px-4 py-2 rounded-xl text-xs font-bold text-primary shadow-sm border border-primary/30 flex items-center gap-2"
-            >
-              <div class="w-2.5 h-2.5 bg-primary rounded-full animate-ping" />
-              {{ t('charts.updating_realtime') }}
-            </div>
-          </div>
-        </div>
-
-        <!-- 热门世界排行榜面板 -->
-        <div
-          v-show="currentTab === 'worlds'"
-          class="space-y-4"
-        >
-            <div class="bg-surface/78 backdrop-blur-xl rounded-xl border border-border-soft shadow-sm p-5 overflow-hidden">
-            <h2 class="font-extrabold text-text mb-6 flex items-center gap-3 text-lg">
-              <span class="p-1.5 bg-primary/10 rounded-lg text-primary"><Globe2 :size="20" /></span>
-              {{ t('charts.top_worlds_title') }}
-            </h2>
-            
-            <div
-              v-if="topWorlds.length === 0"
-              class="flex flex-col items-center justify-center py-20 text-border-strong"
-            >
-              <Trophy
-                :size="64"
-                class="mb-4 opacity-30"
-              />
-              <p class="font-bold text-xl">
-                {{ t('charts.no_data') }}
-              </p>
-              <p class="text-sm mt-2 font-medium">
-                {{ t('charts.no_data_desc') }}
-              </p>
-            </div>
-
-            <div
-              v-else
-                class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-            >
-              <div
-                v-for="(world, index) in topWorlds"
-                :key="world.id"
-                class="flex items-center gap-4 p-4 rounded-xl border border-border-soft hover:border-primary/60 bg-surface/60 hover:bg-surface-hover/70 backdrop-blur transition-all group shadow-sm hover:shadow-md"
-              >
-                <div class="w-8 flex justify-center">
-                  <span
-                    class="text-2xl font-black drop-shadow-sm"
-                    :class="index === 0 ? 'text-primary' : index === 1 ? 'text-text-muted' : index === 2 ? 'text-orange-400' : 'text-text-muted'"
-                  >
-                    #{{ index + 1 }}
-                  </span>
-                </div>
-                <div class="w-16 h-16 rounded-xl bg-surface-hover/70 overflow-hidden flex-shrink-0 relative shadow-inner border border-border-soft">
-                  <img
-                    v-if="world.thumbnail"
-                    :src="world.thumbnail"
-                    class="w-full h-full object-cover"
-                    referrerpolicy="no-referrer"
-                  >
-                  <Globe2
-                    v-else
-                    class="w-full h-full p-4 text-text-muted"
-                  />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <h3 class="font-bold text-text truncate group-hover:text-primary transition-colors text-base">
-                    {{ world.name }}
-                  </h3>
-                  <div class="flex items-center gap-1.5 mt-1.5 text-xs text-text-muted font-bold">
-                    <Users
-                      :size="14"
-                      class="text-primary"
-                    /> {{ world.count }} {{ t('charts.friends_in_world') }}
+          <div class="insights-layout">
+            <article class="analytics-panel insights-panel">
+              <header class="panel-heading">
+                <div class="heading-copy">
+                  <span class="heading-icon"><Users :size="19" /></span>
+                  <div>
+                    <h2>{{ t('charts.friend_status_dist') }}</h2>
+                    <p>{{ friendStats.total }} {{ t('charts.friends') }}</p>
                   </div>
                 </div>
+              </header>
+              <div class="status-bars">
+                <div v-for="item in statusBreakdown" :key="item.key" class="status-row">
+                  <span class="status-dot" :class="item.cls" />
+                  <span class="status-name">{{ item.label }}</span>
+                  <div class="status-track">
+                    <div class="status-fill" :class="item.cls" :style="{ width: `${Math.max(item.percent, item.count > 0 ? 4 : 0)}%` }" />
+                  </div>
+                  <strong class="status-count">{{ item.count }}</strong>
+                  <span class="status-pct">{{ item.percent }}%</span>
+                </div>
               </div>
-            </div>
+            </article>
+
+            <article class="analytics-panel insights-panel">
+              <header class="panel-heading">
+                <div class="heading-copy">
+                  <span class="heading-icon"><Activity :size="19" /></span>
+                  <div>
+                    <h2>{{ t('charts.hourly_activity') }}</h2>
+                    <p>{{ hourlyTotal }} {{ t('charts.events') }}</p>
+                  </div>
+                </div>
+                <div v-if="peakHourly > 0" class="peak-summary">
+                  <Clock :size="15" />
+                  <span>{{ t('charts.peak_hour') }}</span>
+                  <strong>{{ peakHourLabel }}</strong>
+                </div>
+              </header>
+              <div v-if="hourlyTotal === 0" class="panel-empty">
+                <Clock :size="34" />
+                <span>{{ t('charts.no_hourly_data') }}</span>
+              </div>
+              <div v-else class="hourly-chart">
+                <div
+                  v-for="(count, hour) in hourlyActivity"
+                  :key="hour"
+                  class="hour-bar"
+                  :class="{ peak: count === peakHourly && count > 0 }"
+                  :title="`${String(hour).padStart(2, '0')}:00 · ${count}`"
+                >
+                  <div
+                    class="hour-fill"
+                    :style="{ height: count === 0 ? '3px' : `${Math.max((count / maxHourly) * 100, 8)}%` }"
+                  />
+                </div>
+              </div>
+              <div v-if="hourlyTotal > 0" class="hour-axis">
+                <span v-for="(label, idx) in t('charts.hours_short')" :key="idx">{{ label }}</span>
+              </div>
+            </article>
           </div>
         </div>
+
+        <article v-show="currentTab === 'network'" class="analytics-panel network-panel">
+          <header class="panel-heading network-heading">
+            <div class="heading-copy">
+              <span class="heading-icon"><Network :size="19" /></span>
+              <div>
+                <h2>{{ t('charts.mutual_topology') }}</h2>
+                <p>{{ t('charts.mutual_desc') }}</p>
+              </div>
+            </div>
+            <div class="network-actions">
+              <div v-if="isFetchingMutuals" class="scan-progress">
+                <span>{{ t('charts.scanning') }} {{ mutualFetchProgress.current }} / {{ mutualFetchProgress.total }}</span>
+                <div><i :style="{ width: `${mutualFetchProgress.total ? (mutualFetchProgress.current / mutualFetchProgress.total) * 100 : 0}%` }" /></div>
+              </div>
+              <button v-else class="network-button" @click="fetchMutualFriends">
+                <Network :size="17" />
+                {{ mutualGraphReady ? t('charts.regenerate') : t('charts.generate_topology') }}
+              </button>
+            </div>
+          </header>
+          <div v-if="!mutualGraphReady && !isFetchingMutuals" class="network-empty">
+            <Network :size="52" />
+            <strong>{{ t('charts.no_topology_data') }}</strong>
+            <p>{{ t('charts.topology_help') }}</p>
+          </div>
+          <div v-else-if="isFetchingMutuals && mutualGraphNodes.length === 0" class="network-empty active">
+            <span class="network-loader" />
+            <strong>{{ t('charts.traversing_network') }}</strong>
+            <p>{{ t('charts.pulling_data') }}</p>
+          </div>
+          <div v-show="mutualGraphReady" ref="networkChartRef" class="network-canvas">
+            <span v-if="isFetchingMutuals" class="live-update">{{ t('charts.updating_realtime') }}</span>
+          </div>
+        </article>
+
+        <article v-show="currentTab === 'worlds'" class="analytics-panel worlds-panel">
+          <header class="panel-heading worlds-heading">
+            <div class="heading-copy">
+              <span class="heading-icon"><Globe2 :size="19" /></span>
+              <div>
+                <h2>{{ t('charts.top_worlds_title') }}</h2>
+                <p>{{ topWorlds.length }} {{ t('charts.events') }}</p>
+              </div>
+            </div>
+          </header>
+
+          <div v-if="topWorlds.length === 0" class="panel-empty worlds-empty">
+            <Trophy :size="44" />
+            <strong>{{ t('charts.no_data') }}</strong>
+            <span>{{ t('charts.no_data_desc') }}</span>
+          </div>
+
+          <div v-else class="worlds-layout">
+            <button class="featured-world" @click="openWorldDetail(topWorlds[0].id)">
+              <div class="featured-media">
+                <img v-if="topWorlds[0].thumbnail" :src="topWorlds[0].thumbnail" :alt="topWorlds[0].name" referrerpolicy="no-referrer">
+                <Globe2 v-else :size="54" />
+                <span>#1</span>
+              </div>
+              <div class="featured-copy">
+                <h3>{{ topWorlds[0].name }}</h3>
+                <p><Users :size="15" /> {{ topWorlds[0].count }} {{ t('charts.friends_in_world') }}</p>
+                <span class="detail-link"><ArrowUpRight :size="15" /> {{ t('charts.top_worlds') }}</span>
+              </div>
+            </button>
+
+            <div class="world-list">
+              <button
+                v-for="(world, index) in topWorlds.slice(1)"
+                :key="world.id"
+                class="world-row"
+                @click="openWorldDetail(world.id)"
+              >
+                <span class="world-rank">#{{ index + 2 }}</span>
+                <span class="world-thumb">
+                  <img v-if="world.thumbnail" :src="world.thumbnail" :alt="world.name" referrerpolicy="no-referrer">
+                  <Globe2 v-else :size="22" />
+                </span>
+                <span class="world-copy">
+                  <strong>{{ world.name }}</strong>
+                  <small><Users :size="13" /> {{ world.count }} {{ t('charts.friends_in_world') }}</small>
+                </span>
+                <ChevronRight :size="17" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </article>
       </template>
     </div>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.charts-view {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  gap: 14px;
+  overflow: hidden;
+  color: var(--theme-text-strong);
+  background: color-mix(in srgb, var(--theme-bg-main) 76%, var(--theme-surface-hover));
+}
+
+.charts-tabs {
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-self: flex-start;
+  gap: 3px;
+  padding: 4px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface) 90%, transparent);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--theme-text-strong) 8%, transparent);
+}
+
+.charts-tabs button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--theme-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.charts-tabs button:hover { color: var(--theme-text-strong); background: var(--theme-surface-hover); }
+.charts-tabs button:active { transform: translateY(1px); }
+.charts-tabs button:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 2px; }
+.charts-tabs button.active { color: white; background: var(--theme-primary); box-shadow: 0 5px 12px color-mix(in srgb, var(--theme-primary) 24%, transparent); }
+
+.charts-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 4px 4px 0; }
+.overview-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(310px, .9fr); gap: 14px; align-items: stretch; }
+.analytics-panel { border-radius: 8px; background: color-mix(in srgb, var(--theme-surface) 88%, transparent); box-shadow: 0 9px 28px color-mix(in srgb, var(--theme-text-strong) 7%, transparent); }
+.trend-panel, .events-panel, .network-panel, .worlds-panel { padding: 16px; }
+.trend-panel, .events-panel { display: flex; flex-direction: column; min-height: 340px; max-height: 420px; }
+
+.panel-heading { min-height: 42px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.panel-heading.compact { margin-bottom: 8px; }
+.heading-copy { min-width: 0; display: flex; align-items: center; gap: 11px; }
+.heading-icon { width: 36px; height: 36px; flex: 0 0 36px; display: grid; place-items: center; border-radius: 7px; color: var(--theme-primary); background: color-mix(in srgb, var(--theme-primary) 11%, var(--theme-surface)); }
+.heading-copy h2 { margin: 0; color: var(--theme-text-strong); font-size: 17px; line-height: 1.2; font-weight: 800; letter-spacing: 0; }
+.heading-copy p { margin: 4px 0 0; color: var(--theme-text-muted); font-size: 12px; line-height: 1.35; font-weight: 650; }
+.peak-summary { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 6px; color: var(--theme-text-muted); background: var(--theme-surface-hover); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.peak-summary svg, .peak-summary strong { color: var(--theme-primary); }
+
+.chart-stage { position: relative; flex: 1; min-height: 200px; padding: 12px 10px 8px; overflow: hidden; border-radius: 7px; background: color-mix(in srgb, var(--theme-surface-hover) 50%, transparent); }
+.chart-grid { position: absolute; inset: 40px 18px 36px; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.chart-grid span { height: 1px; background: color-mix(in srgb, var(--theme-border-soft) 72%, transparent); }
+.bar-grid { position: relative; z-index: 1; height: 100%; display: grid; grid-template-columns: repeat(7, minmax(40px, 1fr)); align-items: stretch; gap: clamp(8px, 2vw, 18px); }
+.bar-column { min-width: 0; display: grid; grid-template-rows: 26px minmax(0, 1fr) 22px; justify-items: center; align-items: end; }
+.bar-value { align-self: center; color: var(--theme-text-strong); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.bar-track { width: min(50px, 72%); height: 100%; display: flex; align-items: flex-end; border-radius: 6px 6px 3px 3px; background: color-mix(in srgb, var(--theme-border-soft) 26%, transparent); overflow: hidden; }
+.bar-fill { width: 100%; min-height: 4px; border-radius: 6px 6px 3px 3px; background: color-mix(in srgb, var(--theme-primary) 88%, white); box-shadow: 0 -5px 15px color-mix(in srgb, var(--theme-primary) 18%, transparent); transition: height 500ms ease, filter 180ms ease; }
+.bar-column:hover .bar-fill { filter: brightness(1.06); }
+.bar-fill.peak { background: var(--theme-primary); }
+.bar-fill.empty { opacity: .35; box-shadow: none; }
+.day-label { align-self: center; color: var(--theme-text-muted); font-size: 12px; font-weight: 750; }
+
+/* 概览第二排：状态分布 + 24小时活跃 */
+.overview-stack { display: flex; flex-direction: column; gap: 14px; min-height: 100%; }
+.insights-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; align-items: stretch; }
+.insights-panel { display: flex; flex-direction: column; padding: 16px; min-height: 300px; }
+
+.status-bars { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.status-row { display: grid; grid-template-columns: 12px minmax(64px, auto) minmax(0, 1fr) 28px 34px; align-items: center; gap: 10px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.status-name { color: var(--theme-text-strong); font-size: 13px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-track { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--theme-surface-hover) 70%, transparent); overflow: hidden; }
+.status-fill { height: 100%; border-radius: 4px; transition: width 500ms ease; }
+.status-count { color: var(--theme-text-strong); font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+.status-pct { color: var(--theme-text-muted); font-size: 11px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+
+.st-online { background: #10b981; }
+.st-join { background: #3b82f6; }
+.st-busy { background: #ef4444; }
+.st-ask { background: #f59e0b; }
+.st-offline { background: #94a3b8; }
+
+.hourly-chart { position: relative; flex: 1; min-height: 0; display: flex; align-items: flex-end; gap: clamp(2px, 0.6vw, 5px); padding-top: 8px; }
+.hour-bar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; border-radius: 3px 3px 0 0; background: color-mix(in srgb, var(--theme-surface-hover) 55%, transparent); overflow: hidden; transition: filter 160ms ease; }
+.hour-fill { width: 100%; min-height: 3px; border-radius: 3px 3px 0 0; background: linear-gradient(to top, color-mix(in srgb, var(--theme-primary-hover) 80%, var(--theme-surface)), var(--theme-primary)); transition: height 500ms ease; }
+.hour-bar:hover { filter: brightness(1.08); }
+.hour-bar.peak .hour-fill { background: linear-gradient(to top, var(--theme-primary-hover), var(--theme-primary)); box-shadow: 0 0 12px color-mix(in srgb, var(--theme-primary) 45%, transparent); }
+.hour-axis { display: flex; justify-content: space-between; margin-top: 8px; color: var(--theme-text-muted); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+.hour-axis span { flex: 1; text-align: center; }
+.hour-axis span:first-child { text-align: left; }
+.hour-axis span:last-child { text-align: right; }
+
+.event-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.event-row { width: 100%; min-height: 50px; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto 18px; align-items: center; gap: 10px; padding: 6px 6px; border: 0; border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent); color: inherit; background: transparent; text-align: left; cursor: pointer; transition: background 160ms ease, transform 160ms ease; }
+.event-row:first-child { border-top: 0; }
+.event-row:hover { background: color-mix(in srgb, var(--theme-primary) 7%, transparent); }
+.event-row:active { transform: translateY(1px); }
+.event-row:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: -2px; }
+.event-row:disabled { cursor: default; }
+.event-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 7px; color: var(--theme-primary); background: color-mix(in srgb, var(--theme-primary) 10%, var(--theme-surface)); font-size: 12px; font-weight: 850; }
+.event-copy { min-width: 0; display: grid; gap: 3px; }
+.event-copy strong { overflow: hidden; color: var(--theme-text-strong); font-size: 13px; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
+.event-copy small { display: flex; align-items: center; gap: 6px; color: var(--theme-text-muted); font-size: 11px; font-weight: 650; }
+.event-copy i { width: 7px; height: 7px; border-radius: 50%; }
+.event-row time { color: var(--theme-text-muted); font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.event-row > svg { color: var(--theme-text-muted); }
+
+.panel-empty { flex: 1; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--theme-text-muted); text-align: center; }
+.panel-empty svg { opacity: .45; }
+.panel-empty strong { color: var(--theme-text-strong); font-size: 17px; }
+.network-panel { min-height: 560px; display: flex; flex-direction: column; }
+.network-heading { align-items: center; }
+.network-actions { display: flex; align-items: center; }
+.network-button { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 15px; border: 0; border-radius: 7px; color: white; background: var(--theme-primary); font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; }
+.scan-progress { width: 180px; display: grid; gap: 7px; color: var(--theme-primary); font-size: 11px; font-weight: 750; text-align: right; }
+.scan-progress > div { height: 6px; overflow: hidden; border-radius: 3px; background: var(--theme-surface-hover); }
+.scan-progress i { display: block; height: 100%; background: var(--theme-primary); transition: width 250ms ease; }
+.network-empty { flex: 1; min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border-radius: 7px; color: var(--theme-text-muted); background: color-mix(in srgb, var(--theme-surface-hover) 52%, transparent); text-align: center; }
+.network-empty strong { color: var(--theme-text-strong); font-size: 18px; }
+.network-empty p { max-width: 520px; margin: 0; font-size: 13px; line-height: 1.55; }
+.network-loader { width: 38px; height: 38px; border: 4px solid color-mix(in srgb, var(--theme-primary) 20%, transparent); border-top-color: var(--theme-primary); border-radius: 50%; animation: spin 800ms linear infinite; }
+.network-canvas { position: relative; flex: 1; min-height: 440px; overflow: hidden; border-radius: 7px; background: color-mix(in srgb, var(--theme-surface-hover) 50%, transparent); }
+.live-update { position: absolute; top: 12px; right: 12px; z-index: 2; padding: 7px 10px; border-radius: 6px; color: var(--theme-primary); background: var(--theme-surface); font-size: 11px; font-weight: 750; }
+
+.worlds-panel { min-height: 560px; }
+.worlds-layout { display: grid; grid-template-columns: minmax(250px, .72fr) minmax(0, 1.6fr); gap: 16px; }
+.featured-world, .world-row { border: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.featured-world { min-height: 430px; display: grid; grid-template-rows: minmax(260px, 1fr) auto; padding: 0; overflow: hidden; border-radius: 8px; background: var(--theme-surface-hover); box-shadow: 0 10px 28px color-mix(in srgb, var(--theme-text-strong) 8%, transparent); transition: transform 180ms ease, box-shadow 180ms ease; }
+.featured-world:hover { transform: translateY(-2px); box-shadow: 0 15px 34px color-mix(in srgb, var(--theme-text-strong) 12%, transparent); }
+.featured-media { position: relative; min-height: 260px; display: grid; place-items: center; overflow: hidden; color: var(--theme-text-muted); background: color-mix(in srgb, var(--theme-primary) 8%, var(--theme-surface)); }
+.featured-media img { width: 100%; height: 100%; object-fit: cover; }
+.featured-media > span { position: absolute; top: 14px; left: 14px; min-width: 42px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: white; background: var(--theme-primary); font-size: 15px; font-weight: 850; font-variant-numeric: tabular-nums; }
+.featured-copy { padding: 17px 18px 19px; }
+.featured-copy h3 { margin: 0; overflow: hidden; color: var(--theme-text-strong); font-size: 19px; line-height: 1.25; font-weight: 820; text-overflow: ellipsis; white-space: nowrap; }
+.featured-copy p, .world-copy small { display: flex; align-items: center; gap: 6px; color: var(--theme-text-muted); font-size: 12px; font-weight: 700; }
+.featured-copy p { margin: 8px 0 15px; }
+.detail-link { display: inline-flex; align-items: center; gap: 6px; color: var(--theme-primary); font-size: 12px; font-weight: 780; }
+.world-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 10px; }
+.world-row { min-height: 86px; display: grid; grid-template-columns: 34px 54px minmax(0, 1fr) 18px; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; background: color-mix(in srgb, var(--theme-surface-hover) 68%, transparent); transition: transform 170ms ease, background 170ms ease, box-shadow 170ms ease; }
+.world-row:hover { transform: translateY(-1px); background: var(--theme-surface-hover); box-shadow: 0 8px 20px color-mix(in srgb, var(--theme-text-strong) 7%, transparent); }
+.world-row:focus-visible, .featured-world:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 2px; }
+.world-rank { color: var(--theme-primary); font-size: 14px; font-weight: 850; font-variant-numeric: tabular-nums; }
+.world-thumb { width: 54px; height: 54px; display: grid; place-items: center; overflow: hidden; border-radius: 7px; color: var(--theme-text-muted); background: var(--theme-surface); }
+.world-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.world-copy { min-width: 0; display: grid; gap: 7px; }
+.world-copy strong { overflow: hidden; color: var(--theme-text-strong); font-size: 13px; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
+.world-copy small { margin: 0; }
+.world-row > svg { color: var(--theme-text-muted); }
+.worlds-empty { min-height: 430px; }
+
+.loading-layout { min-height: 520px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; color: var(--theme-text-muted); font-size: 14px; font-weight: 750; }
+.loading-bars { width: 260px; height: 120px; display: flex; align-items: end; justify-content: center; gap: 10px; }
+.loading-bars span { width: 22px; border-radius: 5px 5px 2px 2px; background: color-mix(in srgb, var(--theme-primary) 46%, var(--theme-surface)); animation: pulse 1.2s ease-in-out infinite alternate; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { to { opacity: .42; } }
+
+@media (max-width: 1100px) {
+  .overview-layout { grid-template-columns: 1fr; }
+  .insights-layout { grid-template-columns: 1fr; }
+  .trend-panel, .events-panel { max-height: none; min-height: 360px; }
+  .events-panel { min-height: 320px; }
+  .insights-panel { min-height: 300px; }
+  .worlds-layout { grid-template-columns: 1fr; }
+  .featured-world { min-height: 360px; grid-template-rows: 240px auto; }
+}
+
+@media (max-width: 760px) {
+  .charts-view { padding: 14px; }
+  .charts-tabs { width: 100%; grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .charts-tabs button { min-width: 0; padding: 0 8px; font-size: 12px; }
+  .charts-tabs button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trend-panel, .events-panel, .network-panel, .worlds-panel { padding: 14px; }
+  .bar-grid { gap: 6px; }
+  .bar-track { width: 70%; }
+  .peak-summary { display: none; }
+  .world-list { grid-template-columns: 1fr; }
+  .network-heading { align-items: flex-start; flex-direction: column; }
+}
+</style>
 
 

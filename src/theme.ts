@@ -49,7 +49,7 @@ export const themes: Record<ThemeId, Theme> = {
       text: '#5d4037',
       textStrong: '#451a03',
       textSoft: '#451a03',
-      textMuted: '#a1887f',  // 灰褐
+      textMuted: '#76584d',  // 灰褐
       activeBg: 'rgba(251, 191, 36, 0.25)',
       primaryBtnBg: '#d97706',
       primaryBtnHover: '#b45309',
@@ -73,7 +73,7 @@ export const themes: Record<ThemeId, Theme> = {
       text: '#2d4a3e',
       textStrong: '#064e3b',
       textSoft: '#064e3b',
-      textMuted: '#709d8d',  // 灰绿
+      textMuted: '#4f7668',  // 灰绿
       activeBg: 'rgba(20, 184, 166, 0.2)',
       primaryBtnBg: '#059669',
       primaryBtnHover: '#047857',
@@ -97,7 +97,7 @@ export const themes: Record<ThemeId, Theme> = {
       text: '#6b3e4a',
       textStrong: '#4c0519',
       textSoft: '#4c0519',
-      textMuted: '#c5aeb4',  // 灰玫
+      textMuted: '#805d68',  // 灰玫
       activeBg: 'rgba(244, 114, 182, 0.2)',
       primaryBtnBg: '#e11d48',
       primaryBtnHover: '#be123c',
@@ -121,7 +121,7 @@ export const themes: Record<ThemeId, Theme> = {
       text: '#475569',
       textStrong: '#0f172a',
       textSoft: '#0f172a',
-      textMuted: '#94a3b8',  // 板岩浅灰
+      textMuted: '#64748b',  // 板岩灰
       activeBg: 'rgba(148, 163, 184, 0.2)',
       primaryBtnBg: '#475569',
       primaryBtnHover: '#334155',

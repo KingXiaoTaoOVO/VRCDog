@@ -5,10 +5,11 @@ import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { storeToRefs } from 'pinia';
 import { getVersion } from '@tauri-apps/api/app';
-import { wsState } from '../../api/websocket';
+import { wsState, initWebsocket, closeWebSocket } from '../../api/websocket';
+import { dataHealth, dataServiceStatus, nowTs } from '../../stores/dataHealth';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
 import VrcAvatar from '../VrcAvatar.vue';
-import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert, Check } from 'lucide-vue-next';
+import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert, Check, Database, RefreshCw } from 'lucide-vue-next';
 import CustomNavModal from '../CustomNavModal.vue';
 
 const { t } = useI18n();
@@ -54,16 +55,60 @@ const pipelineStatusKey = computed(() => {
     return 'status.pipeline_connecting';
   }
   if (wsState.phase === 'waiting') return 'status.pipeline_retrying';
+  if (wsState.phase === 'failed') return 'status.pipeline_unavailable';
   return 'status.pipeline_offline';
 });
 const pipelineStatusTitle = computed(() => {
   const parts = [t(pipelineStatusKey.value)];
-  if (wsState.reconnectAttempts > 0) {
+  if (wsState.phase === 'waiting' && wsState.reconnectAttempts > 0) {
     parts.push(t('status.pipeline_retry_count', { count: wsState.reconnectAttempts }));
   }
   if (wsState.lastError) parts.push(wsState.lastError);
   return parts.join(' · ');
 });
+
+// 主指示器：反映「应用数据是否真正可用」（好友 / 热力图 / 日志等本地数据），
+// 与可选的 VRChat 实时 WebSocket 管道解耦。
+const dataServiceKey = computed(() => {
+  switch (dataServiceStatus.value) {
+    case 'online': return 'status.data_online';
+    case 'stale': return 'status.data_stale';
+    default: return 'status.data_offline';
+  }
+});
+const dataServiceClass = computed(() => ({
+  'bg-emerald-50 border-emerald-200 text-emerald-600': dataServiceStatus.value === 'online',
+  'bg-amber-50 border-amber-200 text-amber-700': dataServiceStatus.value === 'stale',
+  'bg-slate-50 border-slate-200 text-slate-500': dataServiceStatus.value === 'offline',
+}));
+const lastSyncAgo = computed(() => {
+  const last = dataHealth.lastSuccessAt;
+  if (!last) return '';
+  const sec = Math.max(0, Math.floor((nowTs.value - last) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  return `${Math.floor(min / 60)}h`;
+});
+
+// 立即用最新 pipelineUrl 重连（用户改完设置后不用重启/重登）
+const retryPipeline = async () => {
+  try {
+    await closeWebSocket();
+  } catch { /* best effort */ }
+  void initWebsocket();
+};
+const canRetryPipeline = computed(
+  () => wsState.phase === 'failed' || wsState.phase === 'waiting' || wsState.phase === 'idle',
+);
+
+// 次要指示器：VRChat 实时推送管道（WebSocket），仅作可选提示。
+const pipelineClass = computed(() => ({
+  'bg-emerald-50 border-emerald-200 text-emerald-600': wsState.connected,
+  'bg-blue-50 border-blue-200 text-blue-600': !wsState.connected && (wsState.phase === 'authenticating' || wsState.phase === 'connecting'),
+  'bg-amber-50 border-amber-200 text-amber-700': !wsState.connected && wsState.phase === 'waiting',
+  'bg-slate-50 border-slate-200 text-slate-500': !wsState.connected && (wsState.phase === 'idle' || wsState.phase === 'failed'),
+}));
 const menuSectionBg = computed(() => {
   switch (currentTheme.value.id) {
     case 'cat': return '#f5fff8';
@@ -331,29 +376,53 @@ const themeStyles = computed(() => {
           </div>
         </div>
 
-        <!-- 实时数据流状态 (WebSocket) -->
+        <!-- 数据服务状态（本地数据库 + 好友/热力图/日志等用户数据） -->
         <div
           class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between transition-colors"
-          :class="{
-            'bg-emerald-50 border-emerald-200 text-emerald-600': wsState.connected,
-            'bg-blue-50 border-blue-200 text-blue-600': !wsState.connected && (wsState.phase === 'authenticating' || wsState.phase === 'connecting'),
-            'bg-amber-50 border-amber-200 text-amber-700': !wsState.connected && wsState.phase === 'waiting',
-            'bg-slate-50 border-slate-200 text-slate-500': !wsState.connected && wsState.phase === 'idle',
-          }"
-          :title="pipelineStatusTitle"
+          :class="dataServiceClass"
+          :title="t('status.data_service')"
         >
           <div class="flex items-center gap-1">
-            <Activity :size="10" />
-            <span>{{ $t(pipelineStatusKey) }}</span>
+            <Database :size="10" />
+            <span>{{ $t(dataServiceKey) }}</span>
           </div>
           <span
-            v-if="wsState.connected && wsState.messageCount > 0"
-            class="text-current"
-          >{{ $t('status.frames', { count: wsState.messageCount }) }}</span>
-          <span
-            v-else-if="wsState.phase === 'waiting' && wsState.reconnectAttempts > 0"
+            v-if="dataHealth.lastSuccessAt && dataServiceStatus === 'online'"
             class="text-current tabular-nums"
-          >#{{ wsState.reconnectAttempts }}</span>
+          >{{ $t('status.sync_ago', { time: lastSyncAgo }) }}</span>
+        </div>
+
+        <!-- VRChat 实时推送管道（WebSocket，可选） -->
+        <div
+          v-if="wsState.everConnected || wsState.phase !== 'idle'"
+          class="mt-1 px-2 py-1 rounded-lg border text-[9px] font-semibold flex items-center justify-between transition-colors"
+          :class="pipelineClass"
+          :title="pipelineStatusTitle"
+        >
+          <div class="flex items-center gap-1 min-w-0">
+            <Activity :size="9" />
+            <span class="truncate">{{ $t('status.realtime_pipeline') }} · {{ $t(pipelineStatusKey) }}</span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <span
+              v-if="wsState.connected && wsState.messageCount > 0"
+              class="text-current tabular-nums"
+            >{{ $t('status.frames', { count: wsState.messageCount }) }}</span>
+            <span
+              v-else-if="wsState.phase === 'waiting' && wsState.reconnectAttempts > 0"
+              class="text-current tabular-nums"
+            >#{{ wsState.reconnectAttempts }}</span>
+            <button
+              v-if="canRetryPipeline && !wsState.connected"
+              type="button"
+              class="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/15 transition-colors"
+              :title="$t('status.pipeline_retry_button')"
+              :aria-label="$t('status.pipeline_retry_button')"
+              @click="retryPipeline"
+            >
+              <RefreshCw :size="10" />
+            </button>
+          </div>
         </div>
 
         <!-- VrcDog 服务端连接状态 -->

@@ -72,11 +72,16 @@ if (import.meta.env.PROD) {
 
 const bootstrap = async () => {
   if (isTrayMenuMode) {
-    const { default: TrayMenuView } = await withStartupRetry(
-      () => import("./components/TrayMenuView.vue"),
+    const [{ default: TrayMenuView }, { default: i18n }] = await withStartupRetry(
+      () => Promise.all([
+        import("./components/TrayMenuView.vue"),
+        import("./i18n"),
+      ]),
       'tray menu',
     );
-    createApp(TrayMenuView).mount("#app");
+    const trayApp = createApp(TrayMenuView);
+    trayApp.use(i18n);
+    trayApp.mount("#app");
     return;
   }
 

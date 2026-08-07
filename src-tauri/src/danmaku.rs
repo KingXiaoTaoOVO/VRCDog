@@ -839,6 +839,26 @@ async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<
     emit_status(&runtime.app, &runtime.status);
 }
 
+/// Translate raw tokio-tungstenite errors into a calm, user-facing message.
+/// Bilibili's danmaku servers frequently reset idle/congested connections; the
+/// caller already reconnects, so we must not surface the scary raw string
+/// ("Connection reset without closing handshake") to the UI.
+fn friendly_bili_ws_error(err: &str) -> String {
+    let lower = err.to_lowercase();
+    if lower.contains("reset")
+        || lower.contains("without closing handshake")
+        || lower.contains("connection aborted")
+        || lower.contains("broken pipe")
+        || lower.contains("connection reset")
+        || lower.contains("closed")
+        || lower.contains("ended")
+    {
+        "Bilibili 弹幕连接已断开，正在自动重连…".to_string()
+    } else {
+        err.to_string()
+    }
+}
+
 async fn run_bilibili_once(
     runtime: DanmakuRuntime,
     tx: mpsc::UnboundedSender<DanmakuMessage>,
@@ -897,7 +917,7 @@ async fn run_bilibili_once(
     );
     let (stream, _) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| friendly_bili_ws_error(&e.to_string()))?;
     let (mut writer, mut reader) = stream.split();
 
     let auth_body = serde_json::json!({
@@ -957,10 +977,10 @@ async fn run_bilibili_once(
                             handle_bili_value(&runtime, &tx, value).await;
                         }
                     }
-                    Some(Ok(Message::Close(_))) => return Err("bilibili websocket closed".to_string()),
+                    Some(Ok(Message::Close(_))) => return Err(friendly_bili_ws_error("bilibili websocket closed")),
                     Some(Ok(_)) => {}
-                    Some(Err(err)) => return Err(err.to_string()),
-                    None => return Err("bilibili websocket ended".to_string()),
+                    Some(Err(err)) => return Err(friendly_bili_ws_error(&err.to_string())),
+                    None => return Err(friendly_bili_ws_error("bilibili websocket ended")),
                 }
             }
         }

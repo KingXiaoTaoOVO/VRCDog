@@ -63,13 +63,19 @@ export const useNotificationEngine = () => {
     
     // Evaluate Desktop Notification
     if (evaluateCondition(rules.desktopCondition, rules.showWhenAfk)) {
-      let permissionGranted = await isPermissionGranted();
-      if (!permissionGranted) {
-        const permission = await requestPermission();
-        permissionGranted = permission === 'granted';
-      }
-      if (permissionGranted) {
-        sendNotification({ title, body });
+      try {
+        let permissionGranted = await isPermissionGranted();
+        if (!permissionGranted) {
+          const permission = await requestPermission();
+          permissionGranted = permission === 'granted';
+        }
+        if (permissionGranted) {
+          sendNotification({ title, body });
+        }
+      } catch (err) {
+        // 通知插件未注册或不可用（旧的构建/未授权）时静默忽略，
+        // 否则会在 console 刷屏并影响调试。
+        console.debug('[notify] desktop notification unavailable:', err);
       }
     }
 

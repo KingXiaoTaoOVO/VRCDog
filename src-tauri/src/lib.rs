@@ -3,6 +3,7 @@ use tauri::{Emitter, Manager};
 
 pub mod audio_capture;
 pub mod bilibili;
+pub mod bilibili_live;
 pub mod danmaku;
 pub mod db;
 pub mod gallery;
@@ -21,6 +22,7 @@ pub mod toolchain;
 pub mod translate;
 pub mod vr_ui;
 pub mod vrc_api;
+pub mod pipeline_ws;
 pub mod vrct;
 pub mod vrpiano;
 pub mod xiaohongshu;
@@ -155,50 +157,51 @@ fn show_tray_menu_window(
     cursor_x: f64,
     cursor_y: f64,
 ) -> Result<(), String> {
-    const MENU_WIDTH: f64 = 244.0;
-    const MENU_HEIGHT: f64 = 220.0;
+    const MENU_WIDTH: f64 = 288.0;
+    const MENU_HEIGHT: f64 = 272.0;
     const OFFSET: f64 = 12.0;
 
-    let x = (cursor_x - MENU_WIDTH + OFFSET).max(0.0) as i32;
-    let y = (cursor_y - MENU_HEIGHT - OFFSET).max(0.0) as i32;
+    let position_window = |window: &tauri::WebviewWindow| -> Result<(), String> {
+        let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
+        let physical_width = MENU_WIDTH * scale_factor;
+        let physical_height = MENU_HEIGHT * scale_factor;
+        let x = (cursor_x - physical_width + OFFSET * scale_factor).max(0.0) as i32;
+        let y = (cursor_y - physical_height - OFFSET * scale_factor).max(0.0) as i32;
+        window
+            .set_position(tauri::PhysicalPosition::new(x, y))
+            .map_err(|e| e.to_string())
+    };
 
     if let Some(window) = app.get_webview_window("tray-menu") {
         window
-            .set_size(tauri::PhysicalSize::new(
-                MENU_WIDTH as u32,
-                MENU_HEIGHT as u32,
-            ))
+            .set_size(tauri::LogicalSize::new(MENU_WIDTH, MENU_HEIGHT))
             .map_err(|e| e.to_string())?;
-        window
-            .set_position(tauri::PhysicalPosition::new(x, y))
-            .map_err(|e| e.to_string())?;
+        position_window(&window)?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
 
-    tauri::WebviewWindowBuilder::new(
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         "tray-menu",
         tauri::WebviewUrl::App("index.html?mode=tray-menu".into()),
     )
     .title("VrcDog Menu")
     .decorations(false)
-    .transparent(false)
+    .transparent(true)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
     .visible(false)
     .inner_size(MENU_WIDTH, MENU_HEIGHT)
     .build()
-    .map_err(|e| e.to_string())?
-    .set_position(tauri::PhysicalPosition::new(x, y))
     .map_err(|e| e.to_string())?;
 
-    if let Some(window) = app.get_webview_window("tray-menu") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-    }
+    position_window(&window)?;
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -288,6 +291,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             scan_local_project_dependencies,
             tray_show_main_window,
@@ -304,6 +308,8 @@ pub fn run() {
             vrc_api::vrc_apply_auth_cookie,
             vrc_api::vrc_load_cookies_on_startup,
             vrc_api::vrc_clear_cookies,
+            pipeline_ws::start_pipeline_ws,
+            pipeline_ws::stop_pipeline_ws,
             gamelog::vrc_get_latest_gamelogs,
             db::db_record_activity,
             db::db_get_heatmap,
@@ -432,6 +438,16 @@ pub fn run() {
             bilibili::bili_check_login,
             bilibili::bili_new_qr,
             bilibili::bili_get_qr_status,
+            bilibili_live::bili_live_get_room_info,
+            bilibili_live::bili_live_get_own_room,
+            bilibili_live::bili_live_get_areas,
+            bilibili_live::bili_live_update_title,
+            bilibili_live::bili_live_update_area,
+            bilibili_live::bili_live_update_announcement,
+            bilibili_live::bili_live_start,
+            bilibili_live::bili_live_stop,
+            bilibili_live::bili_live_send_danmaku,
+            bilibili_live::bili_live_get_contribution_rank,
             bilibili::bili_get_video_info,
             bilibili::bili_get_play_info,
             bilibili::bili_get_mp4_play_info,

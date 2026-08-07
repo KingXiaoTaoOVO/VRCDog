@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { VrcApi, DbApi } from '../api';
 import { isTauri } from '@tauri-apps/api/core';
+import { markDataHealthy } from './dataHealth';
 import type { VrcUser } from '../types/vrc';
 
 /**
@@ -96,6 +97,7 @@ export const useFriendsStore = defineStore('friends', () => {
       if (error.value && normalized.length === 0) {
         throw new Error(error.value);
       }
+      if (normalized.length > 0) markDataHealthy();
       return normalized;
     } finally {
       loading.value = false;

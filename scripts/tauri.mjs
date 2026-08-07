@@ -5,6 +5,21 @@ import { createRequire } from "node:module";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Silence the Node 22.11+ DEP0205 deprecation ("module.register() is
+// deprecated. Use module.registerHooks() instead.") that is emitted from
+// inside the native @tauri-apps/cli binding. The filter runs before the
+// CLI is required below so the warning never reaches stderr. Other
+// deprecation warnings are preserved.
+const _originalEmitWarning = process.emitWarning.bind(process);
+process.emitWarning = function emitWarning(warning, ...rest) {
+  const code =
+    warning && typeof warning === "object"
+      ? warning.code
+      : rest[1]; // legacy signature: (warning, type, code, ctor)
+  if (code === "DEP0205") return;
+  return _originalEmitWarning(warning, ...rest);
+};
+
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const require = createRequire(import.meta.url);
 const cargoHome = process.env.CARGO_HOME

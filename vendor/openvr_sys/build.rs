@@ -18,6 +18,13 @@ fn main() {
         config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
         // Work around broken cmake build.
         config.cxxflag("/DWIN32");
+        // Force the Visual Studio *multi-config* generator to build the Release
+        // configuration. For multi-config generators CMAKE_BUILD_TYPE is ignored,
+        // and the `cmake` crate otherwise passes `--config Debug` on `tauri dev`
+        // (cargo debug profile), producing an openvr_api64.lib linked against the
+        // debug CRT (/MDd). That conflicts with the app's release CRT and fails the
+        // final link with LNK4098 / unresolved __imp__CrtDbgReport / LNK1120.
+        config.profile("Release");
     }
 
     let dst = config.build();

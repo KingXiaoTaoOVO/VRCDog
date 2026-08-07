@@ -14,6 +14,7 @@ export const SUPPORTED_LOCALES = [
   'ru',
   'th',
   'vi',
+  'yue',
   'zh-CN',
   'zh-TW'
 ] as const;
@@ -34,7 +35,8 @@ export const localeLabels: Record<AppLocale, string> = {
   th: 'ไทย',
   vi: 'Tiếng Việt',
   'zh-CN': '简体中文',
-  'zh-TW': '繁體中文'
+  'zh-TW': '繁體中文',
+  'yue': '粵語'
 };
 
 export const localeOptions = SUPPORTED_LOCALES.map((code) => ({
@@ -80,7 +82,14 @@ const localeAliasMap: Record<string, AppLocale> = {
   'zh-tw': 'zh-TW',
   'zh-hant': 'zh-TW',
   'zh-hant-tw': 'zh-TW',
-  'zh-hk': 'zh-TW'
+  'zh-hk': 'zh-TW',
+  'yue': 'yue',
+  'zh-yue': 'yue',
+  'cantonese': 'yue',
+  '粵語': 'yue',
+  '粵语': 'yue',
+  '廣東話': 'yue',
+  '广东话': 'yue'
 };
 
 function unwrapLocale(rawLocale: string | null | undefined): string {

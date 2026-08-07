@@ -24,7 +24,7 @@ import { isDebugLogEnabled } from './debugConfig';
 import { toCleanBase64 } from './utils';
 import { normalizeTwoFactorMethod } from './twoFactor';
 
-const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|token|access[_-]?token|refresh[_-]?token|secret)$/i;
+const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|bili_jct|csrf|csrf_token|buvid3|stream_key|token|access[_-]?token|refresh[_-]?token|secret)$/i;
 
 const sanitizeInvokeValue = (value: unknown, seen = new WeakSet<object>()): unknown => {
   if (value === null || typeof value !== 'object') return value;
@@ -182,6 +182,26 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     if (cmd === 'ovr_load_ovras_ini') return Promise.resolve('{}') as any;
     if (cmd === 'ovr_sync_ovras_ini') return Promise.resolve(undefined) as any;
     if (cmd === 'danmaku_get_config') return Promise.resolve(mockDanmakuConfig) as any;
+    if (cmd === 'bili_live_get_areas') return Promise.resolve([
+      { id: 235, name: '虚拟主播', parent_id: 9, parent_name: '娱乐', pic: '' },
+      { id: 216, name: '日常', parent_id: 1, parent_name: '生活', pic: '' },
+    ]) as any;
+    if (cmd === 'bili_live_get_room_info' || cmd === 'bili_live_get_own_room') return Promise.resolve({
+      room_id: Number(args?.roomId || 123456), uid: 10001, title: 'VrcDog 直播预览', area_id: 235,
+      area_name: '虚拟主播', parent_area_id: 9, parent_area_name: '娱乐', live_status: 0,
+      online: 128, cover: '', announcement: '欢迎来到 VrcDog 直播间',
+    }) as any;
+    if (cmd === 'bili_live_start') return Promise.resolve({
+      live: true, requires_face_auth: false, face_auth_url: null, message: 'ok', endpoints: [
+        { protocol: 'RTMP', address: 'rtmp://live.example.com/live', stream_key: 'preview-secret-key', provider: 'preview' },
+        { protocol: 'SRT', address: 'srt://live.example.com:10080', stream_key: 'preview-srt-key', provider: 'preview' },
+      ],
+    }) as any;
+    if (cmd === 'bili_live_get_contribution_rank') return Promise.resolve([
+      { uid: 1, name: '星空旅人', face: '', rank: 1, score: 5200 },
+      { uid: 2, name: 'VR 小狗', face: '', rank: 2, score: 3200 },
+    ]) as any;
+    if (cmd === 'bili_live_update_title' || cmd === 'bili_live_update_area' || cmd === 'bili_live_update_announcement' || cmd === 'bili_live_stop' || cmd === 'bili_live_send_danmaku') return Promise.resolve(undefined) as any;
     if (cmd === 'danmaku_get_status') return Promise.resolve(mockDanmakuStatus()) as any;
     if (cmd === 'danmaku_get_messages') return Promise.resolve([]) as any;
     if (cmd === 'danmaku_set_config') {
@@ -374,6 +394,11 @@ export const VrcApi = {
   loadCookiesOnStartup: (params: { authCookie: string }) => safeInvoke<void>('vrc_load_cookies_on_startup', params),
   getImageBytes: (params: any) => safeInvoke<string>('vrc_get_image_bytes', params),
   clearCookies: () => safeInvoke('vrc_clear_cookies'),
+
+  // VRChat realtime pipeline WebSocket (managed in Rust so it honours the proxy + UA)
+  startPipelineWs: (params: { authToken: string; pipelineUrl?: string | null }) =>
+    safeInvoke<void>('start_pipeline_ws', { ...params, pipelineUrl: params.pipelineUrl ?? null }),
+  stopPipelineWs: () => safeInvoke<void>('stop_pipeline_ws'),
 
   // 认证模块
   login: AuthApi.login,

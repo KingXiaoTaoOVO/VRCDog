@@ -9,6 +9,7 @@ import { setAppLocale, translate } from '../i18n';
 import { useUiStore } from './uiStore';
 import { useFriendsStore } from './friendsStore';
 import { mergeCookiesAndSave } from '../api/cookies';
+import { markDataHealthy } from './dataHealth';
 
 export const useAuthStore = defineStore('auth', () => {
   const uiStore = useUiStore();
@@ -303,6 +304,7 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
       friendsStore.setFriends(liveFriends);
+      if (liveFriends.length > 0) markDataHealthy();
       window.dispatchEvent(new CustomEvent('vrc-friends-synced'));
       return liveFriends;
     } catch (err) {

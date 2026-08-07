@@ -6,7 +6,8 @@ import { useI18n } from 'vue-i18n';
 import type { VrcNotification } from '../types/vrc';
 import { useToast } from '../composables/useToast';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
+const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const toast = useToast();
 
 const notifications = ref<VrcNotification[]>([]);
@@ -23,21 +24,21 @@ const getNotificationTitle = (notif: VrcNotification) => {
   const sender = typeof notif.senderUsername === 'string' ? notif.senderUsername.trim() : '';
   switch (notif.type) {
     case 'friendRequest':
-      return sender ? `${sender} 发送了好友请求` : '好友请求';
+      return sender ? l(`${sender} 发送了好友请求`, `${sender} sent a friend request`) : l('好友请求', 'Friend request');
     case 'invite':
-      return sender ? `${sender} 邀请你加入实例` : '实例邀请';
+      return sender ? l(`${sender} 邀请你加入实例`, `${sender} invited you to an instance`) : l('实例邀请', 'Instance invite');
     case 'requestInvite':
-      return sender ? `${sender} 请求加入你的位置` : '邀请请求';
+      return sender ? l(`${sender} 请求加入你的位置`, `${sender} requested to join you`) : l('邀请请求', 'Invite request');
     case 'group.invite':
-      return sender ? `${sender} 发送了群组邀请` : '群组邀请';
+      return sender ? l(`${sender} 发送了群组邀请`, `${sender} sent a group invite`) : l('群组邀请', 'Group invite');
     case 'group.request':
-      return sender ? `${sender} 发送了群组申请` : '群组申请';
+      return sender ? l(`${sender} 发送了群组申请`, `${sender} sent a group request`) : l('群组申请', 'Group request');
     case 'friend-online':
-      return sender ? `${sender} 已上线` : '好友已上线';
+      return sender ? l(`${sender} 已上线`, `${sender} is online`) : l('好友已上线', 'Friend online');
     case 'friend-offline':
-      return sender ? `${sender} 已下线` : '好友已下线';
+      return sender ? l(`${sender} 已下线`, `${sender} is offline`) : l('好友已下线', 'Friend offline');
     case 'friend-location':
-      return sender ? `${sender} 切换了世界` : '好友切换世界';
+      return sender ? l(`${sender} 切换了世界`, `${sender} changed worlds`) : l('好友切换世界', 'Friend changed worlds');
     default:
       return sender || '';
   }
@@ -151,10 +152,10 @@ const acceptNotification = async (id: string) => {
     await tryRemoteNotificationAction(notif, 'accept');
     await DbApi.deleteNotification({ id });
     notifications.value = notifications.value.filter((item) => item.id !== id);
-    toast.success('已接受通知');
+    toast.success(l('已接受通知', 'Notification accepted'));
   } catch (err: any) {
     errorMsg.value = err?.message || String(err);
-    toast.error(`接受失败：${errorMsg.value}`);
+    toast.error(l(`接受失败：${errorMsg.value}`, `Could not accept: ${errorMsg.value}`));
   } finally {
     processingId.value = null;
   }
@@ -167,10 +168,12 @@ const rejectNotification = async (notif: VrcNotification) => {
     await tryRemoteNotificationAction(notif, actionableNotificationTypes.has(notif.type) ? 'reject' : 'hide');
     await DbApi.deleteNotification({ id: notif.id });
     notifications.value = notifications.value.filter((item) => item.id !== notif.id);
-    toast.success(actionableNotificationTypes.has(notif.type) ? '已拒绝通知' : '已隐藏通知');
+    toast.success(actionableNotificationTypes.has(notif.type)
+      ? l('已拒绝通知', 'Notification declined')
+      : l('已隐藏通知', 'Notification hidden'));
   } catch (err: any) {
     errorMsg.value = err?.message || String(err);
-    toast.error(`操作失败：${errorMsg.value}`);
+    toast.error(l(`操作失败：${errorMsg.value}`, `Action failed: ${errorMsg.value}`));
   } finally {
     processingId.value = null;
   }
@@ -213,10 +216,10 @@ const clearAllNotifications = async () => {
   try {
     await Promise.allSettled(notifications.value.map((notif) => DbApi.deleteNotification({ id: notif.id })));
     notifications.value = [];
-    toast.success('已清空所有通知');
+    toast.success(l('已清空所有通知', 'All notifications cleared'));
   } catch (err: any) {
     errorMsg.value = err?.message || String(err);
-    toast.error(`清空失败：${errorMsg.value}`);
+    toast.error(l(`清空失败：${errorMsg.value}`, `Could not clear notifications: ${errorMsg.value}`));
   } finally {
     loading.value = false;
   }
@@ -293,10 +296,10 @@ const renderDetails = (details: any) => {
       <div class="flex gap-1 bg-surface rounded-xl p-1 border-border-soft shadow-sm">
         <button
           v-for="tab in [
-            { key: 'all', label: '全部' },
-            { key: 'friend', label: '好友' },
-            { key: 'invite', label: '邀请' },
-            { key: 'other', label: '其他' },
+            { key: 'all', label: l('全部', 'All') },
+            { key: 'friend', label: l('好友', 'Friends') },
+            { key: 'invite', label: l('邀请', 'Invites') },
+            { key: 'other', label: l('其他', 'Other') },
           ]"
           :key="tab.key"
           class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
@@ -313,7 +316,7 @@ const renderDetails = (details: any) => {
         @click="clearAllNotifications"
       >
         <Trash2 :size="14" />
-        清空全部
+        {{ l('清空全部', 'Clear all') }}
       </button>
     </div>
 

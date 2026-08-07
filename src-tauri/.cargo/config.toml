@@ -10,3 +10,9 @@
 # Keep Cargo outputs outside the legacy target directory. That directory can
 # retain ACLs or locks from a previous elevated/antivirus-scanned Tauri build.
 target-dir = "../.cargo-target"
+
+# Suppress the noisy MSVC `linker_messages` diagnostic ("creating library ...
+# and object ... .exp") that rustc emits by default when building the
+# cdylib target. The output is informational, not an actual problem.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-A", "linker_messages"]

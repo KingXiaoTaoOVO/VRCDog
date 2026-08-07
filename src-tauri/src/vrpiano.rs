@@ -22,6 +22,15 @@ const MIDISHOW_LOGIN_URL: &str = "https://www.midishow.com/user/account/login";
 const MIDISHOW_ACCOUNT_URL: &str = "https://www.midishow.com/user/account";
 const MIDISHOW_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const MIDISHOW_LOGIN_TIMEOUT_MS: u64 = 75_000;
+/// When the login window is shown for the user to solve a Cloudflare / captcha
+/// challenge manually, give them a much longer window than the automatic fill.
+const MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS: u64 = 300_000;
+/// 自动填充迟迟没进展（页面被 Cloudflare 卡住、加载过慢）时，把窗口弹出来让用户
+/// 手动完成，而不是干等 75s 才超时。
+const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 20_000;
+/// Keep an online search responsive when the proxy or Cloudflare stalls.
+const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 5;
+const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 6;
 const MIDISHOW_LOGIN_TITLE_PREFIX: &str = "VRCDOG_MIDISHOW:";
 
 /// Regex patterns compiled once and reused across all calls.
@@ -280,6 +289,10 @@ struct MidishowLoginRuntime {
     started_at_ms: u64,
     state: String,
     message: String,
+    /// 用户输入的账号（用于在不再做 HTTP 验证的情况下作为 username 持久化）
+    account: String,
+    /// 最近一次 `on_page_load` 看到的 URL（用于判断登录页是否已跳转走）
+    last_url: String,
 }
 
 fn midishow_login_runtime() -> &'static Mutex<MidishowLoginRuntime> {
@@ -657,6 +670,8 @@ pub async fn vrpiano_midishow_login(
         runtime.started_at_ms = current_time_ms();
         runtime.state = "opening".to_string();
         runtime.message = "正在准备登录".to_string();
+        runtime.account = account.clone();
+        runtime.last_url.clear();
     }
 
     let page_script = Arc::clone(&login_script);
@@ -676,12 +691,18 @@ pub async fn vrpiano_midishow_login(
     .resizable(true)
     .visible(false)
     .on_page_load(move |window, payload| {
-        if payload.event() == tauri::webview::PageLoadEvent::Finished
-            && is_midishow_login_url(payload.url().as_str())
-        {
-            let script = page_script.lock().ok().and_then(|mut value| value.take());
-            if let Some(script) = script {
-                let _ = window.eval(&script);
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            // 记录最近一次加载的 URL，用于判断登录页是否跳转走（登录成功信号）
+            if let Ok(mut runtime) = midishow_login_runtime().lock() {
+                runtime.last_url = payload.url().as_str().to_string();
+            }
+            if is_midishow_login_url(payload.url().as_str()) {
+                let script = page_script.lock().ok().and_then(|mut value| value.take());
+                if let Some(script) = script {
+                    let _ = window.eval(&script);
+                } else {
+                    let _ = window.eval(&monitor_script);
+                }
             } else {
                 let _ = window.eval(&monitor_script);
             }
@@ -720,8 +741,24 @@ pub async fn vrpiano_midishow_login_status(
     };
 
     let elapsed = current_time_ms().saturating_sub(midishow_login_started_at_ms());
-    if elapsed >= MIDISHOW_LOGIN_TIMEOUT_MS {
+    let current_state = current_midishow_login_status().state;
+    // A human solving a Cloudflare / captcha challenge needs far more than the
+    // automatic-fill window. Keep waiting (window is already visible) instead of
+    // cutting them off with a misleading "登录等待时间过长".
+    let timeout_ms = if current_state == "needs_confirmation" {
+        MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS
+    } else {
+        MIDISHOW_LOGIN_TIMEOUT_MS
+    };
+    if elapsed >= timeout_ms {
         let _ = window.close();
+        if current_state == "needs_confirmation" {
+            return Ok(finish_midishow_login(
+                &app,
+                "failed",
+                "登录确认超时，请重新尝试",
+            ));
+        }
         return Ok(finish_midishow_login(
             &app,
             "failed",
@@ -731,18 +768,42 @@ pub async fn vrpiano_midishow_login_status(
 
     let cookie = read_midishow_browser_cookie(window.clone()).await?;
     if !cookie.is_empty() {
-        if let Some(username) = inspect_midishow_session(&cookie).await? {
-            persist_midishow_session(&app, &username, cookie)?;
+        // 不再发起会触发 Cloudflare 拦截的 HTTP 校验请求（该请求从中国网络常被拦，
+        // 会误报「暂时无法确认登录状态」）。改为用「网页已离开登录页 + 存在 cookie」
+        // 作为登录成功判据：登录表单提交成功后页面会跳走、cookie 被写入。
+        let runtime = midishow_login_runtime()
+            .lock()
+            .map(|runtime| (runtime.last_url.clone(), runtime.account.clone()))
+            .unwrap_or_default();
+        let (last_url, auto_account) = runtime;
+        let navigated_away = !last_url.is_empty() && !is_midishow_login_url(&last_url);
+        if navigated_away && !auto_account.is_empty() {
+            persist_midishow_session(&app, &auto_account, cookie)?;
             let _ = window.close();
             let status = VrpianoMidishowLoginStatus {
                 state: "signed_in".to_string(),
-                message: format!("已登录 {username}"),
-                username: Some(username),
+                message: format!("已登录 {auto_account}"),
+                username: Some(auto_account),
             };
             update_midishow_login_runtime(&status);
             let _ = app.emit("vrpiano_midishow_login_status", status.clone());
             return Ok(status);
         }
+    }
+
+    // 20 秒兜底：自动填充迟迟没有进展（页面被 Cloudflare 卡住、加载过慢等），
+    // 把窗口弹出来让用户手动完成，并切换到更长的确认超时。
+    if elapsed >= MIDISHOW_LOGIN_FALLBACK_MS && current_state == "waiting" {
+        let already_visible = window.is_visible().unwrap_or(false);
+        if !already_visible {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        return Ok(finish_midishow_login(
+            &app,
+            "needs_confirmation",
+            "自动登录未完成，请在弹出的登录窗口中手动完成登录",
+        ));
     }
 
     let title = window.title().unwrap_or_default();
@@ -782,6 +843,15 @@ pub async fn vrpiano_midishow_login_status(
             }
             MidishowLoginSignal::Submitted | MidishowLoginSignal::Ready => {}
         }
+    }
+
+    // Cloudflare overwrites document.title with "Just a moment…" on its own page,
+    // which would otherwise make the next poll parse to None and flip the state
+    // back to "waiting" (re-enabling the 75s timeout). Keep an already-acknowledged
+    // confirmation sticky while the window is visible so the user isn't cut off.
+    let current = current_midishow_login_status();
+    if current.state == "needs_confirmation" && window.is_visible().unwrap_or(false) {
+        return Ok(current);
     }
 
     let status = VrpianoMidishowLoginStatus {
@@ -1807,14 +1877,26 @@ async fn search_midishow(
     // account or browser Cookie that the user saved in VRPiano. Search through
     // the application session first and only keep the CLI as a public fallback.
     let account = default_midishow_account(app)?;
-    match search_midishow_http(keyword, limit, account.as_ref()).await {
-        Ok(results) => Ok(results),
-        Err(request_error) => match run_midishow_cli_json(project_path, &["search", keyword]) {
+    match tokio::time::timeout(
+        Duration::from_secs(MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS),
+        search_midishow_http(keyword, limit, account.as_ref()),
+    )
+    .await
+    {
+        Ok(Ok(results)) => Ok(results),
+        Ok(Err(request_error)) => match run_midishow_cli_json_with_timeout(
+            project_path,
+            &["search", keyword],
+            Duration::from_secs(MIDISHOW_SEARCH_CLI_TIMEOUT_SECS),
+        ) {
             Ok(value) => parse_midishow_results(value, limit),
             Err(cli_error) => Err(format!(
-                "{request_error}; CLI fallback also failed: {cli_error}"
+                "{request_error}; CLI fallback failed: {cli_error}"
             )),
         },
+        Err(_) => Err(
+            "Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索".to_string(),
+        ),
     }
 }
 
@@ -2009,6 +2091,17 @@ fn extract_artist_from_html(html: &str, midi_id: u64) -> String {
     String::new()
 }
 
+/// 从 html 中 `pos` 处开始截取最多 `span` 字节的窗口切片。
+/// `pos` 来自 `str::find`，是合法字符边界；但 `pos + span` 是字节偏移，
+/// 可能落在多字节 UTF-8 字符（如中文）中间，直接使用 `&html[pos..end]`
+/// 会触发 `byte index is not a char boundary` panic。这里把结束索引
+/// 向下取整到最近的字符边界，避免 panic。
+fn safe_html_window(html: &str, pos: usize, span: usize) -> &str {
+    let end = (pos + span).min(html.len());
+    let end = html.floor_char_boundary(end);
+    &html[pos..end]
+}
+
 fn extract_search_title_from_html(html: &str, midi_id: u64) -> String {
     let patterns = [
         format!(
@@ -2036,7 +2129,7 @@ fn extract_search_title_from_html(html: &str, midi_id: u64) -> String {
 
     let id_attr = format!(r#"data-key="{}""#, midi_id);
     if let Some(pos) = html.find(&id_attr) {
-        let window = &html[pos..html.len().min(pos + 3500)];
+        let window = safe_html_window(html, pos, 3500);
         for pattern in [
             r#"(?is)<a[^>]+href=["'][^"']*(?:en/)?midi/\d+\.html[^"']*["'][^>]*>(.*?)</a>"#,
             r#"(?is)<h[1-6][^>]*>(.*?)</h[1-6]>"#,
@@ -2062,7 +2155,7 @@ fn extract_search_artist_from_html(html: &str, midi_id: u64) -> String {
     let Some(pos) = html.find(&id_attr) else {
         return String::new();
     };
-    let window = &html[pos..html.len().min(pos + 3500)];
+    let window = safe_html_window(html, pos, 3500);
     let Ok(re) = regex::Regex::new(
         r#"(?is)<[^>]+class=["'][^"']*(?:artist|author|uploader)[^"']*["'][^>]*>(.*?)</[^>]+>"#,
     ) else {
@@ -2097,12 +2190,135 @@ fn decode_html_entities(value: &str) -> String {
         .replace("&gt;", ">")
 }
 
+/// Normalize a proxy host:port pair into a full http(s):// URL.
+fn normalize_proxy(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        return String::new();
+    }
+    if value.starts_with("http://") || value.starts_with("https://") {
+        value.to_string()
+    } else {
+        format!("http://{value}")
+    }
+}
+
+/// Parse a Windows `ProxyServer` string (e.g. `127.0.0.1:7890` or
+/// `http=127.0.0.1:7890;https=127.0.0.1:7890;socks=127.0.0.1:7891`) into the
+/// HTTPS proxy URL we want to use.
+#[cfg(windows)]
+fn parse_proxy_server(server: &str) -> Option<String> {
+    let server = server.trim();
+    if server.is_empty() {
+        return None;
+    }
+    if server.contains('=') {
+        let mut http_proxy = None;
+        for part in server.split(';') {
+            let mut it = part.splitn(2, '=');
+            let (proto, value) = match (it.next(), it.next()) {
+                (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
+                _ => continue,
+            };
+            if proto == "https" {
+                return Some(normalize_proxy(value));
+            }
+            if proto == "http" {
+                http_proxy = Some(normalize_proxy(value));
+            }
+        }
+        // No explicit https entry: fall back to the http one.
+        http_proxy
+    } else {
+        Some(normalize_proxy(server))
+    }
+}
+
+/// Read the Windows system proxy (Internet Settings / WinHTTP), which is what
+/// WebView2 uses for Midishow login. reqwest and node do NOT read this
+/// automatically, so we surface it here. Returns `(https_proxy_url, bypass_list)`.
+#[cfg(windows)]
+fn read_system_proxy() -> Option<(String, Vec<String>)> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu
+        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+        .ok()?;
+    let enabled: u32 = key.get_value("ProxyEnable").ok()?;
+    if enabled == 0 {
+        return None;
+    }
+    let server: String = key.get_value("ProxyServer").ok()?;
+    if server.trim().is_empty() {
+        return None;
+    }
+    let override_list: String = key.get_value("ProxyOverride").unwrap_or_default();
+    let bypass: Vec<String> = override_list
+        .split(';')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    Some((server, bypass))
+}
+
+#[cfg(windows)]
+fn system_proxy() -> Option<(String, Vec<String>)> {
+    let (server, bypass) = read_system_proxy()?;
+    parse_proxy_server(&server).map(|https| (https, bypass))
+}
+
+#[cfg(not(windows))]
+fn system_proxy() -> Option<(String, Vec<String>)> {
+    // On non-Windows platforms, honor explicit proxy env vars (reqwest's
+    // default behavior); we only add bypass plumbing for consistency.
+    std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("https_proxy"))
+        .or_else(|_| std::env::var("HTTP_PROXY"))
+        .or_else(|_| std::env::var("http_proxy"))
+        .ok()
+        .map(|url| (normalize_proxy(&url), Vec::new()))
+}
+
+/// Whether a destination host matches a Windows proxy-override pattern
+/// (`localhost`, `127.*`, `192.168.*`, `*.example.com`, `<local>`).
+fn proxy_should_bypass(pattern: &str, host: &str) -> bool {
+    let pat = pattern.trim().to_ascii_lowercase();
+    let host = host.to_ascii_lowercase();
+    if pat == "<local>" {
+        return !host.contains('.') || host.ends_with(".local") || host == "localhost";
+    }
+    if let Some(suffix) = pat.strip_prefix("*.") {
+        return host == suffix || host.ends_with(&format!(".{suffix}"));
+    }
+    if let Some(prefix) = pat.strip_suffix(".*") {
+        return host.starts_with(prefix);
+    }
+    pat == host
+}
+
 fn midishow_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
         .cookie_store(true)
         .redirect(reqwest::redirect::Policy::limited(10))
-        .timeout(Duration::from_secs(35))
+        .timeout(Duration::from_secs(35));
+
+    // Midishow login uses the WebView2 network stack (which honors the Windows
+    // system proxy), but reqwest does not. Without this, every search/download
+    // request to midishow.com hangs until timeout behind a proxy.
+    if let Some((proxy_url, bypass)) = system_proxy() {
+        builder = builder.proxy(reqwest::Proxy::custom(move |url| {
+            let host = url.host_str().unwrap_or("");
+            if bypass.iter().any(|b| proxy_should_bypass(b, host)) {
+                None
+            } else {
+                Some(proxy_url.clone())
+            }
+        }));
+    }
+
+    builder
         .build()
         .map_err(|e| format!("Failed to create Midishow client: {e}"))
 }
@@ -2193,7 +2409,7 @@ fn midishow_login_monitor_script() -> String {
   if (window.__vrcdogMidishowLoginMonitorStarted) return;
   window.__vrcdogMidishowLoginMonitorStarted = true;
   const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
-  const text = () => (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+  const text = () => ((document.body?.innerText || '') + ' ' + (document.title || '')).replace(/\s+/g, ' ').trim();
   const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
   const inspect = () => {{
     const pageText = text();
@@ -2202,6 +2418,12 @@ fn midishow_login_monitor_script() -> String {
       return true;
     }}
     if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证'])) {{
+      signal('needs_confirmation');
+      return true;
+    }}
+    // Cloudflare / DDoS challenge shown after a navigation (e.g. the login POST
+    // bounces to an interstitial). Surface it for manual completion.
+    if (hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS'])) {{
       signal('needs_confirmation');
       return true;
     }}
@@ -2227,7 +2449,7 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
   let attempts = 0;
   let submitted = false;
   const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
-  const text = () => (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+  const text = () => ((document.body?.innerText || '') + ' ' + (document.title || '')).replace(/\s+/g, ' ').trim();
   const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
   const findVisible = (selectors) => selectors
     .map((selector) => document.querySelector(selector))
@@ -2241,6 +2463,10 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
     return true;
   }};
   signal('ready');
+  // Wall-clock budget for the auto-fill loop. Independent of the polling interval
+  // so the form_missing timeout doesn't shrink if we tune the interval down.
+  const startMs = Date.now();
+  const FORM_MISSING_BUDGET_MS = 20000;
   const timer = window.setInterval(() => {{
     attempts += 1;
     const pageText = text();
@@ -2253,6 +2479,46 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
     if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证'])) {{
       window.clearInterval(timer);
       signal('needs_confirmation');
+      return;
+    }}
+    // Cloudflare / DDoS protection challenge. After submitting, midishow.com may
+    // bounce to a "Just a moment…" interstitial. We cannot solve it for the user,
+    // so surface the window and let them complete it manually instead of timing out.
+    if (hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS'])) {{
+      window.clearInterval(timer);
+      signal('needs_confirmation');
+      // 用户在弹出的窗口里解开 CF 后，登录表单会重新出现。这里挂一个 MutationObserver
+      // 监听表单出现并自动回填+提交，这样用户不用手动再输一遍账号密码。
+      const cfObserver = new MutationObserver(() => {{
+        const acc = findVisible([
+          'input[autocomplete="username"]',
+          'input[name="username"]',
+          'input[name="email"]',
+          'input[type="email"]',
+          'input[name="login"]',
+          'input[type="text"]'
+        ]);
+        const pw = findVisible([
+          'input[autocomplete="current-password"]',
+          'input[name="password"]',
+          'input[type="password"]'
+        ]);
+        if (acc && pw) {{
+          cfObserver.disconnect();
+          fill(acc, account);
+          fill(pw, password);
+          const form = pw.form || acc.form || document.querySelector('form');
+          const submit = form?.querySelector('button[type="submit"], input[type="submit"]');
+          signal('submitted');
+          window.setTimeout(() => {{
+            if (submit instanceof HTMLElement) submit.click();
+            else if (form instanceof HTMLFormElement) form.requestSubmit();
+            password = '';
+          }}, 80);
+        }}
+      }});
+      if (document.body) cfObserver.observe(document.body, {{ childList: true, subtree: true, characterData: true }});
+      window.setTimeout(() => cfObserver.disconnect(), MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS);
       return;
     }}
     if (!location.pathname.includes('/user/account/login')) {{
@@ -2275,7 +2541,7 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       'input[type="password"]'
     ]);
     if (!fill(accountInput, account) || !fill(passwordInput, password)) {{
-      if (attempts >= 80) {{
+      if (Date.now() - startMs >= FORM_MISSING_BUDGET_MS) {{
         password = '';
         window.clearInterval(timer);
         signal('form_missing');
@@ -2290,8 +2556,8 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       if (submit instanceof HTMLElement) submit.click();
       else if (form instanceof HTMLFormElement) form.requestSubmit();
       password = '';
-    }}, 180);
-  }}, 250);
+    }}, 80);
+  }}, 100);
 }})();"#
     )
 }
@@ -2316,6 +2582,7 @@ async fn read_midishow_browser_cookie(window: tauri::WebviewWindow) -> Result<St
     normalize_midishow_cookie_header(&raw).map_err(|_| "暂时无法读取登录状态".to_string())
 }
 
+#[allow(dead_code)]
 async fn inspect_midishow_session(cookie: &str) -> Result<Option<String>, String> {
     let client = midishow_client().map_err(|_| "暂时无法确认登录状态".to_string())?;
     let response = with_midishow_cookie(
@@ -2336,6 +2603,7 @@ async fn inspect_midishow_session(cookie: &str) -> Result<Option<String>, String
     Ok(extract_midishow_username(&body))
 }
 
+#[allow(dead_code)]
 fn extract_midishow_username(body: &str) -> Option<String> {
     let patterns = [
         r#"(?is)<meta[^>]+name=["'](?:username|user-name)["'][^>]+content=["']([^"']+)["']"#,
@@ -2355,6 +2623,7 @@ fn extract_midishow_username(body: &str) -> Option<String> {
     })
 }
 
+#[allow(dead_code)]
 fn html_unescape(value: &str) -> String {
     value
         .replace("&amp;", "&")
@@ -2388,6 +2657,7 @@ fn persist_midishow_session(
     save_midishow_accounts(app, &accounts)
 }
 
+#[allow(dead_code)]
 fn midishow_login_succeeded(final_url: &str, body: &str) -> bool {
     let url = final_url.to_lowercase();
     let body = body.to_lowercase();
@@ -2847,15 +3117,57 @@ fn midishow_title(project_path: &Path, midi_id: u64) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Resolve `node` to a concrete `node.exe` on PATH. Preferring the `.exe`
+/// directly (instead of relying on CreateProcessW's `.cmd` shim discovery)
+/// avoids a command-line re-parse that can mangle the script path into a bare
+/// drive root like `C:` (causing Node's `EISDIR` crash).
+fn resolve_node_exe() -> PathBuf {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join("node.exe");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from("node")
+}
+
 fn run_midishow_cli_json(project_path: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
+    run_midishow_cli_json_with_timeout(project_path, args, Duration::from_secs(45))
+}
+
+fn run_midishow_cli_json_with_timeout(
+    project_path: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
     let cli = find_midishow_cli(project_path)
         .ok_or_else(|| format!("Midishow CLI not found near: {}", project_path.display()))?;
-    let mut child = std::process::Command::new("node")
+    // Canonicalize to a fully-qualified, drive-absolute path so Windows Node
+    // never receives a drive-relative path (e.g. `C:`) that triggers EISDIR.
+    let cli = std::fs::canonicalize(&cli).unwrap_or(cli);
+    if !cli.is_file() {
+        return Err(format!("Midishow CLI is not a file: {}", cli.display()));
+    }
+    let node = resolve_node_exe();
+    let mut command = std::process::Command::new(&node);
+    command
         .arg(&cli)
         .args(args)
         .current_dir(cli.parent().unwrap_or(project_path))
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    // The node CLI (axios) does not inherit the Windows system proxy, so pass
+    // it explicitly via env vars, mirroring what the HTTP client now does.
+    if let Some((proxy_url, _)) = system_proxy() {
+        command
+            .env("HTTPS_PROXY", &proxy_url)
+            .env("HTTP_PROXY", &proxy_url)
+            .env("https_proxy", &proxy_url)
+            .env("http_proxy", &proxy_url);
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Failed to run Midishow CLI. Please install Node.js: {e}"))?;
     let started = std::time::Instant::now();
@@ -2867,8 +3179,9 @@ fn run_midishow_cli_json(project_path: &Path, args: &[&str]) -> Result<serde_jso
         {
             break;
         }
-        if started.elapsed() > Duration::from_secs(45) {
+        if started.elapsed() > timeout {
             let _ = child.kill();
+            let _ = child.wait();
             return Err("Midishow request timed out".to_string());
         }
         thread::sleep(Duration::from_millis(80));
@@ -2927,7 +3240,10 @@ fn find_midishow_cli(project_path: &Path) -> Option<PathBuf> {
                 .join("dist")
                 .join("cli.js"),
         ] {
-            if candidate.exists() {
+            // `is_file()` (not just `exists()`) avoids picking a directory that
+            // happens to share the prefix, which would make Node resolve the
+            // script path to a drive root and crash with EISDIR.
+            if candidate.is_file() {
                 return Some(candidate);
             }
         }

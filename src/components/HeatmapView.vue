@@ -42,14 +42,28 @@ const getCell = (day: number, hour: number) => {
   return cells.value.find(c => c.day === day && c.hour === hour) || { day, hour, count: 0 };
 };
 
-const getCellColor = (count: number) => {
-  if (count === 0) return 'bg-surface border-transparent';
-  const ratio = count / maxCount.value;
-  if (ratio < 0.25) return 'bg-primary/10 border-primary';
-  if (ratio < 0.5) return 'bg-primary/10 border-primary shadow-sm';
-  if (ratio < 0.75) return 'bg-primary text-white shadow-md border-primary';
-  return 'bg-primary text-white shadow-lg animate-pulse border-primary';
+const heatLevels = [0, 0.18, 0.38, 0.65, 1];
+
+const getHeatStyle = (ratio: number) => {
+  if (ratio <= 0) {
+    return {
+      background: 'color-mix(in srgb, var(--theme-surface-hover) 88%, var(--theme-bg-main))',
+      borderColor: 'var(--theme-border-soft)',
+      boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--theme-border-strong) 45%, transparent)',
+    };
+  }
+
+  const strength = ratio < 0.25 ? 30 : ratio < 0.5 ? 50 : ratio < 0.75 ? 72 : 94;
+  return {
+    background: `color-mix(in srgb, var(--theme-primary) ${strength}%, var(--theme-surface))`,
+    borderColor: `color-mix(in srgb, var(--theme-primary) ${Math.min(strength + 10, 100)}%, var(--theme-border-strong))`,
+    boxShadow: ratio >= 0.75
+      ? '0 5px 12px color-mix(in srgb, var(--theme-primary) 28%, transparent), inset 0 1px rgba(255,255,255,.32)'
+      : 'inset 0 1px rgba(255,255,255,.28)',
+  };
 };
+
+const getCellStyle = (count: number) => getHeatStyle(count / maxCount.value);
 
 const peakHour = computed(() => {
   if (cells.value.length === 0) return t('heatmap.no_data_yet');
@@ -88,28 +102,25 @@ const openDetails = async (day: number, hour: number) => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
-    <!-- Subtle Background Glow -->
-    <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
-    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px] pointer-events-none -z-10" />
+  <div class="h-full flex flex-col p-6 bg-surface-hover relative overflow-hidden">
 
     <div class="flex items-center justify-between mb-8 shrink-0 z-10">
       <div>
         <h2 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
-          <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
+          <span class="inline-flex items-center justify-center p-2 bg-primary/15 rounded-lg shadow-sm border-primary">
             <CalendarHeart class="w-6 h-6 text-primary" />
           </span>
           {{ t('heatmap.title') }}
         </h2>
       </div>
       <div class="flex flex-col items-end gap-2 text-xs">
-        <span class="text-primary font-bold bg-surface px-3 py-1.5 rounded-xl border-border-soft shadow-sm flex items-center gap-1.5">
+        <span class="text-primary font-bold bg-surface px-3 py-1.5 rounded-lg border-border-strong shadow-sm flex items-center gap-1.5">
           <Flame
             :size="14"
             class="text-orange-500"
           /> {{ t('heatmap.peak_hour') }}: {{ peakHour }}
         </span>
-        <span class="text-text-muted font-bold bg-surface px-3 py-1.5 rounded-xl border-border-soft shadow-sm flex items-center gap-1.5">
+        <span class="text-text font-bold bg-surface px-3 py-1.5 rounded-lg border-border-strong shadow-sm flex items-center gap-1.5">
           <Zap
             :size="14"
             class="text-primary"
@@ -118,15 +129,16 @@ const openDetails = async (day: number, hour: number) => {
       </div>
     </div>
 
-    <div class="bg-surface backdrop-blur-xl rounded-3xl p-6 border-border-strong shadow-lg shadow-slate-200/40 overflow-y-auto custom-scrollbar flex-1 flex flex-col z-10 relative">
+    <div class="bg-surface backdrop-blur-xl rounded-lg p-6 border-border-strong shadow-lg overflow-y-auto custom-scrollbar flex-1 flex flex-col z-10 relative">
       <!-- 图例 -->
-      <div class="flex items-center justify-end gap-2.5 mb-6 text-xs text-text-muted font-bold bg-surface-hover backdrop-blur py-2 px-5 rounded-full self-end border-border-soft shadow-sm">
+      <div class="flex items-center justify-end gap-2.5 mb-6 text-xs text-text font-bold bg-surface-hover backdrop-blur py-2 px-4 rounded-lg self-end border-border-strong shadow-sm">
         <span>{{ t('heatmap.legend_quiet') }}</span>
-        <div class="w-4 h-4 rounded-md bg-surface" />
-        <div class="w-4 h-4 rounded-md bg-primary/10" />
-        <div class="w-4 h-4 rounded-md bg-primary/10" />
-        <div class="w-4 h-4 rounded-md bg-primary/10" />
-        <div class="w-4 h-4 rounded-md bg-primary/10" />
+        <div
+          v-for="level in heatLevels"
+          :key="level"
+          class="w-4 h-4 rounded border"
+          :style="getHeatStyle(level)"
+        />
         <span>{{ t('heatmap.legend_busy') }}</span>
       </div>
 
@@ -154,7 +166,7 @@ const openDetails = async (day: number, hour: number) => {
               <th
                 v-for="h in 24"
                 :key="h"
-                class="text-xs text-border-strong font-bold px-1 pb-4 text-center font-mono"
+                class="text-xs text-text-muted font-bold px-1 pb-4 text-center font-mono"
               >
                 {{ h - 1 }}
               </th>
@@ -166,7 +178,7 @@ const openDetails = async (day: number, hour: number) => {
               :key="dayIdx"
               class="hover:bg-surface-hover transition-colors"
             >
-              <td class="text-sm text-text-muted font-extrabold pr-5 py-2.5 whitespace-nowrap text-right">
+              <td class="text-sm text-text font-extrabold pr-5 py-2.5 whitespace-nowrap text-right">
                 {{ dayLabel }}
               </td>
               <td
@@ -175,8 +187,9 @@ const openDetails = async (day: number, hour: number) => {
                 class="p-1"
               >
                 <div
-                  class="w-full aspect-square rounded-[10px] transition-all hover:scale-125 hover:z-10 hover:shadow-xl min-w-[24px] flex items-center justify-center relative group"
-                  :class="[getCellColor(getCell(dayIdx, hour - 1).count), getCell(dayIdx, hour - 1).count > 0 ? 'cursor-pointer' : 'cursor-default']"
+                  class="w-full aspect-square rounded-md border transition-transform hover:scale-125 hover:z-10 min-w-[26px] flex items-center justify-center relative group"
+                  :class="getCell(dayIdx, hour - 1).count > 0 ? 'cursor-pointer' : 'cursor-default'"
+                  :style="getCellStyle(getCell(dayIdx, hour - 1).count)"
                   @click="openDetails(dayIdx, hour - 1)"
                 >
                   <span
