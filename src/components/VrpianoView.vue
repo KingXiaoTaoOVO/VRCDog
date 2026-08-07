@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
 import { isTauri } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -41,6 +42,15 @@ import {
   type MidiNote,
 } from '../audio/generalMidi';
 
+const { locale } = useI18n();
+const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
+const instrumentName = (program: number) => locale.value.startsWith('zh')
+  ? getGeneralMidiInstrumentName(program)
+  : `General MIDI Program ${program + 1}`;
+const instrumentGroupName = (groupIndex: number, zhName: string) => locale.value.startsWith('zh')
+  ? zhName
+  : `Programs ${groupIndex * 8 + 1}-${groupIndex * 8 + 8}`;
+
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
   paused: false,
@@ -51,7 +61,7 @@ const emptyStatus = (): VrpianoStatus => ({
   total_notes: 0,
   duration_ms: 0,
   elapsed_ms: 0,
-  last_event: '正在初始化 VRPiano',
+  last_event: l('正在初始化 VRPiano', 'Initializing VRPiano'),
   last_error: '',
   songs_dir: '',
   speed: 1,
@@ -68,6 +78,9 @@ const localSongQuery = ref('');
 const status = ref<VrpianoStatus>(emptyStatus());
 const loading = ref(false);
 const onlineLoading = ref(false);
+const ONLINE_SEARCH_TIMEOUT_MS = 12_000;
+let onlineSearchRequestId = 0;
+let onlineSearchTimeout: number | null = null;
 const hasSearchedOnline = ref(false);
 const lastOnlineKeyword = ref('');
 const onlineBusyId = ref<number | null>(null);
@@ -85,11 +98,31 @@ const midishowPassword = ref('');
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   state: 'idle',
-  message: '等待登录',
+  message: l('等待登录', 'Waiting to sign in'),
   username: null,
 });
 const accountLoading = ref(false);
 const externalLinkLoading = ref(false);
+const loginError = ref('');
+// 用户重新输入账号或密码时，清除登录错误提示
+watch([midishowAccount, midishowPassword], () => {
+  if (loginError.value) loginError.value = '';
+});
+const accountInputRef = ref<HTMLInputElement | null>(null);
+const passwordInputRef = ref<HTMLInputElement | null>(null);
+// 浏览器自动填充可能在 Vue 渲染之后才发生，强制清空 DOM 的 value 兜底
+const forceClearLoginFields = () => {
+  setTimeout(() => {
+    if (accountInputRef.value) accountInputRef.value.value = '';
+    if (passwordInputRef.value) passwordInputRef.value.value = '';
+  }, 250);
+};
+watch(midishowLoginOpen, (open) => {
+  if (open) forceClearLoginFields();
+});
+onMounted(() => {
+  if (midishowLoginOpen.value) forceClearLoginFields();
+});
 const signupUrl = 'https://www.midishow.com/user/account/signup';
 const songIcons = ref<Record<string, string>>({});
 const iconFileInput = ref<HTMLInputElement | null>(null);
@@ -98,7 +131,7 @@ const editDialogMode = ref<'icon' | 'rename' | null>(null);
 const editIconText = ref('');
 const editIconUrl = ref('');
 const editSongName = ref('');
-const playerTitle = ref('未加载曲目');
+const playerTitle = ref(l('未加载曲目', 'No song loaded'));
 const playerPositionMs = ref(0);
 const playerDurationMs = ref(0);
 const playerVolume = ref(0.9);
@@ -113,12 +146,12 @@ const overlayOpen = ref(false);
 const formatVrpianoError = (e: unknown) => {
   const message = e instanceof Error ? e.message : String(e);
   if (/403|cloudflare|challenge|cookie|cf_chl|javascript/i.test(message)) {
-    return '当前操作未完成，请重新登录后再试。';
+    return l('当前操作未完成，请重新登录后再试。', 'This action could not be completed. Sign in again and retry.');
   }
   if (/invalid|expired|会话已失效/i.test(message)) {
-    return '登录状态已失效，请重新登录。';
+    return l('登录状态已失效，请重新登录。', 'Your session expired. Sign in again.');
   }
-  return message || '操作未完成，请稍后重试。';
+  return message || l('操作未完成，请稍后重试。', 'The action could not be completed. Try again later.');
 };
 
 let unlistenStatus: (() => void) | null = null;
@@ -156,34 +189,34 @@ const canStart = computed(() => Boolean(selectedSong.value) && !status.value.run
 const speedText = computed(() => `${clampSpeed(speed.value).toFixed(2)}x`);
 const defaultMidishowAccount = computed(() => midishowAccounts.value[0] || null);
 const defaultMidishowLoginTypeText = computed(() => (
-  defaultMidishowAccount.value?.login_type ? '登录会话' : ''
+  defaultMidishowAccount.value?.login_type ? l('登录会话', 'signed-in session') : ''
 ));
 const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length || selectedSong.value) && !playerLoading.value);
 const onlineEmptyText = computed(() => {
-  if (!hasSearchedOnline.value) return '输入关键词搜索，或直接粘贴 URL / ID 下载。';
-  return `未找到“${lastOnlineKeyword.value}”相关结果，换个关键词或粘贴 ID/URL 试试。`;
+  if (!hasSearchedOnline.value) return l('输入关键词搜索，或直接粘贴 URL / ID 下载。', 'Search by keyword, or paste a URL or ID to download.');
+  return l(`未找到“${lastOnlineKeyword.value}”相关结果，换个关键词或粘贴 ID/URL 试试。`, `No results for "${lastOnlineKeyword.value}". Try another keyword, ID, or URL.`);
 });
 const playerProgressPercent = computed(() => {
   if (!playerDurationMs.value) return 0;
   return Math.round(Math.min(1, playerPositionMs.value / playerDurationMs.value) * 100);
 });
 const sourceInstrumentText = computed(() => {
-  const names: string[] = sourcePrograms.value.map(getGeneralMidiInstrumentName);
-  if (sourceHasPercussion.value) names.push('标准鼓组');
-  return names.length ? names.join('、') : '大钢琴';
+  const names: string[] = sourcePrograms.value.map(instrumentName);
+  if (sourceHasPercussion.value) names.push(l('标准鼓组', 'Standard drum kit'));
+  return names.length ? names.join(locale.value.startsWith('zh') ? '、' : ', ') : instrumentName(0);
 });
 const activeInstrumentText = computed(() => (
   playerInstrument.value === 'source'
-    ? `跟随 MIDI：${sourceInstrumentText.value}`
-    : `手动音色：${getGeneralMidiInstrumentName(Number(playerInstrument.value))}`
+    ? l(`跟随 MIDI：${sourceInstrumentText.value}`, `Follow MIDI: ${sourceInstrumentText.value}`)
+    : l(`手动音色：${getGeneralMidiInstrumentName(Number(playerInstrument.value))}`, `Manual instrument: ${instrumentName(Number(playerInstrument.value))}`)
 ));
 const hotkeyStatusText = computed(() => {
-  if (!status.value.hotkeys_available) return '当前系统不支持';
-  return hotkeysEnabled.value ? '全局快捷键已开启' : '全局快捷键已关闭';
+  if (!status.value.hotkeys_available) return l('当前系统不支持', 'Not supported on this system');
+  return hotkeysEnabled.value ? l('全局快捷键已开启', 'Global shortcuts enabled') : l('全局快捷键已关闭', 'Global shortcuts disabled');
 });
 
 const addLog = (message: string) => {
-  const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const time = new Date().toLocaleTimeString(locale.value.startsWith('zh') ? 'zh-CN' : 'en-US', { hour12: false });
   logs.value = [`${time} ${message}`, ...logs.value].slice(0, 100);
 };
 
@@ -364,7 +397,7 @@ const applyPlayerInstrument = async () => {
 
 const toggleVrpianoOverlay = async () => {
   if (!isTauri()) {
-    addLog('浏览器预览中无法创建桌面悬浮窗');
+    addLog(l('浏览器预览中无法创建桌面悬浮窗', 'Desktop overlay is unavailable in browser preview'));
     return;
   }
 
@@ -384,7 +417,7 @@ const toggleVrpianoOverlay = async () => {
 
   const overlay = new WebviewWindow('vrpiano-overlay', {
     url: '/?mode=vrpiano-overlay',
-    title: 'VRPiano 悬浮控制器',
+    title: l('VRPiano 悬浮控制器', 'VRPiano Overlay Controller'),
     transparent: true,
     decorations: false,
     alwaysOnTop: true,
@@ -400,11 +433,11 @@ const toggleVrpianoOverlay = async () => {
 
   overlay.once('tauri://created', () => {
     overlayOpen.value = true;
-    addLog('VRPiano 悬浮窗已开启');
+    addLog(l('VRPiano 悬浮窗已开启', 'VRPiano overlay opened'));
   });
   overlay.once('tauri://error', (event) => {
     overlayOpen.value = false;
-    error.value = `悬浮窗创建失败：${JSON.stringify(event)}`;
+    error.value = l(`悬浮窗创建失败：${JSON.stringify(event)}`, `Could not create overlay: ${JSON.stringify(event)}`);
   });
   overlay.onCloseRequested(() => {
     overlayOpen.value = false;
@@ -424,10 +457,10 @@ const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
     playerPositionMs.value = 0;
     playerDurationMs.value = Math.ceil(Math.max(...parsed.notes.map((note) => note.timeMs + note.durationMs)));
     await schedulePlayer(0);
-    addLog(`内置播放器开始试听：${midi.name}（${activeInstrumentText.value}）`);
+    addLog(l(`内置播放器开始试听：${midi.name}（${activeInstrumentText.value}）`, `Built-in player preview started: ${midi.name} (${activeInstrumentText.value})`));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`播放器加载失败：${error.value}`);
+    addLog(l(`播放器加载失败：${error.value}`, `Player load failed: ${error.value}`));
   } finally {
     playerLoading.value = false;
   }
@@ -472,7 +505,7 @@ const saveSongIconEditor = () => {
   const nextText = editIconText.value.trim();
   if (nextUrl) {
     if (!isImageIcon(nextUrl)) {
-      error.value = '图标 URL 需要以 http://、https:// 或 data:image/ 开头';
+      error.value = l('图标 URL 需要以 http://、https:// 或 data:image/ 开头', 'Icon URL must start with http://, https://, or data:image/');
       return;
     }
     songIcons.value = { ...songIcons.value, [selectedSong.value.path]: nextUrl };
@@ -499,7 +532,7 @@ const handleSongIconFile = (event: Event) => {
   const file = input.files?.[0];
   if (!file || !iconTargetPath.value) return;
   if (!file.type.startsWith('image/')) {
-    error.value = '请选择图片文件作为曲目图标';
+    error.value = l('请选择图片文件作为曲目图标', 'Choose an image file for the song icon');
     return;
   }
   const reader = new FileReader();
@@ -522,9 +555,9 @@ const copySignupUrl = async () => {
   error.value = '';
   try {
     await navigator.clipboard.writeText(signupUrl);
-    addLog('Midishow 注册链接已复制');
+    addLog(l('Midishow 注册链接已复制', 'Midishow registration link copied'));
   } catch (e: any) {
-    error.value = `复制注册链接失败：${e.message || String(e)}。请手动复制：${signupUrl}`;
+    error.value = l(`复制注册链接失败：${e.message || String(e)}。请手动复制：${signupUrl}`, `Could not copy registration link: ${e.message || String(e)}. Copy it manually: ${signupUrl}`);
   }
 };
 
@@ -534,9 +567,9 @@ const openMidishowSignup = async () => {
   error.value = '';
   try {
     await SysApi.openUrl({ url: signupUrl });
-    addLog('已在默认浏览器打开 Midishow 注册页面');
+    addLog(l('已在默认浏览器打开 Midishow 注册页面', 'Opened the Midishow registration page in your default browser'));
   } catch (e: any) {
-    error.value = `无法打开默认浏览器：${e.message || String(e)}。请复制注册链接后手动打开。`;
+    error.value = l(`无法打开默认浏览器：${e.message || String(e)}。请复制注册链接后手动打开。`, `Could not open the default browser: ${e.message || String(e)}. Copy and open the registration link manually.`);
   } finally {
     externalLinkLoading.value = false;
   }
@@ -548,7 +581,7 @@ const openMidishowSearch = async () => {
     const keyword = onlineKeyword.value.trim();
     if (keyword) url.searchParams.set('q', keyword);
     await SysApi.openUrl({ url: url.toString() });
-    addLog('已在浏览器打开 Midishow 官方搜索');
+    addLog(l('已在浏览器打开 Midishow 官方搜索', 'Opened official Midishow search in the browser'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -564,11 +597,18 @@ const stopMidishowLoginPolling = () => {
 const applyMidishowLoginStatus = async (next: VrpianoMidishowLoginStatus) => {
   const alreadySignedIn = midishowLoginStatus.value.state === 'signed_in'
     && midishowLoginStatus.value.username === next.username;
+  // 需要手动在弹出的浏览器窗口中完成验证（如 Cloudflare 人机验证）
+  if (next.state === 'needs_confirmation') {
+    next = {
+      ...next,
+      message: l('请在弹出的登录窗口中完成验证（如浏览器人机验证），完成后会自动继续。', 'Complete the verification in the popup login window (e.g. browser human verification); it will continue automatically.'),
+    };
+  }
   midishowLoginStatus.value = next;
   if (next.state === 'idle' || next.state === 'failed') {
     stopMidishowLoginPolling();
     accountLoading.value = false;
-    if (next.state === 'failed') error.value = next.message;
+    if (next.state === 'failed') loginError.value = next.message;
     return;
   }
   if (next.state !== 'signed_in') return;
@@ -578,7 +618,7 @@ const applyMidishowLoginStatus = async (next: VrpianoMidishowLoginStatus) => {
   midishowLoginOpen.value = false;
   accountLoading.value = false;
   if (!alreadySignedIn) {
-    addLog(next.username ? `Midishow 登录成功：${next.username}` : 'Midishow 登录成功');
+    addLog(next.username ? l(`Midishow 登录成功：${next.username}`, `Signed in to Midishow as ${next.username}`) : l('Midishow 登录成功', 'Signed in to Midishow'));
   }
 };
 
@@ -586,39 +626,56 @@ const refreshMidishowLoginStatus = async () => {
   try {
     await applyMidishowLoginStatus(await VrpianoApi.midishowLoginStatus());
   } catch (e) {
-    stopMidishowLoginPolling();
-    accountLoading.value = false;
-    error.value = formatVrpianoError(e);
+    // 轮询失败（如读取 cookie 临时失败）不要中断轮询，也不要污染顶部错误条。
+    // Rust 侧超时后会通过事件推送 failed 状态；这里仅记录，避免 UI 卡在错误态。
+    console.warn('[vrpiano] midishow login status poll failed:', e);
   }
 };
 
 const startMidishowLoginPolling = () => {
   stopMidishowLoginPolling();
-  midishowLoginPollTimer = window.setInterval(refreshMidishowLoginStatus, 1200);
+  // 轮询间隔从 1200ms 缩到 500ms，让登录进度的反馈更跟手
+  midishowLoginPollTimer = window.setInterval(refreshMidishowLoginStatus, 500);
+};
+
+const toggleMidishowLogin = () => {
+  midishowLoginOpen.value = !midishowLoginOpen.value;
+  if (midishowLoginOpen.value) {
+    // 展开时也清空，避免上一次的明文账号/密码残留以及浏览器自动填充的值
+    midishowAccount.value = '';
+    midishowPassword.value = '';
+    loginError.value = '';
+  } else {
+    // 收起时清空输入，避免明文账号/密码残留在表单中
+    midishowAccount.value = '';
+    midishowPassword.value = '';
+    loginError.value = '';
+  }
 };
 
 const loginMidishow = async () => {
   const account = midishowAccount.value.trim();
   const password = midishowPassword.value;
   if (!account || !password) {
-    error.value = '请输入 Midishow 账号和密码';
+    loginError.value = l('请输入 Midishow 账号和密码', 'Enter your Midishow account and password');
     return;
   }
   accountLoading.value = true;
-  error.value = '';
+  loginError.value = '';
+  error.value = ''; // 清除顶部错误条（上一轮登录失败残留的提示）
   try {
     const next = await VrpianoApi.midishowLogin({ account, password });
     midishowPassword.value = '';
     await applyMidishowLoginStatus(next);
     if (next.state !== 'signed_in') {
       startMidishowLoginPolling();
-      addLog('Midishow 正在自动登录');
+      addLog(l('Midishow 正在自动登录', 'Signing in to Midishow automatically'));
     }
   } catch (e) {
     midishowPassword.value = '';
     accountLoading.value = false;
-    error.value = formatVrpianoError(e);
-    addLog(`Midishow 登录未完成：${error.value}`);
+    loginError.value = formatVrpianoError(e);
+    addLog(l(`Midishow 登录未完成：${loginError.value}`, `Midishow sign-in was not completed: ${loginError.value}`));
   }
 };
 
@@ -628,7 +685,7 @@ const logoutMidishow = async () => {
   error.value = '';
   try {
     midishowAccounts.value = await VrpianoApi.midishowRemoveAccount({ username: defaultMidishowAccount.value.username });
-    addLog('已退出 Midishow 登录');
+    addLog(l('已退出 Midishow 登录', 'Signed out of Midishow'));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -645,10 +702,10 @@ const refreshSongs = async () => {
     if (selectedPath.value && !songs.value.some((song) => song.path === selectedPath.value)) {
       selectedPath.value = songs.value[0]?.path || '';
     }
-    addLog(`曲库已刷新，共 ${songs.value.length} 首`);
+    addLog(l(`曲库已刷新，共 ${songs.value.length} 首`, `Library refreshed: ${songs.value.length} ${songs.value.length === 1 ? 'song' : 'songs'}`));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`刷新曲库失败：${error.value}`);
+    addLog(l(`刷新曲库失败：${error.value}`, `Could not refresh library: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -662,10 +719,10 @@ const init = async () => {
     status.value = await VrpianoApi.init();
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     await Promise.all([refreshSongs(), loadMidishowAccounts()]);
-    addLog('VRPiano 模块已就绪');
+    addLog(l('VRPiano 模块已就绪', 'VRPiano is ready'));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`初始化失败：${error.value}`);
+    addLog(l(`初始化失败：${error.value}`, `Initialization failed: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -684,10 +741,10 @@ const importMidi = async () => {
     const song = await VrpianoApi.importSong({ sourcePath: selected });
     await refreshSongs();
     selectedPath.value = song.path;
-    addLog(`已导入 ${song.name}`);
+    addLog(l(`已导入 ${song.name}`, `Imported ${song.name}`));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`导入失败：${error.value}`);
+    addLog(l(`导入失败：${error.value}`, `Import failed: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -722,11 +779,11 @@ const submitRenameSong = async () => {
     }
     await refreshSongs();
     selectedPath.value = renamed.path;
-    addLog(`已重命名为 ${renamed.name}`);
+    addLog(l(`已重命名为 ${renamed.name}`, `Renamed to ${renamed.name}`));
     closeEditDialog();
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`重命名失败：${error.value}`);
+    addLog(l(`重命名失败：${error.value}`, `Rename failed: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -742,7 +799,7 @@ const submitEditDialog = async () => {
 
 const deleteSong = async () => {
   if (!selectedSong.value) return;
-  if (!window.confirm(`确定删除「${selectedSong.value.name}」吗？此操作不可撤销。`)) return;
+  if (!window.confirm(l(`确定删除「${selectedSong.value.name}」吗？此操作不可撤销。`, `Delete "${selectedSong.value.name}"? This cannot be undone.`))) return;
   loading.value = true;
   error.value = '';
   try {
@@ -753,12 +810,12 @@ const deleteSong = async () => {
       songIcons.value = nextIcons;
       saveSongIcons();
     }
-    addLog(`已删除 ${selectedSong.value.name}`);
+    addLog(l(`已删除 ${selectedSong.value.name}`, `Deleted ${selectedSong.value.name}`));
     selectedPath.value = '';
     await refreshSongs();
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`删除失败：${error.value}`);
+    addLog(l(`删除失败：${error.value}`, `Delete failed: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -798,10 +855,10 @@ const downloadFromUrl = async () => {
     });
     await refreshSongs();
     selectedPath.value = song.path;
-    addLog(`URL/ID 下载完成：${song.name}`);
+    addLog(l(`URL/ID 下载完成：${song.name}`, `URL/ID download completed: ${song.name}`));
   } catch (e: any) {
     error.value = formatVrpianoError(e);
-    addLog(`URL/ID 下载失败：${error.value}`);
+    addLog(l(`URL/ID 下载失败：${error.value}`, `URL/ID download failed: ${error.value}`));
   } finally {
     onlineLoading.value = false;
   }
@@ -809,23 +866,45 @@ const downloadFromUrl = async () => {
 
 const searchOnline = async () => {
   const keyword = onlineKeyword.value.trim();
-  if (!keyword) return;
+  if (!keyword || onlineLoading.value) return;
+  const requestId = ++onlineSearchRequestId;
   onlineLoading.value = true;
   hasSearchedOnline.value = true;
   lastOnlineKeyword.value = keyword;
   onlineResults.value = [];
   error.value = '';
+  if (onlineSearchTimeout !== null) window.clearTimeout(onlineSearchTimeout);
+  onlineSearchTimeout = window.setTimeout(() => {
+    onlineSearchTimeout = null;
+    if (requestId !== onlineSearchRequestId) return;
+    onlineSearchRequestId += 1;
+    onlineLoading.value = false;
+    error.value = l(
+      'Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索。',
+      'Midishow search timed out. Check your proxy, or use the browser button to open the official search.',
+    );
+    addLog(l(`在线搜索失败：${error.value}`, `Online search failed: ${error.value}`));
+  }, ONLINE_SEARCH_TIMEOUT_MS);
   try {
-    onlineResults.value = await VrpianoApi.searchMidishow({
+    const results = await VrpianoApi.searchMidishow({
       keyword,
       maxResults: 40,
     });
-    addLog(`Midishow 搜索到 ${onlineResults.value.length} 个结果`);
+    if (requestId !== onlineSearchRequestId) return;
+    onlineResults.value = results;
+    addLog(l(`Midishow 搜索到 ${results.length} 个结果`, `Midishow returned ${results.length} results`));
   } catch (e: any) {
+    if (requestId !== onlineSearchRequestId) return;
     error.value = formatVrpianoError(e);
-    addLog(`在线搜索失败：${error.value}`);
+    addLog(l(`在线搜索失败：${error.value}`, `Online search failed: ${error.value}`));
   } finally {
-    onlineLoading.value = false;
+    if (requestId === onlineSearchRequestId) {
+      onlineLoading.value = false;
+      if (onlineSearchTimeout !== null) {
+        window.clearTimeout(onlineSearchTimeout);
+        onlineSearchTimeout = null;
+      }
+    }
   }
 };
 
@@ -837,7 +916,7 @@ const previewOnline = async (song: VrpianoOnlineSong) => {
     await loadMidiIntoPlayer(midi);
   } catch (e: any) {
     error.value = formatVrpianoError(e);
-    addLog(`试听失败：${error.value}`);
+    addLog(l(`试听失败：${error.value}`, `Preview failed: ${error.value}`));
   } finally {
     onlineBusyId.value = null;
   }
@@ -851,11 +930,11 @@ const downloadOnline = async (song: VrpianoOnlineSong) => {
     if (downloaded) {
       await refreshSongs();
       selectedPath.value = downloaded.path;
-      addLog(`Midishow 下载完成：${downloaded.name}`);
+      addLog(l(`Midishow 下载完成：${downloaded.name}`, `Midishow download completed: ${downloaded.name}`));
     }
   } catch (e: any) {
     error.value = formatVrpianoError(e);
-    addLog(`下载失败：${error.value}`);
+    addLog(l(`下载失败：${error.value}`, `Download failed: ${error.value}`));
   } finally {
     onlineBusyId.value = null;
   }
@@ -874,7 +953,7 @@ const applySpeed = async (announce = false) => {
   speed.value = nextSpeed;
   try {
     status.value = await VrpianoApi.setSpeed({ speed: nextSpeed });
-    if (announce) addLog(`演奏速度 ${nextSpeed.toFixed(2)}x`);
+    if (announce) addLog(l(`演奏速度 ${nextSpeed.toFixed(2)}x`, `Playback speed ${nextSpeed.toFixed(2)}x`));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -908,7 +987,9 @@ const applyHotkeys = async (announce = false) => {
     });
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     if (Number.isFinite(status.value.speed)) speed.value = status.value.speed;
-    if (announce) addLog(hotkeysEnabled.value ? '全局快捷键已开启，可在 VRChat 内使用' : '全局快捷键已关闭');
+    if (announce) addLog(hotkeysEnabled.value
+      ? l('全局快捷键已开启，可在 VRChat 内使用', 'Global shortcuts enabled and available inside VRChat')
+      : l('全局快捷键已关闭', 'Global shortcuts disabled'));
   } catch (e: any) {
     error.value = e.message || String(e);
     hotkeysEnabled.value = false;
@@ -938,10 +1019,10 @@ const start = async () => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
     });
-    addLog(`准备演奏 ${selectedSong.value.name}`);
+    addLog(l(`准备演奏 ${selectedSong.value.name}`, `Preparing to play ${selectedSong.value.name}`));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(`启动失败：${error.value}`);
+    addLog(l(`启动失败：${error.value}`, `Start failed: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -952,7 +1033,7 @@ const stop = async () => {
   error.value = '';
   try {
     status.value = await VrpianoApi.stop();
-    addLog('已发送停止指令');
+    addLog(l('已发送停止指令', 'Stop command sent'));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -1041,6 +1122,8 @@ onUnmounted(() => {
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (speedApplyTimer !== null) window.clearTimeout(speedApplyTimer);
   if (hotkeyApplyTimer !== null) window.clearTimeout(hotkeyApplyTimer);
+  if (onlineSearchTimeout !== null) window.clearTimeout(onlineSearchTimeout);
+  onlineSearchRequestId += 1;
   pausePlayer();
   void audioContext?.close();
   window.removeEventListener('keydown', handleHotkey, { capture: true } as any);
@@ -1054,26 +1137,26 @@ onUnmounted(() => {
       <div class="title-block">
         <div class="title-icon"><Music :size="22" /></div>
         <div>
-          <h1>VRPiano 自动演奏</h1>
-          <p>本地曲库、在线下载、在线试听、MIDI 映射与全局快捷键控制</p>
+          <h1>{{ l('VRPiano 自动演奏', 'VRPiano Autoplay') }}</h1>
+          <p>{{ l('本地曲库、在线下载、在线试听、MIDI 映射与全局快捷键控制', 'Local library, online downloads, previews, MIDI mapping, and global shortcuts') }}</p>
         </div>
       </div>
       <div class="header-actions">
         <button class="overlay-toggle" :class="{ active: overlayOpen }" @click="toggleVrpianoOverlay">
           <PictureInPicture2 :size="16" />
-          {{ overlayOpen ? '关闭悬浮窗' : '开启悬浮窗' }}
+          {{ overlayOpen ? l('关闭悬浮窗', 'Close overlay') : l('开启悬浮窗', 'Open overlay') }}
         </button>
         <div class="status-pill" :class="{ active: status.running && !status.paused }">
           <span class="status-dot" />
-          {{ status.paused ? '已暂停' : status.running ? '演奏中' : '待命' }}
+          {{ status.paused ? l('已暂停', 'Paused') : status.running ? l('演奏中', 'Playing') : l('待命', 'Ready') }}
         </div>
       </div>
     </header>
 
     <section class="quick-stats">
-      <div><Music :size="16" /><span>{{ songs.length }} 首曲目</span></div>
+      <div><Music :size="16" /><span>{{ songs.length }} {{ l('首曲目', songs.length === 1 ? 'song' : 'songs') }}</span></div>
       <div><Clock3 :size="16" /><span>{{ formatTime(status.elapsed_ms) }} / {{ formatTime(status.duration_ms) }}</span></div>
-      <div><Gauge :size="16" /><span>{{ speedText }} 速度</span></div>
+      <div><Gauge :size="16" /><span>{{ speedText }} {{ l('速度', 'speed') }}</span></div>
       <div><ShieldCheck :size="16" /><span>{{ hotkeyStatusText }}</span></div>
     </section>
 
@@ -1085,35 +1168,35 @@ onUnmounted(() => {
     <main class="vrpiano-main">
       <section class="library-pane">
         <div class="pane-toolbar">
-          <strong>本地曲库</strong>
+          <strong>{{ l('本地曲库', 'Local library') }}</strong>
           <div class="library-search">
             <Search :size="15" />
             <input
               v-model="localSongQuery"
-              placeholder="搜索本地曲库"
+              :placeholder="l('搜索本地曲库', 'Search local library')"
               @keydown.enter.prevent="selectFirstFilteredSong"
             >
             <button
               v-if="localSongQuery"
               class="clear-search-btn"
               type="button"
-              title="清空搜索"
+              :title="l('清空搜索', 'Clear search')"
               @click="clearLocalSongQuery"
             >
               <X :size="14" />
             </button>
           </div>
           <div class="tool-buttons">
-            <button class="icon-btn" title="导入 MIDI" :disabled="loading" @click="importMidi"><Upload :size="16" /></button>
-            <button class="icon-btn" title="试听曲目" :disabled="!selectedSong" @click="previewLocalSong"><Headphones :size="16" /></button>
-            <button class="icon-btn" title="设置文字图标" :disabled="!selectedSong" @click="setSongEmojiIcon"><Music :size="16" /></button>
-            <button class="icon-btn" title="选择图片图标" :disabled="!selectedSong" @click="chooseSongImageIcon"><ImagePlus :size="16" /></button>
-            <button class="icon-btn" title="重命名" :disabled="!selectedSong || loading" @click="renameSong"><Edit3 :size="16" /></button>
-            <button class="icon-btn danger" title="删除" :disabled="!selectedSong || loading" @click="deleteSong"><Trash2 :size="16" /></button>
-            <button class="icon-btn" title="刷新曲库" :disabled="loading" @click="refreshSongs">
+            <button class="icon-btn" :title="l('导入 MIDI', 'Import MIDI')" :disabled="loading" @click="importMidi"><Upload :size="16" /></button>
+            <button class="icon-btn" :title="l('试听曲目', 'Preview song')" :disabled="!selectedSong" @click="previewLocalSong"><Headphones :size="16" /></button>
+            <button class="icon-btn" :title="l('设置文字图标', 'Set text icon')" :disabled="!selectedSong" @click="setSongEmojiIcon"><Music :size="16" /></button>
+            <button class="icon-btn" :title="l('选择图片图标', 'Choose image icon')" :disabled="!selectedSong" @click="chooseSongImageIcon"><ImagePlus :size="16" /></button>
+            <button class="icon-btn" :title="l('重命名', 'Rename')" :disabled="!selectedSong || loading" @click="renameSong"><Edit3 :size="16" /></button>
+            <button class="icon-btn danger" :title="l('删除', 'Delete')" :disabled="!selectedSong || loading" @click="deleteSong"><Trash2 :size="16" /></button>
+            <button class="icon-btn" :title="l('刷新曲库', 'Refresh library')" :disabled="loading" @click="refreshSongs">
               <RefreshCcw :size="16" :class="{ spin: loading }" />
             </button>
-            <button class="icon-btn" title="打开曲库目录" @click="openSongsDir"><FolderOpen :size="16" /></button>
+            <button class="icon-btn" :title="l('打开曲库目录', 'Open library folder')" @click="openSongsDir"><FolderOpen :size="16" /></button>
           </div>
         </div>
 
@@ -1138,43 +1221,43 @@ onUnmounted(() => {
           </button>
           <div v-if="!songs.length" class="empty-state">
             <Music :size="24" />
-            <span>暂无 MIDI 曲目，导入、搜索或粘贴链接添加。</span>
+            <span>{{ l('暂无 MIDI 曲目，导入、搜索或粘贴链接添加。', 'No MIDI songs yet. Import, search, or paste a link to add one.') }}</span>
           </div>
           <div v-else-if="!filteredSongs.length" class="empty-state">
             <Search :size="24" />
-            <span>没有匹配“{{ localSongQuery.trim() }}”的本地曲目。</span>
+            <span>{{ l(`没有匹配“${localSongQuery.trim()}”的本地曲目。`, `No local songs match "${localSongQuery.trim()}".`) }}</span>
           </div>
         </div>
       </section>
 
       <section class="control-pane">
         <div class="now-playing">
-          <span>当前曲目</span>
-          <strong :title="selectedSong?.name || '未选择'">{{ selectedSong?.name || '未选择' }}</strong>
+          <span>{{ l('当前曲目', 'Current song') }}</span>
+          <strong :title="selectedSong?.name || l('未选择', 'None selected')">{{ selectedSong?.name || l('未选择', 'None selected') }}</strong>
           <small :title="selectedSong?.path || status.songs_dir">{{ selectedSong?.path || status.songs_dir }}</small>
         </div>
 
         <section class="player-panel">
           <div class="player-head">
             <div>
-              <span>内置播放器</span>
+              <span>{{ l('内置播放器', 'Built-in player') }}</span>
               <strong>{{ playerTitle }}</strong>
             </div>
             <button class="player-toggle" :disabled="!canTogglePlayer" @click="togglePlayer">
               <Loader2 v-if="playerLoading" :size="16" class="spin" />
               <Pause v-else-if="playerPlaying" :size="16" />
               <Play v-else :size="16" />
-              {{ playerPlaying ? '暂停' : '播放' }}
+              {{ playerPlaying ? l('暂停', 'Pause') : l('播放', 'Play') }}
             </button>
           </div>
           <label class="player-instrument">
             <Music :size="15" />
-            <span>播放音色</span>
+            <span>{{ l('播放音色', 'Playback instrument') }}</span>
             <select v-model="playerInstrument" @change="applyPlayerInstrument">
-              <option value="source">跟随 MIDI 源文件（默认）</option>
-              <optgroup v-for="group in GENERAL_MIDI_GROUPS" :key="group.name" :label="group.name">
+              <option value="source">{{ l('跟随 MIDI 源文件（默认）', 'Follow MIDI source (default)') }}</option>
+              <optgroup v-for="(group, groupIndex) in GENERAL_MIDI_GROUPS" :key="group.name" :label="instrumentGroupName(groupIndex, group.name)">
                 <option v-for="instrument in group.instruments" :key="instrument.program" :value="String(instrument.program)">
-                  {{ instrument.program + 1 }} · {{ instrument.name }}
+                  {{ instrument.program + 1 }} · {{ instrumentName(instrument.program) }}
                 </option>
               </optgroup>
             </select>
@@ -1203,7 +1286,7 @@ onUnmounted(() => {
 
         <div class="progress-area">
           <div class="progress-head">
-            <span>{{ status.last_event || '待命' }}</span>
+            <span>{{ status.last_event || l('待命', 'Ready') }}</span>
             <strong>{{ progressPercent }}%</strong>
           </div>
           <div class="progress-track"><div class="progress-fill" :style="{ width: `${progressPercent}%` }" /></div>
@@ -1215,30 +1298,30 @@ onUnmounted(() => {
 
         <div class="control-grid">
           <label>
-            <span>开始延迟</span>
+            <span>{{ l('开始延迟', 'Start delay') }}</span>
             <input v-model.number="delaySecs" type="number" min="0" max="60">
-            <b>秒</b>
+            <b>{{ l('秒', 'sec') }}</b>
           </label>
           <label>
-            <span>速度倍率</span>
+            <span>{{ l('速度倍率', 'Speed multiplier') }}</span>
             <input v-model.number="speed" type="range" min="0.25" max="3" step="0.05">
             <b>{{ speedText }}</b>
           </label>
         </div>
 
         <div class="speed-actions">
-          <button class="small-action" @click="adjustSpeed(-0.1)">F4 减慢</button>
-          <button class="small-action" @click="resetSpeed">F5 默认</button>
-          <button class="small-action" @click="adjustSpeed(0.1)">F3 加快</button>
+          <button class="small-action" @click="adjustSpeed(-0.1)">F4 {{ l('减慢', 'Slower') }}</button>
+          <button class="small-action" @click="resetSpeed">F5 {{ l('默认', 'Default') }}</button>
+          <button class="small-action" @click="adjustSpeed(0.1)">F3 {{ l('加快', 'Faster') }}</button>
         </div>
 
         <div class="hotkey-panel" :class="{ enabled: hotkeysEnabled }">
           <div>
-            <strong>全局快捷键</strong>
-            <span>开启后 F1 开始、F2 停止、F3 加快、F4 减慢、F5 恢复默认速度，可在 VRChat 内响应。</span>
+            <strong>{{ l('全局快捷键', 'Global shortcuts') }}</strong>
+            <span>{{ l('开启后 F1 开始、F2 停止、F3 加快、F4 减慢、F5 恢复默认速度，可在 VRChat 内响应。', 'When enabled, F1 starts, F2 stops, F3 speeds up, F4 slows down, and F5 restores the default speed, including inside VRChat.') }}</span>
           </div>
           <button class="toggle-btn" :class="{ enabled: hotkeysEnabled }" :disabled="!status.hotkeys_available" @click="toggleHotkeys">
-            {{ hotkeysEnabled ? '已开启' : '已关闭' }}
+            {{ hotkeysEnabled ? l('已开启', 'Enabled') : l('已关闭', 'Disabled') }}
           </button>
         </div>
 
@@ -1246,43 +1329,73 @@ onUnmounted(() => {
           <button class="primary-action" :disabled="!canStart" @click="start">
             <Loader2 v-if="loading && !status.running" :size="18" class="spin" />
             <Play v-else :size="18" />
-            F1 开始演奏
+            F1 {{ l('开始演奏', 'Start') }}
           </button>
           <button class="danger-action" :disabled="!status.running && !loading" @click="stop">
             <Square :size="18" />
-            F2 停止
+            F2 {{ l('停止', 'Stop') }}
           </button>
         </div>
 
         <section class="online-panel">
           <div class="online-head">
-            <strong>在线曲库</strong>
-            <span>Midishow 搜索、ID/URL 下载、在线试听</span>
+            <strong>{{ l('在线曲库', 'Online library') }}</strong>
+            <span>{{ l('Midishow 搜索、ID/URL 下载、在线试听', 'Midishow search, ID/URL downloads, and online previews') }}</span>
           </div>
 
           <div class="midishow-account">
             <div>
-              <strong>{{ defaultMidishowAccount ? `已登录 ${defaultMidishowAccount.username}${defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : ''}` : 'Midishow 未登录' }}</strong>
-              <span>{{ defaultMidishowAccount ? '下载与试听会优先使用账号权限。' : '登录后可访问需要账号权限的 MIDI 下载与试听。' }}</span>
+              <strong>{{ defaultMidishowAccount ? l(`已登录 ${defaultMidishowAccount.username}${defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : ''}`, `Signed in as ${defaultMidishowAccount.username}${defaultMidishowLoginTypeText ? ` (${defaultMidishowLoginTypeText})` : ''}`) : l('Midishow 未登录', 'Midishow signed out') }}</strong>
+              <span>{{ defaultMidishowAccount ? l('下载与试听会优先使用账号权限。', 'Downloads and previews will use your account access.') : l('登录后可访问需要账号权限的 MIDI 下载与试听。', 'Sign in to access MIDI downloads and previews that require an account.') }}</span>
             </div>
             <button v-if="defaultMidishowAccount" class="account-btn ghost" :disabled="accountLoading" @click="logoutMidishow">
-              <LogOut :size="15" /> 退出
+              <LogOut :size="15" /> {{ l('退出', 'Sign out') }}
             </button>
-            <button v-else class="account-btn" @click="midishowLoginOpen = !midishowLoginOpen">
-              <LogIn :size="15" /> 登录
+            <button v-else class="account-btn" @click="toggleMidishowLogin">
+              <LogIn :size="15" /> {{ midishowLoginOpen ? l('收起', 'Hide') : l('登录', 'Sign in') }}
             </button>
           </div>
 
-          <form v-if="midishowLoginOpen && !defaultMidishowAccount" class="login-form" @submit.prevent="loginMidishow">
+          <form v-if="midishowLoginOpen && !defaultMidishowAccount" :key="midishowLoginOpen ? 'open' : 'closed'" class="login-form" @submit.prevent="loginMidishow">
             <label class="login-field">
-              <span>账号</span>
-              <input v-model="midishowAccount" autocomplete="username" placeholder="Midishow 用户名或邮箱">
+              <span>{{ l('账号', 'Account') }}</span>
+              <input
+                ref="accountInputRef"
+                v-model="midishowAccount"
+                type="text"
+                name="ms_account"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                :placeholder="l('Midishow 用户名或邮箱', 'Midishow username or email')"
+              >
             </label>
             <label class="login-field">
-              <span>密码</span>
-              <input v-model="midishowPassword" type="password" autocomplete="current-password" placeholder="密码仅用于本次登录">
+              <span>{{ l('密码', 'Password') }}</span>
+              <input
+                ref="passwordInputRef"
+                v-model="midishowPassword"
+                type="password"
+                name="ms_password"
+                autocomplete="new-password"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                :placeholder="l('Midishow 密码', 'Midishow password')"
+              >
             </label>
-            <p class="login-hint">点击登录后会自动完成。只有页面需要确认时才会显示登录窗口。</p>
+            <p v-if="loginError" class="login-error" role="alert">
+              <AlertTriangle :size="14" />
+              <span>{{ loginError }}</span>
+            </p>
+            <p class="login-hint">{{ l('点击登录后会自动完成。只有页面需要确认时才会显示登录窗口。', 'Sign-in completes automatically. A login window appears only when confirmation is required.') }}</p>
             <p v-if="accountLoading" class="login-status" aria-live="polite">
               <Loader2 :size="15" class="spin" />
               {{ midishowLoginStatus.message }}
@@ -1291,14 +1404,14 @@ onUnmounted(() => {
               <button type="submit" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
                 <Loader2 v-if="accountLoading" :size="16" class="spin" />
                 <LogIn v-else :size="16" />
-                <span>{{ accountLoading ? '正在登录' : '登录' }}</span>
+                <span>{{ accountLoading ? l('正在登录', 'Signing in') : l('登录', 'Sign in') }}</span>
               </button>
               <button type="button" class="account-btn ghost" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
                 <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
-                <ExternalLink v-else :size="15" /> 注册
+                <ExternalLink v-else :size="15" /> {{ l('注册', 'Register') }}
               </button>
-              <button type="button" class="account-btn ghost" title="复制注册链接" :disabled="accountLoading" @click="copySignupUrl">
-                复制链接
+              <button type="button" class="account-btn ghost" :title="l('复制注册链接', 'Copy registration link')" :disabled="accountLoading" @click="copySignupUrl">
+                {{ l('复制链接', 'Copy link') }}
               </button>
             </div>
           </form>
@@ -1306,21 +1419,21 @@ onUnmounted(() => {
           <div class="online-form">
             <div class="input-row">
               <Search :size="16" />
-              <input v-model="onlineKeyword" placeholder="搜索歌名、作者或关键词" @keydown.enter="searchOnline">
+              <input v-model="onlineKeyword" :placeholder="l('搜索歌名、作者或关键词', 'Search by title, artist, or keyword')" @keydown.enter="searchOnline">
               <div class="online-search-actions">
                 <button :disabled="onlineLoading || !onlineKeyword.trim()" @click="searchOnline">
                   <Loader2 v-if="onlineLoading" :size="16" class="spin" />
-                  <span v-else>搜索</span>
+                  <span v-else>{{ l('搜索', 'Search') }}</span>
                 </button>
-                <button type="button" title="在浏览器打开 Midishow 官方搜索" :disabled="onlineLoading" @click="openMidishowSearch">
+                <button type="button" :title="l('在浏览器打开 Midishow 官方搜索', 'Open Midishow search in browser')" :disabled="onlineLoading" @click="openMidishowSearch">
                   <ExternalLink :size="16" />
                 </button>
               </div>
             </div>
             <div class="input-row download-row">
               <Link2 :size="16" />
-              <input v-model="urlInput" placeholder="粘贴 MIDI 直链、Midishow 链接或 ID" @keydown.enter="downloadFromUrl">
-              <input v-model="urlFilename" class="name-input" placeholder="保存名">
+              <input v-model="urlInput" :placeholder="l('粘贴 MIDI 直链、Midishow 链接或 ID', 'Paste a direct MIDI URL, Midishow link, or ID')" @keydown.enter="downloadFromUrl">
+              <input v-model="urlFilename" class="name-input" :placeholder="l('保存名', 'Save as')">
               <button :disabled="onlineLoading || !urlInput.trim()" @click="downloadFromUrl">
                 <Download :size="16" />
               </button>
@@ -1331,17 +1444,17 @@ onUnmounted(() => {
             <div v-for="item in onlineResults" :key="item.id" class="online-row">
               <div class="online-meta">
                 <strong>{{ item.title }}</strong>
-                <small>{{ item.artist || '未知作者' }} · ID {{ item.id }}</small>
+                <small>{{ item.artist || l('未知作者', 'Unknown artist') }} · ID {{ item.id }}</small>
               </div>
               <div class="online-actions">
-                <button title="在线试听" :disabled="onlineBusyId === item.id" @click="previewOnline(item)">
+                <button :title="l('在线试听', 'Preview online')" :disabled="onlineBusyId === item.id" @click="previewOnline(item)">
                   <Loader2 v-if="onlineBusyId === item.id" :size="15" class="spin" />
                   <Headphones v-else :size="15" />
                 </button>
-                <button title="下载到曲库" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
+                <button :title="l('下载到曲库', 'Download to library')" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
                   <Download :size="15" />
                 </button>
-                <button title="打开网页" @click="openOnlinePage(item)">
+                <button :title="l('打开网页', 'Open webpage')" @click="openOnlinePage(item)">
                   <ExternalLink :size="15" />
                 </button>
               </div>
@@ -1363,7 +1476,7 @@ onUnmounted(() => {
       <form class="edit-dialog" @submit.prevent="submitEditDialog">
         <div class="edit-dialog-head">
           <div>
-            <strong>{{ editDialogMode === 'icon' ? '编辑曲目图标' : '重命名曲目' }}</strong>
+            <strong>{{ editDialogMode === 'icon' ? l('编辑曲目图标', 'Edit song icon') : l('重命名曲目', 'Rename song') }}</strong>
             <span>{{ selectedSong?.name }}</span>
           </div>
           <button class="dialog-close" type="button" :disabled="loading" @click="closeEditDialog">×</button>
@@ -1371,12 +1484,12 @@ onUnmounted(() => {
 
         <div v-if="editDialogMode === 'icon'" class="edit-dialog-body">
           <label class="theme-field">
-            <span>文字 / Emoji</span>
-            <input v-model="editIconText" maxlength="4" placeholder="例如 ♪、钢琴、A1">
+            <span>{{ l('文字 / Emoji', 'Text / Emoji') }}</span>
+            <input v-model="editIconText" maxlength="4" :placeholder="l('例如 ♪、钢琴、A1', 'For example: ♪, Piano, A1')">
           </label>
           <label class="theme-field">
-            <span>图片 URL</span>
-            <input v-model="editIconUrl" placeholder="https://... 或 data:image/...">
+            <span>{{ l('图片 URL', 'Image URL') }}</span>
+            <input v-model="editIconUrl" :placeholder="l('https://... 或 data:image/...', 'https://... or data:image/...')">
           </label>
           <div class="icon-preview">
             <span class="song-note custom">
@@ -1384,22 +1497,22 @@ onUnmounted(() => {
               <span v-else-if="editIconText.trim()">{{ editIconText.trim().slice(0, 4) }}</span>
               <Music v-else :size="15" />
             </span>
-            <small>图片 URL 优先；两个输入框都留空会恢复默认图标。</small>
+            <small>{{ l('图片 URL 优先；两个输入框都留空会恢复默认图标。', 'Image URL takes priority. Leave both fields empty to restore the default icon.') }}</small>
           </div>
         </div>
 
         <div v-else class="edit-dialog-body">
           <label class="theme-field">
-            <span>新的曲目名称</span>
-            <input v-model="editSongName" autofocus placeholder="输入新的 MIDI 文件名">
+            <span>{{ l('新的曲目名称', 'New song name') }}</span>
+            <input v-model="editSongName" autofocus :placeholder="l('输入新的 MIDI 文件名', 'Enter a new MIDI filename')">
           </label>
         </div>
 
         <div class="edit-dialog-actions">
-          <button class="dialog-secondary" type="button" :disabled="loading" @click="closeEditDialog">取消</button>
+          <button class="dialog-secondary" type="button" :disabled="loading" @click="closeEditDialog">{{ l('取消', 'Cancel') }}</button>
           <button class="dialog-primary" type="submit" :disabled="loading">
             <Loader2 v-if="loading" :size="16" class="spin" />
-            <span v-else>保存</span>
+            <span v-else>{{ l('保存', 'Save') }}</span>
           </button>
         </div>
       </form>
@@ -2253,6 +2366,18 @@ input {
   gap: 7px;
   color: var(--vp-primary);
   font-weight: 750;
+}
+
+.login-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ef4444;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.5;
 }
 
 .login-form button {

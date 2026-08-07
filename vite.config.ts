@@ -6,8 +6,15 @@ import tailwindcss from "@tailwindcss/vite";
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 const host = process.env.TAURI_DEV_HOST || "127.0.0.1";
 const normalizedPath = (value: string) => value.replace(/\\/g, "/").toLowerCase();
+// Directories that are NOT part of the Vue frontend bundle. They contain pinned
+// Rust/C++ deps, prebuilt binaries (.dll/.pdb), Python code, or separate
+// reference projects. Watching them with chokidar triggers fs.watch EBUSY on
+// Windows (the linker / antivirus keeps generated files like
+// vendor/openvr_sys/.../openvr_api64.pdb open), which crashes `tauri dev`.
+const NON_FRONTEND_DIRS = ['vendor', 'src-python', '弹幕姬', 'OVR', 'VRCT', 'VrcDog', 'dist', 'node_modules'];
 const shouldIgnoreWatchPath = (value: string) => {
   const path = normalizedPath(value);
+  if (NON_FRONTEND_DIRS.some((dir) => new RegExp(`/${dir}(?:/|$)`).test(path))) return true;
   return /\/(?:\.cargo-target|target)(?:\/|$)/.test(path) || /\/src-tauri(?:\/|$)/.test(path) || /\/vrcdog-server\/target(?:\/|$)/.test(path);
 };
 

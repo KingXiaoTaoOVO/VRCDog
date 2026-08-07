@@ -26,6 +26,7 @@ const openSurveyCenter = () => window.dispatchEvent(new CustomEvent('open-survey
 
 const tabs = [
   { id: 'general', label: 'settings.nav_general', icon: Settings },
+  { id: 'language', label: 'settings.nav_language', icon: Languages },
   { id: 'interface', label: 'settings.nav_theme', icon: Monitor },
   { id: 'notifications', label: 'settings.nav_notifications', icon: Bell },
   { id: 'network', label: 'settings.nav_network', icon: Globe },
@@ -145,6 +146,7 @@ const config = ref({
   theme: 'dog',
   proxyEnabled: false,
   proxyUrl: 'http://127.0.0.1:7890',
+  pipelineUrl: '',
   clientServerUrl: 'http://127.0.0.1:11451',
   notifyFriendsOnline: true,
   notifyInvite: true,
@@ -481,12 +483,19 @@ const testTTS = () => {
 const testNotification = () => {
   notify(t('settings.test_notify_title'), t('settings.test_notify_msg'), 'test');
 };
+
+const selectInterfaceLanguage = (nextLocale: string) => {
+  const normalized = setAppLocale(nextLocale, { notify: true });
+  config.value.language = normalized;
+  locale.value = normalized;
+  DbApi.saveSetting({ key: 'language', value: JSON.stringify(normalized) }).catch(() => {});
+};
 </script>
 <template>
   <div class="settings-view h-full flex bg-[var(--theme-bg-main)] backdrop-blur-md relative overflow-hidden text-[var(--theme-text)]">
     <!-- Sidebar Menu -->
-    <div class="w-64 shrink-0 flex flex-col gap-2 p-4 bg-[var(--theme-surface)] backdrop-blur-3xl border-r border-[var(--theme-border-soft)] overflow-y-auto custom-scrollbar z-20">
-      <div class="text-[10px] font-black text-[var(--theme-text-muted)] mb-4 px-2 uppercase tracking-widest mt-2 opacity-50">{{ t('settings.title') || 'Settings' }}</div>
+    <div class="w-64 shrink-0 flex flex-col gap-2 p-4 bg-[var(--theme-surface)] backdrop-blur-3xl overflow-y-auto custom-scrollbar z-20">
+      <div class="text-[10px] font-black text-[var(--theme-text-soft)] mb-4 px-2 uppercase tracking-widest mt-2">{{ t('settings.title') || 'Settings' }}</div>
       
       <button 
         v-for="tab in visibleTabs"
@@ -524,23 +533,46 @@ const testNotification = () => {
     <div class="flex-1 p-10 overflow-y-auto custom-scrollbar relative z-10 bg-[var(--theme-bg-main)]/5">
       <div class="max-w-4xl mx-auto mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
         <h1 class="text-4xl font-black text-[var(--theme-text-strong)] mb-2 tracking-tight">{{ t(visibleTabs.find((tab) => tab.id === activeTab)?.label || '') }}</h1>
-        <p class="text-[var(--theme-text-soft)] text-sm opacity-60">{{ t('settings.subtitle') || 'Configure your personal experience' }}</p>
+        <p class="text-[var(--theme-text-soft)] text-sm font-medium">{{ t('settings.subtitle') || 'Configure your personal experience' }}</p>
       </div>
 
       <Transition
         name="fade"
         mode="out-in"
       >
+        <div v-if="activeTab === 'language'" class="language-settings pb-20 animate-in fade-in zoom-in-95 duration-300">
+          <section class="language-panel">
+            <div class="language-panel-copy">
+              <span class="language-panel-icon"><Globe :size="24" /></span>
+              <div>
+                <h2>{{ t('settings.language_intro') }}</h2>
+                <p>{{ t('settings.language_hint') }}</p>
+              </div>
+            </div>
+            <div class="language-grid" role="listbox" :aria-label="t('settings.nav_language')">
+              <button
+                v-for="option in localeOptions"
+                :key="option.value"
+                type="button"
+                role="option"
+                class="language-choice"
+                :class="{ selected: config.language === option.value }"
+                :aria-selected="config.language === option.value"
+                @click="selectInterfaceLanguage(option.value)"
+              >
+                <span>{{ option.label }}</span>
+                <Check v-if="config.language === option.value" :size="16" />
+              </button>
+            </div>
+          </section>
+        </div>
+
         <!-- 界面 (Interface) -->
-        <div v-if="activeTab === 'interface'" class="space-y-8 pb-20 animate-in fade-in zoom-in-95 duration-300">
+        <div v-else-if="activeTab === 'interface'" class="space-y-8 pb-20 animate-in fade-in zoom-in-95 duration-300">
           <!-- 外观 -->
           <div>
             <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_afcde261') }}</h2>
             <div class="space-y-1">
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-xl transition-all glass-panel-hover">
-                <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('app.ui_language') }}</div>
-                <CustomSelect v-model="config.language" :options="localeOptions" />
-              </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-xl transition-all glass-panel-hover">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('settings.theme') }}</div>
                 <CustomSelect v-model="config.theme" :options="[
@@ -1046,6 +1078,26 @@ const testNotification = () => {
                     <ClipboardList class="w-4 h-4" />
                     我的问卷记录
                   </button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ t('settings.pipeline_url_title') }}</h2>
+              <div class="p-4 bg-[var(--theme-surface)]/60 border border-[var(--theme-border-soft)] rounded-lg">
+                <label class="block">
+                  <div class="flex items-center gap-2 px-3 py-2.5 bg-[var(--theme-bg-main)]/40 border border-[var(--theme-border-soft)] rounded-lg focus-within:border-[var(--theme-primary)]">
+                    <Radio class="w-4 h-4 text-[var(--theme-text-muted)] shrink-0" />
+                    <input
+                      v-model="config.pipelineUrl"
+                      type="text"
+                      :placeholder="t('settings.pipeline_url_placeholder')"
+                      class="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--theme-text)] outline-none font-mono"
+                    >
+                  </div>
+                </label>
+                <div class="mt-3 flex items-start gap-2 text-[11px] text-[var(--theme-text-muted)]">
+                  <Info class="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{{ t('settings.pipeline_url_desc') }}</span>
                 </div>
               </div>
             </div>
@@ -1868,6 +1920,96 @@ const testNotification = () => {
 :deep(.border-white\/10),
 :deep(.border-transparent) {
   border-color: transparent !important;
+}
+
+.language-settings {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.language-panel {
+  padding: 24px;
+  border: 1px solid var(--theme-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface) 94%, transparent);
+  box-shadow: 0 16px 38px color-mix(in srgb, var(--theme-text-strong) 8%, transparent);
+}
+
+.language-panel-copy {
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.language-panel-icon {
+  width: 46px;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--theme-primary) 28%, var(--theme-border-soft));
+  border-radius: 8px;
+  color: var(--theme-primary);
+  background: color-mix(in srgb, var(--theme-primary) 13%, var(--theme-surface));
+}
+
+.language-panel h2 {
+  margin: 0;
+  color: var(--theme-text-strong);
+  font-size: 19px;
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+.language-panel p {
+  margin: 5px 0 0;
+  max-width: 62ch;
+  color: var(--theme-text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 550;
+}
+
+.language-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.language-choice {
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  color: var(--theme-text-strong);
+  background: var(--theme-surface-hover);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.language-choice:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--theme-primary) 55%, var(--theme-border-soft));
+}
+
+.language-choice:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--theme-primary) 24%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .language-grid { grid-template-columns: 1fr; }
+  .language-panel { padding: 18px; }
 }
 
 

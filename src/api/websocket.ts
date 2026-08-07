@@ -1,9 +1,14 @@
 import { translate } from '../i18n';
 import { reactive } from 'vue';
 import { VrcApi, DbApi } from './index';
+import { isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useNotificationEngine } from '../stores/notificationEngine';
 import { useFriendsStore } from '../stores/friendsStore';
+import { markDataHealthy } from '../stores/dataHealth';
 import { getCookieValue } from './cookies';
+
+const DEFAULT_PIPELINE_URL = 'wss://pipeline.vrchat.cloud';
 
 export const wsState = reactive({
   connected: false,
@@ -11,75 +16,82 @@ export const wsState = reactive({
   bytesReceived: 0,
   lastUpdate: '',
   everConnected: false,
-  phase: 'idle' as 'idle' | 'authenticating' | 'connecting' | 'waiting' | 'connected',
+  phase: 'idle' as 'idle' | 'authenticating' | 'connecting' | 'waiting' | 'failed' | 'connected',
   lastError: '',
   reconnectAttempts: 0,
 });
 
-let webSocket: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectAttempts = 0;
-let reconnectEnabled = false;
-let authenticating = false;
-let lifecycleId = 0;
+type PipelineHandler = (json: any) => void;
+const handlers: PipelineHandler[] = [];
+const MAX_HANDLERS = 50;
 
-const RECONNECT_BASE_DELAY_MS = 2000;
-const RECONNECT_MAX_DELAY_MS = 60000;
-const MAX_RECONNECT_ATTEMPTS = 100;
 const FRIEND_NOTIFY_DEBOUNCE_MS = 45_000;
 const friendNotifyTimes = new Map<string, number>();
+
+export function onPipelineMessage(handler: PipelineHandler): () => void {
+  if (handlers.length >= MAX_HANDLERS) {
+    console.warn('[WSS] Max pipeline handlers reached, consider cleaning up subscriptions');
+  }
+  handlers.push(handler);
+  return () => {
+    const idx = handlers.indexOf(handler);
+    if (idx > -1) handlers.splice(idx, 1);
+  };
+}
+
+let listenersRegistered = false;
+let pipelineActive = false;
+
+/// Wire up the Tauri event listeners that the Rust pipeline task emits.
+/// The actual connection (including proxy + User-Agent handling) lives in Rust;
+/// the WebView's native WebSocket does not honour the app's proxy setting.
+async function ensureListeners() {
+  if (listenersRegistered) return;
+  listenersRegistered = true;
+
+  await listen<Record<string, unknown>>('pipeline_ws_status', (event) => {
+    const s = event.payload || {};
+    if (typeof s.phase === 'string') wsState.phase = s.phase as typeof wsState.phase;
+    if (typeof s.connected === 'boolean') wsState.connected = s.connected;
+    if (typeof s.messageCount === 'number') wsState.messageCount = s.messageCount;
+    if (typeof s.reconnectAttempts === 'number') wsState.reconnectAttempts = s.reconnectAttempts;
+    if (typeof s.lastError === 'string') wsState.lastError = s.lastError;
+    if (s.phase === 'connected') wsState.everConnected = true;
+  });
+
+  await listen<string>('pipeline_ws_message', (event) => {
+    const data = event.payload;
+    if (typeof data !== 'string') return;
+    wsState.bytesReceived += data.length;
+    try {
+      const json = JSON.parse(data);
+      if (typeof json.content === 'string') {
+        try { json.content = JSON.parse(json.content); } catch { /* not JSON, keep as string */ }
+      }
+      handlePipeline(json);
+    } catch (e) {
+      console.error('[WSS] Parse error', e);
+    }
+  });
+}
 
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return typeof err === 'string' ? err : 'Unknown pipeline error';
 }
 
-function clearReconnectTimer() {
-  if (reconnectTimer !== null) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-}
+export async function initWebsocket() {
+  pipelineActive = true;
+  wsState.phase = 'authenticating';
+  wsState.lastError = '';
 
-function getReconnectDelay(): number {
-  // First retry starts at the documented base delay, then backs off.
-  const exponent = Math.max(0, reconnectAttempts - 1);
-  const base = Math.min(RECONNECT_BASE_DELAY_MS * Math.pow(1.5, exponent), RECONNECT_MAX_DELAY_MS);
-  const jitter = Math.random() * 0.25 * base;
-  return Math.floor(base + jitter);
-}
-
-function scheduleReconnect(reason?: string) {
-  if (!reconnectEnabled || reconnectTimer !== null) return;
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.error(`[WSS] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached, giving up`);
-    wsState.lastError = `Max reconnect attempts reached: ${reason || ''}`;
+  // The native pipeline bridge only exists inside the Tauri shell.
+  if (!isTauri()) {
+    wsState.phase = 'idle';
     return;
   }
 
-  reconnectAttempts++;
-  wsState.connected = false;
-  wsState.phase = 'waiting';
-  wsState.reconnectAttempts = reconnectAttempts;
-  if (reason) wsState.lastError = reason;
-
-  const delay = getReconnectDelay();
-  console.warn(`[WSS] Pipeline unavailable, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${reconnectAttempts})`, reason || '');
-
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    void initWebsocket();
-  }, delay);
-}
-
-export async function initWebsocket() {
-  reconnectEnabled = true;
-  if (webSocket !== null || authenticating) return;
-
-  clearReconnectTimer();
-  const attemptLifecycleId = lifecycleId;
-  authenticating = true;
-  wsState.phase = 'authenticating';
+  await ensureListeners();
 
   try {
     let authCookie = await DbApi.getAuth();
@@ -94,112 +106,38 @@ export async function initWebsocket() {
       token = getCookieValue(authCookie, 'auth');
     }
 
-    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) return;
-    if (!token) throw new Error('VRChat auth cookie is missing');
-    connectWebSocket(token, attemptLifecycleId);
+    if (!token) {
+      wsState.phase = 'failed';
+      wsState.lastError = translate('status.pipeline_auth_missing');
+      return;
+    }
+
+    // Read the user-configured pipeline URL (empty = use the default).
+    // Reference: VRCX exposes `AppDebug.websocketDomain` so users can switch to
+    // an alternate pipeline mirror when the primary host is unreachable.
+    const savedUrl = await DbApi.getSetting({ key: 'pipelineUrl' });
+    const pipelineUrl = (savedUrl || '').trim() || DEFAULT_PIPELINE_URL;
+
+    await VrcApi.startPipelineWs({ authToken: token, pipelineUrl });
+    // Rust now owns the connection lifecycle and reports status via events.
   } catch (err) {
-    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) return;
-    const message = errorMessage(err);
-    console.error('[WSS] Pipeline authentication failed:', err);
-    scheduleReconnect(message);
-  } finally {
-    if (attemptLifecycleId === lifecycleId) authenticating = false;
+    console.error('[WSS] Failed to start pipeline WebSocket:', err);
+    wsState.phase = 'failed';
+    wsState.lastError = errorMessage(err);
   }
 }
 
-function connectWebSocket(token: string, attemptLifecycleId: number) {
-  if (!reconnectEnabled || attemptLifecycleId !== lifecycleId || webSocket !== null) return;
-
-  wsState.phase = 'connecting';
-  const socket = new WebSocket(
-    `wss://pipeline.vrchat.cloud/?authToken=${encodeURIComponent(token)}`,
-  );
-  webSocket = socket;
-
-  // Connection timeout - detect hung handshakes
-  const handshakeTimeout = setTimeout(() => {
-    if (wsState.phase === 'connecting' && socket === webSocket) {
-      console.warn('[WSS] WebSocket handshake timeout');
-      socket.close();
-    }
-  }, 15000);
-
-  socket.onopen = () => {
-    clearTimeout(handshakeTimeout);
-    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) {
-      socket.close();
-      return;
-    }
-    wsState.connected = true;
-    wsState.everConnected = true;
-    wsState.phase = 'connected';
-    wsState.lastError = '';
-    reconnectAttempts = 0;
-    wsState.reconnectAttempts = 0;
-    console.log('[WSS] Pipeline connected');
-  };
-
-  socket.onclose = (e) => {
-    clearTimeout(handshakeTimeout);
-    wsState.connected = false;
-    if (webSocket === socket) webSocket = null;
-    console.log('[WSS] Pipeline closed', e.code, e.reason);
-    if (!reconnectEnabled || attemptLifecycleId !== lifecycleId) return;
-    const reason = e.reason || (e.code ? `WebSocket closed (${e.code})` : 'WebSocket closed');
-    scheduleReconnect(reason);
-  };
-
-  socket.onerror = (err) => {
-    clearTimeout(handshakeTimeout);
-    console.error('[WSS] Pipeline error', err);
-    wsState.lastError = 'Pipeline WebSocket connection error';
-    socket.close();
-  };
-
-  socket.onmessage = ({ data }) => {
-    wsState.messageCount++;
-    wsState.bytesReceived += data.length;
-
-    try {
-      const json = JSON.parse(data);
-      if (typeof json.content === 'string') {
-        try { json.content = JSON.parse(json.content); } catch { /* not JSON, keep as string */ }
-      }
-      handlePipeline(json);
-    } catch (e) {
-      console.error('[WSS] Parse error', e);
-    }
-  };
-}
-
-export function closeWebSocket() {
-  reconnectEnabled = false;
-  lifecycleId++;
-  authenticating = false;
-  clearReconnectTimer();
-  const socket = webSocket;
-  webSocket = null;
-  if (socket) socket.close(1000, 'Client logout');
+export async function closeWebSocket() {
+  pipelineActive = false;
+  try {
+    if (isTauri()) await VrcApi.stopPipelineWs();
+  } catch { /* best effort */ }
   wsState.connected = false;
   wsState.phase = 'idle';
   wsState.lastError = '';
-  reconnectAttempts = 0;
   wsState.reconnectAttempts = 0;
-}
-
-type PipelineHandler = (json: any) => void;
-const handlers: PipelineHandler[] = [];
-const MAX_HANDLERS = 50;
-
-export function onPipelineMessage(handler: PipelineHandler): () => void {
-  if (handlers.length >= MAX_HANDLERS) {
-    console.warn('[WSS] Max pipeline handlers reached, consider cleaning up subscriptions');
-  }
-  handlers.push(handler);
-  return () => {
-    const idx = handlers.indexOf(handler);
-    if (idx > -1) handlers.splice(idx, 1);
-  };
+  wsState.messageCount = 0;
+  wsState.bytesReceived = 0;
 }
 
 function getFriendDisplayName(content: any): string {
@@ -342,6 +280,11 @@ function notificationBody(content: any) {
 
 async function handlePipeline(json: any) {
   wsState.lastUpdate = new Date().toLocaleTimeString();
+
+  // Any inbound pipeline message proves the realtime channel is healthy.
+  // Mark the data service fresh so the sidebar status dot turns green even
+  // when the user is parked on a view that does not trigger REST refreshes.
+  markDataHealthy();
 
   try {
     const type = json.type;

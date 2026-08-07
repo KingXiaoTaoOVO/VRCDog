@@ -1,13 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
+import { useI18n } from 'vue-i18n';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { DbApi, DanmakuApi, OvrApi, type DanmakuConfig, type DanmakuMessage, type DanmakuStatus } from '../api';
+import {
+  BilibiliLiveApi,
+  type BiliLiveSession,
+  type ContributionRankItem,
+  type LiveArea,
+  type LiveRoomInfo,
+  type StreamEndpoint,
+} from '../api/bilibiliLive';
 
 const STORAGE_KEY = 'danmaku_config_v2';
+const { locale } = useI18n();
+const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const liveThemeEnabled = useStorage('danmaku-live-theme', false);
-const liveThemeLabel = computed(() => (liveThemeEnabled.value ? '直播姬风格' : '软件主题'));
+const liveThemeLabel = computed(() => (liveThemeEnabled.value
+  ? l('直播姬风格', 'Streamer theme')
+  : l('软件主题', 'App theme')));
 
 const toggleLiveTheme = () => {
   liveThemeEnabled.value = !liveThemeEnabled.value;
@@ -113,7 +126,23 @@ const qrCodeUrl = ref('');
 const qrKey = ref('');
 const qrStatusText = ref('');
 const qrLoading = ref(false);
-const previewText = ref('这是一条测试弹幕，会同步到 VR 弹幕窗口。');
+const previewText = ref(l('这是一条测试弹幕，会同步到 VR 弹幕窗口。', 'This is a test message synchronized to the VR overlay.'));
+const biliSession = ref<BiliLiveSession>({ sessdata: '', bili_jct: '', buvid3: '' });
+const liveRoom = ref<LiveRoomInfo | null>(null);
+const liveAreas = ref<LiveArea[]>([]);
+const liveTitleDraft = ref('');
+const liveAnnouncementDraft = ref('');
+const liveAreaDraft = ref(0);
+const liveActionLoading = ref(false);
+const liveManageError = ref('');
+const streamEndpoints = ref<StreamEndpoint[]>([]);
+const visibleStreamKeys = ref<Record<number, boolean>>({});
+const contributionRank = ref<ContributionRankItem[]>([]);
+const rankLoading = ref(false);
+const outgoingDanmaku = ref('');
+const sendDanmakuLoading = ref(false);
+const activeFilter = ref<'all' | 'danmaku' | 'gift' | 'sc' | 'guard'>('all');
+const copyFeedback = ref('');
 const unlisteners: Array<() => void> = [];
 let liveConfigTimer: number | null = null;
 let qrPollTimer: number | null = null;
@@ -160,18 +189,43 @@ const runtimeConfig = (): DanmakuConfig => {
 };
 
 const connectedText = computed(() => {
-  if (status.value.bili_connected) return status.value.online ? `在线 ${status.value.online}` : '已连接';
-  if (status.value.running) return '连接中';
-  return '未连接';
+  if (status.value.bili_connected) return status.value.online
+    ? `${l('在线', 'Online')} ${status.value.online}`
+    : l('已连接', 'Connected');
+  if (status.value.running) return l('连接中', 'Connecting');
+  return l('未连接', 'Disconnected');
 });
 
 const isConnected = computed(() => status.value.running && (status.value.bili_connected || status.value.osc_input_running));
 const statusClass = computed(() => (isConnected.value ? 'connected' : status.value.running ? 'connecting' : ''));
-const activeMessages = computed(() => [...messages.value].reverse().slice(0, 120));
+const activeMessages = computed(() => [...messages.value]
+  .reverse()
+  .filter((message) => {
+    if (activeFilter.value === 'all') return true;
+    if (activeFilter.value === 'guard') return message.message_type === 'guard' || message.message_type === 'vip_enter';
+    return message.message_type === activeFilter.value;
+  })
+  .slice(0, 120));
+const groupedAreas = computed(() => {
+  const groups = new Map<string, LiveArea[]>();
+  for (const area of liveAreas.value) {
+    const list = groups.get(area.parent_name) || [];
+    list.push(area);
+    groups.set(area.parent_name, list);
+  }
+  return Array.from(groups.entries());
+});
+const hasLiveSession = computed(() => Boolean(biliSession.value.sessdata && biliSession.value.bili_jct));
 
 const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info') => {
   const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-  const prefix = level === 'error' ? '[错误] ' : level === 'success' ? '[成功] ' : level === 'warning' ? '[警告] ' : '';
+  const prefix = level === 'error'
+    ? l('[错误] ', '[Error] ')
+    : level === 'success'
+      ? l('[成功] ', '[Success] ')
+      : level === 'warning'
+        ? l('[警告] ', '[Warning] ')
+        : '';
   logs.value.push(`${time} ${prefix}${message}`);
   logs.value = logs.value.slice(-500);
 };
@@ -196,23 +250,28 @@ const setAttachMode = (mode: 'hmd' | 'hand') => {
   persistModePosition();
   config.value.attach_mode = mode;
   applyPosition(mode === 'hand' ? modeMemory.hand : modeMemory.hmd);
-  addLog(`绑定模式切换为${mode === 'hand' ? '左手' : '头显'}`);
+  addLog(l(`绑定模式切换为${mode === 'hand' ? '左手' : '头显'}`, `Attachment mode changed to ${mode === 'hand' ? 'left hand' : 'headset'}`));
 };
 
 const setToggleHand = (hand: 'left' | 'right' | 'always_on') => {
   config.value.toggle_hand = hand;
-  addLog(hand === 'always_on' ? '弹幕窗口已设置为常开' : `Grip 切换手柄改为${hand === 'left' ? '左手柄' : '右手柄'}`);
+  addLog(hand === 'always_on'
+    ? l('弹幕窗口已设置为常开', 'The message overlay is now always visible')
+    : l(`Grip 切换手柄改为${hand === 'left' ? '左手柄' : '右手柄'}`, `Grip toggle changed to the ${hand === 'left' ? 'left' : 'right'} controller`));
 };
 
 const applyPreset = (name: keyof typeof presets) => {
   if (config.value.attach_mode !== 'hmd') setAttachMode('hmd');
   applyPosition(presets[name]);
-  addLog(`已应用预设位置：${name === 'left' ? '左前方' : name === 'center' ? '正前方' : '右前方'}`);
+  addLog(l(
+    `已应用预设位置：${name === 'left' ? '左前方' : name === 'center' ? '正前方' : '右前方'}`,
+    `Applied position preset: ${name === 'left' ? 'front left' : name === 'center' ? 'front center' : 'front right'}`,
+  ));
 };
 
 const resetPosition = () => {
   applyPosition(config.value.attach_mode === 'hand' ? handDefault : hmdDefault);
-  addLog('已重置当前位置参数');
+  addLog(l('已重置当前位置参数', 'Position settings reset'));
 };
 
 const saveSettings = async () => {
@@ -245,9 +304,16 @@ const loadSettings = async () => {
     }
     const sessdata = await DbApi.getSetting({ key: 'bili_sessdata' });
     if (sessdata && !config.value.bili_sessdata) config.value.bili_sessdata = sessdata;
+    const biliJct = await DbApi.getSetting({ key: 'bili_jct' }).catch(() => null);
+    const buvid3 = await DbApi.getSetting({ key: 'bili_buvid3' }).catch(() => null);
+    biliSession.value = {
+      sessdata: config.value.bili_sessdata || sessdata || '',
+      bili_jct: biliJct || '',
+      buvid3: buvid3 || '',
+    };
     roomInput.value = config.value.room_id ? String(config.value.room_id) : '';
   } catch (e) {
-    addLog(`读取配置失败：${String(e)}`, 'error');
+    addLog(l(`读取配置失败：${String(e)}`, `Could not load settings: ${String(e)}`), 'error');
   }
 };
 
@@ -264,7 +330,7 @@ const refreshSnapshot = async () => {
 const start = async () => {
   const room = roomInput.value.trim();
   if (config.value.enable_bilibili && (!room || !/^\d+$/.test(room))) {
-    error.value = '请输入有效的 Bilibili 直播间房间号。';
+    error.value = l('请输入有效的 Bilibili 直播间房间号。', 'Enter a valid Bilibili live room ID.');
     addLog(error.value, 'error');
     return;
   }
@@ -275,7 +341,7 @@ const start = async () => {
     config.value.room_id = room ? Number(room) : 0;
     await saveSettings();
     status.value = await DanmakuApi.start({ config: runtimeConfig() });
-    addLog(`正在连接直播间 ${config.value.room_id || 'OSC 输入'}...`);
+    addLog(l(`正在连接直播间 ${config.value.room_id || 'OSC 输入'}...`, `Connecting to ${config.value.room_id ? `room ${config.value.room_id}` : 'OSC input'}...`));
     void recoverOpenVrConflict();
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -290,7 +356,7 @@ const stop = async () => {
   error.value = '';
   try {
     status.value = await DanmakuApi.stop();
-    addLog('已断开直播弹幕连接');
+    addLog(l('已断开直播弹幕连接', 'Live message connection closed'));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -308,7 +374,7 @@ const toggleOverlay = async () => {
     const visible = !config.value.overlay_visible;
     config.value.overlay_visible = visible;
     status.value = await DanmakuApi.setOverlayVisible({ visible });
-    addLog(visible ? 'VR 弹幕窗口已显示' : 'VR 弹幕窗口已隐藏');
+    addLog(visible ? l('VR 弹幕窗口已显示', 'VR message overlay shown') : l('VR 弹幕窗口已隐藏', 'VR message overlay hidden'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -318,7 +384,7 @@ const toggleVrMenu = async () => {
   try {
     config.value.vr_menu_visible = !config.value.vr_menu_visible;
     status.value = await DanmakuApi.setConfig({ config: runtimeConfig() });
-    addLog(config.value.vr_menu_visible ? 'VR 调整菜单已调出' : 'VR 调整菜单已隐藏');
+    addLog(config.value.vr_menu_visible ? l('VR 调整菜单已调出', 'VR adjustment menu shown') : l('VR 调整菜单已隐藏', 'VR adjustment menu hidden'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -329,7 +395,8 @@ const sendTest = async (messageType: string) => {
     const text = messageType === 'danmaku' ? previewText.value.trim() : undefined;
     const msg = await DanmakuApi.sendTest(text ? { messageType, text } : { messageType });
     if (msg.source === 'browser') messages.value.push(msg);
-    addLog(`已发送测试${messageType === 'sc' ? ' SC' : messageType === 'gift' ? '礼物' : messageType === 'enter' ? '进入' : messageType === 'warning' ? '警告' : '弹幕'}`, 'success');
+    const label = messageType === 'sc' ? 'SC' : eventLabel({ message_type: messageType } as DanmakuMessage);
+    addLog(l(`已发送测试${label}`, `Test ${label} sent`), 'success');
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -338,7 +405,7 @@ const sendTest = async (messageType: string) => {
 const clearMessages = async () => {
   await DanmakuApi.clearMessages().catch(() => {});
   messages.value = [];
-  addLog('已清空弹幕列表');
+  addLog(l('已清空弹幕列表', 'Message list cleared'));
 };
 
 const scheduleLiveConfigApply = () => {
@@ -361,9 +428,11 @@ const checkBiliLogin = async () => {
   if (!sessdata) return;
   try {
     biliLoggedIn.value = await invoke<boolean>('bili_check_login', { sessdata });
-    addLog(biliLoggedIn.value ? 'Bilibili 登录凭证有效' : 'Bilibili 登录凭证无效或已过期', biliLoggedIn.value ? 'success' : 'warning');
+    addLog(biliLoggedIn.value
+      ? l('Bilibili 登录凭证有效', 'Bilibili credentials are valid')
+      : l('Bilibili 登录凭证无效或已过期', 'Bilibili credentials are invalid or expired'), biliLoggedIn.value ? 'success' : 'warning');
   } catch (e) {
-    addLog(`登录状态检查失败：${String(e)}`, 'warning');
+    addLog(l(`登录状态检查失败：${String(e)}`, `Could not check login status: ${String(e)}`), 'warning');
   }
 };
 
@@ -379,16 +448,16 @@ const openBiliLogin = async () => {
   qrModalOpen.value = true;
   qrLoading.value = true;
   qrCodeUrl.value = '';
-  qrStatusText.value = '正在生成登录二维码...';
+  qrStatusText.value = l('正在生成登录二维码...', 'Generating login QR code...');
   try {
     const res: any = await invoke('bili_new_qr');
     if (res?.code !== 0 || !res.data?.url || !res.data?.qrcode_key) {
-      throw new Error(res?.message || '二维码生成失败');
+      throw new Error(res?.message || l('二维码生成失败', 'Could not generate QR code'));
     }
     qrCodeUrl.value = res.data.qr_image_data_url || generateQrUrl(res.data.url);
     qrKey.value = res.data.qrcode_key;
-    qrStatusText.value = '请使用哔哩哔哩 APP 扫码登录';
-    addLog('Bilibili 登录二维码已生成');
+    qrStatusText.value = l('请使用哔哩哔哩 APP 扫码登录', 'Scan with the Bilibili app to sign in');
+    addLog(l('Bilibili 登录二维码已生成', 'Bilibili login QR code generated'));
 
     qrPollTimer = window.setInterval(async () => {
       const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
@@ -396,28 +465,41 @@ const openBiliLogin = async () => {
       if (code === 0) {
         stopQrPolling();
         const sessdata = pollRes.sessdata_extracted;
-        if (!sessdata) throw new Error('登录成功但未获得 SESSDATA');
+        if (!sessdata) throw new Error(l('登录成功但未获得 SESSDATA', 'Signed in, but no SESSDATA was returned'));
         config.value.bili_sessdata = sessdata;
-        await saveSettings();
+        biliSession.value = {
+          sessdata,
+          bili_jct: pollRes.bili_jct_extracted || '',
+          buvid3: pollRes.buvid3_extracted || '',
+        };
+        const savedSession = { ...biliSession.value };
+        await Promise.all([
+          saveSettings(),
+          DbApi.saveSetting({ key: 'bili_jct', value: savedSession.bili_jct }),
+          DbApi.saveSetting({ key: 'bili_buvid3', value: savedSession.buvid3 || '' }),
+        ]);
+        biliSession.value = savedSession;
         biliLoggedIn.value = true;
-        qrStatusText.value = '登录成功';
+        await refreshLiveRoom();
+        void refreshContributionRank();
+        qrStatusText.value = l('登录成功', 'Signed in');
         qrLoading.value = false;
-        addLog('Bilibili 扫码登录成功', 'success');
+        addLog(l('Bilibili 扫码登录成功', 'Bilibili QR sign-in succeeded'), 'success');
         window.setTimeout(() => { qrModalOpen.value = false; }, 900);
       } else if (code === 86090) {
-        qrStatusText.value = '已扫码，请在手机上确认';
+        qrStatusText.value = l('已扫码，请在手机上确认', 'QR code scanned. Confirm on your phone.');
       } else if (code === 86038) {
         stopQrPolling();
         qrLoading.value = false;
-        qrStatusText.value = '二维码已过期，请重新生成';
+        qrStatusText.value = l('二维码已过期，请重新生成', 'The QR code expired. Generate a new one.');
       } else {
-        qrStatusText.value = '等待扫码...';
+        qrStatusText.value = l('等待扫码...', 'Waiting for scan...');
       }
     }, 1600);
   } catch (e) {
     qrLoading.value = false;
     qrStatusText.value = String(e);
-    addLog(`扫码登录失败：${String(e)}`, 'error');
+    addLog(l(`扫码登录失败：${String(e)}`, `QR sign-in failed: ${String(e)}`), 'error');
   }
 };
 
@@ -429,22 +511,141 @@ const closeBiliLogin = () => {
 
 const logoutBili = async () => {
   config.value.bili_sessdata = '';
+  biliSession.value = { sessdata: '', bili_jct: '', buvid3: '' };
   biliLoggedIn.value = false;
-  await saveSettings();
-  addLog('已退出 Bilibili 登录');
+  liveRoom.value = null;
+  streamEndpoints.value = [];
+  contributionRank.value = [];
+  await Promise.all([
+    saveSettings(),
+    DbApi.saveSetting({ key: 'bili_jct', value: '' }),
+    DbApi.saveSetting({ key: 'bili_buvid3', value: '' }),
+  ]);
+  addLog(l('已退出 Bilibili 登录', 'Signed out of Bilibili'));
+};
+
+const refreshLiveRoom = async () => {
+  if (!hasLiveSession.value) return;
+  liveActionLoading.value = true;
+  liveManageError.value = '';
+  try {
+    const room = await BilibiliLiveApi.getOwnRoom(biliSession.value);
+    liveRoom.value = room;
+    liveTitleDraft.value = room.title;
+    liveAnnouncementDraft.value = room.announcement;
+    liveAreaDraft.value = room.area_id;
+    if (!liveAreas.value.length) liveAreas.value = await BilibiliLiveApi.getAreas();
+  } catch (e: any) {
+    liveManageError.value = e.message || String(e);
+  } finally {
+    liveActionLoading.value = false;
+  }
+};
+
+const saveLiveRoomInfo = async () => {
+  if (!liveRoom.value || !hasLiveSession.value) return;
+  liveActionLoading.value = true;
+  liveManageError.value = '';
+  try {
+    if (liveTitleDraft.value.trim() !== liveRoom.value.title) {
+      await BilibiliLiveApi.updateTitle(biliSession.value, liveRoom.value.room_id, liveTitleDraft.value.trim());
+    }
+    if (liveAreaDraft.value !== liveRoom.value.area_id) {
+      await BilibiliLiveApi.updateArea(biliSession.value, liveRoom.value.room_id, liveAreaDraft.value);
+    }
+    if (liveAnnouncementDraft.value.trim() !== liveRoom.value.announcement) {
+      await BilibiliLiveApi.updateAnnouncement(
+        biliSession.value,
+        liveRoom.value.room_id,
+        liveRoom.value.uid,
+        liveAnnouncementDraft.value.trim(),
+      );
+    }
+    await refreshLiveRoom();
+    addLog(l('直播间资料已更新', 'Live room details updated'), 'success');
+  } catch (e: any) {
+    liveManageError.value = e.message || String(e);
+  } finally {
+    liveActionLoading.value = false;
+  }
+};
+
+const toggleLive = async () => {
+  if (!liveRoom.value || !hasLiveSession.value || liveActionLoading.value) return;
+  const stopping = liveRoom.value.live_status === 1;
+  if (!window.confirm(stopping
+    ? l('确认停止 Bilibili 直播？OBS 停止推流不会自动关闭直播间。', 'Stop the Bilibili stream? Stopping OBS does not close the live room automatically.')
+    : l('确认开始 Bilibili 直播并获取推流地址？', 'Start the Bilibili stream and retrieve the streaming endpoint?'))) return;
+  liveActionLoading.value = true;
+  liveManageError.value = '';
+  try {
+    if (stopping) {
+      await BilibiliLiveApi.stop(biliSession.value, liveRoom.value.room_id);
+      streamEndpoints.value = [];
+      addLog(l('Bilibili 直播已停止', 'Bilibili stream stopped'), 'success');
+    } else {
+      const result = await BilibiliLiveApi.start(biliSession.value, liveRoom.value.room_id, liveAreaDraft.value);
+      if (result.requires_face_auth) {
+        throw new Error(result.face_auth_url
+          ? l(`开播前需要完成实名认证：${result.face_auth_url}`, `Identity verification is required before streaming: ${result.face_auth_url}`)
+          : l('开播前需要完成实名认证', 'Identity verification is required before streaming'));
+      }
+      streamEndpoints.value = result.endpoints;
+      addLog(l('Bilibili 直播已开始，推流信息已安全显示', 'Bilibili stream started; streaming details are now available'), 'success');
+    }
+    await refreshLiveRoom();
+  } catch (e: any) {
+    liveManageError.value = e.message || String(e);
+  } finally {
+    liveActionLoading.value = false;
+  }
+};
+
+const copyStreamValue = async (value: string, label: string) => {
+  await navigator.clipboard.writeText(value);
+  copyFeedback.value = l(`${label}已复制`, `${label} copied`);
+  window.setTimeout(() => { copyFeedback.value = ''; }, 1300);
+};
+
+const refreshContributionRank = async () => {
+  if (!liveRoom.value || !hasLiveSession.value) return;
+  rankLoading.value = true;
+  try {
+    contributionRank.value = await BilibiliLiveApi.getContributionRank(biliSession.value, liveRoom.value.room_id);
+  } catch (e: any) {
+    liveManageError.value = e.message || String(e);
+  } finally {
+    rankLoading.value = false;
+  }
+};
+
+const sendLiveDanmaku = async () => {
+  const message = outgoingDanmaku.value.trim();
+  if (!liveRoom.value || !hasLiveSession.value || !message) return;
+  sendDanmakuLoading.value = true;
+  liveManageError.value = '';
+  try {
+    await BilibiliLiveApi.sendDanmaku(biliSession.value, liveRoom.value.room_id, message);
+    outgoingDanmaku.value = '';
+    addLog(l('弹幕发送成功', 'Message sent'), 'success');
+  } catch (e: any) {
+    liveManageError.value = e.message || String(e);
+  } finally {
+    sendDanmakuLoading.value = false;
+  }
 };
 
 const eventLabel = (message: DanmakuMessage) => {
   if (message.message_type === 'sc') return message.price ? `SC ${message.price}` : 'SC';
-  if (message.message_type === 'gift') return '礼物';
-  if (message.message_type === 'enter') return '进入';
-  if (message.message_type === 'follow') return '关注';
-  if (message.message_type === 'guard' || message.message_type === 'vip_enter') return '舰长';
-  if (message.message_type === 'warning') return '警告';
-  return '弹幕';
+  if (message.message_type === 'gift') return l('礼物', 'Gift');
+  if (message.message_type === 'enter') return l('进入', 'Joined');
+  if (message.message_type === 'follow') return l('关注', 'Follow');
+  if (message.message_type === 'guard' || message.message_type === 'vip_enter') return l('舰长', 'Guard');
+  if (message.message_type === 'warning') return l('警告', 'Warning');
+  return l('弹幕', 'Danmaku');
 };
 
-const formatMessageTime = (message: DanmakuMessage) => new Date(message.timestamp_ms).toLocaleTimeString('zh-CN', {
+const formatMessageTime = (message: DanmakuMessage) => new Date(message.timestamp_ms).toLocaleTimeString(locale.value.startsWith('zh') ? 'zh-CN' : 'en-US', {
   hour: '2-digit',
   minute: '2-digit',
   hour12: false,
@@ -462,12 +663,12 @@ const recoverOpenVrConflict = async () => {
     status.value = latest;
     if (!latest.last_error) return false;
     if (latest.last_error.toLowerCase().includes('already initialized')) {
-      addLog('检测到 OVR 翻译器占用了 OpenVR，正在释放后重启 VR 弹幕。', 'warning');
+      addLog(l('检测到 OVR 翻译器占用了 OpenVR，正在释放后重启 VR 弹幕。', 'The OVR translator is using OpenVR. Releasing it and restarting the VR message overlay.'), 'warning');
       await DanmakuApi.stop().catch(() => {});
       await OvrApi.shutdown().catch(() => {});
       await sleep(450);
       status.value = await DanmakuApi.start({ config: runtimeConfig() });
-      addLog('已重新启动 VR 弹幕 Overlay。', 'success');
+      addLog(l('已重新启动 VR 弹幕 Overlay。', 'VR message overlay restarted.'), 'success');
       return true;
     }
   }
@@ -480,7 +681,11 @@ onMounted(async () => {
   await loadSettings();
   await checkBiliLogin();
   await refreshSnapshot();
-  addLog('VrcDog界面已加载');
+  if (biliLoggedIn.value && hasLiveSession.value) {
+    await refreshLiveRoom();
+    void refreshContributionRank();
+  }
+  addLog(l('VrcDog 界面已加载', 'VrcDog interface loaded'));
 
   try {
     unlisteners.push(await listen<DanmakuStatus>('danmaku_status', (event) => {
@@ -525,155 +730,217 @@ onUnmounted(() => {
 
       <div class="sidebar-scroll">
         <section class="section">
-          <div class="section-title">直播间</div>
+          <div class="section-title">{{ l('直播间', 'Live room') }}</div>
           <div class="input-row">
             <input
               v-model="roomInput"
               :disabled="status.running"
               class="dark-input"
-              placeholder="输入房间号"
+              :placeholder="l('输入房间号', 'Enter room ID')"
               inputmode="numeric"
               @keydown.enter="toggleConnect"
             >
             <button class="primary-btn" :disabled="loading" @click="toggleConnect">
-              {{ status.running ? '断开' : '连接' }}
+              {{ status.running ? l('断开', 'Disconnect') : l('连接', 'Connect') }}
             </button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">账号</div>
+          <div class="section-title">{{ l('账号', 'Account') }}</div>
           <div class="account-row">
             <i class="status-dot" :class="{ connected: biliLoggedIn }" />
-            <span>{{ biliLoggedIn ? '已登录' : '未登录' }}</span>
-            <button v-if="!biliLoggedIn" class="small-btn" @click="openBiliLogin">扫码登录</button>
-            <button v-else class="small-btn" @click="logoutBili">退出登录</button>
+            <span>{{ biliLoggedIn ? (hasLiveSession ? l('已登录 · 可管理直播', 'Signed in · Stream controls enabled') : l('已登录 · 仅监控', 'Signed in · Monitoring only')) : l('未登录', 'Signed out') }}</span>
+            <button v-if="!biliLoggedIn" class="small-btn" @click="openBiliLogin">{{ l('扫码登录', 'QR sign-in') }}</button>
+            <button v-else class="small-btn" @click="logoutBili">{{ l('退出登录', 'Sign out') }}</button>
+          </div>
+          <div v-if="biliLoggedIn" class="btn-row account-actions">
+            <button class="small-btn" :disabled="liveActionLoading" @click="refreshLiveRoom">{{ l('刷新直播间', 'Refresh live room') }}</button>
+          </div>
+        </section>
+
+        <section v-if="liveRoom" class="section live-control-card">
+          <div class="live-card-title">
+            <div>
+              <div class="section-title">{{ l('直播控制', 'Stream controls') }}</div>
+              <strong>{{ liveRoom.live_status === 1 ? l('直播中', 'Live') : l('未开播', 'Offline') }}</strong>
+            </div>
+            <i class="status-dot" :class="{ connected: liveRoom.live_status === 1 }" />
+          </div>
+          <label class="live-field">
+            <span>{{ l('直播标题', 'Stream title') }}</span>
+            <input v-model="liveTitleDraft" class="dark-input full" maxlength="40">
+          </label>
+          <label class="live-field">
+            <span>{{ l('直播分区', 'Category') }}</span>
+            <select v-model.number="liveAreaDraft" class="dark-input full">
+              <optgroup v-for="[parent, areas] in groupedAreas" :key="parent" :label="parent">
+                <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
+              </optgroup>
+            </select>
+          </label>
+          <label class="live-field">
+            <span>{{ l('主播公告', 'Announcement') }}</span>
+            <textarea
+              v-model="liveAnnouncementDraft"
+              class="dark-input full live-announcement"
+              maxlength="200"
+              rows="3"
+              :placeholder="l('留空可隐藏主播公告', 'Leave empty to hide the announcement')"
+            />
+            <small>{{ liveAnnouncementDraft.length }}/200</small>
+          </label>
+          <div class="btn-row live-actions">
+            <button class="small-btn" :disabled="liveActionLoading" @click="saveLiveRoomInfo">{{ l('保存资料', 'Save details') }}</button>
+            <button class="primary-btn" :class="{ stop: liveRoom.live_status === 1 }" :disabled="liveActionLoading" @click="toggleLive">
+              {{ liveActionLoading ? l('处理中…', 'Processing...') : liveRoom.live_status === 1 ? l('停止直播', 'Stop stream') : l('开始直播', 'Start stream') }}
+            </button>
+          </div>
+          <small>{{ l('人气', 'Audience') }} {{ liveRoom.online }} · {{ l('房间', 'Room') }} {{ liveRoom.room_id }}</small>
+        </section>
+
+        <section v-if="streamEndpoints.length" class="section stream-card">
+          <div class="section-title">{{ l('OBS 推流信息', 'OBS streaming details') }}</div>
+          <div v-for="(endpoint, index) in streamEndpoints" :key="`${endpoint.protocol}-${index}`" class="endpoint-row">
+            <div class="endpoint-head">
+              <strong>{{ endpoint.protocol }}</strong>
+              <span v-if="copyFeedback">{{ copyFeedback }}</span>
+            </div>
+            <code>{{ endpoint.address }}</code>
+            <div class="secret-row">
+              <code>{{ visibleStreamKeys[index] ? endpoint.stream_key : '••••••••••••••••' }}</code>
+              <button class="small-btn" @click="visibleStreamKeys[index] = !visibleStreamKeys[index]">{{ visibleStreamKeys[index] ? l('隐藏', 'Hide') : l('显示', 'Show') }}</button>
+            </div>
+            <div class="btn-row">
+              <button class="small-btn" @click="copyStreamValue(endpoint.address, l('地址', 'Address'))">{{ l('复制地址', 'Copy address') }}</button>
+              <button class="small-btn" @click="copyStreamValue(endpoint.stream_key, l('密钥', 'Key'))">{{ l('复制密钥', 'Copy key') }}</button>
+            </div>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">绑定模式</div>
+          <div class="section-title">{{ l('绑定模式', 'Attachment mode') }}</div>
           <div class="toggle-group">
-            <button :class="{ active: config.attach_mode === 'hmd' }" @click="setAttachMode('hmd')">头显</button>
-            <button :class="{ active: config.attach_mode !== 'hmd' }" @click="setAttachMode('hand')">左手</button>
+            <button :class="{ active: config.attach_mode === 'hmd' }" @click="setAttachMode('hmd')">{{ l('头显', 'Headset') }}</button>
+            <button :class="{ active: config.attach_mode !== 'hmd' }" @click="setAttachMode('hand')">{{ l('左手', 'Left hand') }}</button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">显示切换</div>
+          <div class="section-title">{{ l('显示切换', 'Visibility toggle') }}</div>
           <div class="toggle-group three">
-            <button :class="{ active: config.toggle_hand === 'left' }" @click="setToggleHand('left')">左手柄</button>
-            <button :class="{ active: config.toggle_hand === 'right' }" @click="setToggleHand('right')">右手柄</button>
-            <button :class="{ active: config.toggle_hand === 'always_on' }" @click="setToggleHand('always_on')">常开</button>
+            <button :class="{ active: config.toggle_hand === 'left' }" @click="setToggleHand('left')">{{ l('左手柄', 'Left controller') }}</button>
+            <button :class="{ active: config.toggle_hand === 'right' }" @click="setToggleHand('right')">{{ l('右手柄', 'Right controller') }}</button>
+            <button :class="{ active: config.toggle_hand === 'always_on' }" @click="setToggleHand('always_on')">{{ l('常开', 'Always on') }}</button>
           </div>
         </section>
 
         <section v-if="config.attach_mode === 'hmd'" class="section">
-          <div class="section-title">预设位置</div>
+          <div class="section-title">{{ l('预设位置', 'Position presets') }}</div>
           <div class="btn-row">
-            <button class="small-btn" @click="applyPreset('left')">左前方</button>
-            <button class="small-btn" @click="applyPreset('center')">正前方</button>
-            <button class="small-btn" @click="applyPreset('right')">右前方</button>
+            <button class="small-btn" @click="applyPreset('left')">{{ l('左前方', 'Front left') }}</button>
+            <button class="small-btn" @click="applyPreset('center')">{{ l('正前方', 'Front center') }}</button>
+            <button class="small-btn" @click="applyPreset('right')">{{ l('右前方', 'Front right') }}</button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ config.attach_mode === 'hmd' ? '位置' : '位置微调' }}</div>
+          <div class="section-title">{{ config.attach_mode === 'hmd' ? l('位置', 'Position') : l('位置微调', 'Fine positioning') }}</div>
           <div class="slider-row">
-            <span>{{ config.attach_mode === 'hmd' ? '水平' : '左右' }}</span>
+            <span>{{ config.attach_mode === 'hmd' ? l('水平', 'Horizontal') : l('左右', 'Left / right') }}</span>
             <input v-model.number="config.x" type="range" :min="config.attach_mode === 'hmd' ? -1 : -0.1" :max="config.attach_mode === 'hmd' ? 1 : 0.1" :step="config.attach_mode === 'hmd' ? 0.02 : 0.01">
             <b>{{ config.x.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ config.attach_mode === 'hmd' ? '垂直' : '上下' }}</span>
+            <span>{{ config.attach_mode === 'hmd' ? l('垂直', 'Vertical') : l('上下', 'Up / down') }}</span>
             <input v-model.number="config.y" type="range" :min="config.attach_mode === 'hmd' ? -0.8 : 0" :max="config.attach_mode === 'hmd' ? 0.8 : 0.15" step="0.01">
             <b>{{ config.y.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ config.attach_mode === 'hmd' ? '距离' : '前后' }}</span>
+            <span>{{ config.attach_mode === 'hmd' ? l('距离', 'Distance') : l('前后', 'Forward / back') }}</span>
             <input v-model.number="config.z" type="range" :min="config.attach_mode === 'hmd' ? -1.5 : -0.1" :max="config.attach_mode === 'hmd' ? -0.3 : 0.1" step="0.01">
             <b>{{ config.z.toFixed(2) }}</b>
           </div>
         </section>
 
         <section v-if="config.attach_mode === 'hmd'" class="section">
-          <div class="section-title">角度</div>
+          <div class="section-title">{{ l('角度', 'Rotation') }}</div>
           <div class="slider-row">
-            <span>俯仰</span>
+            <span>{{ l('俯仰', 'Pitch') }}</span>
             <input v-model.number="config.pitch" type="range" min="-30" max="30" step="1">
             <b>{{ Math.round(config.pitch) }}°</b>
           </div>
           <div class="slider-row">
-            <span>偏航</span>
+            <span>{{ l('偏航', 'Yaw') }}</span>
             <input v-model.number="config.yaw" type="range" min="-30" max="30" step="1">
             <b>{{ Math.round(config.yaw) }}°</b>
           </div>
           <div class="slider-row">
-            <span>翻滚</span>
+            <span>{{ l('翻滚', 'Roll') }}</span>
             <input v-model.number="config.roll" type="range" min="-20" max="20" step="1">
             <b>{{ Math.round(config.roll) }}°</b>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">外观</div>
+          <div class="section-title">{{ l('外观', 'Appearance') }}</div>
           <div class="slider-row">
-            <span>大小</span>
+            <span>{{ l('大小', 'Size') }}</span>
             <input v-model.number="config.overlay_width_m" type="range" min="0.15" max="0.8" step="0.01">
             <b>{{ config.overlay_width_m.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>透明</span>
+            <span>{{ l('透明', 'Opacity') }}</span>
             <input v-model.number="config.overlay_alpha" type="range" min="0.3" max="1" step="0.02">
             <b>{{ config.overlay_alpha.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>背景</span>
+            <span>{{ l('背景', 'Background') }}</span>
             <input v-model.number="config.bg_alpha" type="range" min="0" max="1" step="0.05">
             <b>{{ config.bg_alpha.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>字号</span>
+            <span>{{ l('字号', 'Font size') }}</span>
             <input v-model.number="config.font_size" type="range" min="10" max="20" step="1">
             <b>{{ Math.round(config.font_size) }}</b>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">显示内容</div>
+          <div class="section-title">{{ l('显示内容', 'Visible events') }}</div>
           <div class="checkbox-grid">
-            <label><input v-model="config.show_danmaku" type="checkbox">弹幕</label>
-            <label><input v-model="config.show_gift" type="checkbox">礼物</label>
+            <label><input v-model="config.show_danmaku" type="checkbox">{{ l('弹幕', 'Danmaku') }}</label>
+            <label><input v-model="config.show_gift" type="checkbox">{{ l('礼物', 'Gifts') }}</label>
             <label><input v-model="config.show_sc" type="checkbox">SC</label>
-            <label><input v-model="config.show_guard" type="checkbox">舰长</label>
-            <label><input v-model="config.show_follow" type="checkbox">关注</label>
-            <label><input v-model="config.show_enter" type="checkbox">进入</label>
+            <label><input v-model="config.show_guard" type="checkbox">{{ l('舰长', 'Guards') }}</label>
+            <label><input v-model="config.show_follow" type="checkbox">{{ l('关注', 'Follows') }}</label>
+            <label><input v-model="config.show_enter" type="checkbox">{{ l('进入', 'Joins') }}</label>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">VR 调整</div>
+          <div class="section-title">{{ l('VR 调整', 'VR adjustment') }}</div>
           <div class="hint-box">
-            <p>启动后会创建真实 SteamVR 弹幕 Overlay。</p>
-            <p>在 VR 内按应用菜单键调出调整菜单；摇杆/触控板调位置，按住扳机调距离和大小，Grip 显示/隐藏弹幕窗口。</p>
+            <p>{{ l('启动后会创建真实 SteamVR 弹幕 Overlay。', 'Starting creates a real SteamVR message overlay.') }}</p>
+            <p>{{ l('在 VR 内按应用菜单键调出调整菜单；摇杆/触控板调位置，按住扳机调距离和大小，Grip 显示/隐藏弹幕窗口。', 'In VR, open the adjustment menu with the application menu button. Use the stick or touchpad to position it, hold the trigger for distance and size, and use Grip to show or hide the overlay.') }}</p>
           </div>
           <div class="btn-row">
-            <button class="small-btn" @click="toggleOverlay">{{ config.overlay_visible ? '隐藏窗口' : '显示窗口' }}</button>
-            <button class="small-btn" @click="toggleVrMenu">{{ config.vr_menu_visible ? '隐藏 VR 菜单' : '调出 VR 菜单' }}</button>
-            <button class="small-btn" @click="resetPosition">重置位置</button>
-            <button class="small-btn" @click="saveSettings">{{ saved ? '已保存' : '保存配置' }}</button>
+            <button class="small-btn" @click="toggleOverlay">{{ config.overlay_visible ? l('隐藏窗口', 'Hide overlay') : l('显示窗口', 'Show overlay') }}</button>
+            <button class="small-btn" @click="toggleVrMenu">{{ config.vr_menu_visible ? l('隐藏 VR 菜单', 'Hide VR menu') : l('调出 VR 菜单', 'Show VR menu') }}</button>
+            <button class="small-btn" @click="resetPosition">{{ l('重置位置', 'Reset position') }}</button>
+            <button class="small-btn" @click="saveSettings">{{ saved ? l('已保存', 'Saved') : l('保存配置', 'Save settings') }}</button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">测试</div>
-          <input v-model="previewText" class="dark-input full" placeholder="测试弹幕内容">
+          <div class="section-title">{{ l('测试', 'Test') }}</div>
+          <input v-model="previewText" class="dark-input full" :placeholder="l('测试弹幕内容', 'Test message')">
           <div class="btn-row test-row">
-            <button class="small-btn" @click="sendTest('danmaku')">弹幕</button>
+            <button class="small-btn" @click="sendTest('danmaku')">{{ l('弹幕', 'Danmaku') }}</button>
             <button class="small-btn" @click="sendTest('sc')">SC</button>
-            <button class="small-btn" @click="sendTest('gift')">礼物</button>
-            <button class="small-btn" @click="sendTest('enter')">进入</button>
-            <button class="small-btn" @click="sendTest('warning')">警告</button>
+            <button class="small-btn" @click="sendTest('gift')">{{ l('礼物', 'Gift') }}</button>
+            <button class="small-btn" @click="sendTest('enter')">{{ l('进入', 'Join') }}</button>
+            <button class="small-btn" @click="sendTest('warning')">{{ l('警告', 'Warning') }}</button>
           </div>
         </section>
       </div>
@@ -682,33 +949,45 @@ onUnmounted(() => {
     <main class="vrcdog-main">
       <header class="log-header live-header">
         <div>
-          <strong>直播互动</strong>
-          <span>桌面与 SteamVR 实时同步</span>
+          <strong>{{ l('直播互动', 'Live Interaction') }}</strong>
+          <span>{{ l('桌面与 SteamVR 实时同步', 'Real-time desktop and SteamVR sync') }}</span>
         </div>
         <div class="live-summary">
-          <span>人气 {{ status.online }}</span>
-          <span>消息 {{ status.message_count }}</span>
-          <button class="small-btn" :title="`切换到${liveThemeEnabled ? '软件主题' : '直播姬风格'}`" @click="toggleLiveTheme">{{ liveThemeLabel }}</button>
-          <button class="small-btn" @click="clearMessages">清空消息</button>
+          <span>{{ l('人气', 'Audience') }} {{ status.online }}</span>
+          <span>{{ l('消息', 'Messages') }} {{ status.message_count }}</span>
+          <button v-if="liveRoom" class="small-btn" :disabled="rankLoading" @click="refreshContributionRank">{{ rankLoading ? l('榜单加载中', 'Loading ranking') : l('刷新榜单', 'Refresh ranking') }}</button>
+          <button class="small-btn" :title="l(`切换到${liveThemeEnabled ? '软件主题' : '直播姬风格'}`, `Switch to ${liveThemeEnabled ? 'app theme' : 'streamer theme'}`)" @click="toggleLiveTheme">{{ liveThemeLabel }}</button>
+          <button class="small-btn" @click="clearMessages">{{ l('清空消息', 'Clear messages') }}</button>
         </div>
       </header>
 
-      <div v-if="error || status.last_error" class="error-banner">
-        {{ error || status.last_error }}
+      <div v-if="error || status.last_error || liveManageError" class="error-banner">
+        {{ error || status.last_error || liveManageError }}
       </div>
 
-      <div class="live-toolbar" aria-label="消息分类">
-        <span class="filter-pill active">全部</span>
-        <span class="filter-pill">弹幕</span>
-        <span class="filter-pill">礼物</span>
-        <span class="filter-pill">SC</span>
-        <span class="filter-pill">舰长</span>
+      <div class="live-toolbar" :aria-label="l('消息分类', 'Message categories')">
+        <button class="filter-pill" :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">{{ l('全部', 'All') }}</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'danmaku' }" @click="activeFilter = 'danmaku'">{{ l('弹幕', 'Danmaku') }}</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'gift' }" @click="activeFilter = 'gift'">{{ l('礼物', 'Gifts') }}</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'sc' }" @click="activeFilter = 'sc'">SC</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'guard' }" @click="activeFilter = 'guard'">{{ l('舰长', 'Guards') }}</button>
+      </div>
+
+      <div v-if="liveRoom && hasLiveSession" class="send-bar">
+        <input v-model="outgoingDanmaku" class="dark-input" maxlength="30" :placeholder="l('发送 Bilibili 弹幕（最多 30 字）', 'Send a Bilibili message (30 characters max)')" @keydown.enter="sendLiveDanmaku">
+        <span>{{ outgoingDanmaku.length }}/30</span>
+        <button class="primary-btn" :disabled="sendDanmakuLoading || !outgoingDanmaku.trim()" @click="sendLiveDanmaku">{{ l('发送', 'Send') }}</button>
+      </div>
+
+      <div v-if="contributionRank.length" class="rank-strip">
+        <strong>{{ l('在线贡献榜', 'Top Contributors') }}</strong>
+        <span v-for="item in contributionRank.slice(0, 5)" :key="item.uid">#{{ item.rank }} {{ item.name }} · {{ item.score }}</span>
       </div>
 
       <div class="live-feed">
         <div v-if="!activeMessages.length" class="live-empty">
-          <strong>{{ status.running ? '正在等待真实直播消息' : '连接直播间后显示互动消息' }}</strong>
-          <span>普通弹幕、礼物、SC、舰长、进入与关注会分层显示，并同步到 VR 面板。</span>
+          <strong>{{ status.running ? l('正在等待真实直播消息', 'Waiting for live messages') : l('连接直播间后显示互动消息', 'Connect to a live room to see interactions') }}</strong>
+          <span>{{ l('普通弹幕、礼物、SC、舰长、进入与关注会分层显示，并同步到 VR 面板。', 'Messages, gifts, Super Chats, guards, joins, and follows are grouped and synced to the VR panel.') }}</span>
         </div>
 
         <article
@@ -717,10 +996,10 @@ onUnmounted(() => {
           class="message-card"
           :class="messageClass(message)"
         >
-          <div class="message-avatar" aria-hidden="true">{{ message.user.trim().charAt(0) || '哔' }}</div>
+          <div class="message-avatar" aria-hidden="true">{{ message.user.trim().charAt(0) || 'B' }}</div>
           <div class="message-content">
             <div class="message-meta">
-              <strong :title="message.user">{{ message.user || '系统' }}</strong>
+              <strong :title="message.user">{{ message.user || l('系统', 'System') }}</strong>
               <span v-if="message.medal_name" class="medal-badge">
                 {{ message.medal_name }} {{ message.medal_level || '' }}
               </span>
@@ -728,7 +1007,7 @@ onUnmounted(() => {
               <time>{{ formatMessageTime(message) }}</time>
             </div>
             <p v-if="message.text" :title="message.text">{{ message.text }}</p>
-            <p v-else class="message-placeholder">{{ eventLabel(message) }}消息</p>
+            <p v-else class="message-placeholder">{{ l(`${eventLabel(message)}消息`, `${eventLabel(message)} event`) }}</p>
             <div v-if="message.price || message.gift_count" class="message-value">
               <span v-if="message.price">¥{{ message.price.toFixed(2) }}</span>
               <span v-if="message.gift_count">× {{ message.gift_count }}</span>
@@ -738,9 +1017,9 @@ onUnmounted(() => {
       </div>
 
       <details class="runtime-log">
-        <summary>运行日志 <span>{{ logs.length }}</span></summary>
+        <summary>{{ l('运行日志', 'Runtime log') }} <span>{{ logs.length }}</span></summary>
         <div class="runtime-log-actions">
-          <button class="small-btn" @click="clearLog">清空日志</button>
+          <button class="small-btn" @click="clearLog">{{ l('清空日志', 'Clear log') }}</button>
         </div>
         <div class="runtime-log-body">
           <div v-for="line in logs" :key="line" class="log-entry">{{ line }}</div>
@@ -750,15 +1029,15 @@ onUnmounted(() => {
 
     <div v-if="qrModalOpen" class="modal-mask">
       <div class="qr-modal">
-        <h2>Bilibili 扫码登录</h2>
+        <h2>{{ l('Bilibili 扫码登录', 'Bilibili QR sign-in') }}</h2>
         <p>{{ qrStatusText }}</p>
         <div class="qr-box">
-          <span v-if="!qrCodeUrl">生成中...</span>
+          <span v-if="!qrCodeUrl">{{ l('生成中...', 'Generating...') }}</span>
           <img v-else :src="qrCodeUrl" alt="Bilibili login QR code">
         </div>
         <div class="btn-row">
-          <button class="small-btn" @click="closeBiliLogin">关闭</button>
-          <button class="primary-btn" :disabled="qrLoading" @click="openBiliLogin">重新生成</button>
+          <button class="small-btn" @click="closeBiliLogin">{{ l('关闭', 'Close') }}</button>
+          <button class="primary-btn" :disabled="qrLoading" @click="openBiliLogin">{{ l('重新生成', 'Generate again') }}</button>
         </div>
       </div>
     </div>
@@ -893,6 +1172,18 @@ onUnmounted(() => {
 .dark-input:focus {
   border-color: var(--dm-accent);
 }
+.live-announcement {
+  box-sizing: border-box;
+  min-height: 68px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.45;
+}
+.live-field > small {
+  margin-top: -5px;
+  color: var(--dm-dim);
+  text-align: right;
+}
 .primary-btn,
 .small-btn {
   border: 0;
@@ -925,6 +1216,75 @@ onUnmounted(() => {
   background: var(--dm-panel);
 }
 .account-row span {
+  flex: 1;
+}
+.account-actions {
+  margin-top: 7px;
+}
+.live-control-card,
+.stream-card {
+  padding: 11px;
+  border: 1px solid var(--dm-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dm-panel) 78%, transparent);
+}
+.live-card-title,
+.endpoint-head,
+.secret-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.live-card-title {
+  margin-bottom: 10px;
+}
+.live-card-title .section-title {
+  margin-bottom: 2px;
+}
+.live-field {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 8px;
+  color: var(--dm-muted);
+  font-size: 11px;
+}
+.live-field select {
+  appearance: auto;
+}
+.live-actions .primary-btn {
+  flex: 1;
+}
+.primary-btn.stop {
+  background: var(--dm-danger);
+}
+.live-control-card > small {
+  display: block;
+  margin-top: 8px;
+  color: var(--dm-dim);
+}
+.endpoint-row {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 9px;
+  border-radius: 7px;
+  background: var(--dm-side);
+}
+.endpoint-head span {
+  color: var(--dm-success);
+  font-size: 10px;
+}
+.endpoint-row code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dm-muted);
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.secret-row code {
   flex: 1;
 }
 .toggle-group {
@@ -1047,11 +1407,42 @@ onUnmounted(() => {
   color: var(--dm-muted);
   background: var(--dm-panel);
   font-size: 12px;
+  cursor: pointer;
 }
 .filter-pill.active {
   color: var(--dm-accent);
   border-color: color-mix(in srgb, var(--dm-accent) 48%, var(--dm-border));
   background: color-mix(in srgb, var(--dm-accent) 13%, transparent);
+}
+.send-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+.send-bar > span {
+  color: var(--dm-dim);
+  font-size: 11px;
+}
+.rank-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px 0;
+  overflow-x: auto;
+  color: var(--dm-muted);
+  font-size: 11px;
+}
+.rank-strip strong {
+  flex: 0 0 auto;
+  color: var(--dm-gold);
+}
+.rank-strip span {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--dm-panel);
 }
 .live-feed {
   min-height: 0;
@@ -1247,5 +1638,44 @@ onUnmounted(() => {
 ::-webkit-scrollbar-thumb {
   background: var(--dm-border);
   border-radius: 999px;
+}
+
+@media (max-width: 860px) {
+  .vrcdog-shell {
+    flex-direction: column;
+  }
+
+  .vrcdog-sidebar {
+    width: 100%;
+    min-width: 0;
+    max-height: 46%;
+    box-shadow: inset 0 -1px 0 var(--dm-border);
+  }
+
+  .vrcdog-main {
+    min-height: 0;
+  }
+
+  .live-header {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .live-summary {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 560px) {
+  .vrcdog-sidebar { max-height: 50%; }
+  .live-header { flex-direction: column; }
+  .live-summary { justify-content: flex-start; }
+  .live-toolbar { overflow-x: auto; }
+  .send-bar { grid-template-columns: minmax(0, 1fr) auto; }
+  .send-bar > span { display: none; }
+  .message-meta { flex-wrap: wrap; }
+  .message-meta time { width: 100%; margin-left: 0; }
 }
 </style>

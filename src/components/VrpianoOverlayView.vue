@@ -188,12 +188,26 @@ const closeOverlay = async () => {
 };
 
 watch(overlayOpacity, (value) => {
-  overlayOpacity.value = Math.min(1, Math.max(0.3, Number(value) || 0.88));
+  const next = Math.min(1, Math.max(0.3, Number(value) || 0.88));
+  if (Math.abs(next - Number(overlayOpacity.value)) > 1e-6) overlayOpacity.value = next;
 });
 
 watch(overlayBlur, (value) => {
-  overlayBlur.value = Math.min(40, Math.max(0, Number(value) || 0));
+  const next = Math.min(40, Math.max(0, Number(value) || 0));
+  if (Math.abs(next - Number(overlayBlur.value)) > 1e-6) overlayBlur.value = next;
 });
+
+const handleOpacityInput = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const next = Math.min(1, Math.max(0.3, Number(target.value) || 0.88));
+  overlayOpacity.value = next;
+};
+
+const handleBlurInput = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const next = Math.min(40, Math.max(0, Number(target.value) || 0));
+  overlayBlur.value = next;
+};
 
 onMounted(async () => {
   try {
@@ -251,15 +265,39 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <section v-if="settingsOpen" class="appearance-settings" data-no-drag>
+    <section v-if="settingsOpen" class="appearance-settings" data-no-drag @mousedown.stop @pointerdown.stop @click.stop>
       <label>
         <span>背景透明度</span>
-        <input v-model.number="overlayOpacity" type="range" min="0.3" max="1" step="0.05">
+        <input
+          v-model.number="overlayOpacity"
+          type="range"
+          min="0.3"
+          max="1"
+          step="0.05"
+          class="overlay-slider"
+          data-no-drag
+          @mousedown.stop
+          @pointerdown.stop
+          @click.stop
+          @input="handleOpacityInput"
+        >
         <b>{{ Math.round(overlayOpacity * 100) }}%</b>
       </label>
       <label>
         <span>背景模糊度</span>
-        <input v-model.number="overlayBlur" type="range" min="0" max="40" step="2">
+        <input
+          v-model.number="overlayBlur"
+          type="range"
+          min="0"
+          max="40"
+          step="2"
+          class="overlay-slider"
+          data-no-drag
+          @mousedown.stop
+          @pointerdown.stop
+          @click.stop
+          @input="handleBlurInput"
+        >
         <b>{{ overlayBlur }}px</b>
       </label>
     </section>
@@ -481,6 +519,57 @@ input {
 .appearance-settings input {
   min-width: 0;
   accent-color: var(--theme-primary);
+}
+
+.appearance-settings .overlay-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.appearance-settings .overlay-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-primary) 22%, var(--theme-border-soft));
+}
+
+.appearance-settings .overlay-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-primary) 22%, var(--theme-border-soft));
+}
+
+.appearance-settings .overlay-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--theme-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-primary) 18%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.appearance-settings .overlay-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--theme-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-primary) 18%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .appearance-settings b {

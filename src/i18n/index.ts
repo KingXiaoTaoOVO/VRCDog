@@ -2,6 +2,7 @@ import { createI18n } from 'vue-i18n';
 import zhCN from './locales/zh-CN.json';
 import cs from './locales/cs.json';
 import enUS from './locales/en-US.json';
+import enUSSupplement from './locales/en-US.supplement';
 import jaJP from './locales/ja-JP.json';
 import es from './locales/es.json';
 import fr from './locales/fr.json';
@@ -13,6 +14,8 @@ import ru from './locales/ru.json';
 import th from './locales/th.json';
 import vi from './locales/vi.json';
 import zhTW from './locales/zh-TW.json';
+import yue from './locales/yue.json';
+import { nativeCoreMessages } from './locales/native-core';
 import {
   FALLBACK_LOCALE,
   getPreferredLocale,
@@ -59,26 +62,30 @@ function mergeMessages(...sources: LocaleMessages[]): LocaleMessages {
   return result;
 }
 
-const withEnglishFallback = (messages: LocaleMessages = {}) => mergeMessages(zhCN, enUS, messages);
+const effectiveEnUS = mergeMessages(enUS, enUSSupplement);
+const withEnglishFallback = (locale: AppLocale, messages: LocaleMessages = {}) => (
+  mergeMessages(zhCN, effectiveEnUS, messages, nativeCoreMessages[locale] || {})
+);
 const withChineseFallback = (messages: LocaleMessages = {}) => mergeMessages(zhCN, messages);
 
 const savedLocale = getPreferredLocale();
 
 const messages: Record<AppLocale, LocaleMessages> = {
-  'cs': withEnglishFallback(cs),
+  'cs': withEnglishFallback('cs', cs),
   'zh-CN': zhCN as LocaleMessages,
-  'en-US': withChineseFallback(enUS),
-  'ja-JP': withEnglishFallback(jaJP),
-  'es': withEnglishFallback(es),
-  'fr': withEnglishFallback(fr),
-  'hu': withEnglishFallback(hu),
-  'ko': withEnglishFallback(ko),
-  'pl': withEnglishFallback(pl),
-  'pt': withEnglishFallback(pt),
-  'ru': withEnglishFallback(ru),
-  'th': withEnglishFallback(th),
-  'vi': withEnglishFallback(vi),
-  'zh-TW': withChineseFallback(zhTW)
+  'en-US': withChineseFallback(effectiveEnUS),
+  'ja-JP': withEnglishFallback('ja-JP', jaJP),
+  'es': withEnglishFallback('es', es),
+  'fr': withEnglishFallback('fr', fr),
+  'hu': withEnglishFallback('hu', hu),
+  'ko': withEnglishFallback('ko', ko),
+  'pl': withEnglishFallback('pl', pl),
+  'pt': withEnglishFallback('pt', pt),
+  'ru': withEnglishFallback('ru', ru),
+  'th': withEnglishFallback('th', th),
+  'vi': withEnglishFallback('vi', vi),
+  'yue': withEnglishFallback('yue', yue),
+  'zh-TW': mergeMessages(zhCN, zhTW, nativeCoreMessages['zh-TW'] || {})
 };
 
 const i18n = createI18n({

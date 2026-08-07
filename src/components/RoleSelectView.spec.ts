@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SUPPORTED_LOCALES } from '../i18n/languages';
 
 vi.hoisted(() => {
   const values = new Map<string, string>();
@@ -47,6 +48,7 @@ vi.mock('../api', () => ({
 }));
 
 import i18n, { setAppLocale } from '../i18n';
+import { currentThemeId, setTheme } from '../theme';
 import RoleSelectView from './RoleSelectView.vue';
 
 const mountRoleSelect = () => mount(RoleSelectView, {
@@ -59,6 +61,7 @@ describe('RoleSelectView', () => {
   beforeEach(() => {
     localStorage.clear();
     setAppLocale('zh-CN', { persist: false });
+    setTheme('dog');
     mocks.getClientServerConfig.mockReset().mockResolvedValue({
       server_url: 'http://127.0.0.1:11451',
     });
@@ -68,6 +71,43 @@ describe('RoleSelectView', () => {
     mocks.saveClientServerConfig.mockReset().mockResolvedValue(undefined);
     mocks.saveSetting.mockReset().mockResolvedValue(undefined);
     mocks.verifyServerPassword.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('offers every supported language and persists direct selection', async () => {
+    const wrapper = mountRoleSelect();
+    await flushPromises();
+
+    await wrapper.findAll('.control-button')[1].trigger('click');
+    const languageOptions = wrapper.findAll('.language-option');
+    expect(languageOptions).toHaveLength(SUPPORTED_LOCALES.length);
+
+    await languageOptions[1].trigger('click');
+    await flushPromises();
+
+    expect(i18n.global.locale.value).toBe('en-US');
+    expect(mocks.saveSetting).toHaveBeenCalledWith({
+      key: 'language',
+      value: JSON.stringify('en-US'),
+    });
+  });
+
+  it('switches and persists the visual theme from the startup screen', async () => {
+    const wrapper = mountRoleSelect();
+    await flushPromises();
+
+    await wrapper.findAll('.control-button')[0].trigger('click');
+    const themeOptions = wrapper.findAll('.theme-option');
+    expect(themeOptions).toHaveLength(4);
+
+    await themeOptions[1].trigger('click');
+    await flushPromises();
+
+    expect(currentThemeId.value).toBe('cat');
+    expect(mocks.saveSetting).toHaveBeenCalledWith({
+      key: 'theme',
+      value: JSON.stringify('cat'),
+    });
+    expect(wrapper.find('.theme-popover').exists()).toBe(false);
   });
 
   it('keeps client mode to one persisted server URL field', async () => {

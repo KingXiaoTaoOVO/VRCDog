@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { SysApi, VrcApi } from "../api";
-import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database } from 'lucide-vue-next';
+import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import OscWorkbench from './OscWorkbench.vue';
@@ -13,6 +13,10 @@ const isVrcRunning = ref(false);
 const cacheStatus = ref({ loading: false, message: '', type: '' });
 const rpcForm = ref({ details: 'Using VrcDog', state: 'Chilling in VRChat' });
 const rpcStatus = ref({ loading: false, message: '', type: '' });
+const chatboxText = ref('');
+const chatboxStatus = ref({ loading: false, message: '', type: '' });
+const instanceTarget = ref('');
+const instanceStatus = ref({ loading: false, message: '', type: '' });
 
 const dirStatus = ref({ message: '', type: '' });
 let vrcStatusTimer: ReturnType<typeof setInterval> | null = null;
@@ -25,12 +29,12 @@ type InviteTemplateSlot = {
   updatedAt?: string;
 };
 
-const inviteMessageTypes: { key: InviteMessageType; label: string; description: string }[] = [
-  { key: 'message', label: '邀请', description: '邀请好友来当前实例时使用' },
-  { key: 'request', label: '申请加入', description: '向好友请求邀请时使用' },
-  { key: 'response', label: '回绝邀请', description: '回应别人邀请时使用' },
-  { key: 'requestResponse', label: '回绝加入申请', description: '回应别人加入请求时使用' },
-];
+const inviteMessageTypes = computed<{ key: InviteMessageType; label: string; description: string }[]>(() => [
+  { key: 'message', label: t('tools.invite_type_message'), description: t('tools.invite_type_message_desc') },
+  { key: 'request', label: t('tools.invite_type_request'), description: t('tools.invite_type_request_desc') },
+  { key: 'response', label: t('tools.invite_type_response'), description: t('tools.invite_type_response_desc') },
+  { key: 'requestResponse', label: t('tools.invite_type_request_response'), description: t('tools.invite_type_request_response_desc') },
+]);
 const activeInviteMessageType = ref<InviteMessageType>('message');
 const inviteTemplateSlots = ref<InviteTemplateSlot[]>([]);
 const inviteTemplateLoading = ref(false);
@@ -38,7 +42,7 @@ const inviteTemplateSaving = ref('');
 const inviteTemplateStatus = ref({ message: '', type: '' });
 
 const activeInviteMessageMeta = computed(() =>
-  inviteMessageTypes.find(item => item.key === activeInviteMessageType.value) || inviteMessageTypes[0]
+  inviteMessageTypes.value.find(item => item.key === activeInviteMessageType.value) || inviteMessageTypes.value[0]
 );
 
 function normalizeInviteTemplateSlots(raw: any): InviteTemplateSlot[] {
@@ -70,13 +74,13 @@ function normalizeInviteTemplateSlots(raw: any): InviteTemplateSlot[] {
 }
 
 function inviteTemplateCooldownText(row: InviteTemplateSlot) {
-  if (!row.updatedAt) return '可用';
+  if (!row.updatedAt) return t('tools.invite_available');
   const updated = new Date(row.updatedAt).getTime();
-  if (!Number.isFinite(updated)) return '可用';
+  if (!Number.isFinite(updated)) return t('tools.invite_available');
   const remaining = updated + 60 * 60 * 1000 - Date.now();
-  if (remaining <= 0) return '可用';
+  if (remaining <= 0) return t('tools.invite_available');
   const min = Math.ceil(remaining / 60000);
-  return `${min} 分钟`;
+  return t('tools.invite_minutes', { count: min });
 }
 
 async function loadInviteTemplates(type: InviteMessageType = activeInviteMessageType.value) {
@@ -110,7 +114,7 @@ async function saveInviteTemplateSlot(row: InviteTemplateSlot) {
     });
     row.savedMessage = row.message.trim();
     row.updatedAt = new Date().toISOString();
-    inviteTemplateStatus.value = { message: `Slot ${row.slot + 1} 已保存`, type: 'success' };
+    inviteTemplateStatus.value = { message: t('tools.invite_saved', { slot: row.slot + 1 }), type: 'success' };
   } catch (err: any) {
     inviteTemplateStatus.value = { message: err?.message || String(err), type: 'error' };
   } finally {
@@ -153,6 +157,40 @@ const setRpc = async () => {
     rpcStatus.value = { loading: false, message: t('tools.rpc_success'), type: 'success' };
   } catch (err: any) {
     rpcStatus.value = { loading: false, message: t('tools.rpc_fail', { err: err.message || err }), type: 'error' };
+  }
+};
+
+const sendChatboxMessage = async () => {
+  const text = chatboxText.value.trim();
+  if (!text) return;
+  chatboxStatus.value = { loading: true, message: '', type: '' };
+  try {
+    await SysApi.sendOscChatbox({ text, complete: true });
+    chatboxText.value = '';
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
+  } catch (err: any) {
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
+  }
+};
+
+const launchInstance = async () => {
+  const value = instanceTarget.value.trim();
+  if (!value) return;
+  instanceStatus.value = { loading: true, message: '', type: '' };
+  try {
+    let url = value;
+    if (!/^https?:\/\//i.test(value)) {
+      const [worldId, ...instanceParts] = value.split(':');
+      if (!worldId.startsWith('wrld_')) throw new Error(t('tools.instance_invalid'));
+      const query = new URLSearchParams({ worldId });
+      const instanceId = instanceParts.join(':').trim();
+      if (instanceId) query.set('instanceId', instanceId);
+      url = `https://vrchat.com/home/launch?${query.toString()}`;
+    }
+    await SysApi.openUrl({ url });
+    instanceStatus.value = { loading: false, message: t('tools.instance_opened'), type: 'success' };
+  } catch (err: any) {
+    instanceStatus.value = { loading: false, message: t('tools.instance_fail', { err: err?.message || err }), type: 'error' };
   }
 };
 
@@ -379,6 +417,66 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Chatbox quick send -->
+      <div class="bg-surface rounded-lg p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <h3 class="font-extrabold text-text mb-2 flex items-center gap-2 text-lg">
+          <MessageSquare class="text-primary" :size="20" /> {{ t('tools.chatbox_title') }}
+        </h3>
+        <p class="text-sm text-text-muted font-medium mb-4">{{ t('tools.chatbox_desc') }}</p>
+        <div class="mt-auto space-y-2">
+          <textarea
+            v-model="chatboxText"
+            class="w-full min-h-20 px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm text-text outline-none resize-none focus:border-primary"
+            :placeholder="t('tools.chatbox_placeholder')"
+            maxlength="144"
+            @keydown.ctrl.enter.prevent="sendChatboxMessage"
+          />
+          <div class="flex items-center justify-between text-[10px] text-text-muted font-bold">
+            <span v-if="chatboxStatus.message" :class="chatboxStatus.type === 'success' ? 'text-emerald-600' : 'text-red-600'">{{ chatboxStatus.message }}</span>
+            <span v-else>{{ t('tools.chatbox_hint') }}</span>
+            <span>{{ chatboxText.length }}/144</span>
+          </div>
+          <button
+            :disabled="chatboxStatus.loading || !chatboxText.trim()"
+            class="w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-colors"
+            @click="sendChatboxMessage"
+          >
+            <Loader2 v-if="chatboxStatus.loading" class="animate-spin" :size="16" />
+            <Send v-else :size="16" />
+            {{ t('tools.chatbox_send') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Instance launcher -->
+      <div class="bg-surface rounded-lg p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <h3 class="font-extrabold text-text mb-2 flex items-center gap-2 text-lg">
+          <MapPin class="text-primary" :size="20" /> {{ t('tools.instance_title') }}
+        </h3>
+        <p class="text-sm text-text-muted font-medium mb-4">{{ t('tools.instance_desc') }}</p>
+        <div class="mt-auto space-y-2">
+          <input
+            v-model="instanceTarget"
+            type="text"
+            class="w-full px-3 py-2.5 bg-surface-hover border border-border-soft rounded-lg text-sm text-text font-mono outline-none focus:border-primary"
+            :placeholder="t('tools.instance_placeholder')"
+            @keydown.enter.prevent="launchInstance"
+          >
+          <div v-if="instanceStatus.message" class="text-[10px] font-bold" :class="instanceStatus.type === 'success' ? 'text-emerald-600' : 'text-red-600'">
+            {{ instanceStatus.message }}
+          </div>
+          <button
+            :disabled="instanceStatus.loading || !instanceTarget.trim()"
+            class="w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-colors"
+            @click="launchInstance"
+          >
+            <Loader2 v-if="instanceStatus.loading" class="animate-spin" :size="16" />
+            <ExternalLink v-else :size="16" />
+            {{ t('tools.instance_open') }}
+          </button>
+        </div>
+      </div>
+
       <OscWorkbench />
 
       <!-- Invite message templates -->
@@ -387,10 +485,10 @@ onUnmounted(() => {
         <div class="flex flex-wrap items-start justify-between gap-3 mb-4 relative z-10">
           <div>
             <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
-              <MessageSquare class="text-primary" :size="20" /> 邀请消息模板
+              <MessageSquare class="text-primary" :size="20" /> {{ t('tools.invite_title') }}
             </h3>
             <p class="text-xs text-text-muted font-medium mt-1">
-              管理 VRChat 的 4 类邀请/回应消息，每类 4 个槽位。
+              {{ t('tools.invite_desc') }}
             </p>
           </div>
           <button
@@ -400,7 +498,7 @@ onUnmounted(() => {
           >
             <Loader2 v-if="inviteTemplateLoading" class="animate-spin" :size="14" />
             <MessageSquare v-else :size="14" />
-            刷新
+            {{ t('tools.invite_refresh') }}
           </button>
         </div>
 
@@ -447,7 +545,7 @@ onUnmounted(() => {
                 maxlength="64"
                 rows="3"
                 class="w-full p-2 rounded-lg bg-surface border-border-soft text-sm text-text outline-none resize-none"
-                placeholder="输入消息内容"
+                :placeholder="t('tools.invite_placeholder')"
               />
               <div class="flex items-center justify-between mt-2">
                 <span class="text-[10px] text-text-muted">{{ row.message.length }}/64</span>
@@ -461,7 +559,7 @@ onUnmounted(() => {
                     class="animate-spin"
                     :size="12"
                   />
-                  保存
+                  {{ t('tools.invite_save') }}
                 </button>
               </div>
             </div>
