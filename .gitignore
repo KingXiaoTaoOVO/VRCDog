@@ -30,6 +30,7 @@ dist-ssr
 
 # Agent and temporary files
 skills使用说明
+.workbuddy-ai/
 *.tsbuildinfo
 .scratch/
 /.cargo-target/
