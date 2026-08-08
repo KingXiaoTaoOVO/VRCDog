@@ -32,6 +32,12 @@ dist-ssr
 skills使用说明
 .workbuddy-ai/
 *.tsbuildinfo
+*.pdb
+
+# Local sibling workspaces (separate projects, not part of VRCDog source/build)
+# 弹幕姬/ 是独立工作区（C# VRDanmaku、Tauri bili-live-hime、Python bilibili_live_stream_code 三个子仓库 + 350MB 运行时），
+# 与 VRCDog 自带直播姬（src-tauri/src/danmaku.rs）无关，排除以保证仓库轻量。
+/弹幕姬/
 .scratch/
 /.cargo-target/
 logs/
