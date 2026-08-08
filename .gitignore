@@ -50,7 +50,7 @@ docs/agents/
 *.py[cod]
 .midishow_cookies.json
 
-# AtomCode local-scope configs (machine-specific)
-.atomcode/local/
+# AtomCode machine-specific state (IDE setup state, not project code)
+.atomcode/
 /src-tauri/resources/python-runtime*/
 /src-tauri/scripts/.ffmpeg-download/
