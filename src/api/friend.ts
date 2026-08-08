@@ -49,7 +49,11 @@ export const FriendApi = {
       }
     }
 
-    if ((completedPartitions === 0 || byId.size === 0) && firstError) throw firstError;
+    // VRCX treats a partially-fetched friend list as a failure — it never
+    // displays a silently truncated roster. If any partition errored mid-pagination
+    // the combined set is incomplete, so surface the error and let the caller fall
+    // back to its cached snapshot instead of showing fewer friends than reality.
+    if (firstError) throw firstError;
     return Array.from(byId.values());
   },
 

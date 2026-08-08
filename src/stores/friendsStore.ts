@@ -72,33 +72,42 @@ export const useFriendsStore = defineStore('friends', () => {
     loading.value = true;
     error.value = '';
 
+    // Load the local cache up-front so we can fall back to it if the live
+    // request fails (offline / rate-limited / transient error).
+    let cached: VrcUser[] = [];
     try {
-      // 1. Try DB cache first (instant, no network)
-      let cached: VrcUser[] = (await DbApi.getCachedFriends()) || [];
+      cached = (await DbApi.getCachedFriends()) || [];
+    } catch {
+      cached = [];
+    }
 
-      // 2. If cache empty, fetch from API
-      if (!cached || cached.length === 0) {
-        try {
-          const live: VrcUser[] = await VrcApi.getAllFriends({ n: 100, offset: 0 });
-          if (live && live.length > 0) {
-            cached = live;
-            if (isTauri()) {
-              await DbApi.batchSaveFriends({ friendsJson: JSON.stringify(live) });
-            }
-          }
-        } catch (err: any) {
-          error.value = err.message || String(err);
-        }
-      }
-
-      const normalized = (cached || []).filter((f: any) => f?.id || f?.displayName);
+    try {
+      // Always prefer the live API as the single source of truth (VRCX does the
+      // same). A stale or partial SQLite cache must never be shown as the final
+      // result — that is what previously made the roster look "too few". The cache
+      // is only a fallback for when the network/API is unavailable.
+      const live: VrcUser[] = await VrcApi.getAllFriends({ n: 100, offset: 0 });
+      const normalized = (live || []).filter((f: any) => f?.id || f?.displayName);
       allFriends.value = normalized;
       lastFetchTime.value = Date.now();
-      if (error.value && normalized.length === 0) {
-        throw new Error(error.value);
+      if (normalized.length > 0) {
+        if (isTauri()) {
+          await DbApi.batchSaveFriends({ friendsJson: JSON.stringify(normalized) });
+        }
+        markDataHealthy();
       }
-      if (normalized.length > 0) markDataHealthy();
       return normalized;
+    } catch (err: any) {
+      error.value = err?.message || String(err);
+      // Live fetch failed — fall back to the cached snapshot if we have one.
+      if (cached && cached.length > 0) {
+        const normalized = cached.filter((f: any) => f?.id || f?.displayName);
+        allFriends.value = normalized;
+        lastFetchTime.value = Date.now();
+        if (normalized.length > 0) markDataHealthy();
+        return normalized;
+      }
+      throw err;
     } finally {
       loading.value = false;
     }
