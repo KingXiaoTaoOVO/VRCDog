@@ -76,8 +76,18 @@ If (Test-Path $WorkDir) {
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 
 Write-Host "Downloading FFmpeg release (this may take a minute)..."
+# NOTE: PowerShell's Invoke-WebRequest (aliased as `curl`) fails in this environment
+# with "Received an unexpected EOF or 0 bytes from the transport stream" against the
+# GitHub release-assets redirect. Use the native curl.exe (OpenSSL-based) with retries
+# for a reliable download.
 $Url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-Invoke-WebRequest -Uri $Url -OutFile $ZipPath
+& curl.exe -L --retry 5 --retry-delay 3 --retry-all-errors --max-time 600 -o "$ZipPath" "$Url"
+if ($LASTEXITCODE -ne 0) {
+    throw "curl.exe failed to download FFmpeg (exit code $LASTEXITCODE)."
+}
+if (-Not (Test-Path $ZipPath) -Or (Get-Item -LiteralPath $ZipPath).Length -lt 1MB) {
+    throw "Downloaded FFmpeg archive is missing or too small."
+}
 
 Write-Host "Extracting FFmpeg..."
 Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
