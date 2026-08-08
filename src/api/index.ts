@@ -427,10 +427,15 @@ export const VrcApi = {
         }
       };
     } catch {
+      // 探测失败 ≠ VRChat 服务中断。/config 失败原因很多：
+      // 网络抖动、cookie/auth 过期、代理瞬时问题、客户端前置代理拦截等，
+      // 用户大概率仍能正常使用 VRChat（好友列表正常加载就是证据）。
+      // 返回 unknown，让 UI 不要显示吓人的"Service Disruption"红色告警；
+      // 只有 indicator 为 critical/major 才代表确认的服务中断。
       return {
         status: {
-          indicator: 'critical',
-          description: 'Service Disruption'
+          indicator: 'unknown',
+          description: 'Status unavailable'
         }
       };
     }

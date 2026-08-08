@@ -21,6 +21,8 @@
 		"server_disconnected_desc": "无法连接到 VrcDog 服务端，软件功能已暂停。<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> 秒后自动尝试重连...",
 		"save_and_reconnect": "保存并重连",
 		"server_reconnect_failed": "新地址仍无法连接，请检查 URL 和服务端状态。",
+		"service_disruption": "VRChat 服务中断",
+		"status_unknown": "VRChat 状态未知",
 		"access_restricted": "访问受限",
 		"i_know": "我知道了",
 		"confirm_delete_role": "确定删除此角色吗？",

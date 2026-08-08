@@ -21,6 +21,8 @@
     "server_disconnected_desc": "Cannot connect to VrcDog server. Functions paused.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> seconds until auto reconnect...",
     "save_and_reconnect": "Save & Reconnect",
     "server_reconnect_failed": "The new address is still unreachable. Check the URL and server status.",
+    "service_disruption": "VRChat Service Disruption",
+    "status_unknown": "VRChat Status Unavailable",
     "access_restricted": "Access Restricted",
     "i_know": "I Know",
     "confirm_delete_role": "Are you sure you want to delete this role?",
