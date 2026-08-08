@@ -21,6 +21,18 @@ use tokio_tungstenite::tungstenite::http::header::{COOKIE, ORIGIN, USER_AGENT};
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
+lazy_static::lazy_static! {
+    // Bilibili WBI signing: the mixin key is derived from the nav API's wbi_img
+    // and cached for 10 minutes so we don't hit the nav endpoint on every reconnect.
+    static ref WBI_MIXIN_CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+}
+
+const WBI_MIXIN_KEY_ENC_TAB: [usize; 64] = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19,
+    29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+    22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+];
+
 const DEFAULT_BILI_WS_HOST: &str = "broadcastlv.chat.bilibili.com";
 const BILI_OP_HEARTBEAT: u32 = 2;
 const BILI_OP_HEARTBEAT_REPLY: u32 = 3;
@@ -1028,32 +1040,54 @@ async fn get_bili_danmaku_endpoint(
     room_id: u64,
     sessdata: &str,
 ) -> Result<(String, String, u64), String> {
-    let url = format!(
-        "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id={room_id}&type=0"
-    );
-    let body: serde_json::Value = client
-        .get(url)
-        .headers(make_bili_live_headers(sessdata, room_id))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
+    // Bilibili requires WBI-signed requests for getDanmuInfo since 2023; without the
+    // signature it returns code -352 ("request blocked") and the connection loops forever.
+    let signed_url = match get_wbi_mixin_cached(client).await {
+        Ok(mixin) => {
+            let query = wbi_sign(
+                &[
+                    ("id", room_id.to_string()),
+                    ("type", "0".to_string()),
+                    ("web_location", "444.8".to_string()),
+                ],
+                &mixin,
+            );
+            Some(format!(
+                "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?{query}"
+            ))
+        }
+        Err(_) => {
+            // WBI key fetch failed (rare); fall through to the legacy endpoint.
+            None
+        }
+    };
 
-    if body["code"].as_i64() != Some(0) {
-        let primary_error = body["message"]
-            .as_str()
-            .unwrap_or("getDanmuInfo failed")
-            .to_string();
-        return get_bili_legacy_danmaku_endpoint(client, room_id, sessdata)
-            .await
-            .map_err(|fallback_error| {
-                format!("getDanmuInfo failed: {primary_error}; getConf fallback failed: {fallback_error}")
-            });
+    if let Some(url) = signed_url {
+        let result: Result<serde_json::Value, String> = async {
+            let resp = client
+                .get(&url)
+                .headers(make_bili_live_headers(sessdata, room_id))
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            resp.json::<serde_json::Value>()
+                .await
+                .map_err(|e| e.to_string())
+        }
+        .await;
+        if let Ok(body) = result {
+            if body["code"].as_i64() == Some(0) {
+                return extract_bili_endpoint(&body["data"], "host_list");
+            }
+        }
     }
 
-    extract_bili_endpoint(&body["data"], "host_list")
+    // Fallback: legacy getConf endpoint (deprecated but still works for many public rooms).
+    get_bili_legacy_danmaku_endpoint(client, room_id, sessdata)
+        .await
+        .map_err(|fallback_error| {
+            format!("getDanmuInfo (WBI) failed and getConf fallback also failed: {fallback_error}")
+        })
 }
 
 async fn get_bili_legacy_danmaku_endpoint(
@@ -1156,6 +1190,99 @@ fn make_bili_buvid() -> String {
     let seed = format!("vrcdog-{now}-{}", std::process::id());
     let digest = md5::compute(seed.as_bytes());
     format!("XY{:X}", digest)
+}
+
+/// Extract the bare key (filename without extension/query) from a wbi_img URL.
+fn strip_wbi_key(url: &str) -> String {
+    let name = url.rsplit('/').next().unwrap_or("");
+    let name = name.split('?').next().unwrap_or(name);
+    let name = name
+        .strip_suffix(".png")
+        .or_else(|| name.strip_suffix(".jpg"))
+        .unwrap_or(name);
+    name.to_string()
+}
+
+/// Build the 32-char WBI mixin key from the img/sub keys via the fixed permutation.
+fn bili_mixin_key(img: &str, sub: &str) -> String {
+    let s = format!("{img}{sub}");
+    let mut key = String::with_capacity(32);
+    for &idx in WBI_MIXIN_KEY_ENC_TAB.iter() {
+        if let Some(c) = s.chars().nth(idx) {
+            key.push(c);
+        }
+    }
+    key
+}
+
+/// Fetch the WBI mixin key from the nav API.
+async fn fetch_wbi_mixin(client: &reqwest::Client) -> Result<String, String> {
+    let url = "https://api.bilibili.com/x/web-interface/nav";
+    let body: serde_json::Value = client
+        .get(url)
+        .header(
+            USER_AGENT,
+            HeaderValue::from_static(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            ),
+        )
+        .header(reqwest::header::REFERER, HeaderValue::from_static("https://www.bilibili.com"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if body["code"].as_i64() != Some(0) {
+        return Err(format!(
+            "获取 Bilibili WBI 密钥失败（{}）",
+            body["message"].as_str().unwrap_or("nav")
+        ));
+    }
+    let img = strip_wbi_key(body["data"]["wbi_img"]["img_url"].as_str().unwrap_or(""));
+    let sub = strip_wbi_key(body["data"]["wbi_img"]["sub_url"].as_str().unwrap_or(""));
+    Ok(bili_mixin_key(&img, &sub))
+}
+
+/// Return a cached WBI mixin key, refreshing it if missing or older than 10 minutes.
+async fn get_wbi_mixin_cached(client: &reqwest::Client) -> Result<String, String> {
+    {
+        if let Ok(cache) = WBI_MIXIN_CACHE.lock() {
+            if let Some((mixin, expires)) = &*cache {
+                if *expires > Instant::now() {
+                    return Ok(mixin.clone());
+                }
+            }
+        }
+    }
+    let mixin = fetch_wbi_mixin(client).await?;
+    if let Ok(mut cache) = WBI_MIXIN_CACHE.lock() {
+        *cache = Some((mixin.clone(), Instant::now() + Duration::from_secs(600)));
+    }
+    Ok(mixin)
+}
+
+/// Sign query params with WBI: append `wts` (sorted), then `w_rid = md5(query + mixin)`.
+/// Bilibili expects the params concatenated as `key=value` (no URL-encoding) before hashing.
+fn wbi_sign(params: &[(&str, String)], mixin: &str) -> String {
+    let wts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let mut pairs: Vec<(String, String)> = params
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect();
+    pairs.push(("wts".to_string(), wts.to_string()));
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    let query: String = pairs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let w_rid = format!("{:x}", md5::compute(format!("{query}{mixin}")));
+    format!("{query}&w_rid={w_rid}")
 }
 
 #[derive(Debug)]
