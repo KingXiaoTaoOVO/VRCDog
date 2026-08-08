@@ -41,7 +41,10 @@ const fetchData = async () => {
 
     // 2. 获取服务器状态
     const statusRes = await VrcApi.getServerStatus();
-    serverStatus.value = statusRes?.status?.indicator === 'none' ? 'ok' : 'error';
+    // 只有明确的 critical/major 才视为服务异常；探测失败（unknown）也按正常处理，
+    // 避免误报与"VRC 实际能正常使用"冲突（参考 uiStore.fetchServerStatus）
+    const indicator = statusRes?.status?.indicator;
+    serverStatus.value = (indicator === 'critical' || indicator === 'major') ? 'error' : 'ok';
 
     // 3. 获取热力图数据 (按天统计)
     const heatmap = await DbApi.getHeatmap();

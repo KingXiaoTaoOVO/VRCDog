@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, markRaw } from 'vue';
 import { VrcApi, DbApi } from '../api';
+import { translate } from '../i18n';
 import { currentTheme, setTheme, themes, type ThemeId } from '../theme';
 import { Settings, RefreshCcw, Bone, X, Heart, Users, Wrench, Flame, StickyNote, Sparkles, Download, LogOut, Loader2, Search, Globe, Bell, UserCircle, ScrollText, UsersRound, LayoutDashboard, Rss, Image, ShieldAlert, Activity, Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette, Radio, Music } from "lucide-vue-next";
 
@@ -165,16 +166,24 @@ export const useUiStore = defineStore('ui', () => {
   const fetchServerStatus = async () => {
     try {
       const res = await VrcApi.getServerStatus();
-      if (res?.status?.description === 'All Systems Operational') {
+      const indicator = res?.status?.indicator;
+      if (indicator === 'none') {
+        // 探测成功：VRChat 服务正常
         vrcServerOk.value = true;
         vrcServerStatus.value = '';
-      } else {
+      } else if (indicator === 'critical' || indicator === 'major') {
+        // 明确的服务中断才显示红色告警
         vrcServerOk.value = false;
-        vrcServerStatus.value = res?.status?.description || 'Unknown';
+        vrcServerStatus.value = translate('app.service_disruption');
+      } else {
+        // 'unknown' / 探测失败：不要显示红色告警，避免与"VRC 实际能正常使用"冲突
+        vrcServerOk.value = true;
+        vrcServerStatus.value = '';
       }
-    } catch (error) {
-      vrcServerOk.value = false;
-      vrcServerStatus.value = error instanceof Error ? error.message : 'Connection failed';
+    } catch {
+      // 探测本身异常同样按未知处理，不报警
+      vrcServerOk.value = true;
+      vrcServerStatus.value = '';
     }
   };
 
