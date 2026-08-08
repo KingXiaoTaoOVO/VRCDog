@@ -1031,6 +1031,12 @@ export interface VrpianoSong {
   path: string;
   size: number;
   modified_ms: number;
+  /**
+   * 与 MIDI 同目录的封面图绝对路径（`<basename>.cover.{jpg,png,webp}`），
+   * 由 Midishow 下载时自动落盘或 list_local_songs 探测得到。
+   * 可通过 `convertFileSrc(cover_path)` 在 WebView 中显示。
+   */
+  cover_path?: string | null;
 }
 
 export interface VrpianoStatus {
@@ -1058,6 +1064,8 @@ export interface VrpianoOnlineSong {
   title: string;
   artist: string;
   page_url: string;
+  /** Midishow 列表项的封面图 URL（已校验为 midishow 域或带图片后缀）。 */
+  cover_url?: string | null;
 }
 
 export interface VrpianoMidishowAccount {
@@ -1100,11 +1108,12 @@ export const VrpianoApi = {
     keyword: params.keyword,
     maxResults: params.maxResults || 30,
   }),
-  downloadMidishow: (params: { midiId: number; title?: string; preview?: boolean }) => safeInvoke<VrpianoSong | null>('vrpiano_download_midishow', {
+  downloadMidishow: (params: { midiId: number; title?: string; preview?: boolean; coverUrl?: string | null }) => safeInvoke<VrpianoSong | null>('vrpiano_download_midishow', {
     request: {
       midi_id: params.midiId,
       title: params.title || null,
       preview: Boolean(params.preview),
+      cover_url: params.coverUrl || null,
     },
   }),
   midishowPreviewData: (params: { midiId: number; title?: string }) => safeInvoke<VrpianoMidiData>('vrpiano_midishow_preview_data', {

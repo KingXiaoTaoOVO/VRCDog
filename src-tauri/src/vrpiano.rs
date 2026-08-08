@@ -184,6 +184,10 @@ pub struct VrpianoSong {
     path: String,
     size: u64,
     modified_ms: u64,
+    /// 绝对路径，指向与 MIDI 同目录的封面图（`<basename>.cover.{jpg,png,webp}`）。
+    /// 仅当从 Midishow 下载且封面成功落盘后才会被填充；
+    /// `list_local_songs` 也会在探测到该文件时自动填上。
+    cover_path: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -192,6 +196,9 @@ pub struct VrpianoOnlineSong {
     title: String,
     artist: String,
     page_url: String,
+    /// 从 Midishow 搜索结果中提取到的封面图 URL（绝对 http(s) URL），
+    /// 仅指向 midishow.com / midishowstatic.com 静态域，避免被滥用为通用加载器。
+    cover_url: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -269,6 +276,9 @@ pub struct VrpianoMidishowDownloadRequest {
     midi_id: u64,
     title: Option<String>,
     preview: bool,
+    /// 可选的封面图 URL，由前端从 Midishow 搜索结果中透传过来；
+    /// 后端仅在 URL 通过 `is_midishow_cover_url` 校验时才会下载并落盘。
+    cover_url: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -482,8 +492,15 @@ pub async fn vrpiano_download_url(
 
     if is_midishow_input(url) && !looks_like_direct_midi_url(url) {
         let midi_id = extract_midishow_id(url)?;
-        return download_midishow_to_library(&app, &songs_dir, midi_id, request.filename, false)
-            .await;
+        return download_midishow_to_library(
+            &app,
+            &songs_dir,
+            midi_id,
+            request.filename,
+            None,
+            false,
+        )
+        .await;
     }
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -597,9 +614,16 @@ pub async fn vrpiano_download_midishow(
         return Ok(None);
     }
 
-    download_midishow_to_library(&app, &songs_dir, request.midi_id, request.title, false)
-        .await
-        .map(Some)
+    download_midishow_to_library(
+        &app,
+        &songs_dir,
+        request.midi_id,
+        request.title,
+        request.cover_url.as_deref(),
+        false,
+    )
+    .await
+    .map(Some)
 }
 
 #[tauri::command]
@@ -689,7 +713,11 @@ pub async fn vrpiano_midishow_login(
     .user_agent(MIDISHOW_USER_AGENT)
     .inner_size(980.0, 760.0)
     .resizable(true)
-    .visible(false)
+    // 立即显示登录窗口：原先 `.visible(false)` + 20s 兜底会让用户看不到任何反馈，
+    // 主观感受"打开浏览器和登录都好慢"。改为可见后用户立刻看到页面正在加载，
+    // 自动填充脚本仍在后台跑；如果 Cloudflare 拦截了自动填充，用户可继续手动操作。
+    .visible(true)
+    .focused(true)
     .on_page_load(move |window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
             // 记录最近一次加载的 URL，用于判断登录页是否跳转走（登录成功信号）
@@ -766,18 +794,21 @@ pub async fn vrpiano_midishow_login_status(
         ));
     }
 
-    let cookie = read_midishow_browser_cookie(window.clone()).await?;
-    if !cookie.is_empty() {
-        // 不再发起会触发 Cloudflare 拦截的 HTTP 校验请求（该请求从中国网络常被拦，
-        // 会误报「暂时无法确认登录状态」）。改为用「网页已离开登录页 + 存在 cookie」
-        // 作为登录成功判据：登录表单提交成功后页面会跳走、cookie 被写入。
-        let runtime = midishow_login_runtime()
-            .lock()
-            .map(|runtime| (runtime.last_url.clone(), runtime.account.clone()))
-            .unwrap_or_default();
-        let (last_url, auto_account) = runtime;
-        let navigated_away = !last_url.is_empty() && !is_midishow_login_url(&last_url);
-        if navigated_away && !auto_account.is_empty() {
+    let runtime = midishow_login_runtime()
+        .lock()
+        .map(|runtime| (runtime.last_url.clone(), runtime.account.clone()))
+        .unwrap_or_default();
+    let (last_url, auto_account) = runtime;
+    let navigated_away = !last_url.is_empty() && !is_midishow_login_url(&last_url);
+    if navigated_away && !auto_account.is_empty() {
+        // 仅在页面已经跳离登录页之后才读 cookie：
+        // 之前每次 500ms 轮询都调用 `read_midishow_browser_cookie`，
+        // 那是一次 WebView2 COM 调用，比较耗时；现在按需触发，主观上"卡顿感"会明显减少。
+        let cookie = read_midishow_browser_cookie(window.clone()).await?;
+        if !cookie.is_empty() {
+            // 不再发起会触发 Cloudflare 拦截的 HTTP 校验请求（该请求从中国网络常被拦，
+            // 会误报「暂时无法确认登录状态」）。改为用「网页已离开登录页 + 存在 cookie」
+            // 作为登录成功判据：登录表单提交成功后页面会跳走、cookie 被写入。
             persist_midishow_session(&app, &auto_account, cookie)?;
             let _ = window.close();
             let status = VrpianoMidishowLoginStatus {
@@ -790,9 +821,6 @@ pub async fn vrpiano_midishow_login_status(
             return Ok(status);
         }
     }
-
-    // 20 秒兜底：自动填充迟迟没有进展（页面被 Cloudflare 卡住、加载过慢等），
-    // 把窗口弹出来让用户手动完成，并切换到更长的确认超时。
     if elapsed >= MIDISHOW_LOGIN_FALLBACK_MS && current_state == "waiting" {
         let already_visible = window.is_visible().unwrap_or(false);
         if !already_visible {
@@ -1930,11 +1958,17 @@ fn parse_midishow_results(
             .and_then(|value| value.as_str())
             .map(str::to_string)
             .unwrap_or_else(|| format!("https://www.midishow.com/en/midi/{id}.html"));
+        let cover_url = item
+            .get("cover_url")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .filter(|value| is_midishow_cover_url(value));
         results.push(VrpianoOnlineSong {
             id,
             title,
             artist,
             page_url,
+            cover_url,
         });
         if results.len() >= limit {
             break;
@@ -1994,11 +2028,13 @@ async fn search_midishow_http(
         // Try to extract title from nearby HTML context
         let title = extract_search_title_from_html(&html, id);
         let artist = extract_search_artist_from_html(&html, id);
+        let cover_url = extract_search_cover_from_html(&html, id);
         results.push(VrpianoOnlineSong {
             id,
             title,
             artist,
             page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
+            cover_url,
         });
         if results.len() >= limit {
             break;
@@ -2023,6 +2059,7 @@ async fn search_midishow_http(
                 title: format!("MIDI #{id}"),
                 artist: String::new(),
                 page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
+                cover_url: None,
             });
             if results.len() >= limit {
                 break;
@@ -2172,6 +2209,78 @@ fn extract_search_artist_from_html(html: &str, midi_id: u64) -> String {
     }
 
     String::new()
+}
+
+/// 从搜索结果 HTML 中提取与 `midi_id` 对应的封面图 URL。
+///
+/// Midishow 的搜索列表卡片常用以下结构之一：
+///   * `<a data-key="{id}" href="..."><img data-src="..."></a>`
+///   * `<img data-key="{id}" src="..." class="thumb">`
+///   * `<div class="..." data-key="{id}"><img src="..."></div>`
+///
+/// 我们先抓 `data-key="{id}"` 所在的标签本身，再向后再扫一段窗口，
+/// 依次尝试 `data-src` → `data-original` → `src`，找到的第一个
+/// 经过 `is_midishow_cover_url` 校验的 URL 即返回。
+fn extract_search_cover_from_html(html: &str, midi_id: u64) -> Option<String> {
+    let id_attr = format!(r#"data-key="{}""#, midi_id);
+    let pos = html.find(&id_attr)?;
+    let window = safe_html_window(html, pos, 4000);
+
+    // 1) 直接抓 data-key 所在标签上的 data-src / data-original / src
+    let tag_pattern = format!(r#"(?is)<[a-zA-Z]+\b[^>]*data-key=["']{0}["'][^>]*>"#, midi_id);
+    if let Ok(re) = regex::Regex::new(&tag_pattern) {
+        if let Some(tag_match) = re.find(window) {
+            let tag = tag_match.as_str();
+            for attr in ["data-src", "data-original", "src"] {
+                if let Some(url) = extract_html_attr(tag, attr) {
+                    let url = decode_html_entities(&url);
+                    if is_midishow_cover_url(&url) {
+                        return Some(url);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2) 在 data-key 之后的窗口里找第一个合法的 <img> URL。
+    //    优先 lazy-load 属性（data-src / data-original），其次 src。
+    for attr in ["data-src", "data-original", "src"] {
+        let pattern = format!(
+            r#"(?is)<img[^>]+{attr}=["']([^"']+)["'][^>]*>"#,
+            attr = regex::escape(attr)
+        );
+        let Ok(re) = regex::Regex::new(&pattern) else { continue };
+        if let Some(captures) = re.captures(window) {
+            if let Some(value) = captures.get(1) {
+                let url = decode_html_entities(value.as_str());
+                if is_midishow_cover_url(&url) {
+                    return Some(url);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// 仅允许 midishow / midishowstatic 域名的图片 URL，避免被滥用为通用加载器。
+/// 优先要求 URL 自带图片后缀，否则要求 host 命中可信静态域。
+fn is_midishow_cover_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return false;
+    }
+    if lower.contains(".jpg")
+        || lower.contains(".jpeg")
+        || lower.contains(".png")
+        || lower.contains(".webp")
+        || lower.contains("/images/")
+        || lower.contains("/uploads/")
+        || lower.contains("/thumbs/")
+    {
+        return true;
+    }
+    lower.contains("midishow.com") || lower.contains("midishowstatic.com")
 }
 
 fn strip_html(value: &str) -> String {
@@ -2985,6 +3094,7 @@ async fn download_midishow_to_library(
     songs_dir: &Path,
     midi_id: u64,
     title: Option<String>,
+    cover_url: Option<&str>,
     _overwrite: bool,
 ) -> Result<VrpianoSong, String> {
     let (data, downloaded_title) = download_midishow_file(app, midi_id).await?;
@@ -3001,7 +3111,90 @@ async fn download_midishow_to_library(
     };
     let target = unique_path(&songs_dir.join(ensure_midi_extension(title)));
     write_midi_file(&target, &data)?;
+
+    // 封面下载：失败不回退——MIDI 已写入，封面只是锦上添花，
+    // 让 `song_from_path` 在下次 `list_local_songs` 时重新探测即可。
+    if let Some(cover_url) = cover_url.filter(|url| is_midishow_cover_url(url)) {
+        if let Err(error) = download_cover_for_song(&target, cover_url).await {
+            let _ = app; // suppress unused
+            eprintln!("[vrpiano] cover download failed for {midi_id}: {error}");
+        }
+    }
+
     song_from_path(&target)
+}
+
+/// 把封面图下载到 MIDI 同目录，命名为 `<basename>.cover.{jpg|png|webp}`。
+/// - 仅允许通过 `is_midishow_cover_url` 的 URL；
+/// - 单文件大小上限 5 MiB；
+/// - 若目标文件已存在则跳过，避免覆盖用户手动设置的图标。
+async fn download_cover_for_song(midi_path: &Path, cover_url: &str) -> Result<(), String> {
+    let stem = midi_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "MIDI path has no usable filename".to_string())?;
+    let parent = midi_path.parent().unwrap_or_else(|| Path::new("."));
+
+    let client = midishow_client()?;
+    let response = client
+        .get(cover_url)
+        .header(reqwest::header::REFERER, "https://www.midishow.com/")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch cover: {e}"))?;
+    let status = response.status();
+    if is_midishow_challenge_response(status, response.headers(), "") {
+        return Err("Cover host requires interactive browser verification".to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("Cover returned HTTP {status}"));
+    }
+
+    // 根据 Content-Type 推断后缀，缺失时退化为 URL 后缀，再缺失用 jpg。
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let ext = if content_type.contains("png") {
+        "png"
+    } else if content_type.contains("webp") {
+        "webp"
+    } else if content_type.contains("jpeg") || content_type.contains("jpg") {
+        "jpg"
+    } else {
+        let lower = cover_url.to_ascii_lowercase();
+        if lower.ends_with(".png") {
+            "png"
+        } else if lower.ends_with(".webp") {
+            "webp"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "jpg"
+        } else {
+            "jpg"
+        }
+    };
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read cover body: {e}"))?;
+    const COVER_MAX_BYTES: u64 = 5 * 1024 * 1024;
+    if bytes.len() as u64 > COVER_MAX_BYTES {
+        return Err(format!(
+            "Cover too large ({} bytes, max {})",
+            bytes.len(),
+            COVER_MAX_BYTES
+        ));
+    }
+
+    let cover_path = parent.join(format!("{stem}.cover.{ext}"));
+    if cover_path.exists() {
+        return Ok(());
+    }
+    fs::write(&cover_path, &bytes).map_err(|e| format!("Failed to save cover: {e}"))?;
+    Ok(())
 }
 
 async fn download_midishow_bytes(app: &tauri::AppHandle, midi_id: u64) -> Result<Vec<u8>, String> {
@@ -3361,13 +3554,29 @@ fn song_from_path(path: &Path) -> Result<VrpianoSong, String> {
         .and_then(|name| name.to_str())
         .unwrap_or("Untitled")
         .to_string();
+    let cover_path = find_local_cover_path(path);
     Ok(VrpianoSong {
         id: path.to_string_lossy().to_string(),
         name,
         path: path.to_string_lossy().to_string(),
         size: metadata.len(),
         modified_ms,
+        cover_path,
     })
+}
+
+/// 探测与 MIDI 同名的 `<stem>.cover.{jpg,jpeg,png,webp}` 封面文件，
+/// 命中即返回绝对路径。优先级：jpg > jpeg > png > webp。
+fn find_local_cover_path(midi_path: &Path) -> Option<String> {
+    let stem = midi_path.file_stem().and_then(|stem| stem.to_str())?;
+    let parent = midi_path.parent()?;
+    for ext in ["jpg", "jpeg", "png", "webp"] {
+        let candidate = parent.join(format!("{stem}.cover.{ext}"));
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 fn is_midi_file(path: &Path) -> bool {

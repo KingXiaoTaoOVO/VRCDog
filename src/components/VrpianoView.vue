@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
-import { isTauri } from '@tauri-apps/api/core';
+import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -486,6 +486,22 @@ const saveSongIcons = () => {
 const songIcon = (song: VrpianoSong) => songIcons.value[song.path] || '';
 const isImageIcon = (value: string) => /^(data:image\/|https?:\/\/|blob:)/i.test(value);
 
+/**
+ * 把本地封面图绝对路径转换为可在 WebView 中渲染的 `asset://` URL。
+ * 若路径缺失/转换失败则返回空字符串，由模板回落到默认 Music 图标。
+ * 这里用 try/catch 包住 convertFileSrc，避免在未配置 assetProtocol 时
+ * 让单首曲目错误把整个曲库列表搞挂。
+ */
+const songCover = (song: VrpianoSong): string => {
+  const cover = song.cover_path;
+  if (!cover) return '';
+  try {
+    return convertFileSrc(cover);
+  } catch {
+    return '';
+  }
+};
+
 const closeEditDialog = () => {
   if (loading.value) return;
   editDialogMode.value = null;
@@ -929,7 +945,11 @@ const downloadOnline = async (song: VrpianoOnlineSong) => {
   onlineBusyId.value = song.id;
   error.value = '';
   try {
-    const downloaded = await VrpianoApi.downloadMidishow({ midiId: song.id, title: song.title });
+    const downloaded = await VrpianoApi.downloadMidishow({
+      midiId: song.id,
+      title: song.title,
+      coverUrl: song.cover_url || null,
+    });
     if (downloaded) {
       await refreshSongs();
       selectedPath.value = downloaded.path;
@@ -1212,9 +1232,10 @@ onUnmounted(() => {
             @click="selectedPath = song.path"
             @dblclick="previewSong(song)"
           >
-            <span class="song-note" :class="{ custom: Boolean(songIcon(song)) }">
+            <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
               <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
               <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
+              <img v-else-if="songCover(song)" :src="songCover(song)" :title="l('来自 Midishow 的封面', 'Cover from Midishow')" alt="">
               <Music v-else :size="15" />
             </span>
             <span class="song-meta">
