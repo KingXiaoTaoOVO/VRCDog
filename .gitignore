@@ -38,6 +38,9 @@ skills使用说明
 # 弹幕姬/ 是独立工作区（C# VRDanmaku、Tauri bili-live-hime、Python bilibili_live_stream_code 三个子仓库 + 350MB 运行时），
 # 与 VRCDog 自带直播姬（src-tauri/src/danmaku.rs）无关，排除以保证仓库轻量。
 /弹幕姬/
+# 大体积外部二进制：构建期另行提供/下载（ffmpeg 由 src-tauri/scripts 下载，OVRAS 单独安装），不入库以免仓库臃肿。
+src-tauri/bin/ffmpeg-x86_64-pc-windows-msvc.exe
+src-tauri/OVRAS/OVRAS_Installer.exe
 .scratch/
 /.cargo-target/
 logs/
