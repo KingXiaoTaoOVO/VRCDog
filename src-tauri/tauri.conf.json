@@ -55,7 +55,6 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "OVRAS/*",
       "vrcdog_actions.json",
       "bindings_index.json",
       "bindings_vive.json",
