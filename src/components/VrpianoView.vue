@@ -193,6 +193,9 @@ const defaultMidishowLoginTypeText = computed(() => (
 ));
 const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length || selectedSong.value) && !playerLoading.value);
 const onlineEmptyText = computed(() => {
+  // 搜索进行中：显示"正在搜索"，而不是"未找到"——避免请求未完成时就
+  // 误把"未找到 XX 相关结果"展示给用户，让用户以为真的搜不到。
+  if (onlineLoading.value) return l('正在搜索…', 'Searching…');
   if (!hasSearchedOnline.value) return l('输入关键词搜索，或直接粘贴 URL / ID 下载。', 'Search by keyword, or paste a URL or ID to download.');
   return l(`未找到“${lastOnlineKeyword.value}”相关结果，换个关键词或粘贴 ID/URL 试试。`, `No results for "${lastOnlineKeyword.value}". Try another keyword, ID, or URL.`);
 });
