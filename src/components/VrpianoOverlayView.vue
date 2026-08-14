@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isTauri } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Effect, getCurrentWindow } from '@tauri-apps/api/window';
 import { useStorage } from '@vueuse/core';
 import {
   ChevronLeft,
@@ -19,6 +19,16 @@ import {
   X,
 } from 'lucide-vue-next';
 import { VrpianoApi, type VrpianoSong, type VrpianoStatus } from '../api';
+import {
+  createVrpianoOverlayPanelStyle,
+  DEFAULT_VRPIANO_OVERLAY_BLUR,
+  DEFAULT_VRPIANO_OVERLAY_OPACITY,
+  isVrpianoOverlayBlurEnabled,
+  normalizeVrpianoOverlayBlur,
+  normalizeVrpianoOverlayOpacity,
+  VRPIANO_OVERLAY_BLUR_KEY,
+  VRPIANO_OVERLAY_OPACITY_KEY,
+} from './vrpianoOverlayAppearance';
 
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
@@ -46,8 +56,8 @@ const busy = ref(false);
 const error = ref('');
 const settingsOpen = ref(false);
 const recentHotkey = ref('');
-const overlayOpacity = useStorage('vrcdog.vrpiano.overlay.opacity', 0.88);
-const overlayBlur = useStorage('vrcdog.vrpiano.overlay.blur', 20);
+const overlayOpacity = useStorage(VRPIANO_OVERLAY_OPACITY_KEY, DEFAULT_VRPIANO_OVERLAY_OPACITY);
+const overlayBlur = useStorage(VRPIANO_OVERLAY_BLUR_KEY, DEFAULT_VRPIANO_OVERLAY_BLUR);
 const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
 
 let pollTimer: number | null = null;
@@ -55,15 +65,26 @@ let hotkeyTimer: number | null = null;
 let unlistenStatus: UnlistenFn | null = null;
 let unlistenClose: UnlistenFn | null = null;
 let unlistenMoved: UnlistenFn | null = null;
+let nativeBackdropEnabled: boolean | null = null;
 
-const panelStyle = computed(() => {
-  const opacity = Math.min(1, Math.max(0.3, Number(overlayOpacity.value) || 0.88));
-  const blur = Math.min(40, Math.max(0, Number(overlayBlur.value) || 0));
-  return {
-    backgroundColor: `color-mix(in srgb, var(--theme-bg-main) ${Math.round(opacity * 100)}%, transparent)`,
-    backdropFilter: `blur(${blur}px) saturate(160%)`,
-  };
+const panelStyle = computed(() => createVrpianoOverlayPanelStyle(overlayOpacity.value, overlayBlur.value));
+const blurEnabled = computed({
+  get: () => isVrpianoOverlayBlurEnabled(overlayBlur.value),
+  set: (enabled: boolean) => {
+    overlayBlur.value = enabled ? DEFAULT_VRPIANO_OVERLAY_BLUR : 0;
+  },
 });
+
+const syncNativeBackdrop = async (value: unknown) => {
+  if (!isTauri()) return;
+  const enabled = isVrpianoOverlayBlurEnabled(value);
+  if (nativeBackdropEnabled === enabled) return;
+
+  const appWindow = getCurrentWindow();
+  if (enabled) await appWindow.setEffects({ effects: [Effect.Acrylic] });
+  else await appWindow.clearEffects();
+  nativeBackdropEnabled = enabled;
+};
 
 const progress = computed(() => Math.min(1, Math.max(0, Number(status.value.progress) || 0)));
 const currentIndex = computed(() => {
@@ -188,28 +209,38 @@ const closeOverlay = async () => {
 };
 
 watch(overlayOpacity, (value) => {
-  const next = Math.min(1, Math.max(0.3, Number(value) || 0.88));
+  const next = normalizeVrpianoOverlayOpacity(value);
   if (Math.abs(next - Number(overlayOpacity.value)) > 1e-6) overlayOpacity.value = next;
 });
 
 watch(overlayBlur, (value) => {
-  const next = Math.min(40, Math.max(0, Number(value) || 0));
+  const next = normalizeVrpianoOverlayBlur(value);
   if (Math.abs(next - Number(overlayBlur.value)) > 1e-6) overlayBlur.value = next;
+  void syncNativeBackdrop(next).catch(() => {
+    nativeBackdropEnabled = null;
+  });
 });
 
 const handleOpacityInput = (event: Event) => {
   const target = event.target as HTMLInputElement;
-  const next = Math.min(1, Math.max(0.3, Number(target.value) || 0.88));
-  overlayOpacity.value = next;
-};
-
-const handleBlurInput = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  const next = Math.min(40, Math.max(0, Number(target.value) || 0));
-  overlayBlur.value = next;
+  overlayOpacity.value = normalizeVrpianoOverlayOpacity(target.value);
 };
 
 onMounted(async () => {
+  if (isTauri()) {
+    const appWindow = getCurrentWindow();
+    await Promise.all([
+      appWindow.setAlwaysOnTop(true).catch(() => undefined),
+      appWindow.setResizable(!positionLocked.value).catch(() => undefined),
+      syncNativeBackdrop(overlayBlur.value).catch(() => undefined),
+    ]);
+    unlistenMoved = await appWindow.onMoved((event) => {
+      if (positionLocked.value) return;
+      const position = (event as any).payload || event;
+      localStorage.setItem('vrcdog.vrpiano.overlay.position', JSON.stringify({ x: position.x, y: position.y }));
+    });
+  }
+
   try {
     const [nextStatus, nextSongs] = await Promise.all([VrpianoApi.getStatus(), VrpianoApi.listSongs()]);
     applyStatus(nextStatus);
@@ -222,16 +253,6 @@ onMounted(async () => {
   unlistenClose = await listen('cmd-close-vrpiano-overlay', closeOverlay);
   pollTimer = window.setInterval(refresh, 1_000);
 
-  if (isTauri()) {
-    const appWindow = getCurrentWindow();
-    await appWindow.setAlwaysOnTop(true).catch(() => undefined);
-    await appWindow.setResizable(!positionLocked.value).catch(() => undefined);
-    unlistenMoved = await appWindow.onMoved((event) => {
-      if (positionLocked.value) return;
-      const position = (event as any).payload || event;
-      localStorage.setItem('vrcdog.vrpiano.overlay.position', JSON.stringify({ x: position.x, y: position.y }));
-    });
-  }
 });
 
 onUnmounted(() => {
@@ -284,21 +305,17 @@ onUnmounted(() => {
         <b>{{ Math.round(overlayOpacity * 100) }}%</b>
       </label>
       <label>
-        <span>背景模糊度</span>
+        <span>背景模糊</span>
         <input
-          v-model.number="overlayBlur"
-          type="range"
-          min="0"
-          max="40"
-          step="2"
-          class="overlay-slider"
+          v-model="blurEnabled"
+          type="checkbox"
+          class="overlay-toggle"
           data-no-drag
           @mousedown.stop
           @pointerdown.stop
           @click.stop
-          @input="handleBlurInput"
         >
-        <b>{{ overlayBlur }}px</b>
+        <b>{{ blurEnabled ? '已开启' : '已关闭' }}</b>
       </label>
     </section>
 
@@ -389,6 +406,8 @@ input {
 }
 
 .overlay-shell {
+  position: relative;
+  isolation: isolate;
   width: 100vw;
   height: 100vh;
   min-width: 320px;
@@ -403,6 +422,17 @@ input {
   color: var(--theme-text-strong);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-primary) 8%, transparent), 0 14px 36px rgba(0, 0, 0, 0.18);
   user-select: none;
+}
+
+.overlay-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--theme-bg-main);
+  opacity: var(--vrpiano-overlay-opacity, 0.88);
+  pointer-events: none;
 }
 
 .overlay-header,
@@ -570,6 +600,47 @@ input {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-primary) 18%, transparent);
   cursor: pointer;
   pointer-events: auto;
+}
+
+.appearance-settings .overlay-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  border: 1px solid var(--theme-border-strong);
+  border-radius: 9px;
+  background: var(--theme-surface-hover);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.appearance-settings .overlay-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--theme-text-muted);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.appearance-settings .overlay-toggle:checked {
+  border-color: var(--theme-primary);
+  background: color-mix(in srgb, var(--theme-primary) 30%, transparent);
+}
+
+.appearance-settings .overlay-toggle:checked::after {
+  background: var(--theme-primary);
+  transform: translateX(14px);
+}
+
+.appearance-settings .overlay-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-primary) 45%, transparent);
+  outline-offset: 2px;
 }
 
 .appearance-settings b {

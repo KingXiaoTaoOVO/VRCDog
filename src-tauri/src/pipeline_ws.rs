@@ -4,19 +4,19 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use lazy_static::lazy_static;
+use rustls::pki_types::ServerName;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex as AsyncMutex;
-use rustls::pki_types::ServerName;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::{ORIGIN, USER_AGENT};
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{client_async, WebSocketStream};
+use tokio_tungstenite::{client_async, MaybeTlsStream, WebSocketStream};
+use url::Url;
 
 use crate::vrc_api::VrcState;
 
@@ -29,47 +29,49 @@ const RECONNECT_MAX_DELAY_MS: u64 = 60000;
 const HANDSHAKE_TIMEOUT_MS: u64 = 15000;
 const PING_INTERVAL_SECS: u64 = 30;
 
-/// Parse a user-supplied pipeline WebSocket URL into (host, port).
-/// Accepts `ws://` or `wss://` schemes; defaults port to 443 when omitted.
-fn parse_pipeline_url(url: Option<&str>) -> Result<(String, u16), String> {
+/// Parse and validate a WebSocket endpoint while preserving its path and query.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PipelineEndpoint {
+    secure: bool,
+    host: String,
+    port: u16,
+    resource: String,
+}
+
+fn parse_pipeline_url(url: Option<&str>) -> Result<PipelineEndpoint, String> {
     let raw = url
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_PIPELINE_URL);
 
-    let scheme_sep = raw
-        .find("://")
-        .ok_or_else(|| format!("URL 必须以 ws:// 或 wss:// 开头：{raw}"))?;
-    let scheme = &raw[..scheme_sep];
-    if scheme != "ws" && scheme != "wss" {
-        return Err(format!("URL scheme 必须是 ws 或 wss：{raw}"));
-    }
-
-    let rest = &raw[scheme_sep + 3..];
-    let host_port = rest
-        .split('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("URL 缺少 host：{raw}"))?;
-    if host_port.contains(' ') || host_port.contains('\n') {
-        return Err(format!("URL host 非法：{raw}"));
-    }
-
-    let (host, port) = match host_port.rsplit_once(':') {
-        Some((h, p)) => {
-            let port = p
-                .parse::<u16>()
-                .map_err(|_| format!("URL 端口非法：{raw}"))?;
-            (h.to_string(), port)
+    let parsed = Url::parse(raw).map_err(|e| format!("Pipeline URL 无效：{e}"))?;
+    let secure = match parsed.scheme() {
+        "wss" => true,
+        "ws" => false,
+        _ => {
+            return Err(format!("URL scheme 必须是 ws 或 wss：{raw}"));
         }
-        None => (host_port.to_string(), 443u16),
     };
-
-    if host.is_empty() {
-        return Err(format!("URL host 为空：{raw}"));
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("URL 缺少 host：{raw}"))?
+        .to_string();
+    let port = parsed.port().unwrap_or(if secure { 443 } else { 80 });
+    let mut resource = parsed.path().to_string();
+    if resource.is_empty() {
+        resource.push('/');
+    }
+    if let Some(query) = parsed.query() {
+        resource.push('?');
+        resource.push_str(query);
     }
 
-    Ok((host, port))
+    Ok(PipelineEndpoint {
+        secure,
+        host,
+        port,
+        resource,
+    })
 }
 
 /// Mirrors the frontend `wsState` shape so the UI can render pipeline status.
@@ -103,7 +105,7 @@ pub async fn start_pipeline_ws(
     // Stop any previous run before starting a new one (idempotent on re-login).
     stop_internal().await;
 
-    let (host, port) = parse_pipeline_url(pipeline_url.as_deref())?;
+    let endpoint = parse_pipeline_url(pipeline_url.as_deref())?;
     let proxy_url = state.proxy_url.read().await.clone();
     let stop = Arc::new(AtomicBool::new(false));
 
@@ -112,7 +114,7 @@ pub async fn start_pipeline_ws(
     let stop_for_task = stop.clone();
 
     let handle = tokio::spawn(async move {
-        run_pipeline(app_for_task, token, host, port, proxy_url, stop_for_task).await;
+        run_pipeline(app_for_task, token, endpoint, proxy_url, stop_for_task).await;
     });
 
     let mut run = RUN.lock().await;
@@ -145,19 +147,22 @@ fn status_payload(phase: &str, connected: bool, last_error: &str, attempts: u32)
 }
 
 fn emit_status(app: &AppHandle, phase: &str, connected: bool, last_error: &str, attempts: u32) {
-    let _ = app.emit("pipeline_ws_status", status_payload(phase, connected, last_error, attempts));
+    let _ = app.emit(
+        "pipeline_ws_status",
+        status_payload(phase, connected, last_error, attempts),
+    );
 }
 
 async fn run_pipeline(
     app: AppHandle,
     token: String,
-    host: String,
-    port: u16,
+    endpoint: PipelineEndpoint,
     proxy: Option<String>,
     stop: Arc<AtomicBool>,
 ) {
     // Make sure a rustls crypto provider is installed (ring is enabled via Cargo features).
-    let _ = rustls::crypto::CryptoProvider::install_default(rustls::crypto::ring::default_provider());
+    let _ =
+        rustls::crypto::CryptoProvider::install_default(rustls::crypto::ring::default_provider());
 
     MESSAGE_COUNT.store(0, Ordering::SeqCst);
     let mut attempts: u32 = 0;
@@ -169,7 +174,7 @@ async fn run_pipeline(
 
         emit_status(&app, "authenticating", false, "", attempts);
 
-        match connect(host.clone(), port, &token, &proxy).await {
+        match connect(endpoint.clone(), &token, &proxy).await {
             Ok(ws) => {
                 attempts = 0;
                 emit_status(&app, "connected", true, "", 0);
@@ -203,7 +208,6 @@ async fn run_pipeline(
                 "无法连接 VRChat 实时推送管道（请检查网络或代理设置）",
                 attempts,
             );
-            return;
         }
 
         let delay = reconnect_delay(attempts);
@@ -222,8 +226,8 @@ async fn run_pipeline(
 
 fn reconnect_delay(attempts: u32) -> u64 {
     let exponent = (attempts.saturating_sub(1)) as f64;
-    let base = (RECONNECT_BASE_DELAY_MS as f64 * 1.5f64.powf(exponent))
-        .min(RECONNECT_MAX_DELAY_MS as f64);
+    let base =
+        (RECONNECT_BASE_DELAY_MS as f64 * 1.5f64.powf(exponent)).min(RECONNECT_MAX_DELAY_MS as f64);
     let jitter = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_millis() as f64 / 1000.0)
@@ -236,35 +240,45 @@ fn reconnect_delay(attempts: u32) -> u64 {
 /// Establish the WebSocket connection, optionally tunnelling through an HTTP proxy
 /// so the connection honours the app's proxy setting (the WebView WebSocket does not).
 async fn connect(
-    host: String,
-    port: u16,
+    endpoint: PipelineEndpoint,
     token: &str,
     proxy: &Option<String>,
-) -> Result<WebSocketStream<TlsStream<TcpStream>>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+) -> Result<
+    WebSocketStream<MaybeTlsStream<TcpStream>>,
+    Box<dyn std::error::Error + Send + Sync + 'static>,
+> {
     let tcp = match proxy {
-        Some(p) if !p.trim().is_empty() => tunnel_tcp(p, &host, port).await?,
-        _ => TcpStream::connect((host.as_str(), port)).await?,
+        Some(p) if !p.trim().is_empty() => proxy_tcp(p, &endpoint.host, endpoint.port).await?,
+        _ => TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?,
     };
 
-    // TLS handshake over the (proxied or direct) TCP stream.
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    let connector = TlsConnector::from(Arc::new(config));
-    // `host` must be owned `String` so we get the `TryFrom<String>` impl that
-    // yields `ServerName<'static>`; passing `&str` would require `'static` and
-    // escape the function body (E0521). Clone so we can reuse `host` below.
-    let server_name = ServerName::try_from(host.clone())?;
-    let tls = connector.connect(server_name, tcp).await?;
+    let transport = if endpoint.secure {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let connector = TlsConnector::from(Arc::new(config));
+        let server_name = ServerName::try_from(endpoint.host.clone())?;
+        MaybeTlsStream::Rustls(connector.connect(server_name, tcp).await?)
+    } else {
+        MaybeTlsStream::Plain(tcp)
+    };
 
     // WebSocket handshake.
+    let separator = if endpoint.resource.contains('?') {
+        '&'
+    } else {
+        '?'
+    };
     let url = format!(
-        "wss://{}:{}/?authToken={}",
-        host,
-        port,
-        urlencoding::encode(token)
+        "{}://{}:{}{}{}authToken={}",
+        if endpoint.secure { "wss" } else { "ws" },
+        endpoint.host,
+        endpoint.port,
+        endpoint.resource,
+        separator,
+        urlencoding::encode(token),
     );
     let mut request = url.into_client_request()?;
     request
@@ -276,7 +290,7 @@ async fn connect(
 
     let (ws, _resp) = tokio::time::timeout(
         Duration::from_millis(HANDSHAKE_TIMEOUT_MS),
-        client_async(request, tls),
+        client_async(request, transport),
     )
     .await
     .map_err(|_| "握手超时")??;
@@ -284,22 +298,44 @@ async fn connect(
     Ok(ws)
 }
 
-/// Open a TCP tunnel through an HTTP CONNECT proxy (the proxy resolves the
-/// target host, which also avoids local DNS poisoning).
-async fn tunnel_tcp(
+/// Open a TCP tunnel through an HTTP CONNECT or SOCKS5 proxy.
+async fn proxy_tcp(
     proxy_url: &str,
     target_host: &str,
     target_port: u16,
 ) -> Result<TcpStream, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let trimmed = proxy_url.trim();
-    let without_scheme = trimmed
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_start_matches("socks5://");
-    let (host, port) = match without_scheme.rsplit_once(':') {
-        Some((h, p)) => (h, p.parse::<u16>().unwrap_or(1080)),
-        None => (without_scheme, 1080),
-    };
+    let parsed = Url::parse(proxy_url.trim())?;
+    let host = parsed.host_str().ok_or("代理 URL 缺少 host")?;
+    let has_credentials = !parsed.username().is_empty() || parsed.password().is_some();
+
+    if parsed.scheme() == "socks5" || parsed.scheme() == "socks5h" {
+        let port = parsed.port().unwrap_or(1080);
+        return tunnel_socks5(
+            host,
+            port,
+            target_host,
+            target_port,
+            if has_credentials {
+                Some((parsed.username(), parsed.password().unwrap_or("")))
+            } else {
+                None
+            },
+        )
+        .await;
+    }
+
+    if parsed.scheme() != "http" {
+        return Err(format!(
+            "Pipeline 代理仅支持 http://、socks5:// 或 socks5h://：{}",
+            parsed.scheme()
+        )
+        .into());
+    }
+    if has_credentials {
+        return Err("Pipeline HTTP 代理暂不支持用户名/密码，请使用 SOCKS5 认证代理".into());
+    }
+
+    let port = parsed.port().unwrap_or(8080);
 
     let mut stream = TcpStream::connect((host, port)).await?;
 
@@ -338,9 +374,79 @@ async fn tunnel_tcp(
     Ok(stream)
 }
 
+async fn tunnel_socks5(
+    proxy_host: &str,
+    proxy_port: u16,
+    target_host: &str,
+    target_port: u16,
+    credentials: Option<(&str, &str)>,
+) -> Result<TcpStream, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    if target_host.len() > u8::MAX as usize {
+        return Err("SOCKS5 目标主机名过长".into());
+    }
+
+    let mut stream = TcpStream::connect((proxy_host, proxy_port)).await?;
+    if credentials.is_some() {
+        stream.write_all(&[0x05, 0x02, 0x00, 0x02]).await?;
+    } else {
+        stream.write_all(&[0x05, 0x01, 0x00]).await?;
+    }
+
+    let mut greeting = [0u8; 2];
+    stream.read_exact(&mut greeting).await?;
+    if greeting[0] != 0x05 || greeting[1] == 0xff {
+        return Err("SOCKS5 代理拒绝认证方式".into());
+    }
+
+    if greeting[1] == 0x02 {
+        let (username, password) = credentials.ok_or("SOCKS5 代理要求用户名/密码")?;
+        if username.len() > u8::MAX as usize || password.len() > u8::MAX as usize {
+            return Err("SOCKS5 用户名或密码过长".into());
+        }
+        let mut auth = Vec::with_capacity(username.len() + password.len() + 3);
+        auth.extend_from_slice(&[0x01, username.len() as u8]);
+        auth.extend_from_slice(username.as_bytes());
+        auth.push(password.len() as u8);
+        auth.extend_from_slice(password.as_bytes());
+        stream.write_all(&auth).await?;
+        let mut auth_response = [0u8; 2];
+        stream.read_exact(&mut auth_response).await?;
+        if auth_response[1] != 0x00 {
+            return Err("SOCKS5 用户名或密码错误".into());
+        }
+    } else if greeting[1] != 0x00 {
+        return Err(format!("SOCKS5 不支持的认证方式：{}", greeting[1]).into());
+    }
+
+    let mut request = Vec::with_capacity(target_host.len() + 7);
+    request.extend_from_slice(&[0x05, 0x01, 0x00, 0x03, target_host.len() as u8]);
+    request.extend_from_slice(target_host.as_bytes());
+    request.extend_from_slice(&target_port.to_be_bytes());
+    stream.write_all(&request).await?;
+
+    let mut response = [0u8; 4];
+    stream.read_exact(&mut response).await?;
+    if response[0] != 0x05 || response[1] != 0x00 {
+        return Err(format!("SOCKS5 CONNECT 失败，状态码：{}", response[1]).into());
+    }
+    let address_len = match response[3] {
+        0x01 => 4,
+        0x03 => {
+            let mut len = [0u8; 1];
+            stream.read_exact(&mut len).await?;
+            len[0] as usize
+        }
+        0x04 => 16,
+        other => return Err(format!("SOCKS5 返回了未知地址类型：{other}").into()),
+    };
+    let mut address_and_port = vec![0u8; address_len + 2];
+    stream.read_exact(&mut address_and_port).await?;
+    Ok(stream)
+}
+
 async fn pump_messages(
     app: &AppHandle,
-    ws_stream: WebSocketStream<TlsStream<TcpStream>>,
+    ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
     stop: &Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let (mut write, mut read) = ws_stream.split();
@@ -381,4 +487,36 @@ async fn pump_messages(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pipeline_url_preserves_custom_path_and_query() {
+        let endpoint = parse_pipeline_url(Some("wss://example.com/custom/feed?mirror=1")).unwrap();
+        assert_eq!(
+            endpoint,
+            PipelineEndpoint {
+                secure: true,
+                host: "example.com".to_string(),
+                port: 443,
+                resource: "/custom/feed?mirror=1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn pipeline_url_supports_plain_ws_with_default_port() {
+        let endpoint = parse_pipeline_url(Some("ws://127.0.0.1/socket")).unwrap();
+        assert!(!endpoint.secure);
+        assert_eq!(endpoint.port, 80);
+        assert_eq!(endpoint.resource, "/socket");
+    }
+
+    #[test]
+    fn pipeline_url_rejects_http() {
+        assert!(parse_pipeline_url(Some("https://pipeline.vrchat.cloud")).is_err());
+    }
 }

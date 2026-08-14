@@ -14,6 +14,9 @@
 
 ---
 
+> **功能状态说明（2026-08-14）**：README 中的功能清单是产品目标和已接入模块的概览，不等同于 VRCX 逐项等价实现。真实差距、未消费设置和当前 API 审计见 [`docs/audits/vrcx-feature-parity-2026-08.md`](docs/audits/vrcx-feature-parity-2026-08.md)。VRChat 非公开/社区 API 可能发生变更，客户端会显示认证、权限和限流错误，不会把失败伪装成成功。
+
+
 ## ✨ 核心功能清单
 
 ### 📊 社交管理与数据面板（源自 VrcDog）

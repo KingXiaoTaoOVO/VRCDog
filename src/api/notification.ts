@@ -53,8 +53,14 @@ export const NotificationApi = {
   acceptFriendRequestNotification: (params: { notificationId: string }) =>
     request(`/auth/user/notifications/${params.notificationId}/accept`, { method: 'PUT' }),
 
-  getNotificationsV2: (params: { n?: number, offset?: number, type?: string }) =>
+  clearNotifications: () =>
+    request('/auth/user/notifications/clear', { method: 'PUT' }),
+
+  getNotificationsV2: (params: { n?: number, offset?: number, type?: string, limit?: number } = {}) =>
     request('/notifications', { method: 'GET', params }),
+
+  clearNotificationsV2: () =>
+    request('/notifications', { method: 'DELETE' }),
 
   sendInvite: (params: { receiverUserId?: string, userId?: string, [key: string]: any }, receiverUserId?: string) => {
     const id = receiverUserId || params.receiverUserId || params.userId;
@@ -103,8 +109,10 @@ export const NotificationApi = {
     return request(`/notifications/${id}/see`, { method: 'POST' });
   },
 
-  sendNotificationResponse: (params: { notificationId: string, responseType: string, responseData?: string }) =>
-    request(`/notifications/${params.notificationId}/respond`, { method: 'POST', params }),
+  sendNotificationResponse: (params: { notificationId: string, responseType: string, responseData?: string }) => {
+    const { notificationId, ...body } = params;
+    return request(`/notifications/${notificationId}/respond`, { method: 'POST', params: body });
+  },
 
   deleteNotificationV2: (notificationId: string | { notificationId: string }) => {
     const id = typeof notificationId === 'string' ? notificationId : notificationId.notificationId;

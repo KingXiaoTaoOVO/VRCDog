@@ -5,6 +5,12 @@ import { Bell, Loader2, UserPlus, Check, X, Megaphone, HelpCircle, UsersRound, M
 import { useI18n } from 'vue-i18n';
 import type { VrcNotification } from '../types/vrc';
 import { useToast } from '../composables/useToast';
+import {
+  getDisplayNotificationDetails,
+  getStoredNotificationMeta,
+  normalizeNotificationForDb,
+  parseStoredNotificationDetails,
+} from '../api/notificationNormalization';
 
 const { t, locale } = useI18n();
 const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
@@ -15,7 +21,7 @@ const loading = ref(true);
 const errorMsg = ref('');
 const processingId = ref<string | null>(null);
 const localNotificationTypes = new Set(['friend-online', 'friend-offline', 'friend-location']);
-const actionableNotificationTypes = new Set(['friendRequest', 'invite', 'requestInvite', 'group.invite', 'group.request']);
+const actionableNotificationTypes = new Set(['friendRequest', 'requestInvite', 'group.invite', 'group.request']);
 
 const getNotificationTitle = (notif: VrcNotification) => {
   const message = typeof notif.message === 'string' ? notif.message.trim() : '';
@@ -51,25 +57,18 @@ const isRenderableNotification = (notif: VrcNotification) => {
   return localNotificationTypes.has(notif.type) || actionableNotificationTypes.has(notif.type);
 };
 
-const normalizeNotificationForDb = (notif: any) => {
-  const createdAt = notif.created_at || notif.createdAt || (notif.createdAtMs ? new Date(Number(notif.createdAtMs)).toISOString() : '');
-  return {
-    id: notif.id,
-    type: notif.type || 'notification',
-    senderUserId: notif.senderUserId || null,
-    senderUsername: notif.senderUsername || notif.senderDisplayName || '',
-    receiverUserId: notif.receiverUserId || null,
-    message: notif.message || notif.title || '',
-    details: typeof notif.details === 'object' ? JSON.stringify(notif.details || {}) : (notif.details || ''),
-    created_at: createdAt || new Date().toISOString()
-  };
-};
-
 const syncRemoteNotifications = async () => {
   try {
-    const remote: any = await VrcApi.getNotifications({ n: 100, offset: 0 });
-    if (Array.isArray(remote) && remote.length > 0) {
-      await DbApi.batchSaveNotifications({ notificationsJson: JSON.stringify(remote.map(normalizeNotificationForDb)) });
+    const [legacyResult, v2Result] = await Promise.allSettled([
+      VrcApi.getNotifications({ n: 100, offset: 0 }),
+      VrcApi.getNotificationsV2({ n: 100, offset: 0 }),
+    ]);
+    const remote = [
+      ...(legacyResult.status === 'fulfilled' && Array.isArray(legacyResult.value) ? legacyResult.value : []),
+      ...(v2Result.status === 'fulfilled' && Array.isArray(v2Result.value) ? v2Result.value : []),
+    ];
+    if (remote.length > 0) {
+      await DbApi.batchSaveNotifications({ notificationsJson: JSON.stringify(remote.map((item) => normalizeNotificationForDb(item))) });
     }
   } catch (err) {
     console.warn('Sync VRChat notifications failed:', err);
@@ -107,7 +106,49 @@ const refreshLocalNotifications = () => {
 const tryRemoteNotificationAction = async (notif: VrcNotification, action: 'accept' | 'reject' | 'hide') => {
   if (localNotificationTypes.has(notif.type)) return;
 
-  if (action === 'accept') {
+  const meta = getStoredNotificationMeta(notif.details);
+  const details = parseStoredNotificationDetails(notif.details);
+  const responseTypes = action === 'reject' ? new Set(['reject', 'decline', 'delete']) : new Set([action]);
+  const response = meta.responses?.find((item) => responseTypes.has(String(item.type || '').toLowerCase()));
+
+  if (action === 'accept' && notif.type === 'requestInvite' && meta.version === 1) {
+    const senderId = String(notif.senderUserId || '');
+    if (!senderId) throw new Error(l('通知缺少发送者 ID', 'Notification is missing the sender user id'));
+    const me: any = await VrcApi.getCurrentUser();
+    const location = String(me?.location || '');
+    const separator = location.indexOf(':');
+    if (separator <= 0 || !location.slice(separator + 1)) {
+      throw new Error(l('当前不在可被邀请的房间内', 'You are not currently in an inviteable instance'));
+    }
+    await VrcApi.sendInviteNotification({
+      receiverUserId: senderId,
+      instanceId: location.slice(separator + 1),
+      worldId: location.slice(0, separator),
+      worldName: details.worldName,
+      rsvp: true,
+    });
+    await VrcApi.hideNotification(notif.id);
+    return;
+  }
+
+  if (response) {
+    await VrcApi.sendNotificationResponse({
+      notificationId: notif.id,
+      responseType: String(response.type),
+      responseData: response.data || '',
+    });
+    return;
+  }
+
+  if (meta.version === 2) {
+    if (action === 'accept') {
+      throw new Error(l('该通知没有接受选项', 'This notification has no accept response'));
+    }
+    await VrcApi.deleteNotificationV2(notif.id);
+    return;
+  }
+
+  if (action === 'accept' && notif.type === 'friendRequest') {
     try {
       await VrcApi.acceptNotification(notif.id);
       return;
@@ -119,18 +160,6 @@ const tryRemoteNotificationAction = async (notif: VrcNotification, action: 'acce
         throw legacyError;
       });
       return;
-    }
-  }
-
-  if (action === 'reject') {
-    try {
-      await VrcApi.sendNotificationResponse({
-        notificationId: notif.id,
-        responseType: 'reject',
-      });
-      return;
-    } catch {
-      // Legacy notifications use hide as the effective reject/dismiss action.
     }
   }
 
@@ -182,20 +211,11 @@ const rejectNotification = async (notif: VrcNotification) => {
 onMounted(() => {
   refreshNotifications();
   window.addEventListener('vrc-notifications-synced', refreshLocalNotifications);
-  window.addEventListener('vrc-pipeline-event', handlePipelineEvent);
 });
 
 onUnmounted(() => {
   window.removeEventListener('vrc-notifications-synced', refreshLocalNotifications);
-  window.removeEventListener('vrc-pipeline-event', handlePipelineEvent);
 });
-
-const handlePipelineEvent = (e: Event) => {
-  const json = (e as CustomEvent).detail;
-  if (json && ['notification', 'hide-notification', 'clear-notification', 'friend-online', 'friend-offline', 'friend-location'].includes(json.type)) {
-    fetchNotifications(false);
-  }
-};
 
 const filterTab = ref<'all' | 'friend' | 'invite' | 'other'>('all');
 
@@ -214,6 +234,14 @@ const clearAllNotifications = async () => {
   if (notifications.value.length === 0) return;
   loading.value = true;
   try {
+    const [legacyResult, v2Result] = await Promise.allSettled([
+      VrcApi.clearNotifications(),
+      VrcApi.clearNotificationsV2(),
+    ]);
+    const remoteFailed = [legacyResult, v2Result].every((result) => result.status === 'rejected');
+    if (remoteFailed) {
+      throw new Error(l('远端通知清理失败，未删除本地记录', 'Remote notification clearing failed; local records were kept'));
+    }
     await Promise.allSettled(notifications.value.map((notif) => DbApi.deleteNotification({ id: notif.id })));
     notifications.value = [];
     toast.success(l('已清空所有通知', 'All notifications cleared'));
@@ -242,22 +270,19 @@ const getNotificationIcon = (type: string) => {
   }
 };
 
-const parseDetails = (details: string | any) => {
-  if (!details) return null;
-  if (typeof details === 'string') {
-    try { 
-      const parsed = JSON.parse(details); 
-      return Object.keys(parsed).length > 0 ? parsed : null;
-    } catch { return details; }
-  }
-  return Object.keys(details).length > 0 ? details : null;
+const renderDetails = (details: any) => {
+  if (!details) return '';
+  const parsed = getDisplayNotificationDetails(details);
+  if (typeof parsed === 'string') return parsed;
+  if (Object.keys(parsed).length === 0) return '';
+  return parsed.worldName || parsed.message || parsed.location || parsed.imageUrl || JSON.stringify(parsed);
 };
 
-const renderDetails = (details: any) => {
-  const parsed = parseDetails(details);
-  if (!parsed) return '';
-  if (typeof parsed === 'string') return parsed;
-  return parsed.worldName || parsed.message || parsed.location || parsed.imageUrl || JSON.stringify(parsed);
+const canAcceptNotification = (notif: VrcNotification) => {
+  if (notif.type === 'friendRequest' || notif.type === 'requestInvite') return true;
+  return Boolean(getStoredNotificationMeta(notif.details).responses?.some(
+    (response) => String(response.type || '').toLowerCase() === 'accept',
+  ));
 };
 </script>
 
@@ -386,7 +411,7 @@ const renderDetails = (details: any) => {
 
           <div class="flex flex-col gap-2 flex-shrink-0">
             <button
-              v-if="actionableNotificationTypes.has(notif.type)"
+              v-if="canAcceptNotification(notif)"
               :disabled="processingId === notif.id"
               class="w-10 h-10 rounded-xl bg-green-500 text-white hover:bg-green-600 transition-colors flex items-center justify-center shadow-sm disabled:opacity-50"
               @click="acceptNotification(notif.id)"

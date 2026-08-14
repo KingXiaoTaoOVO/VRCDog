@@ -6,6 +6,7 @@ import { initGamelogWatcher, stopGamelogWatcher } from '../api/gamelogWatcher';
 import { isTauri } from '@tauri-apps/api/core';
 import type { VrcUser } from '../types/vrc';
 import { setAppLocale, translate } from '../i18n';
+import { normalizeNotificationForDb } from '../api/notificationNormalization';
 import { useUiStore } from './uiStore';
 import { useFriendsStore } from './friendsStore';
 import { mergeCookiesAndSave } from '../api/cookies';
@@ -52,20 +53,6 @@ export const useAuthStore = defineStore('auth', () => {
     const userId = normalizeServerEventUserId(payload);
     const currentId = currentUser.value?.id || currentUser.value?.displayName || '';
     return appRole.value === 'client' && Boolean(userId) && Boolean(currentId) && (userId === currentId || userId === currentUser.value?.displayName);
-  };
-
-  const normalizeNotificationForDb = (notif: any) => {
-    const createdAt = notif.created_at || notif.createdAt || (notif.createdAtMs ? new Date(Number(notif.createdAtMs)).toISOString() : '');
-    return {
-      id: notif.id,
-      type: notif.type || 'notification',
-      senderUserId: notif.senderUserId || null,
-      senderUsername: notif.senderUsername || notif.senderDisplayName || '',
-      receiverUserId: notif.receiverUserId || null,
-      message: notif.message || notif.title || '',
-      details: typeof notif.details === 'object' ? JSON.stringify(notif.details || {}) : (notif.details || ''),
-      created_at: createdAt || new Date().toISOString()
-    };
   };
 
   const ensureServerEventListeners = async () => {
@@ -317,8 +304,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   const syncInitialNotifications = async () => {
     try {
-      const notifs = await VrcApi.getNotifications({ n: 100, offset: 0 });
-      if (notifs && notifs.length > 0 && isTauri()) {
+      const [legacyResult, v2Result] = await Promise.allSettled([
+        VrcApi.getNotifications({ n: 100, offset: 0 }),
+        VrcApi.getNotificationsV2({ n: 100, offset: 0 }),
+      ]);
+      const notifs = [
+        ...(legacyResult.status === 'fulfilled' && Array.isArray(legacyResult.value) ? legacyResult.value : []),
+        ...(v2Result.status === 'fulfilled' && Array.isArray(v2Result.value) ? v2Result.value : []),
+      ];
+      if (notifs.length > 0 && isTauri()) {
         await DbApi.batchSaveNotifications({ notificationsJson: JSON.stringify(notifs.map(normalizeNotificationForDb)) });
       }
       window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));

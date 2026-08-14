@@ -54,6 +54,7 @@ dependencies = [
  "tokio-tungstenite 0.24.0",
  "tokio-util",
  "tower-http",
+ "url",
  "urlencoding",
  "uuid 1.23.1",
  "webpki-roots 0.26.11",
