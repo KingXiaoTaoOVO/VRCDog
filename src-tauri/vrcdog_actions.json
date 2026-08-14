@@ -14,6 +14,11 @@
       "name": "/actions/main/in/ClearTranslation",
       "type": "boolean",
       "requirement": "optional"
+    },
+    {
+      "name": "/actions/main/in/MenuNavigate",
+      "type": "vector2",
+      "requirement": "optional"
     }
   ],
   "action_sets": [
@@ -60,17 +65,19 @@
     {
       "language_tag": "en_US",
       "actions": {
-        "/actions/main/in/TranslateTrigger": "Show Scan Frame / Translate",
-        "/actions/main/in/GripScale": "Hold to scale overlay",
-        "/actions/main/in/ClearTranslation": "Clear translation"
+        "/actions/main/in/TranslateTrigger": "Show scan frame / confirm menu item",
+        "/actions/main/in/GripScale": "Hold to adjust overlay",
+        "/actions/main/in/ClearTranslation": "Clear translation",
+        "/actions/main/in/MenuNavigate": "Navigate VrcDog VR menu"
       }
     },
     {
       "language_tag": "zh_CN",
       "actions": {
-        "/actions/main/in/TranslateTrigger": "显示扫描框/触发翻译",
-        "/actions/main/in/GripScale": "按住缩放截图框",
-        "/actions/main/in/ClearTranslation": "清除翻译结果"
+        "/actions/main/in/TranslateTrigger": "显示扫描框 / 确认菜单项",
+        "/actions/main/in/GripScale": "按住调整叠加层",
+        "/actions/main/in/ClearTranslation": "清除翻译结果",
+        "/actions/main/in/MenuNavigate": "导航 VrcDog VR 菜单"
       }
     }
   ]

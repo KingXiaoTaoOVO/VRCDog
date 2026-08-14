@@ -405,6 +405,8 @@ pub fn run() {
             ovr::ovr_get_status,
             ovr::ovr_set_config,
             ovr::ovr_toggle_translation,
+            ovr::ovr_toggle_menu,
+            ovr::ovr_open_binding_ui,
             ovr::ovr_capture_screenshot,
             ovr::ovr_update_overlay_text,
             ovr::ovr_set_overlay_visible,

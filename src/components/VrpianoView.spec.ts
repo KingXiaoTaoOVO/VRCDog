@@ -104,4 +104,17 @@ describe('VrpianoView preview routing', () => {
     expect(mocks.readSongData).toHaveBeenCalledWith({ songPath: 'C:/songs/test.mid' });
     wrapper.unmount();
   });
+
+  it('routes VR menu playback actions to the built-in player', async () => {
+    const wrapper = mount(VrpianoView);
+    await flushPromises();
+
+    const onVrAction = mocks.listeners.get('vrpiano_vr_action');
+    expect(onVrAction).toBeTypeOf('function');
+    onVrAction?.({ payload: 'toggle' });
+    await flushPromises();
+
+    expect(mocks.readSongData).toHaveBeenCalledWith({ songPath: 'C:/songs/test.mid' });
+    wrapper.unmount();
+  });
 });

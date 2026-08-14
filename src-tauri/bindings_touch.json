@@ -31,6 +31,15 @@
               "output": "/actions/main/in/ClearTranslation"
             }
           }
+        },
+        {
+          "mode": "joystick",
+          "path": "/user/hand/right/input/joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/MenuNavigate"
+            }
+          }
         }
       ]
     }

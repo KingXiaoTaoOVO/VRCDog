@@ -282,6 +282,17 @@ const legacyConfigKeyMap: Record<string, [string, string]> = {
   scan_frame_width_m: ['general', 'scanFrameWidthM'],
   scanFrameDistanceM: ['general', 'scanFrameDistanceM'],
   scan_frame_distance_m: ['general', 'scanFrameDistanceM'],
+  overlay_lock_mode: ['general', 'overlayLockMode'],
+  overlay_bg_opacity: ['general', 'overlayBgOpacity'],
+  dual_display: ['general', 'dualDisplay'],
+  wrist_mode: ['general', 'wristMode'],
+  tts_enabled: ['general', 'ttsEnabled'],
+  osc_chatbox_enabled: ['general', 'oscChatboxEnabled'],
+  height_toggle_enabled: ['playspace', 'heightToggle'],
+  playspace_offset_x: ['playspace', 'offsetX'],
+  playspace_offset_y: ['playspace', 'offsetY'],
+  playspace_offset_z: ['playspace', 'offsetZ'],
+  playspace_rotation: ['playspace', 'rotation'],
   advCpuAccel: ['general', 'advCpuAccel'],
   advGpuAccel: ['general', 'advGpuAccel'],
   advDebugMode: ['general', 'advDebugMode'],
@@ -675,6 +686,23 @@ const showToast = (message: string, type: 'success'|'error'|'info' = 'info') => 
   }, 3000);
 };
 
+const openSteamVrBindings = async () => {
+  try {
+    await OvrApi.openBindingUi();
+    showToast('已打开 SteamVR 按键绑定编辑器', 'success');
+  } catch (error) {
+    showToast(`无法打开 SteamVR 按键绑定编辑器：${String(error)}`, 'error');
+  }
+};
+
+const toggleNativeVrMenu = async () => {
+  try {
+    await OvrApi.toggleMenu();
+  } catch (error) {
+    showToast(`无法切换 VR 菜单：${String(error)}`, 'error');
+  }
+};
+
 // Auto-sync configuration to backend with debounce
 let configSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 let ovrasSyncChecked = false;
@@ -733,6 +761,9 @@ const initOvrBackend = async () => {
       ovrConnected.value = true;
       ovrHmdModel.value = status.hmd_model || 'Unknown';
       ovrLogs.value.push((t('ovr.log_ovr_connected') || t('auto_2ef2d51a')).replace('{model}', ovrHmdModel.value));
+      // The native thread starts before the settings watcher can flush. Push the
+      // persisted values immediately so SteamVR never starts with stale defaults.
+      await syncConfigToBackend();
     }
   } catch (err: any) {
     ovrLogs.value.push(t('ovr.log_ovr_init_fail').replace('{error}', String(err?.message || err)));
@@ -857,7 +888,19 @@ onMounted(async () => {
         patchOvrLayoutFromBackend(e.payload);
       }
     });
-    ovrUnlisteners = [u1, u2, u3, u4, u5, u6];
+    const u7 = await listen<Record<string, unknown>>('ovr_config_changed', (e) => {
+      const payload = e.payload;
+      if (!isPlainObject(payload)) return;
+      patchOvrLayoutFromBackend(payload);
+      if (typeof payload.overlay_lock_mode === 'string') config.value.general.overlayLockMode = payload.overlay_lock_mode;
+      if (typeof payload.overlay_bg_opacity === 'number') config.value.general.overlayBgOpacity = payload.overlay_bg_opacity;
+      if (typeof payload.dual_display === 'boolean') config.value.general.dualDisplay = payload.dual_display;
+      if (typeof payload.wrist_mode === 'boolean') config.value.general.wristMode = payload.wrist_mode;
+      if (typeof payload.tts_enabled === 'boolean') config.value.general.ttsEnabled = payload.tts_enabled;
+      if (typeof payload.osc_chatbox_enabled === 'boolean') config.value.general.oscChatboxEnabled = payload.osc_chatbox_enabled;
+      void saveSettings();
+    });
+    ovrUnlisteners = [u1, u2, u3, u4, u5, u6, u7];
   } catch {
     // Tauri events not available (dev mode / non-Tauri env)
   }
@@ -870,16 +913,17 @@ onUnmounted(() => {
   clearTimeout(saveTimeout);
   // Cleanup OVR event listeners
   ovrUnlisteners.forEach(u => u());
-  // Shutdown VR thread when leaving VR mode
-  if (ovrConnected.value) {
-    OvrApi.shutdown().catch(() => {});
-  }
+  // Keep the native OpenVR session alive while navigating between app views.
+  // Stopping it here made every VR menu, shortcut and overlay disappear as soon
+  // as the user left the translator settings page.
 });
 const loadSettings = async () => {
   try {
     const all = await DbApi.getAllSettings();
     if (all && typeof all === 'object') {
       applyConfigPatch(all as Record<string, unknown>);
+      const nativeRuntime = parseStoredValue((all as Record<string, unknown>).ovr_native_runtime_config);
+      if (isPlainObject(nativeRuntime)) applyConfigPatch(nativeRuntime);
     }
 
     // Two-way sync: Override with native OVR INI if they changed it in VR
@@ -1256,6 +1300,24 @@ const getKeyDisplay = (val: string) => {
                   { label: t('ovr.grip_full'), value: 'grip' }
                 ]" />
             </div>
+            <button
+              type="button"
+              class="w-full px-3 py-2 rounded-lg bg-primary text-white font-bold text-sm hover:opacity-90 transition-opacity"
+              :disabled="!ovrConnected"
+              @click="toggleNativeVrMenu"
+            >
+              <ScanEye class="w-4 h-4 inline-block mr-2 align-[-2px]" />
+              在头显中显示/隐藏 VR 菜单
+            </button>
+            <button
+              type="button"
+              class="w-full px-3 py-2 rounded-lg border border-primary/30 text-primary font-bold text-sm hover:bg-primary/10 transition-colors"
+              :disabled="!ovrConnected"
+              @click="openSteamVrBindings"
+            >
+              <Gamepad2 class="w-4 h-4 inline-block mr-2 align-[-2px]" />
+              在 SteamVR 中编辑完整按键绑定
+            </button>
           </div>
         </div>
 
