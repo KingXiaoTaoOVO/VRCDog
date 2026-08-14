@@ -27,7 +27,6 @@ import {
   RefreshCcw,
   Search,
   ShieldCheck,
-  Square,
   Trash2,
   Upload,
   Volume2,
@@ -43,6 +42,7 @@ import {
   type MidiNote,
 } from '../audio/generalMidi';
 import { isVrpianoOverlayBlurEnabled, VRPIANO_OVERLAY_BLUR_KEY } from './vrpianoOverlayAppearance';
+import { VRPIANO_PREVIEW_SONG_EVENT, type VrpianoPreviewSongPayload } from './vrpianoEvents';
 
 const { locale } = useI18n();
 const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
@@ -159,6 +159,7 @@ const formatVrpianoError = (e: unknown) => {
 let unlistenStatus: (() => void) | null = null;
 let unlistenOverlayClosed: (() => void) | null = null;
 let unlistenMidishowLogin: (() => void) | null = null;
+let unlistenPreviewSong: (() => void) | null = null;
 let pollTimer: number | null = null;
 let midishowLoginPollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
@@ -187,7 +188,13 @@ const filteredSongs = computed(() => {
   });
 });
 const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status.value.progress || 0)) * 100));
-const canStart = computed(() => Boolean(selectedSong.value) && !status.value.running && !loading.value);
+const canTogglePlayback = computed(() => Boolean(selectedSong.value) && !loading.value);
+const hasStartedPlayback = computed(() => Boolean(status.value.song_path));
+const playbackActionLabel = computed(() => {
+  if (status.value.paused) return l('继续', 'Resume');
+  if (status.value.running) return l('暂停', 'Pause');
+  return l('开始', 'Start');
+});
 const speedText = computed(() => `${clampSpeed(speed.value).toFixed(2)}x`);
 const defaultMidishowAccount = computed(() => midishowAccounts.value[0] || null);
 const defaultMidishowLoginTypeText = computed(() => (
@@ -1057,12 +1064,50 @@ const start = async () => {
   }
 };
 
-const stop = async () => {
+const togglePlayback = async () => {
+  if (!status.value.running) {
+    await start();
+    return;
+  }
+
   loading.value = true;
   error.value = '';
   try {
-    status.value = await VrpianoApi.stop();
-    addLog(l('已发送停止指令', 'Stop command sent'));
+    const wasPaused = status.value.paused;
+    status.value = await VrpianoApi.togglePause();
+    addLog(wasPaused ? l('已继续演奏', 'Playback resumed') : l('已暂停演奏', 'Playback paused'));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const waitUntilPlaybackStops = async () => {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const next = await VrpianoApi.getStatus();
+    status.value = next;
+    if (!next.running) return;
+    await new Promise((resolve) => window.setTimeout(resolve, 40));
+  }
+  throw new Error(l('等待当前曲目停止超时', 'Timed out waiting for the current song to stop'));
+};
+
+const restartPlayback = async () => {
+  if (!selectedSong.value || !hasStartedPlayback.value || loading.value) return;
+  loading.value = true;
+  error.value = '';
+  try {
+    if (status.value.running) {
+      await VrpianoApi.stop();
+      await waitUntilPlaybackStops();
+    }
+    status.value = await VrpianoApi.start({
+      songPath: selectedSong.value.path,
+      delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+      speed: clampSpeed(speed.value),
+    });
+    addLog(l(`已重新开始 ${selectedSong.value.name}`, `Restarted ${selectedSong.value.name}`));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -1094,8 +1139,8 @@ const handleHotkey = (event: KeyboardEvent) => {
   if (!['F1', 'F2', 'F3', 'F4', 'F5'].includes(event.key)) return;
   event.preventDefault();
   event.stopPropagation();
-  if (event.key === 'F1') void start();
-  else if (event.key === 'F2') void stop();
+  if (event.key === 'F1') void togglePlayback();
+  else if (event.key === 'F2' && hasStartedPlayback.value) void restartPlayback();
   else if (event.key === 'F3') adjustSpeed(0.1);
   else if (event.key === 'F4') adjustSpeed(-0.1);
   else if (event.key === 'F5') resetSpeed();
@@ -1120,6 +1165,10 @@ onMounted(async () => {
     overlayOpen.value = Boolean(await WebviewWindow.getByLabel('vrpiano-overlay'));
     unlistenOverlayClosed = await listen('vrpiano-overlay-closed', () => {
       overlayOpen.value = false;
+    });
+    unlistenPreviewSong = await listen<VrpianoPreviewSongPayload>(VRPIANO_PREVIEW_SONG_EVENT, (event) => {
+      const song = songs.value.find((item) => item.path === event.payload?.songPath);
+      if (song) void previewSong(song);
     });
     unlistenMidishowLogin = await listen<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status', (event) => {
       void applyMidishowLoginStatus(event.payload);
@@ -1147,6 +1196,7 @@ onUnmounted(() => {
   if (unlistenStatus) unlistenStatus();
   if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (unlistenMidishowLogin) unlistenMidishowLogin();
+  if (unlistenPreviewSong) unlistenPreviewSong();
   stopMidishowLoginPolling();
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (speedApplyTimer !== null) window.clearTimeout(speedApplyTimer);
@@ -1348,7 +1398,7 @@ onUnmounted(() => {
         <div class="hotkey-panel" :class="{ enabled: hotkeysEnabled }">
           <div>
             <strong>{{ l('全局快捷键', 'Global shortcuts') }}</strong>
-            <span>{{ l('开启后 F1 开始、F2 停止、F3 加快、F4 减慢、F5 恢复默认速度，可在 VRChat 内响应。', 'When enabled, F1 starts, F2 stops, F3 speeds up, F4 slows down, and F5 restores the default speed, including inside VRChat.') }}</span>
+            <span>{{ l('F1 开始、暂停或继续；开始后可用 F2 重新开始。F3/F4 调整速度，F5 恢复默认速度。', 'F1 starts, pauses, or resumes. After playback starts, F2 restarts it. F3/F4 adjust speed and F5 restores the default.') }}</span>
           </div>
           <button class="toggle-btn" :class="{ enabled: hotkeysEnabled }" :disabled="!status.hotkeys_available" @click="toggleHotkeys">
             {{ hotkeysEnabled ? l('已开启', 'Enabled') : l('已关闭', 'Disabled') }}
@@ -1356,14 +1406,15 @@ onUnmounted(() => {
         </div>
 
         <div class="action-row">
-          <button class="primary-action" :disabled="!canStart" @click="start">
-            <Loader2 v-if="loading && !status.running" :size="18" class="spin" />
+          <button class="primary-action" :disabled="!canTogglePlayback" @click="togglePlayback">
+            <Loader2 v-if="loading" :size="18" class="spin" />
+            <Pause v-else-if="status.running && !status.paused" :size="18" />
             <Play v-else :size="18" />
-            F1 {{ l('开始演奏', 'Start') }}
+            F1 {{ playbackActionLabel }}
           </button>
-          <button class="danger-action" :disabled="!status.running && !loading" @click="stop">
-            <Square :size="18" />
-            F2 {{ l('停止', 'Stop') }}
+          <button v-if="hasStartedPlayback" class="restart-action" :disabled="loading" @click="restartPlayback">
+            <RefreshCcw :size="18" />
+            F2 {{ l('重新开始', 'Restart') }}
           </button>
         </div>
 
@@ -1866,7 +1917,7 @@ input {
 
 .icon-btn:disabled,
 .primary-action:disabled,
-.danger-action:disabled,
+.restart-action:disabled,
 .small-action:disabled,
 .online-form button:disabled,
 .online-actions button:disabled {
@@ -2221,7 +2272,7 @@ input {
 }
 
 .primary-action,
-.danger-action,
+.restart-action,
 .small-action,
 .toggle-btn,
 .online-form button {
@@ -2297,11 +2348,16 @@ input {
   background: var(--vp-primary-hover);
 }
 
-.danger-action {
+.restart-action {
   min-width: 130px;
-  color: #b91c1c;
-  background: rgba(239, 68, 68, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.16);
+  color: var(--vp-text);
+  background: var(--vp-panel);
+  box-shadow: inset 0 0 0 1px var(--vp-border);
+}
+
+.restart-action:hover:not(:disabled) {
+  color: var(--vp-primary);
+  background: var(--vp-hover);
 }
 
 .online-panel {
@@ -2761,7 +2817,7 @@ input {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .danger-action,
+  .restart-action,
   .toggle-btn {
     width: 100%;
   }

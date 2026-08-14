@@ -1284,19 +1284,64 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
     thread::spawn(move || {
         match vk {
             112 => {
-                let (song_path, delay_secs) = match context.state.lock() {
-                    Ok(runtime) => (runtime.hotkey_song_path.clone(), runtime.hotkey_delay_secs),
+                let (running, song_path, delay_secs) = match context.state.lock() {
+                    Ok(runtime) => (
+                        runtime.status.running,
+                        runtime.hotkey_song_path.clone(),
+                        runtime.hotkey_delay_secs,
+                    ),
                     Err(_) => return,
                 };
-                let request = VrpianoStartRequest {
-                    song_path,
-                    delay_secs,
-                    speed: current_speed(&context.state),
-                };
-                let _ = start_playback(context.app.clone(), context.state.clone(), request);
+                if running {
+                    let _ = toggle_playback_pause(context.app.clone(), context.state.clone());
+                } else {
+                    let request = VrpianoStartRequest {
+                        song_path,
+                        delay_secs,
+                        speed: current_speed(&context.state),
+                    };
+                    let _ = start_playback(context.app.clone(), context.state.clone(), request);
+                }
             }
             113 => {
-                let _ = stop_playback(context.app.clone(), context.state.clone());
+                let (running, song_path, delay_secs) = match context.state.lock() {
+                    Ok(runtime) => (
+                        runtime.status.running,
+                        runtime.status.song_path.clone(),
+                        runtime.hotkey_delay_secs,
+                    ),
+                    Err(_) => return,
+                };
+                if !song_path.is_empty() {
+                    if running {
+                        let _ = stop_playback(context.app.clone(), context.state.clone());
+                        for _ in 0..50 {
+                            let stopped = context
+                                .state
+                                .lock()
+                                .map(|runtime| !runtime.status.running)
+                                .unwrap_or(true);
+                            if stopped {
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(20));
+                        }
+                    }
+
+                    let stopped = context
+                        .state
+                        .lock()
+                        .map(|runtime| !runtime.status.running)
+                        .unwrap_or(false);
+                    if stopped {
+                        let request = VrpianoStartRequest {
+                            song_path,
+                            delay_secs,
+                            speed: current_speed(&context.state),
+                        };
+                        let _ = start_playback(context.app.clone(), context.state.clone(), request);
+                    }
+                }
             }
             114 => {
                 let next = current_speed(&context.state) + SPEED_STEP;
@@ -1918,13 +1963,11 @@ async fn search_midishow(
             Duration::from_secs(MIDISHOW_SEARCH_CLI_TIMEOUT_SECS),
         ) {
             Ok(value) => parse_midishow_results(value, limit),
-            Err(cli_error) => Err(format!(
-                "{request_error}; CLI fallback failed: {cli_error}"
-            )),
+            Err(cli_error) => Err(format!("{request_error}; CLI fallback failed: {cli_error}")),
         },
-        Err(_) => Err(
-            "Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索".to_string(),
-        ),
+        Err(_) => {
+            Err("Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索".to_string())
+        }
     }
 }
 
@@ -2227,7 +2270,10 @@ fn extract_search_cover_from_html(html: &str, midi_id: u64) -> Option<String> {
     let window = safe_html_window(html, pos, 4000);
 
     // 1) 直接抓 data-key 所在标签上的 data-src / data-original / src
-    let tag_pattern = format!(r#"(?is)<[a-zA-Z]+\b[^>]*data-key=["']{0}["'][^>]*>"#, midi_id);
+    let tag_pattern = format!(
+        r#"(?is)<[a-zA-Z]+\b[^>]*data-key=["']{0}["'][^>]*>"#,
+        midi_id
+    );
     if let Ok(re) = regex::Regex::new(&tag_pattern) {
         if let Some(tag_match) = re.find(window) {
             let tag = tag_match.as_str();
@@ -2249,7 +2295,9 @@ fn extract_search_cover_from_html(html: &str, midi_id: u64) -> Option<String> {
             r#"(?is)<img[^>]+{attr}=["']([^"']+)["'][^>]*>"#,
             attr = regex::escape(attr)
         );
-        let Ok(re) = regex::Regex::new(&pattern) else { continue };
+        let Ok(re) = regex::Regex::new(&pattern) else {
+            continue;
+        };
         if let Some(captures) = re.captures(window) {
             if let Some(value) = captures.get(1) {
                 let url = decode_html_entities(value.as_str());

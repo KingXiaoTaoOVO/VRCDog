@@ -7,6 +7,7 @@ import { useStorage } from '@vueuse/core';
 import {
   ChevronLeft,
   ChevronRight,
+  Headphones,
   Keyboard,
   ListMusic,
   Music2,
@@ -29,6 +30,7 @@ import {
   VRPIANO_OVERLAY_BLUR_KEY,
   VRPIANO_OVERLAY_OPACITY_KEY,
 } from './vrpianoOverlayAppearance';
+import { VRPIANO_PREVIEW_SONG_EVENT } from './vrpianoEvents';
 
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
@@ -59,6 +61,8 @@ const recentHotkey = ref('');
 const overlayOpacity = useStorage(VRPIANO_OVERLAY_OPACITY_KEY, DEFAULT_VRPIANO_OVERLAY_OPACITY);
 const overlayBlur = useStorage(VRPIANO_OVERLAY_BLUR_KEY, DEFAULT_VRPIANO_OVERLAY_BLUR);
 const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
+const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', true);
+const previewingPath = ref('');
 
 let pollTimer: number | null = null;
 let hotkeyTimer: number | null = null;
@@ -66,6 +70,8 @@ let unlistenStatus: UnlistenFn | null = null;
 let unlistenClose: UnlistenFn | null = null;
 let unlistenMoved: UnlistenFn | null = null;
 let nativeBackdropEnabled: boolean | null = null;
+let lastHandledHotkeyEvent = '';
+let songClickTimer: number | null = null;
 
 const panelStyle = computed(() => createVrpianoOverlayPanelStyle(overlayOpacity.value, overlayBlur.value));
 const blurEnabled = computed({
@@ -93,19 +99,25 @@ const currentIndex = computed(() => {
   return songs.value.findIndex((song) => song.name === status.value.song_name);
 });
 const currentSong = computed(() => songs.value[currentIndex.value] || songs.value[0] || null);
+const hasStartedPlayback = computed(() => Boolean(status.value.song_path));
+const primaryPlaybackLabel = computed(() => {
+  if (status.value.paused) return '继续';
+  if (status.value.running) return '暂停';
+  return '开始';
+});
 const playbackLabel = computed(() => {
   if (status.value.paused) return '已暂停';
   if (status.value.running) return '演奏中';
   return '待命';
 });
 const progressStyle = computed(() => ({ width: `${Math.round(progress.value * 10000) / 100}%` }));
-const hotkeys = [
-  { key: 'F1', label: '开始' },
-  { key: 'F2', label: '停止' },
+const hotkeys = computed(() => [
+  { key: 'F1', label: primaryPlaybackLabel.value },
+  ...(hasStartedPlayback.value ? [{ key: 'F2', label: '重新开始' }] : []),
   { key: 'F3', label: '加速' },
   { key: 'F4', label: '减速' },
   { key: 'F5', label: '默认' },
-];
+]);
 
 const formatTime = (ms: number) => {
   const seconds = Math.max(0, Math.round((Number(ms) || 0) / 1000));
@@ -115,12 +127,18 @@ const formatTime = (ms: number) => {
 const applyStatus = (next: VrpianoStatus) => {
   status.value = next;
   if (next.last_hotkey && next.last_hotkey_at_ms) {
+    const eventId = `${next.last_hotkey}:${next.last_hotkey_at_ms}`;
+    if (eventId === lastHandledHotkeyEvent) return;
+    lastHandledHotkeyEvent = eventId;
+
+    const eventAge = Math.max(0, Date.now() - next.last_hotkey_at_ms);
+    if (eventAge >= 850) return;
     recentHotkey.value = next.last_hotkey;
     if (hotkeyTimer !== null) window.clearTimeout(hotkeyTimer);
     hotkeyTimer = window.setTimeout(() => {
       recentHotkey.value = '';
       hotkeyTimer = null;
-    }, 850);
+    }, 850 - eventAge);
   }
 };
 
@@ -191,6 +209,35 @@ const restartSong = async () => {
   if (currentSong.value) await playSong(currentSong.value);
 };
 
+const handleSongClick = (song: VrpianoSong) => {
+  if (!previewEnabled.value) {
+    void playSong(song);
+    return;
+  }
+  if (songClickTimer !== null) window.clearTimeout(songClickTimer);
+  songClickTimer = window.setTimeout(() => {
+    songClickTimer = null;
+    void playSong(song);
+  }, 220);
+};
+
+const previewSong = async (song: VrpianoSong) => {
+  if (!previewEnabled.value || busy.value || previewingPath.value) return;
+  if (songClickTimer !== null) {
+    window.clearTimeout(songClickTimer);
+    songClickTimer = null;
+  }
+  previewingPath.value = song.path;
+  error.value = '';
+  try {
+    await emit(VRPIANO_PREVIEW_SONG_EVENT, { songPath: song.path });
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    previewingPath.value = '';
+  }
+};
+
 const startDrag = async (event: MouseEvent) => {
   if (positionLocked.value || !isTauri()) return;
   const target = event.target as HTMLElement;
@@ -258,6 +305,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (hotkeyTimer !== null) window.clearTimeout(hotkeyTimer);
+  if (songClickTimer !== null) window.clearTimeout(songClickTimer);
   unlistenStatus?.();
   unlistenClose?.();
   unlistenMoved?.();
@@ -338,11 +386,15 @@ onUnmounted(() => {
 
     <nav class="transport" data-no-drag aria-label="播放控制">
       <button title="上一首" :disabled="busy || !songs.length" @click="moveSong(-1)"><ChevronLeft :size="21" /></button>
-      <button class="play-button" :title="status.running && !status.paused ? '暂停' : '播放'" :disabled="busy || !songs.length" @click="togglePlayback">
+      <button class="play-button" :title="primaryPlaybackLabel" :disabled="busy || !songs.length" @click="togglePlayback">
         <Pause v-if="status.running && !status.paused" :size="23" />
         <Play v-else :size="23" />
+        <span>{{ primaryPlaybackLabel }}</span>
       </button>
-      <button title="重新播放" :disabled="busy || !currentSong" @click="restartSong"><RotateCcw :size="19" /></button>
+      <button v-if="hasStartedPlayback" class="restart-button" title="重新开始" :disabled="busy || !currentSong" @click="restartSong">
+        <RotateCcw :size="18" />
+        <span>重新开始</span>
+      </button>
       <button title="下一首" :disabled="busy || !songs.length" @click="moveSong(1)"><ChevronRight :size="21" /></button>
     </nav>
 
@@ -365,14 +417,32 @@ onUnmounted(() => {
     </section>
 
     <section class="playlist">
-      <div class="playlist-title"><ListMusic :size="15" /><strong>歌单</strong><span>{{ songs.length }} 首</span></div>
+      <div class="playlist-title">
+        <ListMusic :size="15" />
+        <strong>歌单</strong>
+        <button
+          class="preview-toggle"
+          :class="{ enabled: previewEnabled }"
+          type="button"
+          role="switch"
+          :aria-checked="previewEnabled"
+          data-testid="preview-toggle"
+          :title="previewEnabled ? '关闭双击试听' : '开启双击试听'"
+          @click="previewEnabled = !previewEnabled"
+        >
+          <Headphones :size="13" />
+          <span>{{ previewEnabled ? '双击试听' : '试听关闭' }}</span>
+        </button>
+        <span>{{ songs.length }} 首</span>
+      </div>
       <div class="playlist-scroll" data-no-drag>
         <button
           v-for="(song, index) in songs"
           :key="song.path"
           :class="{ active: index === currentIndex }"
           :disabled="busy"
-          @click="playSong(song)"
+          @click="handleSongClick(song)"
+          @dblclick.prevent="previewSong(song)"
         >
           <span>{{ index + 1 }}</span>
           <strong :title="song.name">{{ song.name }}</strong>
@@ -430,8 +500,9 @@ input {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: var(--theme-bg-main);
-  opacity: var(--vrpiano-overlay-opacity, 0.88);
+  background: color-mix(in srgb, var(--theme-bg-main) calc(var(--vrpiano-overlay-opacity, 0.88) * 100%), transparent);
+  backdrop-filter: blur(var(--vrpiano-overlay-blur, 20px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--vrpiano-overlay-blur, 20px)) saturate(160%);
   pointer-events: none;
 }
 
@@ -724,11 +795,30 @@ input {
 }
 
 .transport .play-button {
-  width: 50px;
-  height: 44px;
+  width: 64px;
+  height: 38px;
+  display: inline-flex;
+  gap: 4px;
   color: white;
   border-color: var(--theme-primary);
   background: var(--theme-primary);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.transport .play-button:hover:not(:disabled) {
+  color: white;
+  border-color: var(--theme-primary);
+  background: color-mix(in srgb, var(--theme-primary) 88%, black);
+}
+
+.transport .restart-button {
+  width: 76px;
+  height: 38px;
+  display: inline-flex;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 850;
 }
 
 .transport button:disabled {
@@ -764,7 +854,7 @@ input {
 .hotkey-list {
   margin-top: 7px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
   gap: 5px;
 }
 
@@ -816,6 +906,39 @@ input {
   color: var(--theme-text-muted);
   font-size: 10px;
   font-weight: 800;
+}
+
+.playlist-title .preview-toggle {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 6px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 5px;
+  color: var(--theme-text-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.playlist-title .preview-toggle + span {
+  margin-left: 4px;
+}
+
+.playlist-title .preview-toggle span {
+  margin-left: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.playlist-title .preview-toggle:hover,
+.playlist-title .preview-toggle.enabled {
+  color: var(--theme-primary);
+  border-color: color-mix(in srgb, var(--theme-primary) 42%, transparent);
+  background: var(--theme-active-bg);
 }
 
 .playlist-scroll {

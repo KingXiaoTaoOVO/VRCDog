@@ -26,6 +26,28 @@ import { normalizeTwoFactorMethod } from './twoFactor';
 
 const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|bili_jct|csrf|csrf_token|buvid3|stream_key|token|access[_-]?token|refresh[_-]?token|secret)$/i;
 
+const createBrowserVrpianoStatus = () => ({
+  running: false,
+  paused: false,
+  song_name: '',
+  song_path: '',
+  progress: 0,
+  played_notes: 0,
+  total_notes: 0,
+  duration_ms: 0,
+  elapsed_ms: 0,
+  last_event: 'browser_preview',
+  last_error: '',
+  songs_dir: 'Browser preview',
+  speed: 1,
+  hotkeys_enabled: false,
+  hotkeys_available: true,
+  last_hotkey: '',
+  last_hotkey_at_ms: 0,
+});
+
+let browserVrpianoStatus = createBrowserVrpianoStatus();
+
 const sanitizeInvokeValue = (value: unknown, seen = new WeakSet<object>()): unknown => {
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value as object)) return '[Circular]';
@@ -254,47 +276,45 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
         timestamp_ms: Date.now(),
       }) as any;
     }
-    const mockVrpianoStatus = {
-      running: false,
-      paused: false,
-      song_name: '',
-      song_path: '',
-      progress: 0,
-      played_notes: 0,
-      total_notes: 0,
-      duration_ms: 0,
-      elapsed_ms: 0,
-      last_event: 'browser_preview',
-      last_error: '',
-      songs_dir: 'Browser preview',
-      speed: 1,
-      hotkeys_enabled: false,
-      hotkeys_available: true,
-      last_hotkey: '',
-      last_hotkey_at_ms: 0,
-    };
-    if (cmd === 'vrpiano_init' || cmd === 'vrpiano_get_status' || cmd === 'vrpiano_stop') return Promise.resolve(mockVrpianoStatus) as any;
-    if (cmd === 'vrpiano_set_speed') return Promise.resolve({ ...mockVrpianoStatus, speed: Number(args?.speed || 1), last_event: `Browser preview speed ${Number(args?.speed || 1).toFixed(2)}x` }) as any;
-    if (cmd === 'vrpiano_toggle_pause') return Promise.resolve({ ...mockVrpianoStatus, running: true, paused: true, last_event: 'Browser preview paused' }) as any;
+    if (cmd === 'vrpiano_init' || cmd === 'vrpiano_get_status') return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    if (cmd === 'vrpiano_stop') {
+      browserVrpianoStatus = { ...browserVrpianoStatus, running: false, paused: false, last_event: 'Browser preview stopped' };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
+    if (cmd === 'vrpiano_set_speed') {
+      browserVrpianoStatus = { ...browserVrpianoStatus, speed: Number(args?.speed || 1), last_event: `Browser preview speed ${Number(args?.speed || 1).toFixed(2)}x` };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
+    if (cmd === 'vrpiano_toggle_pause') {
+      browserVrpianoStatus = {
+        ...browserVrpianoStatus,
+        paused: browserVrpianoStatus.running ? !browserVrpianoStatus.paused : false,
+        last_event: browserVrpianoStatus.paused ? 'Browser preview resumed' : 'Browser preview paused',
+      };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
     if (cmd === 'vrpiano_set_hotkeys') {
       const config = (args?.config || {}) as any;
-      return Promise.resolve({
-        ...mockVrpianoStatus,
+      browserVrpianoStatus = {
+        ...browserVrpianoStatus,
         speed: Number(config.speed || 1),
         hotkeys_enabled: Boolean(config.enabled),
         last_event: Boolean(config.enabled) ? 'Browser preview hotkeys enabled' : 'Browser preview hotkeys disabled',
-      }) as any;
+      };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
     }
     if (cmd === 'vrpiano_start') {
-      return Promise.resolve({
-        ...mockVrpianoStatus,
+      browserVrpianoStatus = {
+        ...browserVrpianoStatus,
         running: true,
+        paused: false,
         song_name: 'Preview Song',
         song_path: String((args?.request as any)?.song_path || 'preview-1.mid'),
         total_notes: 128,
         duration_ms: 128000,
         last_event: 'Browser preview started',
-      }) as any;
+      };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
     }
     if (cmd === 'vrpiano_list_songs') {
       return Promise.resolve([
