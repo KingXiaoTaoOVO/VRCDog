@@ -3,6 +3,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import { DbApi } from '../api';
 
 export type NotificationCondition = 'never' | 'desktop' | 'vr' | 'not_vr' | 'vrc_running' | 'vrc_not_running' | 'always';
+export type NotificationKind = 'friend_online' | 'friend_offline' | 'friend_location' | 'invite' | 'friend_request' | 'group' | 'test' | 'other';
 
 export interface NotificationRules {
   desktopCondition: NotificationCondition;
@@ -11,6 +12,22 @@ export interface NotificationRules {
   ttsCondition: NotificationCondition;
   ttsVoice: string;
   ttsVolume: number;
+  notifyFriendsOnline: boolean;
+  notifyInvite: boolean;
+  notifyStatusChange: boolean;
+}
+
+export function isNotificationKindEnabled(settings: Record<string, unknown>, kind: NotificationKind): boolean {
+  if (kind === 'test') return true;
+  const asBool = (value: unknown, fallback: boolean) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.trim().toLowerCase() === 'true';
+    return fallback;
+  };
+  if (kind === 'friend_online' || kind === 'friend_offline') return asBool(settings.notifyFriendsOnline, true);
+  if (kind === 'friend_location') return asBool(settings.notifyStatusChange, false);
+  if (kind === 'invite' || kind === 'friend_request' || kind === 'group') return asBool(settings.notifyInvite, true);
+  return true;
 }
 
 export const useNotificationEngine = () => {
@@ -54,15 +71,23 @@ export const useNotificationEngine = () => {
         ? ((all.notifyTtsCondition as NotificationCondition) || 'always')
         : 'never',
       ttsVoice: (all.notifyTtsVoice as string) || '',
-      ttsVolume: Number(all.notifyTtsVolume) || 50
+      ttsVolume: Number(all.notifyTtsVolume) || 50,
+      notifyFriendsOnline: asBool(all.notifyFriendsOnline, true),
+      notifyInvite: asBool(all.notifyInvite, true),
+      notifyStatusChange: asBool(all.notifyStatusChange, false),
     };
   };
 
-  const notify = async (title: string, body: string, type: 'friend_online' | 'friend_offline' | 'invite' | 'test' = 'test') => {
+  const notify = async (title: string, body: string, type: NotificationKind = 'test') => {
     const rules = await getRules();
-    
+    const categoryEnabled = isNotificationKindEnabled(rules as unknown as Record<string, unknown>, type);
+    if (!categoryEnabled) return { desktop: 'disabled' as const, sound: false, tts: false };
+
+    const desktopEnabled = evaluateCondition(rules.desktopCondition, rules.showWhenAfk);
+    let desktop: 'sent' | 'disabled' | 'denied' | 'unavailable' = 'disabled';
+
     // Evaluate Desktop Notification
-    if (evaluateCondition(rules.desktopCondition, rules.showWhenAfk)) {
+    if (desktopEnabled) {
       try {
         let permissionGranted = await isPermissionGranted();
         if (!permissionGranted) {
@@ -70,23 +95,30 @@ export const useNotificationEngine = () => {
           permissionGranted = permission === 'granted';
         }
         if (permissionGranted) {
-          sendNotification({ title, body });
+          await sendNotification({ title, body });
+          desktop = 'sent';
+        } else {
+          desktop = 'denied';
         }
       } catch (err) {
         // 通知插件未注册或不可用（旧的构建/未授权）时静默忽略，
         // 否则会在 console 刷屏并影响调试。
         console.debug('[notify] desktop notification unavailable:', err);
+        desktop = 'unavailable';
       }
     }
 
-    if (rules.soundEnabled) {
+    const sound = desktopEnabled && rules.soundEnabled;
+    if (sound) {
       playNotificationSound();
     }
 
     // Evaluate TTS
-    if (evaluateCondition(rules.ttsCondition, rules.showWhenAfk)) {
+    const tts = evaluateCondition(rules.ttsCondition, rules.showWhenAfk);
+    if (tts) {
       playTts(body, rules.ttsVoice, rules.ttsVolume);
     }
+    return { desktop, sound, tts };
   };
 
   const playNotificationSound = () => {

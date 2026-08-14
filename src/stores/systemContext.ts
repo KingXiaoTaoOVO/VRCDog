@@ -44,12 +44,6 @@ export const useSystemContextStore = defineStore('systemContext', () => {
                } catch(e) {}
            }
            
-           if (settings && (settings.autoStart === true || settings.autoStart === 'true')) {
-               console.log("[AutoStart] VRChat stopped unexpectedly. Restarting in 5s...");
-               setTimeout(async () => {
-                   try { await SysApi.launchVrc({}); } catch (err) {}
-               }, 5000);
-           }
         }
       } catch (e) { /* ignore */ }
       

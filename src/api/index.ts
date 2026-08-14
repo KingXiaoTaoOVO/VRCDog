@@ -604,11 +604,13 @@ export const VrcApi = {
 
   // 通知模块
   getNotifications: NotificationApi.getNotifications,
+  clearNotifications: NotificationApi.clearNotifications,
   getHiddenFriendRequests: NotificationApi.getHiddenFriendRequests,
   acceptNotification: NotificationApi.acceptNotification,
   hideNotification: NotificationApi.hideNotification,
   seeNotification: NotificationApi.seeNotification,
   getNotificationsV2: NotificationApi.getNotificationsV2,
+  clearNotificationsV2: NotificationApi.clearNotificationsV2,
   sendInviteNotification: NotificationApi.sendInvite,
   sendInvitePhoto: NotificationApi.sendInvitePhoto,
   sendRequestInviteNotification: NotificationApi.sendRequestInvite,

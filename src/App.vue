@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, onMounted, ref, watch, watchEffect } fr
 import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import i18n from './i18n';
 
 // Stores
@@ -128,6 +129,7 @@ const serverDashboardTarget = ref<{
 const disconnectedServerUrl = ref('');
 const reconnectingServer = ref(false);
 const reconnectServerError = ref('');
+const minimizeToTrayEnabled = ref(true);
 const surveyCenterOpen = ref(false);
 const surveyCenterInitialTab = ref<'pending' | 'history'>('pending');
 const currentSurveyUserId = computed(() => currentUser.value?.id || currentUser.value?.displayName || '');
@@ -214,6 +216,9 @@ window.addEventListener('settings-updated', (e: any) => {
   if (e.detail?.language) {
     locale.value = setAppLocale(e.detail.language, { persist: false });
   }
+  if (typeof e.detail?.minimizeToTray === 'boolean') {
+    minimizeToTrayEnabled.value = e.detail.minimizeToTray;
+  }
 });
 
 const applyProxyFromSettings = async (settings: any) => {
@@ -245,8 +250,15 @@ onMounted(async () => {
 
     try {
       const allSettings = await DbApi.getAllSettings();
+      minimizeToTrayEnabled.value = allSettings?.minimizeToTray !== false && allSettings?.minimizeToTray !== 'false';
       await applyProxyFromSettings(allSettings);
     } catch { /* ignore */ }
+
+    await getCurrentWindow().onCloseRequested((event) => {
+      if (!minimizeToTrayEnabled.value) return;
+      event.preventDefault();
+      void getCurrentWindow().hide();
+    });
 
     window.addEventListener('settings-updated', (e: Event) => {
       const customEvent = e as CustomEvent;

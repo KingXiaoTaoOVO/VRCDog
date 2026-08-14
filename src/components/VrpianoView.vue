@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { Effect } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   AlertTriangle,
@@ -41,6 +42,7 @@ import {
   parseGeneralMidi,
   type MidiNote,
 } from '../audio/generalMidi';
+import { isVrpianoOverlayBlurEnabled, VRPIANO_OVERLAY_BLUR_KEY } from './vrpianoOverlayAppearance';
 
 const { locale } = useI18n();
 const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
@@ -418,11 +420,14 @@ const toggleVrpianoOverlay = async () => {
     savedPosition = {};
   }
 
+  const backdropEnabled = isVrpianoOverlayBlurEnabled(localStorage.getItem(VRPIANO_OVERLAY_BLUR_KEY));
+
   const overlay = new WebviewWindow('vrpiano-overlay', {
     url: '/?mode=vrpiano-overlay',
     title: l('VRPiano 悬浮控制器', 'VRPiano Overlay Controller'),
     transparent: true,
     decorations: false,
+    shadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
@@ -430,6 +435,7 @@ const toggleVrpianoOverlay = async () => {
     height: 620,
     minWidth: 320,
     minHeight: 420,
+    ...(backdropEnabled ? { windowEffects: { effects: [Effect.Acrylic] } } : {}),
     ...(Number.isFinite(savedPosition.x) ? { x: savedPosition.x } : {}),
     ...(Number.isFinite(savedPosition.y) ? { y: savedPosition.y } : {}),
   });

@@ -215,7 +215,6 @@ const config = ref({
   density: 'normal',
   fontFamily: 'Inter / Noto Sans CJK',
   zoomLevel: 100,
-  showTrayNotifications: true,
   showVrcPlusIcon: true,
   showRoomId: false,
   showLocalFriendNotes: true,
@@ -316,6 +315,12 @@ const saveSettings = async () => {
     try {
       await getCurrentWindow().setAlwaysOnTop(config.value.topWindow);
     } catch (e) { console.warn("Failed to set top window", e); }
+
+    // This setting controls VRCDog startup with Windows. It must not be reused
+    // as a VRChat crash-restart switch.
+    try {
+      await SysApi.setAutostart({ enable: config.value.autoStart });
+    } catch (e) { console.warn('Failed to update Windows auto-start', e); }
 
     // 更新多语言引擎并持久化
     if (config.value.language) {
@@ -480,8 +485,17 @@ const testTTS = () => {
   playTts(t('settings.test_tts_msg'), config.value.notifyTtsVoice, config.value.notifyTtsVolume);
 };
 
-const testNotification = () => {
-  notify(t('settings.test_notify_title'), t('settings.test_notify_msg'), 'test');
+const testNotification = async () => {
+  const result = await notify(t('settings.test_notify_title'), t('settings.test_notify_msg'), 'test');
+  if (result.desktop === 'sent') {
+    toast.success(t('settings.test_notify_msg'));
+  } else if (result.desktop === 'denied') {
+    toast.error('Windows notification permission was denied');
+  } else if (result.desktop === 'unavailable') {
+    toast.error('System notifications are unavailable in this build');
+  } else {
+    toast.info('System notifications are disabled by the current condition');
+  }
 };
 
 const selectInterfaceLanguage = (nextLocale: string) => {
@@ -596,12 +610,6 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   <button class="w-7 h-7 rounded bg-[var(--theme-surface)]/60 hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] flex items-center justify-center transition-colors" @click="config.zoomLevel = Math.max(50, config.zoomLevel - 10)">-</button>
                   <span class="text-[13px] w-8 text-center font-bold">{{ config.zoomLevel }}%</span>
                   <button class="w-7 h-7 rounded bg-[var(--theme-surface)]/60 hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] flex items-center justify-center transition-colors" @click="config.zoomLevel = Math.min(200, config.zoomLevel + 10)">+</button>
-                </div>
-              </div>
-              <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showTrayNotifications = !config.showTrayNotifications">
-                <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_3cb107a8') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.showTrayNotifications ? 'bg-primary' : 'bg-[var(--theme-surface)]/60'">
-                  <div class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all" :class="config.showTrayNotifications ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.showVrcPlusIcon = !config.showVrcPlusIcon">

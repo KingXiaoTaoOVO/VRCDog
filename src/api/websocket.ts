@@ -7,6 +7,7 @@ import { useNotificationEngine } from '../stores/notificationEngine';
 import { useFriendsStore } from '../stores/friendsStore';
 import { markDataHealthy } from '../stores/dataHealth';
 import { getCookieValue } from './cookies';
+import { normalizeNotificationForDb } from './notificationNormalization';
 
 const DEFAULT_PIPELINE_URL = 'wss://pipeline.vrchat.cloud';
 
@@ -27,6 +28,7 @@ const MAX_HANDLERS = 50;
 
 const FRIEND_NOTIFY_DEBOUNCE_MS = 45_000;
 const friendNotifyTimes = new Map<string, number>();
+const notificationToastTimes = new Map<string, number>();
 
 export function onPipelineMessage(handler: PipelineHandler): () => void {
   if (handlers.length >= MAX_HANDLERS) {
@@ -201,29 +203,29 @@ async function emitFriendPresenceNotification(type: string, content: any) {
 
   let title: string;
   let detail: string;
-  let notifType: string;
+  let notificationKind: 'friend_online' | 'friend_offline' | 'friend_location';
 
   if (type === 'friend-online') {
     title = `${displayName} 已上线`;
     detail = location && location !== 'offline' ? `位置：${location}` : '好友现在在线';
-    notifType = 'friend_online';
+    notificationKind = 'friend_online';
   } else if (type === 'friend-offline') {
     title = `${displayName} 已下线`;
     detail = '好友现在离线';
-    notifType = 'friend_offline';
+    notificationKind = 'friend_offline';
   } else {
     // friend-location: friend moved to a new world
     if (!location || location === 'offline' || location === 'private') return;
     title = `${displayName} 切换了世界`;
     detail = `新位置：${location}`;
-    notifType = 'friend_location';
+    notificationKind = 'friend_location';
   }
 
   try {
     await DbApi.saveNotification({
       notificationJson: JSON.stringify({
         id: `${type}:${userId}:${Date.now()}`,
-        type: notifType,
+        type,
         senderUserId: userId,
         senderUsername: displayName,
         receiverUserId: null,
@@ -241,11 +243,8 @@ async function emitFriendPresenceNotification(type: string, content: any) {
 
     window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));
 
-    const settings = await DbApi.getAllSettings().catch(() => ({} as Record<string, unknown>));
-    if (settings.notifyFriendsOnline === false || settings.notifyFriendsOnline === 'false') return;
-
     const { notify } = useNotificationEngine();
-    await notify('VRC 好友状态', `${title}${detail ? ` - ${detail}` : ''}`, notifType as any);
+    await notify('VRC 好友状态', `${title}${detail ? ` - ${detail}` : ''}`, notificationKind);
   } catch (err) {
     console.warn('[WSS] Failed to emit friend notification:', err);
   }
@@ -276,6 +275,42 @@ function notificationBody(content: any) {
   }
   const details = content?.details || {};
   return details.worldName || details.message || details.location || content?.type || '';
+}
+
+function getNotificationId(content: any): string | null {
+  if (typeof content === 'string') return content;
+  return content?.notificationId || content?.id || null;
+}
+
+function shouldToastNotification(id: string): boolean {
+  const now = Date.now();
+  const previous = notificationToastTimes.get(id) || 0;
+  if (now - previous < 60_000) return false;
+  notificationToastTimes.set(id, now);
+  if (notificationToastTimes.size > 500) {
+    for (const [key, timestamp] of notificationToastTimes) {
+      if (now - timestamp > 5 * 60_000) notificationToastTimes.delete(key);
+    }
+  }
+  return true;
+}
+
+async function saveAndNotifyRemoteNotification(content: any, version: 1 | 2) {
+  const normalized = normalizeNotificationForDb({ ...content, version });
+  if (!normalized.id) return;
+  await DbApi.saveNotification({ notificationJson: JSON.stringify(normalized) });
+  window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));
+  if (!shouldToastNotification(normalized.id)) return;
+  const normalizedType = String(normalized.type);
+  const kind = normalizedType === 'friendRequest'
+    ? 'friend_request'
+    : normalizedType.startsWith('group.')
+      ? 'group'
+      : normalizedType === 'invite' || normalizedType === 'requestInvite'
+        ? 'invite'
+        : 'other';
+  const { notify } = useNotificationEngine();
+  await notify(notificationTitle({ ...content, ...normalized }), notificationBody({ ...content, ...normalized }), kind);
 }
 
 async function handlePipeline(json: any) {
@@ -362,28 +397,25 @@ async function handlePipeline(json: any) {
 
     // ====== 3. Offline cache (SQLite Notifications) real-time sync ======
     if (type === 'notification') {
-      const details = typeof content.details === 'object' ? JSON.stringify(content.details || {}) : (content.details || '');
-      const hasContent = Boolean((content.message || '').trim() || details.trim() || content.senderUsername);
-      if (content.id && content.type && hasContent) {
-        await DbApi.saveNotification({
-          notificationJson: JSON.stringify({
-            id: content.id,
-            type: content.type,
-            senderUserId: content.senderUserId,
-            senderUsername: content.senderUsername,
-            receiverUserId: content.receiverUserId,
-            message: content.message || '',
-            details,
-            created_at: content.created_at || new Date().toISOString()
-          })
-        });
-        const { notify } = useNotificationEngine();
-        await notify(notificationTitle(content), notificationBody(content), 'invite');
+      await saveAndNotifyRemoteNotification(content, 1);
+    } else if (type === 'notification-v2') {
+      await saveAndNotifyRemoteNotification(content, 2);
+    } else if (type === 'notification-v2-update') {
+      const updated = { ...(content?.updates || {}), id: content?.id, version: 2 };
+      // Avoid replacing a complete local row with a seen-only partial update.
+      if (updated.id && (updated.type || updated.data || updated.details)) {
+        await saveAndNotifyRemoteNotification(updated, 2);
       }
     } else if (type === 'hide-notification' || type === 'clear-notification') {
-      if (content.notificationId || content.id) {
-         await DbApi.deleteNotification({ id: content.notificationId || content.id });
+      const id = getNotificationId(content);
+      if (id) {
+        await DbApi.deleteNotification({ id });
+        window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));
       }
+    } else if (type === 'notification-v2-delete') {
+      const ids = Array.isArray(content?.ids) ? content.ids : [];
+      await Promise.allSettled(ids.filter(Boolean).map((id: string) => DbApi.deleteNotification({ id })));
+      window.dispatchEvent(new CustomEvent('vrc-notifications-synced'));
     }
 
     // ====== 4. Heatmap activity recording ======
