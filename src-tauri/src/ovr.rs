@@ -12,6 +12,8 @@ pub struct OvrStatus {
     pub hmd_present: bool,
     pub hmd_model: String,
     pub overlay_visible: bool,
+    #[serde(default)]
+    pub menu_visible: bool,
     pub dashboard_visible: bool,
     pub translation_enabled: bool,
     pub last_event: String,
@@ -269,6 +271,8 @@ enum OvrCommand {
     SetVisible(bool),
     ClearText,
     ToggleTranslation,
+    ToggleMenu,
+    OpenBindingUi,
     Shutdown,
     // Desktop mirror mode commands
     DesktopScanOnce, // Trigger a single desktop capture + OCR + translate
@@ -491,7 +495,7 @@ fn apply_scan_frame_layout(
 fn vr_thread_main(
     app_handle: AppHandle,
     status: Arc<Mutex<OvrStatus>>,
-    _config: Arc<Mutex<OvrConfig>>,
+    config: Arc<Mutex<OvrConfig>>,
     cmd_rx: std::sync::mpsc::Receiver<OvrCommand>,
 ) {
     // Initialize OpenVR
@@ -613,7 +617,9 @@ fn vr_thread_main(
                     );
                     let _ = ovr.set_raw_data(handle, &pixels, 512, 320, 4);
                 }
-                let _ = ovr.set_visibility(handle, true);
+                // Keep the menu hidden until the controller shortcut or desktop
+                // command explicitly opens it.
+                let _ = ovr.set_visibility(handle, false);
                 overlay_handle = Some(handle);
                 let _ = app_handle.emit("ovr_log", "[OVR] [OK] 菜单叠加层已创建(跟随头部)");
             }
@@ -668,6 +674,7 @@ fn vr_thread_main(
     let mut act_translate = openvr::input::VRActionHandle(0);
     let mut act_scale = openvr::input::VRActionHandle(0);
     let mut act_clear = openvr::input::VRActionHandle(0);
+    let mut act_menu_navigate = openvr::input::VRActionHandle(0);
     let mut has_input_20 = false;
 
     if let Ok(mut input) = context.input() {
@@ -678,7 +685,13 @@ fn vr_thread_main(
                 if !manifest_path.exists() {
                     // Try current dir (dev mode)
                     if let Ok(cd) = std::env::current_dir() {
-                        manifest_path = cd.join("vrcdog_actions.json");
+                        let root_candidate = cd.join("vrcdog_actions.json");
+                        let tauri_candidate = cd.join("src-tauri").join("vrcdog_actions.json");
+                        manifest_path = if root_candidate.exists() {
+                            root_candidate
+                        } else {
+                            tauri_candidate
+                        };
                     }
                 }
                 if manifest_path.exists() {
@@ -698,6 +711,9 @@ fn vr_thread_main(
                                 .unwrap_or(openvr::input::VRActionHandle(0));
                             act_clear = input
                                 .get_action_handle("/actions/main/in/ClearTranslation")
+                                .unwrap_or(openvr::input::VRActionHandle(0));
+                            act_menu_navigate = input
+                                .get_action_handle("/actions/main/in/MenuNavigate")
                                 .unwrap_or(openvr::input::VRActionHandle(0));
                             let _ =
                                 app_handle.emit("ovr_log", "[OVR] [OK] SteamVR Input 2.0 加载成功");
@@ -804,7 +820,7 @@ fn vr_thread_main(
         );
         if let Ok(mut ovr) = context.overlay() {
             let _ = ovr.set_raw_data(h, &pixels, 512, 320, 4);
-            let _ = ovr.set_visibility(h, true);
+            let _ = ovr.set_visibility(h, false);
         }
     }
 
@@ -895,6 +911,66 @@ fn vr_thread_main(
                             current_config.overlay_font_size,
                         ),
                     );
+                }
+                OvrCommand::ToggleMenu => {
+                    overlay_menu_visible = !overlay_menu_visible;
+                    if let Ok(mut ovr) = context.overlay() {
+                        if let Some(h) = overlay_handle {
+                            let _ = ovr.set_visibility(h, overlay_menu_visible);
+                            if overlay_menu_visible {
+                                let left_idx = context.system().ok().and_then(|sys| {
+                                    sys.tracked_device_index_for_controller_role(
+                                        openvr::TrackedControllerRole::LeftHand,
+                                    )
+                                });
+                                apply_text_overlay_layout(
+                                    &mut ovr,
+                                    h,
+                                    &current_config,
+                                    left_idx,
+                                    TextOverlayKind::Menu,
+                                );
+                            }
+                        }
+                    }
+                    if overlay_menu_visible {
+                        menu_page = 0;
+                        menu_selection = 0;
+                        last_menu_render_page = -1;
+                    }
+                    let status_c = status.clone();
+                    let visible = overlay_menu_visible;
+                    tokio::runtime::Handle::current().block_on(async {
+                        status_c.lock().await.menu_visible = visible;
+                    });
+                    let _ = app_handle.emit("ovr_menu_visibility", visible);
+                }
+                OvrCommand::OpenBindingUi => {
+                    match context.input() {
+                        Ok(mut input) => {
+                            let action_set = if act_set_main.0 == 0 {
+                                None
+                            } else {
+                                Some(act_set_main)
+                            };
+                            let result = input.open_binding_ui(
+                                None,
+                                action_set,
+                                openvr::input::VRInputValueHandle(0),
+                                true,
+                            );
+                            let _ = app_handle.emit(
+                                "ovr_log",
+                                format!("[OVR] SteamVR 按键绑定编辑器: {:?}", result),
+                            );
+                        }
+                        Err(error) => {
+                            let _ = app_handle.emit(
+                                "ovr_log",
+                                format!("[OVR] 无法打开 SteamVR 按键绑定编辑器: {:?}", error),
+                            );
+                        }
+                    }
                 }
                 OvrCommand::UpdateText {
                     original,
@@ -1372,7 +1448,8 @@ fn vr_thread_main(
                 .tracked_device_index_for_controller_role(openvr::TrackedControllerRole::RightHand);
 
             let grip_mask = 1u64 << openvr::button_id::GRIP;
-            let trigger_mask = 1u64 << openvr::button_id::STEAM_VR_TRIGGER;
+            let trigger_mask = legacy_button_mask(&current_config.trigger_key);
+            let menu_confirm_mask = 1u64 << openvr::button_id::STEAM_VR_TRIGGER;
             let _touchpad_mask = 1u64 << openvr::button_id::STEAM_VR_TOUCHPAD;
             let _a_mask = 1u64 << openvr::button_id::A;
 
@@ -1391,6 +1468,8 @@ fn vr_thread_main(
             let mut ivr_translate_pressed = false;
             let mut ivr_scale_pressed = false;
             let mut ivr_clear_pressed = false;
+            let mut ivr_menu_x = 0.0f32;
+            let mut ivr_menu_y = 0.0f32;
 
             if has_input_20 {
                 if let Ok(mut input) = context.input() {
@@ -1421,6 +1500,15 @@ fn vr_thread_main(
                             openvr::input::VRInputValueHandle(0),
                         ) {
                             ivr_clear_pressed = data.0.bState;
+                        }
+                        if let Ok(data) = input.get_analog_action_data(
+                            act_menu_navigate,
+                            openvr::input::VRInputValueHandle(0),
+                        ) {
+                            if data.0.bActive {
+                                ivr_menu_x = data.0.x;
+                                ivr_menu_y = data.0.y;
+                            }
                         }
                     }
                 }
@@ -1493,6 +1581,12 @@ fn vr_thread_main(
                     menu_selection = 0;
                     last_menu_render_page = -1; // Force re-render
                 }
+                let status_c = status.clone();
+                let visible = overlay_menu_visible;
+                tokio::runtime::Handle::current().block_on(async {
+                    status_c.lock().await.menu_visible = visible;
+                });
+                let _ = app_handle.emit("ovr_menu_visibility", visible);
                 let _ = app_handle.emit(
                     "ovr_log",
                     format!(
@@ -1513,23 +1607,26 @@ fn vr_thread_main(
             if overlay_menu_visible {
                 let max_items = match menu_page {
                     0 => 6usize, // 0:基础,1:桌面,2:OCR,3:翻译,4:更多,5:说明
-                    1 => 4,
-                    2 => 4,
-                    3 => 4,
-                    4 => 3,
-                    _ => 4, // page 5,6,7
+                    1 | 2 | 3 | 6 => 4,
+                    4 | 5 => 3,
+                    7 => 5,
+                    8 | 9 | 10 | 11 => 4,
+                    12 => 5,
+                    _ => 4,
                 };
 
                 // Joystick axes for navigation
-                let joy_x = right_state.map(|s| s.axis[0].x).unwrap_or(0.0);
-                let joy_y = right_state.map(|s| s.axis[0].y).unwrap_or(0.0);
+                let legacy_joy_x = right_state.map(|s| s.axis[0].x).unwrap_or(0.0);
+                let legacy_joy_y = right_state.map(|s| s.axis[0].y).unwrap_or(0.0);
+                let joy_x = if ivr_menu_x.abs() > legacy_joy_x.abs() { ivr_menu_x } else { legacy_joy_x };
+                let joy_y = if ivr_menu_y.abs() > legacy_joy_y.abs() { ivr_menu_y } else { legacy_joy_y };
                 let left_joy_x = left_state.map(|s| s.axis[0].x).unwrap_or(0.0);
                 let left_joy_y = left_state.map(|s| s.axis[0].y).unwrap_or(0.0);
                 let right_grip_held = (right_pressed & grip_mask != 0) || ivr_scale_pressed;
 
                 // Use joystick X to switch pages (with cooldown to prevent rapid switching)
                 if joystick_nav_cooldown == 0 && !right_grip_held {
-                    if joy_x > 0.7 && menu_page < 7 {
+                    if joy_x > 0.7 && menu_page < 12 {
                         menu_page += 1;
                         menu_selection = 0;
                         joystick_nav_cooldown = 18; // ~200ms cooldown at 90Hz
@@ -1593,10 +1690,12 @@ fn vr_thread_main(
                 }
 
                 // Trigger = confirm/activate selected item
-                if any_new & trigger_mask != 0 {
+                if any_new & menu_confirm_mask != 0
+                    || (ivr_translate_pressed && !prev_ivr_translate)
+                {
                     let back_idx = max_items - 1;
                     if menu_selection == back_idx && menu_page > 0 {
-                        menu_page = if menu_page > 5 { 5 } else { 0 }; // back to previous main level
+                        menu_page = if menu_page == 12 { 9 } else { 0 };
                         menu_selection = 0;
                     } else {
                         match menu_page {
@@ -1606,19 +1705,19 @@ fn vr_thread_main(
                                     menu_selection = 0;
                                 }
                                 1 => {
-                                    menu_page = 2;
+                                    menu_page = 8;
                                     menu_selection = 0;
                                 }
                                 2 => {
-                                    menu_page = 3;
+                                    menu_page = 9;
                                     menu_selection = 0;
                                 }
                                 3 => {
-                                    menu_page = 4;
+                                    menu_page = 10;
                                     menu_selection = 0;
                                 }
                                 4 => {
-                                    menu_page = 5;
+                                    menu_page = 11;
                                     menu_selection = 0;
                                 }
                                 5 => {
@@ -1652,12 +1751,82 @@ fn vr_thread_main(
                                 1 => {
                                     current_config.auto_scan_enabled =
                                         !current_config.auto_scan_enabled;
+                                    auto_scan_active = current_config.auto_scan_enabled;
+                                    auto_scan_countdown = if auto_scan_active {
+                                        (current_config.auto_scan_interval.max(3) as u64) * 90
+                                    } else {
+                                        0
+                                    };
+                                    let _ = app_handle.emit("ovr_auto_scan_status", auto_scan_active);
+                                }
+                                2 => {
+                                    current_config.auto_scan_interval = match current_config.auto_scan_interval {
+                                        3 => 5,
+                                        5 => 10,
+                                        10 => 15,
+                                        15 => 30,
+                                        _ => 3,
+                                    };
+                                }
+                                _ => {}
+                            },
+                            3 => match menu_selection {
+                                0 => {
+                                    current_config.ocr_language = match current_config.ocr_language.as_str() {
+                                        "zh-Hans-CN" => "en-US",
+                                        "en-US" => "ja",
+                                        "ja" => "ko",
+                                        _ => "zh-Hans-CN",
+                                    }.to_string();
+                                }
+                                1 => current_config.ocr_image_enhance = !current_config.ocr_image_enhance,
+                                2 => {
+                                    current_config.ocr_speed_mode = match current_config.ocr_speed_mode.as_str() {
+                                        "fast" => "balanced",
+                                        "balanced" | "standard" => "accurate",
+                                        _ => "fast",
+                                    }.to_string();
+                                }
+                                _ => {}
+                            },
+                            4 => match menu_selection {
+                                0 => {
+                                    current_config.trans_service = match current_config.trans_service.as_str() {
+                                        "google_free" => "microsoft",
+                                        "microsoft" => "deepl_free",
+                                        "deepl_free" => "openai",
+                                        _ => "google_free",
+                                    }.to_string();
+                                }
+                                1 => {
+                                    current_config.trans_target_lang = match current_config.trans_target_lang.as_str() {
+                                        "zh-CN" => "en",
+                                        "en" => "ja",
+                                        "ja" => "ko",
+                                        _ => "zh-CN",
+                                    }.to_string();
                                 }
                                 _ => {}
                             },
                             5 => match menu_selection {
-                                0 => { /* lock mode toggle could go here */ }
-                                1 => { /* opacity toggle could go here */ }
+                                0 => {
+                                    current_config.overlay_lock_mode = match current_config.overlay_lock_mode.as_str() {
+                                        "world" => "head",
+                                        "head" => "wrist",
+                                        _ => "world",
+                                    }.to_string();
+                                }
+                                1 => {
+                                    current_config.overlay_bg_opacity = if current_config.overlay_bg_opacity >= 0.9 {
+                                        0.4
+                                    } else {
+                                        (current_config.overlay_bg_opacity + 0.1).min(1.0)
+                                    };
+                                    if let Ok(mut ovr) = context.overlay() {
+                                        if let Some(h) = overlay_handle { let _ = ovr.set_opacity(h, current_config.overlay_bg_opacity); }
+                                        if let Some(h) = result_handle { let _ = ovr.set_opacity(h, current_config.overlay_bg_opacity); }
+                                    }
+                                }
                                 _ => {}
                             },
                             6 => match menu_selection {
@@ -1678,8 +1847,120 @@ fn vr_thread_main(
                                 }
                                 _ => {}
                             },
+                            8 => match menu_selection {
+                                0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"friendslist"})); }
+                                1 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"playerlist"})); }
+                                2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"notifications"})); }
+                                _ => {}
+                            },
+                            9 => match menu_selection {
+                                0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"translator"})); }
+                                1 => {
+                                    let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"vrpiano"}));
+                                    menu_page = 12;
+                                    menu_selection = 0;
+                                }
+                                2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"danmaku"})); }
+                                _ => {}
+                            },
+                            10 => match menu_selection {
+                                0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"feed"})); }
+                                1 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"charts"})); }
+                                2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"notifications"})); }
+                                _ => {}
+                            },
+                            11 => match menu_selection {
+                                0 => {
+                                    height_toggled = !height_toggled;
+                                    current_config.height_toggle_enabled = height_toggled;
+                                    if let Ok(ref mut ps) = playspace {
+                                        let y_total = ps_offset_y + if height_toggled { height_offset } else { 0.0 };
+                                        ps.apply_offset(ps_offset_x, y_total, ps_offset_z, ps_rotation_deg);
+                                    }
+                                    let _ = app_handle.emit("ovr_playspace_changed", serde_json::json!({"offset_x":ps_offset_x,"offset_y":ps_offset_y,"offset_z":ps_offset_z,"rotation":ps_rotation_deg,"height_toggled":height_toggled}));
+                                }
+                                1 => {
+                                    ps_offset_x = 0.0; ps_offset_y = 0.0; ps_offset_z = 0.0;
+                                    ps_rotation_deg = 0.0; height_toggled = false;
+                                    current_config.playspace_offset_x = 0.0;
+                                    current_config.playspace_offset_y = 0.0;
+                                    current_config.playspace_offset_z = 0.0;
+                                    current_config.playspace_rotation = 0.0;
+                                    current_config.height_toggle_enabled = false;
+                                    if let Ok(ref mut ps) = playspace { ps.apply_offset(0.0, 0.0, 0.0, 0.0); }
+                                    let _ = app_handle.emit("ovr_playspace_changed", serde_json::json!({"offset_x":0.0,"offset_y":0.0,"offset_z":0.0,"rotation":0.0,"height_toggled":false}));
+                                }
+                                2 => {
+                                    if let Ok(sys) = context.system() {
+                                        if let Some(right_idx) = sys.tracked_device_index_for_controller_role(
+                                            openvr::TrackedControllerRole::RightHand,
+                                        ) {
+                                            let poses = sys.device_to_absolute_tracking_pose(
+                                                openvr::TrackingUniverseOrigin::Standing,
+                                                0.0,
+                                            );
+                                            let pose = poses[right_idx.0 as usize];
+                                            if pose.pose_is_valid() {
+                                                let controller_y = pose.device_to_absolute_tracking()[1][3];
+                                                if let Ok(ref mut ps) = playspace {
+                                                    ps.set_base_floor_to(controller_y);
+                                                    ps_offset_x = 0.0;
+                                                    ps_offset_y = 0.0;
+                                                    ps_offset_z = 0.0;
+                                                    ps_rotation_deg = 0.0;
+                                                    height_toggled = false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            },
+                            12 => match menu_selection {
+                                0 => { let _ = app_handle.emit("vrpiano_vr_action", "previous"); }
+                                1 => { let _ = app_handle.emit("vrpiano_vr_action", "toggle"); }
+                                2 => { let _ = app_handle.emit("vrpiano_vr_action", "restart"); }
+                                3 => { let _ = app_handle.emit("vrpiano_vr_action", "next"); }
+                                _ => {}
+                            },
                             _ => {}
                         }
+                        // Persist VR-side changes and immediately apply transforms. This keeps
+                        // controller edits and the desktop settings panel in sync.
+                        normalize_overlay_layout(&mut current_config);
+                        if let Ok(mut ovr) = context.overlay() {
+                            let left_idx = context.system().ok().and_then(|sys| {
+                                sys.tracked_device_index_for_controller_role(
+                                    openvr::TrackedControllerRole::LeftHand,
+                                )
+                            });
+                            if let Some(h) = overlay_handle {
+                                apply_text_overlay_layout(
+                                    &mut ovr,
+                                    h,
+                                    &current_config,
+                                    left_idx,
+                                    TextOverlayKind::Menu,
+                                );
+                            }
+                            if let Some(h) = result_handle {
+                                apply_text_overlay_layout(
+                                    &mut ovr,
+                                    h,
+                                    &current_config,
+                                    left_idx,
+                                    TextOverlayKind::Result,
+                                );
+                            }
+                        }
+                        let shared_config = config.clone();
+                        let config_snapshot = current_config.clone();
+                        tokio::runtime::Handle::current().block_on(async {
+                            *shared_config.lock().await = config_snapshot.clone();
+                        });
+                        let _ = app_handle.emit("ovr_config_changed", config_snapshot);
+                        last_menu_render_page = -1;
+                        last_menu_render_sel = -1;
                     }
                 }
 
@@ -1719,6 +2000,12 @@ fn vr_thread_main(
                 let left_joy_y = left_state.map(|s| s.axis[0].y).unwrap_or(0.0);
                 let right_joy_x = right_state.map(|s| s.axis[0].x).unwrap_or(0.0);
                 let right_joy_y = right_state.map(|s| s.axis[0].y).unwrap_or(0.0);
+                let clear_mask = legacy_button_mask(&current_config.clear_key);
+                let configured_clear_pressed = match current_config.clear_key.as_str() {
+                    "left_stick" => left_new & clear_mask != 0,
+                    "right_stick" => right_new & clear_mask != 0,
+                    _ => any_new & clear_mask != 0,
+                };
 
                 // Get absolute positions for Left Hand and Right Hand.
                 let poses = sys.device_to_absolute_tracking_pose(
@@ -1848,6 +2135,7 @@ fn vr_thread_main(
                 // 2. Flick left joystick or trigger clear action -> Clear current translation
                 if left_joy_x.abs() > 0.8
                     || left_joy_y.abs() > 0.8
+                    || configured_clear_pressed
                     || (ivr_clear_pressed && !prev_ivr_clear)
                 {
                     if let Ok(mut ovr) = context.overlay() {
@@ -2104,6 +2392,11 @@ pub async fn ovr_init(
 
     {
         let mut tx = state.cmd_tx.lock().await;
+        if tx.is_some() {
+            drop(tx);
+            tokio::time::sleep(tokio::time::Duration::from_millis(900)).await;
+            return Ok(status.lock().await.clone());
+        }
         *tx = Some(cmd_tx);
     }
 
@@ -2123,8 +2416,17 @@ pub async fn ovr_init(
     // Wait for init
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
-    let s = status.lock().await;
-    Ok(s.clone())
+    let result = status.lock().await.clone();
+    if !result.initialized {
+        *state.cmd_tx.lock().await = None;
+        let mut handle = state.event_loop_handle.lock().await;
+        if handle.as_ref().is_some_and(|task| task.is_finished()) {
+            if let Some(task) = handle.take() {
+                let _ = task.await;
+            }
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -2170,6 +2472,45 @@ pub async fn ovr_toggle_translation(
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     let s = state.status.lock().await;
     Ok(s.translation_enabled)
+}
+
+fn legacy_button_mask(key: &str) -> u64 {
+    let button = match key {
+        "grip" => openvr::button_id::GRIP,
+        "a_button" => openvr::button_id::A,
+        // OpenVR's legacy controller API exposes the application/menu button;
+        // SteamVR bindings map this to the controller's B/menu equivalent.
+        "b_button" => openvr::button_id::APPLICATION_MENU,
+        "left_stick" | "right_stick" => openvr::button_id::STEAM_VR_TOUCHPAD,
+        _ => openvr::button_id::STEAM_VR_TRIGGER,
+    };
+    1u64 << button
+}
+
+/// Toggle the native SteamVR menu overlay without requiring a controller gesture.
+#[tauri::command]
+pub async fn ovr_toggle_menu(
+    state: tauri::State<'_, OvrState>,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::ToggleMenu);
+    }
+    Ok(())
+}
+
+/// Open SteamVR's binding editor for the VrcDog action manifest.
+#[tauri::command]
+pub async fn ovr_open_binding_ui(
+    state: tauri::State<'_, OvrState>,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::OpenBindingUi);
+        Ok(())
+    } else {
+        Err("OpenVR 尚未初始化".into())
+    }
 }
 
 #[tauri::command]

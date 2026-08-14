@@ -31,6 +31,15 @@
               "output": "/actions/main/in/ClearTranslation"
             }
           }
+        },
+        {
+          "mode": "trackpad",
+          "path": "/user/hand/right/input/trackpad",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/MenuNavigate"
+            }
+          }
         }
       ]
     }

@@ -160,6 +160,7 @@ let unlistenStatus: (() => void) | null = null;
 let unlistenOverlayClosed: (() => void) | null = null;
 let unlistenMidishowLogin: (() => void) | null = null;
 let unlistenPreviewSong: (() => void) | null = null;
+let unlistenVrAction: (() => void) | null = null;
 let pollTimer: number | null = null;
 let midishowLoginPollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
@@ -868,6 +869,28 @@ const previewSong = async (song: VrpianoSong) => {
   await previewLocalSong();
 };
 
+const playRelativeSongInBuiltInPlayer = async (delta: -1 | 1) => {
+  if (!songs.value.length || playerLoading.value) return;
+  const currentIndex = Math.max(0, songs.value.findIndex((song) => song.path === selectedPath.value));
+  const nextIndex = (currentIndex + delta + songs.value.length) % songs.value.length;
+  await previewSong(songs.value[nextIndex]);
+};
+
+const restartBuiltInPlayer = async () => {
+  if (parsedPlayerNotes.value.length) {
+    await schedulePlayer(0);
+  } else if (selectedSong.value) {
+    await previewLocalSong();
+  }
+};
+
+const handleVrPianoAction = async (action: string) => {
+  if (action === 'previous') await playRelativeSongInBuiltInPlayer(-1);
+  else if (action === 'next') await playRelativeSongInBuiltInPlayer(1);
+  else if (action === 'restart') await restartBuiltInPlayer();
+  else if (action === 'toggle') await togglePlayer();
+};
+
 const openSongsDir = async () => {
   try {
     await VrpianoApi.openSongsDir();
@@ -1170,6 +1193,9 @@ onMounted(async () => {
       const song = songs.value.find((item) => item.path === event.payload?.songPath);
       if (song) void previewSong(song);
     });
+    unlistenVrAction = await listen<string>('vrpiano_vr_action', (event) => {
+      void handleVrPianoAction(event.payload);
+    });
     unlistenMidishowLogin = await listen<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status', (event) => {
       void applyMidishowLoginStatus(event.payload);
     });
@@ -1197,6 +1223,7 @@ onUnmounted(() => {
   if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (unlistenMidishowLogin) unlistenMidishowLogin();
   if (unlistenPreviewSong) unlistenPreviewSong();
+  if (unlistenVrAction) unlistenVrAction();
   stopMidishowLoginPolling();
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (speedApplyTimer !== null) window.clearTimeout(speedApplyTimer);

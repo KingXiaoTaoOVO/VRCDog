@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch, watchEffect } from 'vue';
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -13,7 +13,7 @@ import { useEnvStore } from './stores/envStore';
 import { useSystemContextStore } from './stores/systemContext';
 import { storeToRefs } from 'pinia';
 import { currentTheme } from './theme';
-import { DbApi, SysApi, VrcApi } from './api';
+import { DbApi, OvrApi, SysApi, VrcApi } from './api';
 import { initGamelogWatcher } from './api/gamelogWatcher';
 
 // Layouts and components
@@ -113,6 +113,47 @@ const overlayMode = new URLSearchParams(window.location.search).get('mode');
 const isTranslationOverlayMode = overlayMode === 'overlay';
 const isVrpianoOverlayMode = overlayMode === 'vrpiano-overlay';
 const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode;
+let ovrAutoInitTimer: number | null = null;
+let ovrAutoInitInFlight = false;
+let ovrWaitingLogged = false;
+
+const stopOvrAutoInit = () => {
+  if (ovrAutoInitTimer !== null) {
+    window.clearInterval(ovrAutoInitTimer);
+    ovrAutoInitTimer = null;
+  }
+};
+
+const ensureOvrInitialized = async () => {
+  if (ovrAutoInitInFlight) return;
+  ovrAutoInitInFlight = true;
+  try {
+    const status = await OvrApi.init();
+    if (status?.initialized) {
+      stopOvrAutoInit();
+      ovrWaitingLogged = false;
+    } else if (!ovrWaitingLogged) {
+      console.info('OpenVR auto-initialization is waiting for SteamVR.');
+      ovrWaitingLogged = true;
+    }
+  } catch (error) {
+    if (!ovrWaitingLogged) {
+      console.warn('OpenVR auto-initialization is waiting for SteamVR:', error);
+      ovrWaitingLogged = true;
+    }
+  } finally {
+    ovrAutoInitInFlight = false;
+  }
+};
+
+watch(appMode, (mode) => {
+  stopOvrAutoInit();
+  ovrWaitingLogged = false;
+  if (mode !== 'vr' || isOverlayMode || !isTauri()) return;
+  void ensureOvrInitialized();
+  ovrAutoInitTimer = window.setInterval(() => void ensureOvrInitialized(), 5000);
+}, { immediate: true });
+onUnmounted(stopOvrAutoInit);
 document.documentElement.classList.toggle('translation-overlay-mode', isTranslationOverlayMode);
 document.body.classList.toggle('translation-overlay-mode', isTranslationOverlayMode);
 document.documentElement.classList.toggle('vrpiano-overlay-mode', isVrpianoOverlayMode);
@@ -243,6 +284,19 @@ onMounted(async () => {
   await uiStore.loadCustomNavConfig();
   
   if (isTauri()) {
+    await listen<{ tab: string }>('ovr_menu_navigate', (event) => {
+      const tab = event.payload?.tab;
+      if (!tab || !uiStore.sidebarTabs.some((item) => item.key === tab)) return;
+      uiStore.appMode = 'vr';
+      uiStore.activeTab = tab;
+    });
+    await listen<Record<string, unknown>>('ovr_config_changed', (event) => {
+      void DbApi.saveSetting({
+        key: 'ovr_native_runtime_config',
+        value: JSON.stringify(event.payload || {}),
+      });
+    });
+
     await listen('tray_open_settings', () => {
       uiStore.appMode = 'pc';
       uiStore.activeTab = 'settings';

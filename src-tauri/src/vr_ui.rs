@@ -366,10 +366,48 @@ impl VrUiRenderer {
             "VrcDog语音输入",
             "VRCLS 日志追踪",
             "OVRAS 空间控制",
+            "VRPiano 播放控制",
         ];
-        let header = format!("  {}  < 摇杆左右切页 >", page_names[page.min(11)]);
+        let header = format!("  {}  < 摇杆左右切页 >", page_names[page.min(12)]);
 
-        let items: Vec<String> = match page {
+        let items: Vec<String> = if page == 8 {
+            vec![
+                "  好友列表".to_string(),
+                "  当前实例玩家".to_string(),
+                "  通知中心".to_string(),
+                "  返回主菜单".to_string(),
+            ]
+        } else if page == 9 {
+            vec![
+                "  打开语音翻译".to_string(),
+                "  打开 VRPiano".to_string(),
+                "  打开直播弹幕".to_string(),
+                "  返回主菜单".to_string(),
+            ]
+        } else if page == 10 {
+            vec![
+                "  打开事件动态".to_string(),
+                "  打开统计图表".to_string(),
+                "  打开通知中心".to_string(),
+                "  返回主菜单".to_string(),
+            ]
+        } else if page == 11 {
+            vec![
+                format!("  切换高度: {}", if config.height_toggle_enabled { "开" } else { "关" }),
+                "  重置游玩空间".to_string(),
+                "  以右手柄修复地板".to_string(),
+                "  返回主菜单".to_string(),
+            ]
+        } else if page == 12 {
+            vec![
+                "  上一首并用内置播放器播放".to_string(),
+                "  播放 / 暂停内置播放器".to_string(),
+                "  从头重新播放".to_string(),
+                "  下一首并用内置播放器播放".to_string(),
+                "  返回语音与媒体菜单".to_string(),
+            ]
+        } else {
+            match page {
             0 => vec![
                 "  ► [1] 常规与翻译设置".to_string(),
                 "  ► [8] VrcDog: 好友与社交".to_string(),
@@ -489,6 +527,7 @@ impl VrUiRenderer {
                 "  ◄ 返回主菜单".to_string(),
             ],
             _ => vec!["  ◄ 返回主菜单".to_string()],
+            }
         };
 
         // Selection highlight
