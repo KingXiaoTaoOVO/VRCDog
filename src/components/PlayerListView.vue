@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { VrcApi, DbApi, GamelogApi } from "../api";
+import { VrcApi, DbApi, GamelogApi, SysApi } from "../api";
 import { Users, Search, MapPin, Bone, StickyNote, RefreshCcw } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import VrcResourceCard from './VrcResourceCard.vue';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useAuthStore } from '../stores/authStore';
+import { buildCurrentRoomPlayers, type GameLogEvent } from '../utils/gameLogSession';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
@@ -14,15 +15,10 @@ const authStore = useAuthStore();
 interface Player {
   name: string;
   joinTime: string;
+  userId?: string;
   userData?: any;
   loadingData?: boolean;
   note?: string;
-}
-
-interface GameLogEvent {
-  time: string;
-  event_type: string;
-  content: string;
 }
 
 interface LogRoomSnapshot {
@@ -38,6 +34,9 @@ const loading = ref(true);
 const searchQuery = ref('');
 const resolvedNames = new Set<string>();
 let refreshTimer: number | null = null;
+let fetchInFlight = false;
+let fetchPending = false;
+let componentMounted = false;
 
 function parseLocation(location: string): { worldId: string; instanceId: string } | null {
   if (!location || !location.startsWith('wrld_') || !location.includes(':')) return null;
@@ -62,6 +61,7 @@ function mapInstanceUser(raw: any): Player | null {
   return {
     name: displayName,
     joinTime: raw?.joinedAt || raw?.joined_at || raw?.last_activity || new Date().toISOString(),
+    userId: id,
     userData: {
       ...raw,
       id,
@@ -74,49 +74,26 @@ function mapInstanceUser(raw: any): Player | null {
 
 function mergePlayers(target: Map<string, Player>, list: Player[]) {
   for (const player of list) {
-    const key = player.userData?.id || player.name;
+    const key = player.userData?.id || player.userId || player.name;
     const existing = target.get(key);
     target.set(key, existing ? { ...existing, ...player, note: existing.note || player.note } : player);
   }
 }
 
-function cleanLogName(name: string) {
-  return String(name || '')
-    .replace(/\s+\((usr_[^)]+)\)\s*$/, '')
-    .trim();
-}
-
 async function buildLogRoomSnapshot(): Promise<LogRoomSnapshot> {
   try {
-    const logs: GameLogEvent[] = await GamelogApi.getLatestGamelogs({ maxLines: 4000 });
+    const logs: GameLogEvent[] = await GamelogApi.getSnapshot({ maxLines: 20000 });
     if (!Array.isArray(logs) || logs.length === 0) return { roomName: '', players: [] };
-
-    const left = new Set<string>();
-    const current = new Map<string, Player>();
-    let roomName = '';
-
-    for (const event of logs) {
-      const type = event?.event_type || '';
-      if (type === 'Instance Joined') {
-        roomName = String(event.content || '').trim();
-        break;
-      }
-
-      const name = cleanLogName(event?.content || '');
-      if (!name) continue;
-
-      if (type === 'Player Left') {
-        left.add(name);
-      } else if (type === 'Player Joined' && !left.has(name)) {
-        current.set(name, {
-          name,
-          joinTime: event.time || new Date().toISOString(),
-          loadingData: false,
-        });
-      }
-    }
-
-    return { roomName, players: Array.from(current.values()) };
+    const snapshot = buildCurrentRoomPlayers(logs);
+    return {
+      roomName: snapshot.roomName,
+      players: snapshot.players.map(player => ({
+        name: player.name,
+        userId: player.userId || undefined,
+        joinTime: player.joinTime || new Date().toISOString(),
+        loadingData: false,
+      })),
+    };
   } catch (e) {
     console.warn('Failed to load room players from game log', e);
     return { roomName: '', players: [] };
@@ -130,6 +107,7 @@ async function buildApiFallbackPlayers(freshUser: any, location: string): Promis
     sameRoom.set(freshUser.id || freshUser.displayName, {
       name: freshUser.displayName || freshUser.username || t('charts.me'),
       joinTime: freshUser.last_login || new Date().toISOString(),
+      userId: freshUser.id,
       userData: freshUser,
       loadingData: false,
     });
@@ -158,11 +136,27 @@ async function buildApiFallbackPlayers(freshUser: any, location: string): Promis
 }
 
 const fetchPlayerList = async () => {
+  if (fetchInFlight) {
+    fetchPending = true;
+    return;
+  }
+  fetchInFlight = true;
   loading.value = true;
   try {
-    const freshUser: any = await VrcApi.getCurrentUser();
+    const [freshUser, vrcRunning]: [any, boolean] = await Promise.all([
+      VrcApi.getCurrentUser().catch(() => authStore.currentUser || {}),
+      SysApi.isVrcRunning().catch(() => true),
+    ]);
     if (freshUser?.id) {
       authStore.currentUser = { ...(authStore.currentUser || {}), ...freshUser } as any;
+    }
+
+    if (!vrcRunning) {
+      currentLocation.value = 'offline';
+      currentRoom.value = readableLocationState('offline');
+      instancePlayerCount.value = null;
+      players.value = [];
+      return;
     }
 
     const location = String(freshUser?.location || authStore.currentUser?.location || '');
@@ -179,6 +173,7 @@ const fetchPlayerList = async () => {
         mergePlayers(fallbackPlayers, [{
           name: freshUser.displayName,
           joinTime: freshUser.last_login || new Date().toISOString(),
+          userId: freshUser.id,
           userData: freshUser,
           loadingData: false,
         }]);
@@ -221,7 +216,8 @@ const fetchPlayerList = async () => {
     }
 
     const updatedPlayers: Player[] = Array.from(mergedPlayers.values()).map((player: Player) => {
-      const existing = players.value.find(p => p.userData?.id && p.userData.id === player.userData?.id)
+      const playerId = player.userData?.id || player.userId;
+      const existing = players.value.find(p => playerId && (p.userData?.id || p.userId) === playerId)
         || players.value.find(p => p.name === player.name);
       if (existing) {
         return { ...existing, ...player, note: existing.note, loadingData: false };
@@ -230,10 +226,11 @@ const fetchPlayerList = async () => {
       return player;
     });
 
-    if (freshUser?.displayName && !updatedPlayers.some(p => p.userData?.id === freshUser.id || p.name === freshUser.displayName)) {
+    if (freshUser?.displayName && !updatedPlayers.some(p => (p.userData?.id || p.userId) === freshUser.id || p.name === freshUser.displayName)) {
       updatedPlayers.unshift({
         name: freshUser.displayName,
         joinTime: freshUser.last_login || new Date().toISOString(),
+        userId: freshUser.id,
         userData: freshUser,
         loadingData: false,
       });
@@ -247,6 +244,11 @@ const fetchPlayerList = async () => {
     currentRoom.value = currentLocation.value ? readableLocationState(currentLocation.value) : t('player_list.unknown_instance');
   } finally {
     loading.value = false;
+    fetchInFlight = false;
+    if (fetchPending && componentMounted) {
+      fetchPending = false;
+      void fetchPlayerList();
+    }
   }
 };
 
@@ -259,22 +261,27 @@ const formatJoinTime = (time: string) => {
 };
 
 const resolvePlayerData = async (player: Player) => {
-  if (resolvedNames.has(player.name) || player.loadingData) return;
+  const lookupKey = player.userId || player.name;
+  if (resolvedNames.has(lookupKey) || player.loadingData) return;
   player.loadingData = true;
   try {
-    const res = await VrcApi.searchUsers({ query: player.name, n: 1, offset: 0 });
-    const p = players.value.find(x => x.name === player.name) || player;
-    if (res && res.length > 0 && res[0].displayName === player.name) {
-      p.userData = res[0];
+    const resolved = player.userId
+      ? await VrcApi.getUser({ userId: player.userId })
+      : (await VrcApi.searchUsers({ query: player.name, n: 10, offset: 0 }))
+          ?.find((candidate: any) => candidate.displayName === player.name);
+    const p = players.value.find(x => (player.userId && (x.userData?.id || x.userId) === player.userId) || x.name === player.name) || player;
+    if (resolved?.id) {
+      p.userData = resolved;
+      p.userId = resolved.id;
       
       try {
-        const noteRes = await DbApi.getNote({ userId: res[0].id });
+        const noteRes = await DbApi.getNote({ userId: resolved.id });
         if (noteRes && noteRes.note) {
            p.note = noteRes.note;
         }
       } catch (e) { /* ignore */ }
       
-      resolvedNames.add(player.name);
+      resolvedNames.add(lookupKey);
     }
   } catch (e) {
     console.warn(`Failed to resolve player data for ${player.name}`);
@@ -285,12 +292,15 @@ const resolvePlayerData = async (player: Player) => {
 };
 
 onMounted(() => {
+  componentMounted = true;
   fetchPlayerList();
   refreshTimer = window.setInterval(fetchPlayerList, 30000);
   window.addEventListener('vrc-gamelog-updated', fetchPlayerList);
 });
 
 onUnmounted(() => {
+  componentMounted = false;
+  fetchPending = false;
   if (refreshTimer) window.clearInterval(refreshTimer);
   window.removeEventListener('vrc-gamelog-updated', fetchPlayerList);
 });
@@ -304,6 +314,8 @@ const filteredPlayers = computed(() => {
 const openPlayerProfile = (player: Player) => {
   if (player.userData) {
     profileStore.openProfile(player.userData.id, player.userData);
+  } else if (player.userId) {
+    profileStore.openProfile(player.userId);
   }
 };
 </script>
@@ -391,7 +403,7 @@ const openPlayerProfile = (player: Player) => {
         >
           <div
             v-for="player in filteredPlayers"
-            :key="player.name"
+            :key="player.userId || player.name"
             class="relative group"
           >
             <VrcResourceCard

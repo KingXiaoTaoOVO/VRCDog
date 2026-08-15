@@ -924,6 +924,7 @@ export const OscApi = {
 
 export const GamelogApi = {
   getLatestGamelogs: (params: any) => safeInvoke<any[]>('vrc_get_latest_gamelogs', params),
+  getSnapshot: (params: { maxLines?: number } = {}) => safeInvoke<any[]>('vrc_get_gamelog_snapshot', params),
 };
 
 export const GalleryApi = {
