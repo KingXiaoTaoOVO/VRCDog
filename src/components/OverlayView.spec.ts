@@ -48,6 +48,12 @@ vi.mock('vue-i18n', () => ({
   }),
 }));
 
+vi.mock('../api', () => ({
+  VrctApi: {
+    getHistory: vi.fn(async () => []),
+  },
+}));
+
 import OverlayView from './OverlayView.vue';
 
 describe('OverlayView background opacity', () => {

@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
+import { VrctApi } from '../api';
 
 const { t } = useI18n();
 
@@ -36,19 +37,17 @@ let unlistenTranslation: UnlistenFn | null = null;
 let unlistenClose: UnlistenFn | null = null;
 let unlistenSettings: UnlistenFn | null = null;
 
+const addLog = (payload: LogMessage) => {
+  if (logs.value.some(log => log.id === payload.id)) return;
+  logs.value.unshift(payload);
+  if (logs.value.length > 10) logs.value.pop();
+};
+
 onMounted(async () => {
   // 监听来自主窗口的翻译日志事件
   unlistenTranslation = await listen('translation-log', (event: any) => {
     const payload = event.payload as LogMessage;
-    logs.value.unshift({
-      ...payload,
-      id: Date.now()
-    });
-    
-    // 保持最多显示 10 条，并自动滚动到顶部
-    if (logs.value.length > 10) {
-      logs.value.pop();
-    }
+    addLog(payload);
     
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -71,6 +70,22 @@ onMounted(async () => {
       }
     },
   );
+
+  try {
+    const history = await VrctApi.getHistory();
+    if (Array.isArray(history)) {
+      const loaded: LogMessage[] = history.slice(-10).reverse().map((record: any) => ({
+        id: record.id,
+        type: record.source === 'speaker' ? 'other' as const : 'self' as const,
+        text: record.original,
+        translation: record.translated,
+      }));
+      const live = logs.value.filter(log => !loaded.some(item => item.id === log.id));
+      logs.value = [...live, ...loaded].slice(0, 10);
+    }
+  } catch {
+    // Live events remain available when history loading is unavailable.
+  }
 });
 
 onUnmounted(() => {

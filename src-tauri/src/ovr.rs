@@ -2543,7 +2543,9 @@ pub async fn ovr_update_overlay_text(
     original: String,
     translated: String,
 ) -> crate::AppResult<()> {
-    update_overlay_text(&app_handle, &state, original, translated).await
+    update_overlay_text(&app_handle, &state, original, translated)
+        .await
+        .map(|_| ())
 }
 
 pub async fn update_overlay_text(
@@ -2551,14 +2553,21 @@ pub async fn update_overlay_text(
     state: &OvrState,
     original: String,
     translated: String,
-) -> crate::AppResult<()> {
+) -> crate::AppResult<bool> {
+    let initialized = state.status.lock().await.initialized;
     let tx = state.cmd_tx.lock().await;
-    if let Some(ref sender) = *tx {
-        let _ = sender.send(OvrCommand::UpdateText {
-            original: original.clone(),
-            translated: translated.clone(),
-        });
-    }
+    let updated = if initialized {
+        if let Some(ref sender) = *tx {
+            sender.send(OvrCommand::UpdateText {
+                original: original.clone(),
+                translated: translated.clone(),
+            }).is_ok()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let _ = app_handle.emit(
         "ovr_translation_updated",
         serde_json::json!({
@@ -2566,7 +2575,7 @@ pub async fn update_overlay_text(
             "translated": translated,
         }),
     );
-    Ok(())
+    Ok(updated)
 }
 
 #[tauri::command]

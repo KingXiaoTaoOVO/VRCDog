@@ -74,8 +74,11 @@ async function prepare() {
     'idna==3.18',
     'urllib3==2.7.0',
     'typing-extensions==4.16.0',
+    'pyaudiowpatch==0.2.12.8',
+    'SpeechRecognition==3.17.0',
+    'faster-whisper==1.2.1',
   ], { env: isolatedEnv });
-  await run(python, ['-I', '-c', 'import requests, bs4, certifi, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
+  await run(python, ['-I', '-c', 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
 
   await writeFile(path.join(stagedRuntime, 'vrcdog-runtime.json'), JSON.stringify({
     pythonVersion: PYTHON_VERSION,
@@ -89,6 +92,9 @@ async function prepare() {
       'idna==3.18',
       'urllib3==2.7.0',
       'typing-extensions==4.16.0',
+      'pyaudiowpatch==0.2.12.8',
+      'SpeechRecognition==3.17.0',
+      'faster-whisper==1.2.1',
     ],
     source: PYTHON_URL,
     archiveSha256: PYTHON_SHA256,
@@ -107,7 +113,7 @@ async function prepare() {
     throw error;
   }
   if (movedPrevious) {
-    console.warn(`Previous embedded runtime retained for deferred cleanup: ${previousRuntime}`);
+    await rm(previousRuntime, { recursive: true, force: true });
   }
   console.log(`Embedded Python runtime ready: ${RUNTIME_DIR}`);
 }

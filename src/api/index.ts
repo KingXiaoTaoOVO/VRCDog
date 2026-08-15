@@ -788,6 +788,34 @@ export const DbApi = {
   saveApiCache: (params: { key: string, data: string }) => safeInvoke<void>('db_save_api_cache', params),
 };
 
+export type AudioSource = 'mic' | 'speaker';
+
+export interface AudioDevice {
+  id: string;
+  index: number;
+  name: string;
+  source: AudioSource;
+  is_default: boolean;
+  sample_rate: number;
+  channels: number;
+}
+
+export interface AudioCaptureConfig {
+  source: AudioSource;
+  sourceLang: string;
+  engine: 'cloud' | 'local';
+  deviceIndex?: number;
+  energyThreshold?: number;
+  dynamicEnergyThreshold?: boolean;
+  phraseTimeLimit?: number;
+  whisperModel?: string;
+}
+
+export interface AudioCaptureStatus {
+  source: AudioSource;
+  running: boolean;
+}
+
 export const SysApi = {
   checkSystemStatus: () => safeInvoke<any>('check_system_status'),
   checkSteamVR: () => safeInvoke<boolean>('sys_check_steamvr'),
@@ -813,8 +841,11 @@ export const SysApi = {
   setDiscordRpc: (params: { details: string; state: string }) => safeInvoke<void>('sys_set_discord_rpc', params),
   saveTextFile: (params: { path: string; content: string }) => safeInvoke<void>('sys_save_text_file', params),
   saveBinaryFile: (params: { path: string; content: number[] }) => safeInvoke<void>('sys_save_binary_file', params),
-  startAudioCapture: (params: { sourceLang: string, engine: string }) => safeInvoke<void>('sys_start_audio_capture', params),
-  stopAudioCapture: () => safeInvoke<void>('sys_stop_audio_capture'),
+  getAudioDevices: () => safeInvoke<AudioDevice[]>('vrct_get_audio_devices'),
+  startAudioCapture: (params: AudioCaptureConfig) => safeInvoke<void>('vrct_start_audio_capture', { ...params }),
+  stopAudioCapture: (params: { source: AudioSource }) => safeInvoke<void>('vrct_stop_audio_capture', params),
+  setAudioCapturePaused: (params: { source: AudioSource; paused: boolean }) => safeInvoke<void>('vrct_set_audio_capture_paused', params),
+  getAudioCaptureStatus: () => safeInvoke<AudioCaptureStatus[]>('vrct_get_audio_capture_status'),
   startOscAutomation: () => safeInvoke<void>('sys_start_osc_automation'),
   stopOscAutomation: () => safeInvoke<void>('sys_stop_osc_automation'),
   startAutoLaunchApps: (params: { apps: string[] }) => safeInvoke<void>('sys_start_auto_launch_apps', params),
