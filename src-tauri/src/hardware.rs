@@ -7,7 +7,6 @@ use std::sync::{Mutex, OnceLock};
 use sysinfo::System;
 
 static DISCORD_CLIENT: OnceLock<Mutex<DiscordIpcClient>> = OnceLock::new();
-static AUDIO_PROCESS: OnceLock<Mutex<Option<std::process::Child>>> = OnceLock::new();
 static OSC_AUTOMATION: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>> =
     OnceLock::new();
 static AUTO_LAUNCH_APPS: OnceLock<Mutex<Vec<std::process::Child>>> = OnceLock::new();
@@ -174,70 +173,6 @@ pub fn sys_set_discord_rpc(details: String, state: String) -> AppResult<()> {
         let _ = client.set_activity(payload);
     }
 
-    Ok(())
-}
-
-#[tauri::command]
-pub fn sys_start_audio_capture(
-    app: tauri::AppHandle,
-    source_lang: String,
-    engine: String,
-) -> AppResult<()> {
-    let mut process_lock = AUDIO_PROCESS
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap();
-    if process_lock.is_some() {
-        return Ok(());
-    }
-
-    use std::io::{BufRead, BufReader};
-    use std::path::PathBuf;
-    use std::process::Stdio;
-    use tauri::Emitter;
-
-    // Robust path resolution for the python script
-    let mut script_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if script_path.ends_with("src-tauri") {
-        script_path.push("../src-python/vrcdog_audio.py");
-    } else {
-        script_path.push("src-python/vrcdog_audio.py");
-    }
-
-    let mut child = Command::new("python")
-        .args([script_path.to_str().unwrap_or(""), &source_lang, &engine])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| crate::AppError::from(e.to_string()))?;
-
-    let stdout = child.stdout.take().expect("Failed to open stdout");
-
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for l in reader.lines().map_while(Result::ok) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&l) {
-                let _ = app.emit("audio-capture-event", json);
-            } else {
-                println!("Python audio output: {}", l);
-            }
-        }
-    });
-
-    *process_lock = Some(child);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn sys_stop_audio_capture() -> AppResult<()> {
-    let mut process_lock = AUDIO_PROCESS
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap();
-    if let Some(mut child) = process_lock.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
     Ok(())
 }
 

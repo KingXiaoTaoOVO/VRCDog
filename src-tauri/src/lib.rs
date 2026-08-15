@@ -240,9 +240,12 @@ pub fn run() {
         .setup(|app| {
             use tauri::Manager;
             let app_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
-            app.manage(db::DbState::new(app_dir));
+            app.manage(db::DbState::new(app_dir.clone()));
             app.manage(gamelog::LogReaderState::new());
             app.manage(audio_capture::AudioCaptureState::new());
+            app.manage(vrct::VrctState::with_history_path(
+                app_dir.join("vrct-translation-history.json"),
+            ));
 
             // NOTE: OVRAS auto-install/launch has been REMOVED to prevent
             // interfering with player's own OpenVR Advanced Settings.
@@ -287,7 +290,6 @@ pub fn run() {
         .manage(ovr::OvrState::new())
         .manage(danmaku::DanmakuState::new())
         .manage(vrpiano::VrpianoState::default())
-        .manage(vrct::VrctState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -360,8 +362,6 @@ pub fn run() {
             hardware::sys_send_osc_param,
             hardware::sys_send_osc_chatbox,
             hardware::sys_set_discord_rpc,
-            hardware::sys_start_audio_capture,
-            hardware::sys_stop_audio_capture,
             hardware::sys_start_osc_automation,
             hardware::sys_stop_osc_automation,
             hardware::sys_show_in_explorer,
@@ -393,8 +393,10 @@ pub fn run() {
             sys::sys_restore_database,
             sys::sys_open_steamvr_bindings,
             audio_capture::vrct_get_audio_devices,
-            audio_capture::vrct_start_stt_recording,
-            audio_capture::vrct_stop_stt_recording,
+            audio_capture::vrct_start_audio_capture,
+            audio_capture::vrct_stop_audio_capture,
+            audio_capture::vrct_set_audio_capture_paused,
+            audio_capture::vrct_get_audio_capture_status,
             sys_start_server,
             sys_stop_server,
             sys_verify_server_password,

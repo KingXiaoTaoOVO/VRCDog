@@ -4,6 +4,7 @@ use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::net::UdpSocket;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
@@ -91,6 +92,7 @@ pub struct VrctMessageRecord {
 pub struct VrctState {
     history: Arc<Mutex<VecDeque<VrctMessageRecord>>>,
     next_id: Arc<Mutex<u64>>,
+    history_path: Option<PathBuf>,
 }
 
 impl Default for VrctState {
@@ -104,6 +106,35 @@ impl VrctState {
         Self {
             history: Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_LIMIT))),
             next_id: Arc::new(Mutex::new(1)),
+            history_path: None,
+        }
+    }
+
+    pub fn with_history_path(history_path: PathBuf) -> Self {
+        let mut records = std::fs::read_to_string(&history_path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<VecDeque<VrctMessageRecord>>(&content).ok())
+            .unwrap_or_default();
+        while records.len() > HISTORY_LIMIT {
+            records.pop_front();
+        }
+        let next_id = records.back().map_or(1, |record| record.id.saturating_add(1));
+        Self {
+            history: Arc::new(Mutex::new(records)),
+            next_id: Arc::new(Mutex::new(next_id)),
+            history_path: Some(history_path),
+        }
+    }
+
+    fn persist_history(&self, records: &VecDeque<VrctMessageRecord>) {
+        let Some(path) = self.history_path.as_ref() else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(content) = serde_json::to_vec(records) {
+            let _ = std::fs::write(path, content);
         }
     }
 }
@@ -307,14 +338,28 @@ pub async fn vrct_process_message(
         custom_api_url,
     };
 
-    let translated = translate(&translate_req).await?.translated;
+    let osc_destination = req.send_osc.then(|| osc_target(&req));
+    if req.send_typing {
+        if let Some((host, port)) = osc_destination.as_ref() {
+            send_osc_typing(host, *port, true).map_err(crate::AppError::from)?;
+        }
+    }
+
+    let translated = match translate(&translate_req).await {
+        Ok(result) => result.translated,
+        Err(error) => {
+            if req.send_typing {
+                if let Some((host, port)) = osc_destination.as_ref() {
+                    let _ = send_osc_typing(host, *port, false);
+                }
+            }
+            return Err(error.into());
+        }
+    };
 
     let mut sent_osc = false;
     if req.send_osc {
-        let (osc_host, osc_port) = osc_target(&req);
-        if req.send_typing {
-            send_osc_typing(&osc_host, osc_port, true).map_err(crate::AppError::from)?;
-        }
+        let (osc_host, osc_port) = osc_destination.expect("OSC destination exists when send_osc is true");
         let send_result = send_osc_chatbox(
             &osc_host,
             osc_port,
@@ -331,9 +376,13 @@ pub async fn vrct_process_message(
 
     let mut overlay_updated = false;
     if req.update_overlay {
-        crate::ovr::update_overlay_text(&app_handle, &ovr_state, text.clone(), translated.clone())
-            .await?;
-        overlay_updated = true;
+        overlay_updated = crate::ovr::update_overlay_text(
+            &app_handle,
+            &ovr_state,
+            text.clone(),
+            translated.clone(),
+        )
+        .await?;
     }
 
     let mut next_id = state.next_id.lock().await;
@@ -357,6 +406,7 @@ pub async fn vrct_process_message(
         history.pop_front();
     }
     history.push_back(record.clone());
+    state.persist_history(&history);
     drop(history);
 
     let _ = app_handle.emit("vrct_translation_event", &record);
@@ -372,6 +422,8 @@ pub async fn vrct_get_history(
 
 #[tauri::command]
 pub async fn vrct_clear_history(state: tauri::State<'_, VrctState>) -> crate::AppResult<()> {
-    state.history.lock().await.clear();
+    let mut history = state.history.lock().await;
+    history.clear();
+    state.persist_history(&history);
     Ok(())
 }

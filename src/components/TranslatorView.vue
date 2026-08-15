@@ -21,7 +21,8 @@ import {
   Volume2,
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import { SysApi, VrctApi } from '../api';
+import { SysApi, VrctApi, type AudioDevice, type AudioSource } from '../api';
+import { SerialTaskQueue } from '../utils/serialTaskQueue';
 import CustomSelect from './CustomSelect.vue';
 
 type MessageSource = 'chat' | 'mic' | 'speaker';
@@ -108,11 +109,18 @@ const targetLang = useStorage('vrc_translator_target_lang', 'en-US');
 const otherSourceLang = useStorage('vrc_translator_other_source_lang', 'en-US');
 const otherTargetLang = useStorage('vrc_translator_other_target_lang', 'zh-CN');
 const translateEngine = useStorage('vrc_translator_engine', 'google_free');
+const micEngine = useStorage<'cloud' | 'local'>('vrc_translator_mic_stt_engine', 'cloud');
 const otherEngine = useStorage('vrc_translator_stt_engine', 'cloud');
-const apiKey = ref('');
-const model = ref('');
-const customApiUrl = ref('');
-const prompt = ref('');
+const apiKey = useStorage('vrc_translator_api_key', '');
+const model = useStorage('vrc_translator_model', '');
+const customApiUrl = useStorage('vrc_translator_custom_api_url', '');
+const prompt = useStorage('vrc_translator_prompt', '');
+const whisperModel = useStorage('vrc_translator_whisper_model', 'tiny');
+const micDeviceId = useStorage('vrc_translator_mic_device', '');
+const speakerDeviceId = useStorage('vrc_translator_speaker_device', '');
+const micEnergyThreshold = useStorage('vrc_translator_mic_energy_threshold', 0);
+const speakerEnergyThreshold = useStorage('vrc_translator_speaker_energy_threshold', 0);
+const phraseTimeLimit = useStorage('vrc_translator_phrase_time_limit', 10);
 
 const manualText = ref('');
 const recognizedText = ref('');
@@ -135,13 +143,16 @@ const gptPromptLanguage = useStorage('vrc_translator_prompt_language', 'zh');
 
 const isRecording = ref(false);
 const isOtherRecording = ref(false);
+const isMicStarting = ref(false);
+const isSpeakerStarting = ref(false);
 const isTranslating = ref(false);
 const isOverlayOpen = ref(false);
 const overlayBackgroundOpacity = useStorage('vrc_translation_overlay_opacity', 0.82);
 const errorMsg = ref('');
 const statusMsg = ref('');
+const audioDevices = ref<AudioDevice[]>([]);
+const audioDeviceError = ref('');
 
-let recognition: any = null;
 let overlayWebview: WebviewWindow | null = null;
 let unlistenAudio: UnlistenFn | null = null;
 let unlistenVrct: UnlistenFn | null = null;
@@ -150,6 +161,16 @@ const currentEngine = computed(() => engineOptions.value.find((engine) => engine
 const needsApiKey = computed(() => Boolean(currentEngine.value.needsKey && !currentEngine.value.supportsLocal));
 const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'plamo', 'ollama', 'lmstudio', 'custom_llm', 'gemini'].includes(translateEngine.value));
 const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
+const micDeviceOptions = computed<Option[]>(() => audioDevices.value
+  .filter(device => device.source === 'mic')
+  .map(device => ({ label: `${device.name}${device.is_default ? ` (${l('默认', 'Default')})` : ''}`, value: device.id })));
+const speakerDeviceOptions = computed<Option[]>(() => audioDevices.value
+  .filter(device => device.source === 'speaker')
+  .map(device => ({ label: `${device.name}${device.is_default ? ` (${l('默认', 'Default')})` : ''}`, value: device.id })));
+
+const translationQueue = new SerialTaskQueue((pending) => {
+  isTranslating.value = pending > 0;
+});
 
 const setStatus = (message: string) => {
   statusMsg.value = message;
@@ -202,37 +223,52 @@ watch(overlayBackgroundOpacity, () => {
 
 const playTts = async (text: string, lang = lastTargetLang.value) => {
   if (!text.trim()) return;
-
-  if (ttsEngine.value === 'system') {
-    if (!('speechSynthesis' in window)) {
-      errorMsg.value = tt('auto_43b1967a', 'This WebView does not support Web Speech API.');
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.rate = 1.0;
-    window.speechSynthesis.speak(utterance);
-    return;
-  }
-
+  const pauseLoopback = isTauri() && isOtherRecording.value;
   try {
-    const langCode = lang.startsWith('ja') ? 'ja' : lang.startsWith('ko') ? 'ko' : lang.startsWith('en') ? 'en' : 'zh';
-    const audioUrl = await SysApi.synthesizeGptSovits({
-      baseUrl: gptSovitsUrl.value,
-      text,
-      textLanguage: langCode,
-      sovitsWeights: gptSovitsWeights.value.trim() || undefined,
-      gptWeights: gptWeights.value.trim() || undefined,
-      referenceAudio: gptReferenceAudio.value.trim() || undefined,
-      promptText: gptPromptText.value.trim() || undefined,
-      promptLanguage: gptPromptLanguage.value || langCode,
-    });
-    const audio = new Audio(audioUrl);
-    audio.volume = 1;
-    await audio.play();
+    if (pauseLoopback) {
+      await SysApi.setAudioCapturePaused({ source: 'speaker', paused: true });
+    }
+
+    if (ttsEngine.value === 'system') {
+      if (!('speechSynthesis' in window)) {
+        throw new Error(tt('auto_43b1967a', 'This WebView does not support speech synthesis.'));
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang;
+      utterance.rate = 1.0;
+      await new Promise<void>((resolve, reject) => {
+        utterance.onend = () => resolve();
+        utterance.onerror = event => reject(new Error(event.error || 'Speech synthesis failed'));
+        window.speechSynthesis.speak(utterance);
+      });
+    } else {
+      const langCode = lang.startsWith('ja') ? 'ja' : lang.startsWith('ko') ? 'ko' : lang.startsWith('en') ? 'en' : 'zh';
+      const audioUrl = await SysApi.synthesizeGptSovits({
+        baseUrl: gptSovitsUrl.value,
+        text,
+        textLanguage: langCode,
+        sovitsWeights: gptSovitsWeights.value.trim() || undefined,
+        gptWeights: gptWeights.value.trim() || undefined,
+        referenceAudio: gptReferenceAudio.value.trim() || undefined,
+        promptText: gptPromptText.value.trim() || undefined,
+        promptLanguage: gptPromptLanguage.value || langCode,
+      });
+      const audio = new Audio(audioUrl);
+      audio.volume = 1;
+      await new Promise<void>((resolve, reject) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => reject(new Error('TTS audio playback failed'));
+        audio.play().catch(reject);
+      });
+    }
   } catch (error) {
     errorMsg.value = tt('translator.tts_error', 'TTS playback failed: {err}').replace('{err}', errorText(error));
+  } finally {
+    if (pauseLoopback) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      await SysApi.setAudioCapturePaused({ source: 'speaker', paused: false }).catch(() => undefined);
+    }
   }
 };
 
@@ -246,7 +282,7 @@ const sendToChatbox = async (text: string) => {
   }
 };
 
-const processMessage = async (
+const processMessageNow = async (
   text: string,
   source: MessageSource,
   sourceLanguage: string,
@@ -262,7 +298,6 @@ const processMessage = async (
   }
 
   errorMsg.value = '';
-  isTranslating.value = true;
   try {
     const record = await VrctApi.processMessage({
       req: {
@@ -296,7 +331,8 @@ const processMessage = async (
       for (const extraLang of multiLangTargets.value) {
         if (extraLang === targetLanguage) continue;
         try {
-          const extraRecord = await VrctApi.processMessage({
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          await VrctApi.processMessage({
             req: {
               text: trimmed,
               source,
@@ -315,7 +351,6 @@ const processMessage = async (
               show_original_in_osc: false,
             },
           }) as VrctMessageRecord;
-          await new Promise(resolve => setTimeout(resolve, 1200));
         } catch (err) {
           console.warn(`Multi-lang translate to ${extraLang} failed:`, err);
         }
@@ -326,19 +361,25 @@ const processMessage = async (
   } catch (error) {
     errorMsg.value = `${tt('translator.network_error', 'Translation request failed. Please check your network and API settings')} ${errorText(error)}`;
     return null;
-  } finally {
-    isTranslating.value = false;
   }
 };
 
+const queueMessage = (
+  text: string,
+  source: MessageSource,
+  sourceLanguage: string,
+  targetLanguage: string,
+  sendOsc: boolean,
+) => translationQueue.enqueue(() => processMessageNow(text, source, sourceLanguage, targetLanguage, sendOsc));
+
 const translateManual = async () => {
-  const record = await processMessage(manualText.value, 'chat', sourceLang.value, targetLang.value, autoSendOsc.value);
+  const record = await queueMessage(manualText.value, 'chat', sourceLang.value, targetLang.value, autoSendOsc.value);
   if (record) manualText.value = '';
 };
 
-const translateMicText = (text: string) => processMessage(text, 'mic', sourceLang.value, targetLang.value, autoSendOsc.value);
+const translateMicText = (text: string) => queueMessage(text, 'mic', sourceLang.value, targetLang.value, autoSendOsc.value);
 
-const translateSpeakerText = (text: string) => processMessage(text, 'speaker', otherSourceLang.value, otherTargetLang.value, false);
+const translateSpeakerText = (text: string) => queueMessage(text, 'speaker', otherSourceLang.value, otherTargetLang.value, false);
 
 const swapMyLanguages = () => {
   if (sourceLang.value === 'auto') return;
@@ -358,56 +399,57 @@ const swapOtherLanguages = () => {
   [otherSourceLang.value, otherTargetLang.value] = [otherTargetLang.value, otherSourceLang.value];
 };
 
-const toggleRecording = () => {
-  if (!recognition) {
-    errorMsg.value = tt('auto_43b1967a', 'This WebView does not support Web Speech API.');
-    return;
-  }
+const selectedDeviceIndex = (source: AudioSource) => {
+  const id = source === 'mic' ? micDeviceId.value : speakerDeviceId.value;
+  return audioDevices.value.find(device => device.id === id)?.index;
+};
 
+const startCapture = async (source: AudioSource) => {
   errorMsg.value = '';
-  if (isRecording.value) {
-    isRecording.value = false;
-    recognition.stop();
-    return;
-  }
-
+  const isMic = source === 'mic';
+  if (isMic) isMicStarting.value = true;
+  else isSpeakerStarting.value = true;
   try {
-    recognition.lang = sourceLang.value === 'auto' ? 'en-US' : sourceLang.value;
-    recognition.start();
-    isRecording.value = true;
+    await SysApi.startAudioCapture({
+      source,
+      sourceLang: isMic ? sourceLang.value : otherSourceLang.value,
+      engine: (isMic ? micEngine.value : otherEngine.value) as 'cloud' | 'local',
+      deviceIndex: selectedDeviceIndex(source),
+      energyThreshold: isMic ? Number(micEnergyThreshold.value) : Number(speakerEnergyThreshold.value),
+      dynamicEnergyThreshold: true,
+      phraseTimeLimit: Number(phraseTimeLimit.value),
+      whisperModel: whisperModel.value,
+    });
+    setStatus(l('音频识别服务启动中', 'Starting audio recognition service'));
   } catch (error) {
-    errorMsg.value = `Speech recognition failed: ${errorText(error)}`;
-    isRecording.value = false;
+    errorMsg.value = tt('translator.capture_error_cloud', 'Audio capture failed: {err}').replace('{err}', errorText(error));
+    if (isMic) isRecording.value = false;
+    else isOtherRecording.value = false;
+  } finally {
+    if (isMic) isMicStarting.value = false;
+    else isSpeakerStarting.value = false;
   }
 };
 
-const toggleOtherRecording = async () => {
-  errorMsg.value = '';
-  if (isOtherRecording.value) {
-    try {
-      await SysApi.stopAudioCapture();
-    } finally {
-      isOtherRecording.value = false;
-      setStatus(l('已停止游戏语音监听', 'Game audio listening stopped'));
-    }
-    return;
-  }
-
-  try {
-    await SysApi.startAudioCapture({ sourceLang: otherSourceLang.value, engine: otherEngine.value });
-    isOtherRecording.value = true;
-    setStatus(otherEngine.value === 'local'
-      ? l('本地语音识别启动中', 'Starting local speech recognition')
-      : l('游戏语音监听已开启', 'Game audio listening enabled'));
-  } catch (error) {
-    const message = errorText(error);
-    if (message.includes('WASAPI') || message.includes('loopback')) {
-      errorMsg.value = tt('translator.capture_error_wasapi', 'Audio capture failed. Play any system sound once and retry.');
-    } else {
-      errorMsg.value = `${tt('translator.capture_error_cloud', 'Audio capture failed: {err}').replace('{err}', message)}`;
-    }
+const stopCapture = async (source: AudioSource) => {
+  await SysApi.stopAudioCapture({ source }).catch(() => undefined);
+  if (source === 'mic') {
+    isRecording.value = false;
+    isMicStarting.value = false;
+  } else {
     isOtherRecording.value = false;
+    isSpeakerStarting.value = false;
   }
+};
+
+const toggleRecording = async () => {
+  if (isRecording.value || isMicStarting.value) await stopCapture('mic');
+  else await startCapture('mic');
+};
+
+const toggleOtherRecording = async () => {
+  if (isOtherRecording.value || isSpeakerStarting.value) await stopCapture('speaker');
+  else await startCapture('speaker');
 };
 
 const manualSend = () => {
@@ -486,68 +528,79 @@ const toggleOverlay = async () => {
   }
 };
 
-const setupSpeechRecognition = () => {
-  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-  if (!SpeechRecognition) return;
-
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  recognition.onresult = (event: any) => {
-    let finalTranscript = '';
-    let interimTranscript = '';
-
-    for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) finalTranscript += transcript;
-      else interimTranscript += transcript;
-    }
-
-    if (finalTranscript.trim()) {
-      recognizedText.value = finalTranscript.trim();
-      void translateMicText(finalTranscript);
-    } else {
-      recognizedText.value = interimTranscript.trim();
-    }
-  };
-
-  recognition.onerror = (event: any) => {
-    if (event.error !== 'no-speech') {
-      errorMsg.value = `Speech recognition error: ${event.error}`;
-    }
-    isRecording.value = false;
-  };
-
-  recognition.onend = () => {
-    if (isRecording.value) {
-      try {
-        recognition.start();
-      } catch {
-        isRecording.value = false;
-      }
-    }
-  };
+const loadAudioDevices = async () => {
+  if (!isTauri()) return;
+  audioDeviceError.value = '';
+  try {
+    audioDevices.value = await SysApi.getAudioDevices();
+    const selectDefault = (source: AudioSource, current: string) => {
+      const devices = audioDevices.value.filter(device => device.source === source);
+      if (devices.some(device => device.id === current)) return current;
+      return devices.find(device => device.is_default)?.id ?? devices[0]?.id ?? '';
+    };
+    micDeviceId.value = selectDefault('mic', micDeviceId.value);
+    speakerDeviceId.value = selectDefault('speaker', speakerDeviceId.value);
+  } catch (error) {
+    audioDeviceError.value = errorText(error);
+  }
 };
 
 onMounted(async () => {
-  setupSpeechRecognition();
-
   if (isTauri()) {
+    overlayWebview = await WebviewWindow.getByLabel('translation-overlay');
+    isOverlayOpen.value = Boolean(overlayWebview);
+    await loadAudioDevices();
+
     unlistenAudio = await listen('audio-capture-event', async (event: any) => {
       const payload = event.payload;
+      const source = payload.source as AudioSource;
       if (payload.type === 'error') {
         errorMsg.value = `Audio capture error: ${payload.message}`;
-        isOtherRecording.value = false;
+        if (payload.fatal) {
+          if (source === 'mic') {
+            isRecording.value = false;
+            isMicStarting.value = false;
+          } else {
+            isOtherRecording.value = false;
+            isSpeakerStarting.value = false;
+          }
+        }
         return;
       }
       if (payload.type === 'status') {
         if (payload.message === 'starting') setStatus(`${l('监听设备', 'Listening device')}: ${payload.device || 'Default'}`);
-        if (payload.message === 'recognizing') setStatus(l('正在识别游戏语音', 'Recognizing game audio'));
+        if (payload.message === 'loading_model') setStatus(l('首次加载本地 Whisper 模型', 'Loading local Whisper model'));
+        if (payload.message === 'recognizing') setStatus(source === 'mic'
+          ? l('正在识别麦克风语音', 'Recognizing microphone audio')
+          : l('正在识别游戏语音', 'Recognizing game audio'));
+        if (payload.message === 'backlog_trimmed') setStatus(l('语音过快，已跳过最旧片段', 'Audio backlog trimmed'));
+        if (payload.message === 'listening') {
+          if (source === 'mic') {
+            isRecording.value = true;
+            isMicStarting.value = false;
+          } else {
+            isOtherRecording.value = true;
+            isSpeakerStarting.value = false;
+          }
+        }
+        if (payload.message === 'stopped') {
+          if (source === 'mic') {
+            isRecording.value = false;
+            isMicStarting.value = false;
+          } else {
+            isOtherRecording.value = false;
+            isSpeakerStarting.value = false;
+          }
+          if (!payload.expected && payload.exit_code !== 0) {
+            errorMsg.value = l('音频识别服务异常退出', 'Audio recognition service stopped unexpectedly');
+          }
+        }
         return;
       }
       if (payload.type === 'result' && payload.text?.trim()) {
-        await translateSpeakerText(payload.text);
+        recognizedText.value = payload.text.trim();
+        if (source === 'mic') await translateMicText(payload.text);
+        else await translateSpeakerText(payload.text);
       }
     });
 
@@ -567,8 +620,12 @@ onMounted(async () => {
 });
 
 onUnmounted(async () => {
-  if (recognition && isRecording.value) recognition.stop();
-  if (isOtherRecording.value) await SysApi.stopAudioCapture().catch(() => undefined);
+  if (isTauri()) {
+    await Promise.all([
+      SysApi.stopAudioCapture({ source: 'mic' }).catch(() => undefined),
+      SysApi.stopAudioCapture({ source: 'speaker' }).catch(() => undefined),
+    ]);
+  }
   unlistenAudio?.();
   unlistenVrct?.();
 });
@@ -711,9 +768,15 @@ onUnmounted(async () => {
         </div>
       </section>
 
-      <div v-if="errorMsg || statusMsg" class="mb-5 shrink-0">
+      <div v-if="errorMsg || audioDeviceError || statusMsg" class="mb-5 shrink-0">
         <div v-if="errorMsg" class="bg-red-50 border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold shadow-sm">
           {{ errorMsg }}
+        </div>
+        <div v-else-if="audioDeviceError" class="bg-red-50 border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold shadow-sm flex items-center justify-between gap-3">
+          <span class="min-w-0 break-words">{{ audioDeviceError }}</span>
+          <button class="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg bg-white/70" :title="l('刷新音频设备', 'Refresh audio devices')" @click="loadAudioDevices">
+            <RefreshCw :size="14" />
+          </button>
         </div>
         <div v-else class="bg-emerald-50 border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
           <CheckCircle2 :size="16" /> {{ statusMsg }}
@@ -733,12 +796,23 @@ onUnmounted(async () => {
                 class="px-3 py-2 rounded-xl font-extrabold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0"
                 @click="toggleRecording"
               >
-                <component :is="isRecording ? MicOff : Mic" :size="16" />
-                <span>{{ isRecording ? tt('translator.stop_listen', '停止收音') : tt('translator.start_listen', '开始麦克风监听') }}</span>
+                <component :is="isMicStarting ? RefreshCw : isRecording ? MicOff : Mic" :class="{ 'animate-spin': isMicStarting }" :size="16" />
+                <span>{{ isRecording || isMicStarting ? tt('translator.stop_listen', '停止收音') : tt('translator.start_listen', '开始麦克风监听') }}</span>
               </button>
             </div>
 
             <div class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="min-w-0">
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('麦克风设备', 'Microphone device') }}</label>
+                  <CustomSelect v-model="micDeviceId" :options="micDeviceOptions" />
+                </div>
+                <div class="min-w-0">
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.stt_engine_label', 'STT Engine') }}</label>
+                  <CustomSelect v-model="micEngine" :options="speakerEngineOptions" />
+                </div>
+              </div>
+
               <div>
                 <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.engine', l('翻译引擎', 'Translation engine')) }}</label>
                 <CustomSelect v-model="translateEngine" :options="engineOptions" />
@@ -783,6 +857,17 @@ onUnmounted(async () => {
                   placeholder="Return only the translated text."
                 />
               </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label class="min-w-0">
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('能量阈值', 'Energy threshold') }}</span>
+                  <input v-model.number="micEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+                </label>
+                <label v-if="micEngine === 'local'" class="min-w-0">
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Whisper Model</span>
+                  <CustomSelect v-model="whisperModel" :options="[{ label: 'Tiny', value: 'tiny' }, { label: 'Base', value: 'base' }, { label: 'Small', value: 'small' }]" />
+                </label>
+              </div>
             </div>
           </section>
 
@@ -797,15 +882,21 @@ onUnmounted(async () => {
                 class="px-3 py-2 rounded-xl font-extrabold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0"
                 @click="toggleOtherRecording"
               >
-                <component :is="isOtherRecording ? Square : Ear" :size="15" />
-                <span>{{ isOtherRecording ? tt('translator.stop_game_listen', '停止监听') : tt('translator.listen_game', '开启游戏语音监听') }}</span>
+                <component :is="isSpeakerStarting ? RefreshCw : isOtherRecording ? Square : Ear" :class="{ 'animate-spin': isSpeakerStarting }" :size="15" />
+                <span>{{ isOtherRecording || isSpeakerStarting ? tt('translator.stop_game_listen', '停止监听') : tt('translator.listen_game', '开启游戏语音监听') }}</span>
               </button>
             </div>
 
             <div class="space-y-4">
-              <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.stt_engine_label', 'STT Engine') }}</label>
-                <CustomSelect v-model="otherEngine" :options="speakerEngineOptions" />
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="min-w-0">
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('输出设备', 'Playback device') }}</label>
+                  <CustomSelect v-model="speakerDeviceId" :options="speakerDeviceOptions" />
+                </div>
+                <div class="min-w-0">
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.stt_engine_label', 'STT Engine') }}</label>
+                  <CustomSelect v-model="otherEngine" :options="speakerEngineOptions" />
+                </div>
               </div>
 
               <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-end">
@@ -820,6 +911,22 @@ onUnmounted(async () => {
                   <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.target_lang', '目标语言') }}</label>
                   <CustomSelect v-model="otherTargetLang" :options="languageOptions.filter((option) => option.value !== 'auto')" />
                 </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label class="min-w-0">
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('能量阈值', 'Energy threshold') }}</span>
+                  <input v-model.number="speakerEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+                </label>
+                <label class="min-w-0">
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最长分段', 'Phrase limit') }}</span>
+                  <input v-model.number="phraseTimeLimit" type="number" min="2" max="30" step="1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+                </label>
+              </div>
+
+              <div v-if="otherEngine === 'local'" class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Whisper Model</label>
+                <CustomSelect v-model="whisperModel" :options="[{ label: 'Tiny', value: 'tiny' }, { label: 'Base', value: 'base' }, { label: 'Small', value: 'small' }]" />
               </div>
 
               <div class="bg-surface-hover rounded-xl p-4 border-border-soft min-h-[128px]">
