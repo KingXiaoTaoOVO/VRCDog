@@ -5,6 +5,7 @@ import { Globe2, Rocket, ArrowRightCircle, ArrowLeftCircle, Home, UserPlus, Imag
 import { useI18n } from 'vue-i18n';
 import VrcResourceCard from './VrcResourceCard.vue';
 import { useUserProfileStore } from '../stores/userProfile';
+import { eventDisplayName, parseGameLogIdentity } from '../utils/gameLogSession';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
@@ -16,6 +17,7 @@ interface LogEvent {
   userData?: any;
   loadingData?: boolean;
   user_id?: string;
+  display_name?: string;
 }
 
 const activeTab = ref<'game' | 'friend'>('game');
@@ -56,8 +58,10 @@ const fetchLogs = async () => {
       
       for (const evt of events.value) {
          if (evt.event_type === 'Player Joined' || evt.event_type === 'Player Left') {
-            if (resolvedNames.has(evt.content)) {
-               evt.userData = resolvedNames.get(evt.content);
+            const identity = parseGameLogIdentity(evt);
+            const cacheKey = identity.userId || `name:${identity.displayName}`;
+            if (resolvedNames.has(cacheKey)) {
+               evt.userData = resolvedNames.get(cacheKey);
             } else {
                resolvePlayerData(evt);
             }
@@ -93,26 +97,25 @@ const resolvePlayerData = async (evt: LogEvent) => {
   if (evt.loadingData) return;
   evt.loadingData = true;
   try {
-    let searchName = evt.content;
-    let userId = null;
-    const match = evt.content.match(/^(.*?)\s+\((usr_[A-Za-z0-9-]+)\)$/);
-    if (match) {
-      searchName = match[1];
-      userId = match[2];
-      evt.user_id = userId;
-    }
+    const identity = parseGameLogIdentity(evt);
+    const searchName = identity.displayName;
+    const userId = identity.userId;
+    const cacheKey = userId || `name:${searchName}`;
+    if (userId) evt.user_id = userId;
 
     if (userId) {
        const res = await VrcApi.getUser({ userId });
        if (res && res.id === userId) {
           evt.userData = res;
-          resolvedNames.set(evt.content, res);
+          resolvedNames.set(cacheKey, res);
        }
     } else {
-       const res = await VrcApi.searchUsers({ search: searchName, n: 1 });
-       if (res && res.length > 0) {
-          evt.userData = res[0];
-          resolvedNames.set(evt.content, res[0]);
+       const res = await VrcApi.searchUsers({ query: searchName, n: 10, offset: 0 });
+       const exact = res?.find((candidate: any) => candidate.displayName === searchName);
+       if (exact) {
+          evt.userData = exact;
+          evt.user_id = exact.id;
+          resolvedNames.set(cacheKey, exact);
        }
     }
   } catch (e) {
@@ -300,13 +303,13 @@ const getEventMeta = (type: string) => {
                     class="flex items-center gap-3 p-2 rounded-xl border-border-soft bg-surface-hover"
                   >
                     <div class="w-10 h-10 rounded-full bg-background/20 flex items-center justify-center text-text-muted font-bold uppercase relative">
-                      <span v-if="!evt.loadingData">{{ evt.content.replace(/\s+\(usr_.*\)$/, '').charAt(0) }}</span>
+                      <span v-if="!evt.loadingData">{{ eventDisplayName(evt).charAt(0) }}</span>
                       <div
                         v-else
                         class="animate-spin w-4 h-4 border-2 border-border-soft border-t-transparent rounded-full"
                       />
                     </div>
-                    <span class="font-extrabold text-sm truncate max-w-[150px]">{{ evt.content.replace(/\s+\(usr_.*\)$/, '') }}</span>
+                    <span class="font-extrabold text-sm truncate max-w-[150px]">{{ eventDisplayName(evt) }}</span>
                   </div>
                 </div>
               

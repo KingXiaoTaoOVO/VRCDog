@@ -311,6 +311,7 @@ pub fn run() {
             pipeline_ws::start_pipeline_ws,
             pipeline_ws::stop_pipeline_ws,
             gamelog::vrc_get_latest_gamelogs,
+            gamelog::vrc_get_gamelog_snapshot,
             db::db_record_activity,
             db::db_get_heatmap,
             db::db_get_heatmap_details,

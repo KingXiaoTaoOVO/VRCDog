@@ -808,7 +808,7 @@ pub fn db_get_game_logs(
 
     let mut stmt = conn
         .prepare(
-            "SELECT time, event_type, content FROM game_log ORDER BY time DESC LIMIT ?1 OFFSET ?2",
+            "SELECT time, event_type, content FROM game_log ORDER BY time DESC, id DESC LIMIT ?1 OFFSET ?2",
         )
         .map_err(|e| e.to_string())?;
 
