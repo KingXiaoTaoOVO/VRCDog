@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isTauri } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { Effect, getCurrentWindow } from '@tauri-apps/api/window';
+import { Effect, EffectState, getCurrentWindow } from '@tauri-apps/api/window';
 import { useStorage } from '@vueuse/core';
 import {
   ChevronLeft,
@@ -69,7 +69,9 @@ let hotkeyTimer: number | null = null;
 let unlistenStatus: UnlistenFn | null = null;
 let unlistenClose: UnlistenFn | null = null;
 let unlistenMoved: UnlistenFn | null = null;
+let unlistenFocus: UnlistenFn | null = null;
 let nativeBackdropEnabled: boolean | null = null;
+let appearanceRefreshTimer: number | null = null;
 let lastHandledHotkeyEvent = '';
 let songClickTimer: number | null = null;
 
@@ -81,16 +83,39 @@ const blurEnabled = computed({
   },
 });
 
-const syncNativeBackdrop = async (value: unknown) => {
+const syncNativeBackdrop = async (value: unknown, force = false) => {
   if (!isTauri()) return;
   const enabled = isVrpianoOverlayBlurEnabled(value);
-  if (nativeBackdropEnabled === enabled) return;
+  if (!force && nativeBackdropEnabled === enabled) return;
 
   const appWindow = getCurrentWindow();
-  if (enabled) await appWindow.setEffects({ effects: [Effect.Acrylic] });
+  if (enabled) {
+    await appWindow.setEffects({
+      effects: [Effect.Acrylic],
+      state: EffectState.Active,
+    });
+  }
   else await appWindow.clearEffects();
   nativeBackdropEnabled = enabled;
 };
+
+const reapplySavedAppearance = () => {
+  const opacity = normalizeVrpianoOverlayOpacity(overlayOpacity.value);
+  const blur = normalizeVrpianoOverlayBlur(overlayBlur.value);
+  overlayOpacity.value = opacity;
+  overlayBlur.value = blur;
+
+  if (!isTauri()) return;
+  if (appearanceRefreshTimer !== null) window.clearTimeout(appearanceRefreshTimer);
+  appearanceRefreshTimer = window.setTimeout(() => {
+    appearanceRefreshTimer = null;
+    void syncNativeBackdrop(blur, true).catch(() => {
+      nativeBackdropEnabled = null;
+    });
+  }, 0);
+};
+
+const handleVisibilityChange = () => reapplySavedAppearance();
 
 const progress = computed(() => Math.min(1, Math.max(0, Number(status.value.progress) || 0)));
 const currentIndex = computed(() => {
@@ -286,7 +311,10 @@ onMounted(async () => {
       const position = (event as any).payload || event;
       localStorage.setItem('vrcdog.vrpiano.overlay.position', JSON.stringify({ x: position.x, y: position.y }));
     });
+    unlistenFocus = await appWindow.onFocusChanged(() => reapplySavedAppearance());
   }
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 
   try {
     const [nextStatus, nextSongs] = await Promise.all([VrpianoApi.getStatus(), VrpianoApi.listSongs()]);
@@ -306,9 +334,12 @@ onUnmounted(() => {
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (hotkeyTimer !== null) window.clearTimeout(hotkeyTimer);
   if (songClickTimer !== null) window.clearTimeout(songClickTimer);
+  if (appearanceRefreshTimer !== null) window.clearTimeout(appearanceRefreshTimer);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   unlistenStatus?.();
   unlistenClose?.();
   unlistenMoved?.();
+  unlistenFocus?.();
 });
 </script>
 

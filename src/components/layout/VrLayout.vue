@@ -219,12 +219,13 @@ const vrTabs = computed(() => [
 
     <!-- VR 主内容区 -->
     <main class="flex-1 relative z-10 overflow-y-auto">
+      <div v-show="activeTab === 'translator'" class="p-6 h-full overflow-hidden">
+        <TranslatorView />
+      </div>
       <div v-if="activeTab === 'ovr'" class="p-6 h-full overflow-y-auto">
         <OvrTranslatorView />
       </div>
-      <div v-else-if="activeTab === 'translator'" class="p-6 h-full overflow-hidden">
-        <TranslatorView />
-      </div>
+      <div v-else-if="activeTab === 'translator'" />
       <div v-else-if="activeTab === 'danmaku'" class="p-6 h-full overflow-hidden">
         <DanmakuView />
       </div>

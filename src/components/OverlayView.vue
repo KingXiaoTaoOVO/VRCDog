@@ -24,6 +24,7 @@ interface LogMessage {
   type: 'self' | 'other';
   text: string;
   translation?: string;
+  translations?: Array<{ lang: string; text: string }>;
 }
 
 const logs = ref<LogMessage[]>([]);
@@ -79,6 +80,10 @@ onMounted(async () => {
         type: record.source === 'speaker' ? 'other' as const : 'self' as const,
         text: record.original,
         translation: record.translated,
+        translations: record.translations?.map((item: any) => ({
+          lang: item.target_lang,
+          text: item.translated,
+        })),
       }));
       const live = logs.value.filter(log => !loaded.some(item => item.id === log.id));
       logs.value = [...live, ...loaded].slice(0, 10);
@@ -142,8 +147,19 @@ onUnmounted(() => {
           >
             {{ log.text }}
           </p>
+          <div v-if="log.translations?.length" class="space-y-1">
+            <p
+              v-for="item in log.translations"
+              :key="item.lang"
+              class="text-[16px] font-bold leading-snug break-words"
+              :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'"
+            >
+              <span v-if="log.translations.length > 1" class="text-[10px] opacity-65 mr-1">{{ item.lang }}</span>
+              {{ item.text }}
+            </p>
+          </div>
           <p
-            v-if="log.translation"
+            v-else-if="log.translation"
             class="text-[16px] font-bold leading-snug break-words"
             :class="log.type === 'self' ? 'text-[var(--theme-primary)]' : 'text-emerald-400'"
           >

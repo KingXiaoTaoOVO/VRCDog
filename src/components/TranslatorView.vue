@@ -46,6 +46,7 @@ interface VrctMessageRecord {
   translated: string;
   source_lang: string;
   target_lang: string;
+  translations?: Array<{ target_lang: string; translated: string }>;
   service: string;
   sent_osc: boolean;
   overlay_updated: boolean;
@@ -125,6 +126,7 @@ const phraseTimeLimit = useStorage('vrc_translator_phrase_time_limit', 10);
 const manualText = ref('');
 const recognizedText = ref('');
 const translatedText = ref('');
+const currentTranslations = ref<Array<{ target_lang: string; translated: string }>>([]);
 const lastTargetLang = ref(targetLang.value);
 const history = ref<VrctMessageRecord[]>([]);
 
@@ -197,6 +199,9 @@ const addHistory = (record: VrctMessageRecord) => {
 const applyRecord = (record: VrctMessageRecord) => {
   recognizedText.value = record.original;
   translatedText.value = record.translated;
+  currentTranslations.value = record.translations?.length
+    ? record.translations
+    : [{ target_lang: record.target_lang, translated: record.translated }];
   lastTargetLang.value = record.target_lang || targetLang.value;
   addHistory(record);
 };
@@ -207,6 +212,10 @@ const notifyOverlay = async (record: VrctMessageRecord) => {
     type: overlayType(record.source),
     text: record.original,
     translation: record.translated,
+    translations: record.translations?.map(item => ({
+      lang: item.target_lang,
+      text: item.translated,
+    })),
   });
 };
 
@@ -305,6 +314,7 @@ const processMessageNow = async (
         source,
         source_lang: sourceLanguage,
         target_lang: targetLanguage,
+        target_langs: multiLangEnabled.value ? multiLangTargets.value : [],
         service: translateEngine.value,
         api_key: apiKey.value.trim(),
         model: model.value.trim(),
@@ -324,37 +334,6 @@ const processMessageNow = async (
 
     if (autoPlayTts.value && record.translated) {
       await playTts(record.translated, targetLanguage);
-    }
-
-    // Multi-language: translate and send to additional target languages
-    if (multiLangEnabled.value && multiLangTargets.value.length > 0 && sendOsc) {
-      for (const extraLang of multiLangTargets.value) {
-        if (extraLang === targetLanguage) continue;
-        try {
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          await VrctApi.processMessage({
-            req: {
-              text: trimmed,
-              source,
-              source_lang: sourceLanguage,
-              target_lang: extraLang,
-              service: translateEngine.value,
-              api_key: apiKey.value.trim(),
-              model: model.value.trim(),
-              prompt: prompt.value.trim(),
-              custom_api_url: customApiUrl.value.trim(),
-              send_osc: true,
-              send_typing: false,
-              complete: true,
-              notification: false,
-              update_overlay: false,
-              show_original_in_osc: false,
-            },
-          }) as VrctMessageRecord;
-        } catch (err) {
-          console.warn(`Multi-lang translate to ${extraLang} failed:`, err);
-        }
-      }
     }
 
     return record;
@@ -453,9 +432,12 @@ const toggleOtherRecording = async () => {
 };
 
 const manualSend = () => {
-  const payload = showOriginalOsc.value && recognizedText.value
-    ? `${translatedText.value} (${recognizedText.value})`
+  const multilingual = currentTranslations.value.length > 1
+    ? currentTranslations.value.map(item => `[${item.target_lang}] ${item.translated}`).join(' | ')
     : translatedText.value;
+  const payload = showOriginalOsc.value && recognizedText.value
+    ? `${multilingual} (${recognizedText.value})`
+    : multilingual;
   sendToChatbox(payload);
 };
 
@@ -464,6 +446,9 @@ const manualPlay = () => playTts(translatedText.value);
 const useHistory = (record: VrctMessageRecord) => {
   recognizedText.value = record.original;
   translatedText.value = record.translated;
+  currentTranslations.value = record.translations?.length
+    ? record.translations
+    : [{ target_lang: record.target_lang, translated: record.translated }];
   lastTargetLang.value = record.target_lang;
 };
 
@@ -979,9 +964,16 @@ onUnmounted(async () => {
               <p v-if="!translatedText" class="text-border-strong font-medium italic text-center mt-8 text-sm">
                 {{ tt('translator.result_here', '翻译结果将显示在这里...') }}
               </p>
-              <p v-else class="text-emerald-700 font-black text-lg whitespace-pre-wrap leading-relaxed break-words">
-                {{ translatedText }}
-              </p>
+              <div v-else class="space-y-2">
+                <p
+                  v-for="item in currentTranslations"
+                  :key="item.target_lang"
+                  class="text-emerald-700 font-black text-lg leading-relaxed break-words"
+                >
+                  <span v-if="currentTranslations.length > 1" class="mr-2 text-xs text-text-muted font-bold">{{ item.target_lang }}</span>
+                  {{ item.translated }}
+                </p>
+              </div>
             </div>
 
             <div class="mt-4 flex gap-3 shrink-0">
@@ -1026,7 +1018,16 @@ onUnmounted(async () => {
                 <span class="text-[11px] font-bold text-text-muted truncate">{{ record.service }}</span>
               </div>
               <p class="text-sm font-bold text-text line-clamp-2 break-words">{{ record.original }}</p>
-              <p class="text-sm font-black text-emerald-700 line-clamp-2 break-words mt-1">{{ record.translated }}</p>
+              <div class="mt-1 space-y-0.5">
+                <p
+                  v-for="item in (record.translations?.length ? record.translations : [{ target_lang: record.target_lang, translated: record.translated }])"
+                  :key="item.target_lang"
+                  class="text-sm font-black text-emerald-700 line-clamp-2 break-words"
+                >
+                  <span v-if="record.translations && record.translations.length > 1" class="text-[10px] text-text-muted mr-1">{{ item.target_lang }}</span>
+                  {{ item.translated }}
+                </p>
+              </div>
               <div class="flex items-center gap-2 mt-2 text-[11px] font-bold text-text-muted">
                 <span>{{ record.source_lang }} -> {{ record.target_lang }}</span>
                 <span v-if="record.sent_osc" class="text-emerald-600">OSC</span>

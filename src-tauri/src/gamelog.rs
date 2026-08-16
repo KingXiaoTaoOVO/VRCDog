@@ -132,7 +132,16 @@ fn parse_user_info(raw: &str) -> Option<TrackedPlayer> {
 
     let mut display_name = raw.as_str();
     let mut user_id = None;
-    if raw.ends_with(')') {
+    if valid_user_id(&raw) {
+        display_name = "";
+        user_id = Some(raw.clone());
+    } else if raw.starts_with("(usr_") && raw.ends_with(')') {
+        let candidate = &raw[1..raw.len() - 1];
+        if valid_user_id(candidate) {
+            display_name = "";
+            user_id = Some(candidate.to_string());
+        }
+    } else if raw.ends_with(')') {
         if let Some(id_start) = raw.rfind(" (usr_") {
             let candidate = &raw[id_start + 2..raw.len() - 1];
             if valid_user_id(candidate) {
@@ -296,6 +305,17 @@ fn remove_tracked_player(
     }
 }
 
+fn resolve_tracked_player(player: TrackedPlayer, tracked: TrackedPlayer) -> TrackedPlayer {
+    TrackedPlayer {
+        display_name: if player.display_name.is_empty() {
+            tracked.display_name
+        } else {
+            player.display_name
+        },
+        user_id: player.user_id.or(tracked.user_id),
+    }
+}
+
 fn apply_parsed_event(
     timestamp: &str,
     parsed: ParsedEvent,
@@ -319,11 +339,7 @@ fn apply_parsed_event(
         ParsedEvent::PlayerLeft(player) => {
             // Ignore unmatched leave events to prevent duplicate or spoofed notifications.
             if let Some(tracked) = remove_tracked_player(players, &player) {
-                let resolved = if player.display_name.is_empty() {
-                    tracked
-                } else {
-                    player
-                };
+                let resolved = resolve_tracked_player(player, tracked);
                 push_limited(
                     events,
                     player_event(timestamp, "Player Left", &resolved),
@@ -527,6 +543,43 @@ mod tests {
                 })
             ))
         );
+    }
+
+    #[test]
+    fn restores_the_cached_name_when_a_leave_line_only_contains_the_user_id() {
+        let mut players = HashMap::new();
+        let mut events = VecDeque::new();
+        apply_parsed_event(
+            "2026.08.15 01:00:00",
+            ParsedEvent::PlayerJoined(TrackedPlayer {
+                display_name: "Alice".to_string(),
+                user_id: Some("usr_alice".to_string()),
+            }),
+            &mut players,
+            &mut events,
+            20,
+            false,
+        );
+
+        let (_, parsed) = parse_log_line(
+            "2026.08.15 01:01:00 Debug      -  [Behaviour] OnPlayerLeft (usr_alice)",
+        )
+        .expect("parse abbreviated leave event");
+        apply_parsed_event(
+            "2026.08.15 01:01:00",
+            parsed,
+            &mut players,
+            &mut events,
+            20,
+            false,
+        );
+
+        let leave = events
+            .iter()
+            .find(|event| event.event_type == "Player Left")
+            .expect("player leave event");
+        assert_eq!(leave.display_name.as_deref(), Some("Alice"));
+        assert_eq!(leave.content, "Alice (usr_alice)");
     }
 
     #[test]

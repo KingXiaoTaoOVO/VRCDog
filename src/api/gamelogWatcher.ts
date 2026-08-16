@@ -1,4 +1,5 @@
 import { GamelogApi, DbApi, SysApi } from './index';
+import { refreshCurrentInstance } from '../stores/currentInstance';
 
 let watcherTimer: number | null = null;
 let isWatching = false;
@@ -37,14 +38,25 @@ export async function pollGamelogOnce() {
       // A process-status error must not be treated as a confirmed game exit.
     }
 
+    // Clear stale room state immediately even if the final log read fails.
+    if (vrcRunning === false) {
+      await refreshCurrentInstance({ vrcRunning: false });
+    }
+
     const logs = await GamelogApi.getLatestGamelogs({
       maxLines: 100000,
       finalizeSession: vrcRunning === false,
     });
 
-    if (!logs || logs.length === 0) return;
+    const newLogs = Array.isArray(logs) ? logs : [];
+    const savedCount = newLogs.length > 0
+      ? await DbApi.saveGameLogs({ logsJson: JSON.stringify(newLogs) })
+      : 0;
 
-    const savedCount = await DbApi.saveGameLogs({ logsJson: JSON.stringify(logs) });
+    await refreshCurrentInstance({
+      vrcRunning,
+      force: savedCount > 0,
+    });
 
     if (savedCount > 0) {
       console.log(`[LogWatcher] Found ${savedCount} new game log events.`);
@@ -54,7 +66,7 @@ export async function pollGamelogOnce() {
       try {
         const settings = await DbApi.getAllSettings();
         if (settings && settings.discordRpcEnabled === 'true' && settings.discordRpcEnableWorldIntegration === 'true') {
-          const joinedEvent = logs.find((l: any) => l.event_type === 'Instance Joined');
+          const joinedEvent = newLogs.find((l: any) => l.event_type === 'Instance Joined');
           if (joinedEvent) {
              const worldName = joinedEvent.content;
              await SysApi.setDiscordRpc({
