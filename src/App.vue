@@ -226,6 +226,22 @@ watchEffect(() => {
   root.style.setProperty('--theme-terminal-bg', theme.colors.terminalBg);
 });
 
+// Keep the native VR menu in sync with the active app theme globally,
+// so it follows PC theme switches no matter which view is mounted.
+watch(
+  () => currentTheme.value.id,
+  () => {
+    const t = currentTheme.value;
+    void OvrApi.setVrMenuTheme({
+      accent: t.colors.primaryBtnBg,
+      bg: t.colors.bgMain,
+      text: t.colors.text,
+      muted: t.colors.textMuted,
+    });
+  },
+  { immediate: true },
+);
+
 const handleRoleSelected = async (payload: {
   role: 'client' | 'server';
   url?: string;

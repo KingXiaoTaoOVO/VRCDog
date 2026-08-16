@@ -290,6 +290,12 @@ impl Default for OvrConfig {
 #[derive(Debug)]
 enum OvrCommand {
     UpdateConfig(Box<OvrConfig>),
+    SetMenuTheme {
+        accent: String,
+        bg: String,
+        text: String,
+        muted: String,
+    },
     UpdateText {
         original: String,
         translated: String,
@@ -1000,6 +1006,15 @@ fn vr_thread_main(
                             );
                         }
                     }
+                }
+                OvrCommand::SetMenuTheme { accent, bg, text, muted } => {
+                    current_config.vr_menu_accent = accent;
+                    current_config.vr_menu_bg = bg;
+                    current_config.vr_menu_text = text;
+                    current_config.vr_menu_text_muted = muted;
+                    // Force the menu to repaint with the new theme.
+                    last_menu_render_page = -1;
+                    last_menu_render_sel = -1;
                 }
                 OvrCommand::UpdateText {
                     original,
@@ -2499,6 +2514,31 @@ pub async fn ovr_set_config(
         let _ = sender.send(OvrCommand::UpdateConfig(Box::new(config.clone())));
     }
     *state.config.lock().await = config;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_menu_theme(
+    state: tauri::State<'_, OvrState>,
+    accent: String,
+    bg: String,
+    text: String,
+    muted: String,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetMenuTheme {
+            accent: accent.clone(),
+            bg: bg.clone(),
+            text: text.clone(),
+            muted: muted.clone(),
+        });
+    }
+    let mut cfg = state.config.lock().await;
+    cfg.vr_menu_accent = accent;
+    cfg.vr_menu_bg = bg;
+    cfg.vr_menu_text = text;
+    cfg.vr_menu_text_muted = muted;
     Ok(())
 }
 
