@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { ShieldAlert, Monitor, Glasses } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { SysApi } from '../../api';
@@ -10,6 +10,24 @@ import { storeToRefs } from 'pinia';
 const { t } = useI18n();
 const uiStore = useUiStore();
 const { serverModePerms, modeSelectionError } = storeToRefs(uiStore);
+
+// While the mode-selection screen is shown, route external "open detail" requests
+// to the search tab. Register once on mount and remove on unmount so the listener
+// never accumulates (it used to be added on every click) or keeps hijacking
+// vrc-open-detail after a mode has already been chosen.
+const handleOpenDetail = () => {
+  if (uiStore.activeTab !== 'search') {
+    uiStore.activeTab = 'search';
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('vrc-open-detail', handleOpenDetail);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('vrc-open-detail', handleOpenDetail);
+});
 
 const selectAppMode = async (mode: 'pc' | 'vr') => {
   uiStore.modeSelectionError = '';
@@ -29,12 +47,6 @@ const selectAppMode = async (mode: 'pc' | 'vr') => {
     uiStore.activeTab = 'dashboard'; 
   }
   uiStore.appMode = mode;
-
-  window.addEventListener('vrc-open-detail', (e: Event) => {
-    if (uiStore.activeTab !== 'search') {
-      uiStore.activeTab = 'search';
-    }
-  });
 };
 </script>
 
