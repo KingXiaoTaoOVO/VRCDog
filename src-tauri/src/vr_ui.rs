@@ -367,8 +367,9 @@ impl VrUiRenderer {
             "VRCLS 日志追踪",
             "OVRAS 空间控制",
             "VRPiano 播放控制",
+            "VRChat 自动绘画",
         ];
-        let header = format!("  {}  < 摇杆左右切页 >", page_names[page.min(12)]);
+        let header = format!("  {}  < 摇杆左右切页 >", page_names[page.min(13)]);
 
         let items: Vec<String> = if page == 8 {
             vec![
@@ -382,6 +383,7 @@ impl VrUiRenderer {
                 "  打开语音翻译".to_string(),
                 "  打开 VRPiano".to_string(),
                 "  打开直播弹幕".to_string(),
+                "  打开自动绘画".to_string(),
                 "  返回主菜单".to_string(),
             ]
         } else if page == 10 {
@@ -404,6 +406,15 @@ impl VrUiRenderer {
                 "  播放 / 暂停内置播放器".to_string(),
                 "  从头重新播放".to_string(),
                 "  下一首并用内置播放器播放".to_string(),
+                "  返回语音与媒体菜单".to_string(),
+            ]
+        } else if page == 13 {
+            let (state, progress) = crate::vrdrawing::vr_status_lines();
+            vec![
+                format!("  开始绘画 · {state}"),
+                format!("  暂停 / 继续 · {progress}"),
+                "  停止并释放画笔".to_string(),
+                "  打开完整绘画工作台".to_string(),
                 "  返回语音与媒体菜单".to_string(),
             ]
         } else {

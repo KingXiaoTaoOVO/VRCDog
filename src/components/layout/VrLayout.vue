@@ -5,7 +5,7 @@ import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { storeToRefs } from 'pinia';
 import VrcAvatar from '../VrcAvatar.vue';
-import { Glasses, Users, Settings, LogOut, Monitor, Radio, Languages } from 'lucide-vue-next';
+import { Glasses, Users, Settings, LogOut, Monitor, Radio, Languages, Paintbrush } from 'lucide-vue-next';
 import DebugConsole from '../DebugConsole.vue';
 import DirectOpenModal from '../DirectOpenModal.vue';
 import { getVersion } from '@tauri-apps/api/app';
@@ -58,6 +58,7 @@ const FriendsListView = lazyView('FriendsListView', () => import('../FriendsList
 const SettingsView = lazyView('SettingsView', () => import('../SettingsView.vue'));
 const RemoteAssistView = lazyView('RemoteAssistView', () => import('../RemoteAssistView.vue'));
 const DanmakuView = lazyView('DanmakuView', () => import('../DanmakuView.vue'));
+const DrawingView = lazyView('DrawingView', () => import('../DrawingView.vue'));
 
 const appVersion = ref('');
 onMounted(async () => {
@@ -77,6 +78,7 @@ const vrTabs = computed(() => [
   { key: 'ovr', icon: Glasses, label: t('layout.ovr_settings') },
   { key: 'translator', icon: Languages, label: t('layout.desktop_translator') },
   { key: 'danmaku', icon: Radio, label: t('sidebar.danmaku') },
+  { key: 'drawing', icon: Paintbrush, label: t('sidebar.drawing') },
   { key: 'remote', icon: Monitor, label: t('remote_assist.title') },
   { key: 'social', icon: Users, label: t('layout.social_lobby') },
   { key: 'settings', icon: Settings, label: t('layout.settings') }
@@ -228,6 +230,9 @@ const vrTabs = computed(() => [
       <div v-else-if="activeTab === 'translator'" />
       <div v-else-if="activeTab === 'danmaku'" class="p-6 h-full overflow-hidden">
         <DanmakuView />
+      </div>
+      <div v-else-if="activeTab === 'drawing'" class="h-full overflow-hidden">
+        <DrawingView />
       </div>
       <div v-else-if="activeTab === 'social'" class="p-6 h-full overflow-hidden">
         <FriendsListView />

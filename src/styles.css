@@ -43,6 +43,13 @@
     background-color: transparent !important;
   }
 
+  html.drawing-overlay-mode,
+  body.drawing-overlay-mode,
+  body.drawing-overlay-mode #app {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
   input[type="checkbox"],
   input[type="radio"] {
     accent-color: var(--theme-primary);

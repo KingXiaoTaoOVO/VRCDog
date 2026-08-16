@@ -16,6 +16,7 @@ import vi from './locales/vi.json';
 import zhTW from './locales/zh-TW.json';
 import yue from './locales/yue.json';
 import { nativeCoreMessages } from './locales/native-core';
+import { drawingMessages } from './drawingMessages';
 import {
   FALLBACK_LOCALE,
   getPreferredLocale,
@@ -64,7 +65,7 @@ function mergeMessages(...sources: LocaleMessages[]): LocaleMessages {
 
 const effectiveEnUS = mergeMessages(enUS, enUSSupplement);
 const withEnglishFallback = (locale: AppLocale, messages: LocaleMessages = {}) => (
-  mergeMessages(zhCN, effectiveEnUS, messages, nativeCoreMessages[locale] || {})
+  mergeMessages(zhCN, effectiveEnUS, messages, nativeCoreMessages[locale] || {}, drawingMessages[locale])
 );
 const withChineseFallback = (messages: LocaleMessages = {}) => mergeMessages(zhCN, messages);
 
@@ -72,8 +73,8 @@ const savedLocale = getPreferredLocale();
 
 const messages: Record<AppLocale, LocaleMessages> = {
   'cs': withEnglishFallback('cs', cs),
-  'zh-CN': zhCN as LocaleMessages,
-  'en-US': withChineseFallback(effectiveEnUS),
+  'zh-CN': mergeMessages(zhCN, drawingMessages['zh-CN']),
+  'en-US': mergeMessages(withChineseFallback(effectiveEnUS), drawingMessages['en-US']),
   'ja-JP': withEnglishFallback('ja-JP', jaJP),
   'es': withEnglishFallback('es', es),
   'fr': withEnglishFallback('fr', fr),
@@ -85,7 +86,7 @@ const messages: Record<AppLocale, LocaleMessages> = {
   'th': withEnglishFallback('th', th),
   'vi': withEnglishFallback('vi', vi),
   'yue': withEnglishFallback('yue', yue),
-  'zh-TW': mergeMessages(zhCN, zhTW, nativeCoreMessages['zh-TW'] || {})
+  'zh-TW': mergeMessages(zhCN, zhTW, nativeCoreMessages['zh-TW'] || {}, drawingMessages['zh-TW'])
 };
 
 const i18n = createI18n({

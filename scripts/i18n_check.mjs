@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const dir = dirname(fileURLToPath(import.meta.url));
+const localeDir = join(dir, '..', 'src', 'i18n', 'locales');
 
 function flatten(obj, prefix='') {
   const out = {};
@@ -17,8 +18,8 @@ function flatten(obj, prefix='') {
   return out;
 }
 
-const zhCN = flatten(JSON.parse(fs.readFileSync(dir + '/zh-CN.json','utf8')));
-const enUS = flatten(JSON.parse(fs.readFileSync(dir + '/en-US.json','utf8')));
+const zhCN = flatten(JSON.parse(fs.readFileSync(join(localeDir, 'zh-CN.json'),'utf8')));
+const enUS = flatten(JSON.parse(fs.readFileSync(join(localeDir, 'en-US.json'),'utf8')));
 const masterKeys = Array.from(new Set([...Object.keys(zhCN), ...Object.keys(enUS)])).sort();
 
 const targets = ['en-US','ja-JP','ko','es','fr','hu','pl','pt','ru','th','vi','cs','zh-TW','yue'];
@@ -29,7 +30,7 @@ let allOk = true;
 for (const t of targets) {
   let d;
   try {
-    d = flatten(JSON.parse(fs.readFileSync(dir + '/' + t + '.json','utf8')));
+    d = flatten(JSON.parse(fs.readFileSync(join(localeDir, t + '.json'),'utf8')));
   } catch (e) {
     console.log(t.padEnd(8) + ' PARSE ERROR: ' + e.message);
     allOk = false;
