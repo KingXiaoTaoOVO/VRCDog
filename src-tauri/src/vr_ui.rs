@@ -1,5 +1,14 @@
 use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 
+/// Structured menu item for the native VR menu (replaces raw display strings so we
+/// can render labels, optional value pills and back/info affordances cleanly).
+struct VrMenuItem {
+    label: String,
+    value: Option<String>,
+    back: bool,
+    info: bool,
+}
+
 pub struct VrUiRenderer;
 
 impl VrUiRenderer {
@@ -316,6 +325,7 @@ impl VrUiRenderer {
     }
 
     /// Render interactive VR menu page
+    /// Render interactive VR menu page with the app's glass theme.
     pub fn render_vr_menu(
         font: &ab_glyph::FontVec,
         page: usize,
@@ -324,291 +334,132 @@ impl VrUiRenderer {
         translation_enabled: bool,
         config: &crate::ovr::OvrConfig,
     ) -> Vec<u8> {
-        let w: u32 = 512;
-        let h: u32 = 320;
+        let w: u32 = 1024;
+        let h: u32 = 640;
         let mut pixels = vec![0u8; (w * h * 4) as usize];
 
-        // White background with rounded corners (Glassmorphism)
-        let bg = [255u8, 255, 255];
-        let bg_alpha = 240u8;
-        for y in 0..h {
-            for x in 0..w {
-                let idx = ((y * w + x) * 4) as usize;
-                pixels[idx] = bg[0];
-                pixels[idx + 1] = bg[1];
-                pixels[idx + 2] = bg[2];
-                pixels[idx + 3] = bg_alpha;
-            }
-        }
+        // ---- Live theme colors (fall back to the "dog" theme) ----
+        let accent = Self::parse_hex_rgb(&theme_or(&config.vr_menu_accent, "#d97706"));
+        let bg = Self::parse_hex_rgb(&theme_or(&config.vr_menu_bg, "#faf7ed"));
+        let text_c = Self::parse_hex_rgb(&theme_or(&config.vr_menu_text, "#5d4037"));
+        let muted = Self::parse_hex_rgb(&theme_or(&config.vr_menu_text_muted, "#76584d"));
+        let border = mix(bg, text_c, 0.22);
+        let header_bg = mix(bg, accent, 0.08);
+        let sel_bg = mix(bg, accent, 0.20);
+        let green = [22u8, 163, 108];
+        let gray = [150u8, 140, 128];
 
-        // Header bar (light indigo accent)
-        for y in 0..36 {
-            for x in 0..w {
-                let idx = ((y * w + x) * 4) as usize;
-                pixels[idx] = 238;
-                pixels[idx + 1] = 242;
-                pixels[idx + 2] = 255;
-                pixels[idx + 3] = 255;
-            }
-        }
+        // ---- Floating rounded glass panel ----
+        let px0 = 16i32;
+        let py0 = 16i32;
+        let pw = 992u32;
+        let ph = 608u32;
+        let radius = 32u32;
+        fill_rounded(&mut pixels, w, h, px0 + 8, py0 + 14, pw, ph, radius, [60, 40, 20], 0.18);
+        fill_rounded(&mut pixels, w, h, px0, py0, pw, ph, radius, border, 1.0);
+        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, ph - 4, radius - 2, bg, 1.0);
+        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, 56, radius - 2, mix(bg, [255, 255, 255], 0.5), 0.30);
 
-        // Build menu text based on page
+        // ---- Header ----
+        let header_h: i32 = 84;
+        let hy = py0 + header_h;
+        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, header_h as u32, radius - 2, header_bg, 0.9);
+        for x in (px0 + 28)..(px0 + pw as i32 - 28) {
+            let idx = (((hy as u32) * w + x as u32) * 4) as usize;
+            blend(&mut pixels, idx, border, 0.55);
+        }
+        draw_text(&mut pixels, w, h, font, "VrcDog", 46.0, 48.0, py0 as f32 + 58.0, accent, pw as f32 - 60.0, 0);
         let page_names = [
-            "VrcDog主菜单",
-            "基础设置",
-            "桌面投屏翻译",
-            "OCR设置",
-            "翻译服务",
-            "叠加层外观",
-            "高级性能",
-            "操作说明",
-            "VrcDog社交状态",
-            "VrcDog语音输入",
-            "VRCLS 日志追踪",
-            "OVRAS 空间控制",
-            "VRPiano 播放控制",
-            "VRChat 自动绘画",
+            "VrcDog 主菜单", "基础设置", "桌面投屏翻译", "OCR 设置", "翻译服务", "叠加层外观",
+            "高级性能", "操作说明", "VrcDog 社交状态", "VrcDog 语音输入", "VRCLS 日志追踪",
+            "OVRAS 空间控制", "VRPiano 播放控制", "VRChat 自动绘画",
         ];
-        let header = format!("  {}  < 摇杆左右切页 >", page_names[page.min(13)]);
+        let pname = page_names[page.min(13)];
+        draw_text(&mut pixels, w, h, font, pname, 30.0, 40.0, py0 as f32 + 56.0, text_c, pw as f32 - 80.0, 2);
+        fill_rounded(&mut pixels, w, h, px0 + pw as i32 - 52, py0 + 34, 16, 16, 8, if translation_enabled { green } else { gray }, 1.0);
 
-        let items: Vec<String> = if page == 8 {
-            vec![
-                "  好友列表".to_string(),
-                "  当前实例玩家".to_string(),
-                "  通知中心".to_string(),
-                "  返回主菜单".to_string(),
-            ]
-        } else if page == 9 {
-            vec![
-                "  打开语音翻译".to_string(),
-                "  打开 VRPiano".to_string(),
-                "  打开直播弹幕".to_string(),
-                "  打开自动绘画".to_string(),
-                "  返回主菜单".to_string(),
-            ]
-        } else if page == 10 {
-            vec![
-                "  打开事件动态".to_string(),
-                "  打开统计图表".to_string(),
-                "  打开通知中心".to_string(),
-                "  返回主菜单".to_string(),
-            ]
-        } else if page == 11 {
-            vec![
-                format!("  切换高度: {}", if config.height_toggle_enabled { "开" } else { "关" }),
-                "  重置游玩空间".to_string(),
-                "  以右手柄修复地板".to_string(),
-                "  返回主菜单".to_string(),
-            ]
-        } else if page == 12 {
-            vec![
-                "  上一首并用内置播放器播放".to_string(),
-                "  播放 / 暂停内置播放器".to_string(),
-                "  从头重新播放".to_string(),
-                "  下一首并用内置播放器播放".to_string(),
-                "  返回语音与媒体菜单".to_string(),
-            ]
-        } else if page == 13 {
-            let (state, progress) = crate::vrdrawing::vr_status_lines();
-            vec![
-                format!("  开始绘画 · {state}"),
-                format!("  暂停 / 继续 · {progress}"),
-                "  停止并释放画笔".to_string(),
-                "  打开完整绘画工作台".to_string(),
-                "  返回语音与媒体菜单".to_string(),
-            ]
-        } else {
-            match page {
-            0 => vec![
-                "  ► [1] 常规与翻译设置".to_string(),
-                "  ► [8] VrcDog: 好友与社交".to_string(),
-                "  ► [9] VrcDog: 麦克风语音".to_string(),
-                "  ► [10] VRCLS: 游戏内日志".to_string(),
-                "  ► [11] OVRAS: 游玩空间".to_string(),
-                "  ► [7] 操作说明 (必看)".to_string(),
-            ],
-            1 => vec![
-                format!(
-                    "  主功能启用: {}",
-                    if translation_enabled { "开" } else { "关" }
-                ),
-                format!(
-                    "  原文与译文切换显示: {}",
-                    if config.dual_display { "开" } else { "关" }
-                ),
-                format!(
-                    "  手腕常驻显示: {}",
-                    if config.wrist_mode { "开" } else { "关" }
-                ),
-                "  ◄ 返回主菜单".to_string(),
-            ],
-            2 => vec![
-                format!(
-                    "  桌面翻译模式: {}",
-                    if config.desktop_mode { "开" } else { "关" }
-                ),
-                format!(
-                    "  自动扫描: {}",
-                    if config.auto_scan_enabled {
-                        "开"
-                    } else {
-                        "关"
-                    }
-                ),
-                format!("  扫描间隔: {}秒", config.auto_scan_interval),
-                "  ◄ 返回上一页".to_string(),
-            ],
-            3 => vec![
-                format!("  识别语言: {}", config.ocr_language),
-                format!(
-                    "  图像增强: {}",
-                    if config.ocr_image_enhance {
-                        "开"
-                    } else {
-                        "关"
-                    }
-                ),
-                format!("  速度模式: {}", config.ocr_speed_mode),
-                "  ◄ 返回上一页".to_string(),
-            ],
-            4 => vec![
-                format!("  服务: {}", config.trans_service),
-                format!("  目标语言: {}", config.trans_target_lang),
-                "  ◄ 返回上一页".to_string(),
-            ],
-            5 => vec![
-                format!("  锁定模式: {}", config.overlay_lock_mode),
-                format!("  透明度: {:.0}%", config.overlay_bg_opacity * 100.0),
-                "  ◄ 返回上一页".to_string(),
-            ],
-            6 => vec![
-                format!(
-                    "  TTS语音播报: {}",
-                    if config.tts_enabled { "开" } else { "关" }
-                ),
-                format!(
-                    "  OSC聊天框输出: {}",
-                    if config.osc_chatbox_enabled {
-                        "开"
-                    } else {
-                        "关"
-                    }
-                ),
-                format!(
-                    "  扫描框状态: {}",
-                    if scan_active { "显示" } else { "隐藏" }
-                ),
-                "  ◄ 返回上一页".to_string(),
-            ],
-            7 => vec![
-                "  🎮 高级操作指南:".to_string(),
-                "  • 双击 [右手B键]: 开关主菜单".to_string(),
-                "  • 双击并按住 [右手扳机]: 拖拽框选翻译".to_string(),
-                "  • 握住 [右手Grip]+摇杆: 缩放推拉菜单".to_string(),
-                "  ◄ 返回主菜单".to_string(),
-            ],
-            8 => vec![
-                "  👥 在线好友: 暂未拉取".to_string(),
-                "  📍 当前实例: 加载中...".to_string(),
-                "  🔔 通知: 无新通知".to_string(),
-                "  [扳机] 手动刷新".to_string(),
-                "  ◄ 返回主菜单".to_string(),
-            ],
-            9 => vec![
-                "  🎤 麦克风: 监听中".to_string(),
-                "  🔊 语音识别(STT): 开启".to_string(),
-                "  🗣️ 文字转语音(TTS): 开启".to_string(),
-                "  [扳机] 切换静音".to_string(),
-                "  ◄ 返回主菜单".to_string(),
-            ],
-            10 => vec![
-                // VRCLS
-                "  📝 最新日志:".to_string(),
-                "  [Player Joined] Alice".to_string(),
-                "  [Player Left] Bob".to_string(),
-                "  [Video] Res URL: www.youtube...".to_string(),
-                "  ◄ 返回主菜单".to_string(),
-            ],
-            11 => vec![
-                // OVRAS
-                "  🚀 空间X/Z偏移: 0.0m".to_string(),
-                "  🚀 高度偏移: 0.3m (切换: 关)".to_string(),
-                "  🔄 旋转偏移: 0°".to_string(),
-                "  [扳机] 一键重置空间 / 修复地板".to_string(),
-                "  ◄ 返回主菜单".to_string(),
-            ],
-            _ => vec!["  ◄ 返回主菜单".to_string()],
-            }
-        };
-
-        // Selection highlight
-        let sel_y_start = 44 + selection as u32 * 38;
-        let sel_y_end = (sel_y_start + 34).min(h);
-        for y in sel_y_start..sel_y_end {
-            for x in 8..w - 8 {
-                let idx = ((y * w + x) * 4) as usize;
-                pixels[idx] = 224; // indigo-100 highlight
-                pixels[idx + 1] = 231;
-                pixels[idx + 2] = 255;
-                pixels[idx + 3] = 200;
+        // ---- Left page tab strip (OVRAS-style orientation) ----
+        let tab_x = 32i32;
+        let tab_w = 216u32;
+        let area_top = 116i32;
+        let area_bottom = 584i32;
+        let tab_h = ((area_bottom - area_top) as f32 / 14.0) as i32;
+        let tab_short = [
+            "主菜单", "基础设置", "投屏翻译", "OCR 设置", "翻译服务", "叠加外观", "性能", "操作说明",
+            "社交状态", "语音输入", "日志追踪", "空间控制", "钢琴控制", "自动绘画",
+        ];
+        for i in 0..14 {
+            let ty = area_top + i * tab_h;
+            let active = i == (page as i32);
+            let ry = ty + 3;
+            let rh = (tab_h - 6) as u32;
+            if active {
+                fill_rounded(&mut pixels, w, h, tab_x, ry, tab_w, rh, 10, accent, 1.0);
+                let lbl = fit_text(font, tab_short[i as usize], 20.0, tab_w as f32 - 24.0);
+                draw_text(&mut pixels, w, h, font, &lbl, 20.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, [255, 255, 255], tab_w as f32 - 24.0, 0);
+            } else {
+                draw_text(&mut pixels, w, h, font, tab_short[i as usize], 19.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, muted, tab_w as f32 - 24.0, 0);
             }
         }
 
-        // Render text
-        let scale = ab_glyph::PxScale::from(22.0);
-        let scaled = font.as_scaled(scale);
-        let line_h = scaled.height() + scaled.line_gap();
-
-        // Header
-        let mut cy = 8.0 + scaled.ascent();
-        Self::render_line_to_pixels(
-            font,
-            &header,
-            scale,
-            12.0,
-            cy,
-            &mut pixels,
-            w,
-            h,
-            [49, 46, 129],
-        );
-        cy = 48.0 + scaled.ascent();
-
-        // Menu items
-        for item in &items {
-            Self::render_line_to_pixels(
-                font,
-                item,
-                scale,
-                12.0,
-                cy,
-                &mut pixels,
-                w,
-                h,
-                [67, 56, 202],
-            );
-            cy += line_h + 12.0;
+        // ---- Content list ----
+        let c_x = 272i32;
+        let c_w = (px0 + pw as i32 - 16) - c_x;
+        let item_h = 66i32;
+        let gap = 8i32;
+        let base_y = 120i32;
+        let items = build_vr_menu_items(page, scan_active, translation_enabled, config);
+        for (i, item) in items.iter().enumerate() {
+            let iy = base_y + i as i32 * (item_h + gap);
+            if iy + item_h > area_bottom {
+                break;
+            }
+            let rect = (c_x, iy, c_w as u32, item_h as u32);
+            let selected = i == selection;
+            if selected {
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 14, accent, 1.0);
+                fill_rounded(&mut pixels, w, h, rect.0 + 2, rect.1 + 2, rect.2 - 4, rect.3 - 4, 12, sel_bg, 1.0);
+                fill_rounded(&mut pixels, w, h, rect.0 + 2, rect.1 + 2, 8, rect.3 - 4, 4, accent, 1.0);
+            } else if item.back {
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 14, mix(bg, text_c, 0.06), 1.0);
+            } else {
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 14, mix(bg, [255, 255, 255], 0.30), 0.55);
+            }
+            let tcol = if item.info { muted } else { text_c };
+            let lsize = if item.info { 22.0 } else { 28.0 };
+            let lx = rect.0 as f32 + if selected { 22.0 } else { 18.0 };
+            let baseline = rect.1 as f32 + rect.3 as f32 / 2.0 + lsize * 0.35;
+            let max_lw = if item.value.is_some() { rect.2 as f32 - 210.0 } else { rect.2 as f32 - 40.0 };
+            let label = fit_text(font, &item.label, lsize, max_lw);
+            draw_text(&mut pixels, w, h, font, &label, lsize, lx, baseline, tcol, max_lw, 0);
+            if let Some(v) = &item.value {
+                let psize = 24.0;
+                let vw = text_width(font, v, PxScale::from(psize)) + 40.0;
+                let pvx = rect.0 as f32 + rect.2 as f32 - vw - 16.0;
+                let pvy = rect.1 as f32 + (rect.3 as f32 - 42.0) / 2.0;
+                let (pbg, pfg) = if is_on(v) {
+                    (green, [255, 255, 255])
+                } else if is_off(v) {
+                    (gray, [255, 255, 255])
+                } else {
+                    (mix(bg, accent, 0.5), accent)
+                };
+                fill_rounded(&mut pixels, w, h, pvx as i32, pvy as i32, vw as u32, 42, 21, pbg, 1.0);
+                let vfit = fit_text(font, v, psize, vw - 32.0);
+                draw_text(&mut pixels, w, h, font, &vfit, psize, pvx + 20.0, pvy + 42.0 / 2.0 + psize * 0.35, pfg, vw - 32.0, 1);
+            }
         }
 
-        // Footer
-        cy = h as f32 - 22.0;
-        Self::render_line_to_pixels(
-            font,
-            "扳机=确认  摇杆↕=选择  ↔=切页  B长按=关闭",
-            ab_glyph::PxScale::from(16.0),
-            30.0,
-            cy,
-            &mut pixels,
-            w,
-            h,
-            [156, 163, 175],
-        );
+        // ---- Footer hints ----
+        let footer = "扳机=确认    摇杆上下=选择    摇杆左右=切页    B键=关闭菜单";
+        draw_text(&mut pixels, w, h, font, footer, 22.0, 40.0, 584.0 + 28.0, muted, pw as f32 - 80.0, 1);
 
         pixels
     }
 
+
     /// Helper: render a single line of text into pixel buffer
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, dead_code)]
     fn render_line_to_pixels(
         font: &ab_glyph::FontVec,
         text: &str,
@@ -656,5 +507,315 @@ impl VrUiRenderer {
             }
             cx += advance;
         }
+    }
+}
+// ==================== VR Menu helper functions ====================
+
+fn theme_or(s: &str, def: &str) -> String {
+    if s.trim().is_empty() {
+        def.to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+fn lerp(a: u8, b: u8, t: f32) -> u8 {
+    let v = a as f32 + (b as f32 - a as f32) * t.clamp(0.0, 1.0);
+    v.round().clamp(0.0, 255.0) as u8
+}
+
+fn mix(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
+    [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+
+fn blend(px: &mut [u8], idx: usize, color: [u8; 3], alpha: f32) {
+    if idx + 3 >= px.len() {
+        return;
+    }
+    let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+    if a == 0 {
+        return;
+    }
+    let inv = 255 - a;
+    px[idx] = ((color[0] as u16 * a as u16 + px[idx] as u16 * inv as u16) / 255) as u8;
+    px[idx + 1] = ((color[1] as u16 * a as u16 + px[idx + 1] as u16 * inv as u16) / 255) as u8;
+    px[idx + 2] = ((color[2] as u16 * a as u16 + px[idx + 2] as u16 * inv as u16) / 255) as u8;
+    px[idx + 3] = px[idx + 3].max(a);
+}
+
+fn fill_rounded(
+    px: &mut [u8],
+    w: u32,
+    h: u32,
+    rx: i32,
+    ry: i32,
+    rw: u32,
+    rh: u32,
+    radius: u32,
+    color: [u8; 3],
+    alpha: f32,
+) {
+    let r = radius.min(rw / 2).min(rh / 2).max(1);
+    let x1 = rx.max(0);
+    let y1 = ry.max(0);
+    let x2 = (rx + rw as i32).min(w as i32).max(0);
+    let y2 = (ry + rh as i32).min(h as i32).max(0);
+    for y in y1..y2 {
+        for x in x1..x2 {
+            let dx = if x < rx + r as i32 {
+                r as i32 - (x - rx)
+            } else if x >= rx + rw as i32 - r as i32 {
+                (x - rx) - (rw as i32 - r as i32 - 1)
+            } else {
+                0
+            };
+            let dy = if y < ry + r as i32 {
+                r as i32 - (y - ry)
+            } else if y >= ry + rh as i32 - r as i32 {
+                (y - ry) - (rh as i32 - r as i32 - 1)
+            } else {
+                0
+            };
+            let inside = dx == 0 || dy == 0 || dx * dx + dy * dy <= r as i32 * r as i32;
+            if inside {
+                let idx = ((y as u32 * w + x as u32) * 4) as usize;
+                blend(px, idx, color, alpha);
+            }
+        }
+    }
+}
+
+fn text_width(font: &FontVec, text: &str, scale: PxScale) -> f32 {
+    let sf = font.as_scaled(scale);
+    let mut width = 0.0f32;
+    for ch in clean_text(text).chars() {
+        width += sf.h_advance(font.glyph_id(ch));
+    }
+    width
+}
+
+fn draw_text(
+    px: &mut [u8],
+    w: u32,
+    h: u32,
+    font: &FontVec,
+    text: &str,
+    size: f32,
+    x: f32,
+    y: f32,
+    color: [u8; 3],
+    max_w: f32,
+    align: u8,
+) {
+    if max_w <= 0.0 {
+        return;
+    }
+    let scale = PxScale::from(size);
+    let cleaned = clean_text(text);
+    let tw = text_width(font, &cleaned, scale);
+    let start = match align {
+        0 => x,
+        1 => x + (max_w - tw) / 2.0,
+        _ => x + max_w - tw,
+    };
+    let mut cx = start.max(x);
+    for ch in cleaned.chars() {
+        let gid = font.glyph_id(ch);
+        let adv = font.as_scaled(scale).h_advance(gid);
+        if cx + adv > x + max_w {
+            break;
+        }
+        let glyph = gid.with_scale_and_position(scale, point(cx, y));
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let b = outlined.px_bounds();
+            outlined.draw(|gx, gy, cov| {
+                let px2 = b.min.x as i32 + gx as i32;
+                let py2 = b.min.y as i32 + gy as i32;
+                if px2 >= 0 && py2 >= 0 && (px2 as u32) < w && (py2 as u32) < h {
+                    let idx = ((py2 as u32 * w + px2 as u32) * 4) as usize;
+                    blend(px, idx, color, cov);
+                }
+            });
+        }
+        cx += adv;
+    }
+}
+
+fn fit_text(font: &FontVec, text: &str, size: f32, max_w: f32) -> String {
+    let scale = PxScale::from(size);
+    let cleaned = clean_text(text);
+    if text_width(font, &cleaned, scale) <= max_w {
+        return cleaned;
+    }
+    let sf = font.as_scaled(scale);
+    let mut out = String::new();
+    let mut cur = 0.0f32;
+    for ch in cleaned.chars() {
+        let adv = sf.h_advance(font.glyph_id(ch));
+        if cur + adv > max_w - 14.0 {
+            break;
+        }
+        out.push(ch);
+        cur += adv;
+    }
+    out.push('…');
+    out
+}
+
+fn clean_text(s: &str) -> String {
+    s.chars()
+        .filter(|&c| {
+            let cp = c as u32;
+            if cp == 0xFE0F {
+                return false;
+            }
+            if (0x2190..=0x21FF).contains(&cp) {
+                return false;
+            }
+            if (0x2300..=0x23FF).contains(&cp) {
+                return false;
+            }
+            if (0x25A0..=0x25FF).contains(&cp) {
+                return false;
+            }
+            if (0x2600..=0x27BF).contains(&cp) {
+                return false;
+            }
+            if (0x2B00..=0x2BFF).contains(&cp) {
+                return false;
+            }
+            if (0x1F000..=0x1FAFF).contains(&cp) {
+                return false;
+            }
+            if (0x1F1E6..=0x1F1FF).contains(&cp) {
+                return false;
+            }
+            true
+        })
+        .collect()
+}
+
+fn is_on(v: &str) -> bool {
+    matches!(v, "开" | "启用" | "开启" | "是" | "On" | "ON" | "on" | "启用中" | "监听中" | "显示")
+}
+
+fn is_off(v: &str) -> bool {
+    matches!(v, "关" | "禁用" | "关闭" | "否" | "Off" | "off" | "隐藏" | "暂停")
+}
+
+fn mi(label: &str) -> VrMenuItem {
+    VrMenuItem { label: label.to_string(), value: None, back: false, info: false }
+}
+fn mib(label: &str) -> VrMenuItem {
+    VrMenuItem { label: label.to_string(), value: None, back: true, info: false }
+}
+fn mii(label: &str) -> VrMenuItem {
+    VrMenuItem { label: label.to_string(), value: None, back: false, info: true }
+}
+fn miv(label: &str, v: String) -> VrMenuItem {
+    VrMenuItem { label: label.to_string(), value: Some(v), back: false, info: false }
+}
+
+fn build_vr_menu_items(
+    page: usize,
+    scan_active: bool,
+    translation_enabled: bool,
+    config: &crate::ovr::OvrConfig,
+) -> Vec<VrMenuItem> {
+    match page {
+        8 => vec![
+            mi("好友列表"),
+            mi("当前实例玩家"),
+            mi("通知中心"),
+            mib("返回主菜单"),
+        ],
+        9 => vec![
+            mi("打开语音翻译"),
+            mi("打开 VRPiano"),
+            mi("打开直播弹幕"),
+            mi("打开自动绘画"),
+            mib("返回主菜单"),
+        ],
+        10 => vec![
+            mi("打开事件动态"),
+            mi("打开统计图表"),
+            mi("打开通知中心"),
+            mib("返回主菜单"),
+        ],
+        11 => vec![
+            miv("切换高度", (if config.height_toggle_enabled { "开" } else { "关" }).to_string()),
+            mi("重置游玩空间"),
+            mi("以右手柄修复地板"),
+            mib("返回主菜单"),
+        ],
+        12 => vec![
+            mi("上一首并播放"),
+            mi("播放 / 暂停"),
+            mi("从头重新播放"),
+            mi("下一首并播放"),
+            mib("返回语音与媒体"),
+        ],
+        13 => {
+            let (state, progress) = crate::vrdrawing::vr_status_lines();
+            vec![
+                mi(&format!("开始绘画 · {state}")),
+                mi(&format!("暂停 / 继续 · {progress}")),
+                mi("停止并释放画笔"),
+                mi("打开完整绘画工作台"),
+                mib("返回语音与媒体"),
+            ]
+        }
+        _ => match page {
+            0 => vec![
+                mi("常规与翻译设置"),
+                mi("VrcDog · 好友与社交"),
+                mi("VrcDog · 麦克风语音"),
+                mi("VRCLS · 游戏内日志"),
+                mi("OVRAS · 游玩空间"),
+                mi("操作说明 (必看)"),
+            ],
+            1 => vec![
+                miv("主功能启用", (if translation_enabled { "开" } else { "关" }).to_string()),
+                miv("原文 / 译文切换", (if config.dual_display { "开" } else { "关" }).to_string()),
+                miv("手腕常驻显示", (if config.wrist_mode { "开" } else { "关" }).to_string()),
+                mib("返回主菜单"),
+            ],
+            2 => vec![
+                miv("桌面翻译模式", (if config.desktop_mode { "开" } else { "关" }).to_string()),
+                miv("自动扫描", (if config.auto_scan_enabled { "开" } else { "关" }).to_string()),
+                miv("扫描间隔", format!("{}秒", config.auto_scan_interval)),
+                mib("返回上一页"),
+            ],
+            3 => vec![
+                miv("识别语言", config.ocr_language.clone()),
+                miv("图像增强", (if config.ocr_image_enhance { "开" } else { "关" }).to_string()),
+                miv("速度模式", config.ocr_speed_mode.clone()),
+                mib("返回上一页"),
+            ],
+            4 => vec![
+                miv("翻译服务", config.trans_service.clone()),
+                miv("目标语言", config.trans_target_lang.clone()),
+                mib("返回上一页"),
+            ],
+            5 => vec![
+                miv("锁定模式", config.overlay_lock_mode.clone()),
+                miv("透明度", format!("{:.0}%", config.overlay_bg_opacity * 100.0)),
+                mib("返回上一页"),
+            ],
+            6 => vec![
+                miv("TTS 语音播报", (if config.tts_enabled { "开" } else { "关" }).to_string()),
+                miv("OSC 聊天框输出", (if config.osc_chatbox_enabled { "开" } else { "关" }).to_string()),
+                miv("扫描框状态", (if scan_active { "显示" } else { "隐藏" }).to_string()),
+                mib("返回上一页"),
+            ],
+            7 => vec![
+                mii("高级操作指南"),
+                mii("双击 右手B键: 开关主菜单"),
+                mii("双击按住 右手扳机: 拖拽框选翻译"),
+                mii("握住 右手Grip+摇杆: 缩放推拉菜单"),
+                mib("返回主菜单"),
+            ],
+            _ => vec![mib("返回主菜单")],
+        },
     }
 }
