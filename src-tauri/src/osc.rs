@@ -468,40 +468,53 @@ pub fn osc_start_monitor(
         let mut buffer = vec![0_u8; 65_535];
 
         let outcome = AssertUnwindSafe(async {
+            let mut consecutive_errors: u32 = 0;
             loop {
                 match socket.recv_from(&mut buffer).await {
                     Ok((0, _)) => continue,
-                    Ok((size, sender)) => match rosc::decoder::decode_udp(&buffer[..size]) {
-                        Ok((_, packet)) => {
-                            emit_packet(
-                                &app_handle,
-                                &sender.to_string(),
-                                packet,
-                                &routes_vec,
-                                &listen_endpoint,
-                            );
+                    Ok((size, sender)) => {
+                        consecutive_errors = 0;
+                        match rosc::decoder::decode_udp(&buffer[..size]) {
+                            Ok((_, packet)) => {
+                                emit_packet(
+                                    &app_handle,
+                                    &sender.to_string(),
+                                    packet,
+                                    &routes_vec,
+                                    &listen_endpoint,
+                                );
+                            }
+                            Err(decode_err) => {
+                                // Malformed packets are dropped silently (avoids spam),
+                                // but the warning event lets the UI show a counter.
+                                let _ = app_handle.emit(
+                                    "osc-monitor-warning",
+                                    format!("解码失败: {decode_err}"),
+                                );
+                            }
                         }
-                        Err(decode_err) => {
-                            // Malformed packets are dropped silently (avoids spam),
-                            // but the warning event lets the UI show a counter.
-                            let _ = app_handle.emit(
-                                "osc-monitor-warning",
-                                format!("解码失败: {decode_err}"),
-                            );
-                        }
-                    },
+                    }
                     Err(error) => {
-                        // Non-fatal: log, throttle, and keep listening. Aborting
-                        // the JoinHandle will drop the future and close the
-                        // socket on shutdown.
-                        let _ = app_handle.emit(
-                            "osc-monitor-warning",
-                            format!("socket 错误: {error}"),
-                        );
                         if matches!(error.kind(), std::io::ErrorKind::Interrupted) {
+                            consecutive_errors = 0;
                             continue;
                         }
-                        // Brief backoff so a flood of errors doesn't pin a CPU.
+                        consecutive_errors += 1;
+                        // Persistent transport errors mean the socket is dead
+                        // (e.g. interface went down). Throttle, surface the count,
+                        // and stop cleanly after a burst instead of spinning forever.
+                        let _ = app_handle.emit(
+                            "osc-monitor-warning",
+                            format!("socket 错误 (连续第 {consecutive_errors} 次): {error}"),
+                        );
+                        if consecutive_errors >= 100 {
+                            let _ = app_handle.emit(
+                                "osc-monitor-error",
+                                "OSC 监听持续出错已超上限，已自动停止。请检查网络或端口占用后重新启动监听。"
+                                    .to_string(),
+                            );
+                            break;
+                        }
                         tokio::time::sleep(Duration::from_millis(50)).await;
                     }
                 }
