@@ -169,6 +169,26 @@ fn find_vrpiano_project_root(app: Option<&tauri::AppHandle>) -> Option<PathBuf> 
 static HOTKEY_CONTEXT: OnceLock<GlobalHotkeyContext> = OnceLock::new();
 #[cfg(target_os = "windows")]
 static HOTKEY_HOOK_STARTED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+struct HotkeyHook(windows::Win32::UI::WindowsAndMessaging::HHOOK);
+// HHOOK wraps a raw pointer and is !Sync; we only touch it from the hook thread
+// and the stop path behind a Mutex, so it is safe to share across threads.
+#[cfg(target_os = "windows")]
+unsafe impl Send for HotkeyHook {}
+#[cfg(target_os = "windows")]
+unsafe impl Sync for HotkeyHook {}
+#[cfg(target_os = "windows")]
+static HOTKEY_HOOK: OnceLock<std::sync::Mutex<Option<HotkeyHook>>> = OnceLock::new();
+#[cfg(target_os = "windows")]
+static HOTKEY_THREAD_ID: OnceLock<std::sync::Mutex<Option<u32>>> = OnceLock::new();
+#[cfg(target_os = "windows")]
+fn init_hook_mutex() -> std::sync::Mutex<Option<HotkeyHook>> {
+    std::sync::Mutex::new(None)
+}
+#[cfg(target_os = "windows")]
+fn init_tid_mutex() -> std::sync::Mutex<Option<u32>> {
+    std::sync::Mutex::new(None)
+}
 
 #[cfg(target_os = "windows")]
 #[derive(Clone)]
@@ -1150,6 +1170,8 @@ fn set_hotkeys(
     #[cfg(target_os = "windows")]
     if config.enabled {
         start_global_hotkey_hook(app.clone(), state.clone())?;
+    } else {
+        stop_global_hotkey_hook();
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1200,6 +1222,7 @@ fn start_global_hotkey_hook(
         .name("vrpiano-global-hotkeys".to_string())
         .spawn(move || {
             use windows::Win32::Foundation::{HINSTANCE, HWND};
+            use windows::Win32::System::Threading::GetCurrentThreadId;
             use windows::Win32::UI::WindowsAndMessaging::{
                 GetMessageW, SetWindowsHookExW, MSG, WH_KEYBOARD_LL,
             };
@@ -1213,10 +1236,16 @@ fn start_global_hotkey_hook(
                 )
             };
             match hook {
-                Ok(_hook) => {
+                Ok(hook) => {
+                    *HOTKEY_HOOK.get_or_init(init_hook_mutex).lock().unwrap() =
+                        Some(HotkeyHook(hook));
+                    *HOTKEY_THREAD_ID.get_or_init(init_tid_mutex).lock().unwrap() =
+                        Some(unsafe { GetCurrentThreadId() });
                     let _ = tx.send(Ok(()));
                     let mut msg = MSG::default();
                     while unsafe { GetMessageW(&mut msg, HWND::default(), 0, 0) }.as_bool() {}
+                    // Loop exited on WM_QUIT — release the stored hook handle.
+                    *HOTKEY_HOOK.get_or_init(init_hook_mutex).lock().unwrap() = None;
                 }
                 Err(err) => {
                     HOTKEY_HOOK_STARTED.store(false, Ordering::SeqCst);
@@ -1230,6 +1259,40 @@ fn start_global_hotkey_hook(
 
     rx.recv_timeout(Duration::from_secs(2))
         .map_err(|_| "Timed out while enabling VRPiano global hotkeys".to_string())?
+}
+
+/// Tear down the low-level keyboard hook and its message-pump thread. Called when
+/// global hotkeys are disabled so the hook is actually removed (not just silenced
+/// via `hotkeys_enabled`) — otherwise it intercepts every keystroke for the whole
+/// process lifetime.
+#[cfg(target_os = "windows")]
+fn stop_global_hotkey_hook() {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        PostThreadMessageW, UnhookWindowsHookEx, WM_QUIT,
+    };
+
+    if HOTKEY_HOOK_STARTED
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    // Signal the message-pump thread to exit (GetMessageW returns 0 on WM_QUIT).
+    if let Some(tid) = *HOTKEY_THREAD_ID.get_or_init(init_tid_mutex).lock().unwrap() {
+        unsafe {
+            let _ = PostThreadMessageW(tid, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
+    }
+    // Remove the hook so it no longer intercepts keystrokes.
+    if let Some(HotkeyHook(hook)) =
+        HOTKEY_HOOK.get_or_init(init_hook_mutex).lock().unwrap().take()
+    {
+        unsafe {
+            let _ = UnhookWindowsHookEx(hook);
+        }
+    }
+    *HOTKEY_THREAD_ID.get_or_init(init_tid_mutex).lock().unwrap() = None;
 }
 
 #[cfg(target_os = "windows")]

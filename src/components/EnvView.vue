@@ -2,7 +2,7 @@
 import { useToast } from "../composables/useToast";
 
 const toast = useToast();
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import { isTauri, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { SysApi } from "../api/index";
@@ -31,6 +31,7 @@ const showInstallDialog = ref(false);
 const showSettings = ref(false);
 const dialogConfig = ref({ title: '', target: '', isVccSelection: false });
 const dogImageFailed = ref(false);
+let installProgressUnlisten: (() => void) | null = null;
 
 const checkEnvironment = async () => {
   hubStatus.value = 'checking'; unityStatus.value = 'checking'; toolStatus.value = 'checking';
@@ -144,11 +145,12 @@ const handleDialogConfirm = async (config: any) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   checkEnvironment();
-  
-  // Register progress listeners
-  listen('install-progress', (event: any) => {
+
+  // Register progress listeners. Rust emits "install_progress" (underscore);
+  // the handler is stored so it can be removed on unmount.
+  installProgressUnlisten = await listen('install_progress', (event: any) => {
     const payload = event.payload;
     if (payload.target === 'hub') {
       hubProgress.value = payload.progress;
@@ -161,6 +163,13 @@ onMounted(() => {
       toolProgressMsg.value = payload.message;
     }
   });
+});
+
+onUnmounted(() => {
+  if (installProgressUnlisten) {
+    installProgressUnlisten();
+    installProgressUnlisten = null;
+  }
 });
 
 // VPM Listing feature

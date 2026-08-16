@@ -705,6 +705,7 @@ const toggleNativeVrMenu = async () => {
 
 // Auto-sync configuration to backend with debounce
 let configSyncTimeout: ReturnType<typeof setTimeout> | null = null;
+let desktopScanSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 let ovrasSyncChecked = false;
 let ovrasSyncAvailable = true;
 
@@ -751,7 +752,7 @@ const triggerDesktopScan = async () => {
     showToast(t('ovr.toast_scan_failed').replace('{error}', String(err)), 'error');
   }
   // Loading will be cleared when ovr_desktop_translation event fires
-  setTimeout(() => { desktopScanLoading.value = false; }, 35000); // Safety timeout
+  desktopScanSafetyTimer = setTimeout(() => { desktopScanLoading.value = false; }, 35000); // Safety timeout
 };
 
 const initOvrBackend = async () => {
@@ -913,6 +914,8 @@ onUnmounted(() => {
   clearTimeout(scanTimeout1);
   clearTimeout(scanTimeout2);
   clearTimeout(saveTimeout);
+  if (configSyncTimeout) clearTimeout(configSyncTimeout);
+  if (desktopScanSafetyTimer) clearTimeout(desktopScanSafetyTimer);
   // Cleanup OVR event listeners
   ovrUnlisteners.forEach(u => u());
   // Keep the native OpenVR session alive while navigating between app views.

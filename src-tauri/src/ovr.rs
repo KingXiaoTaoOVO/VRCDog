@@ -2488,14 +2488,20 @@ pub async fn ovr_init(
 
 #[tauri::command]
 pub async fn ovr_shutdown(state: tauri::State<'_, OvrState>) -> crate::AppResult<()> {
-    let tx = state.cmd_tx.lock().await;
-    if let Some(ref sender) = *tx {
-        let _ = sender.send(OvrCommand::Shutdown);
+    {
+        let tx = state.cmd_tx.lock().await;
+        if let Some(ref sender) = *tx {
+            let _ = sender.send(OvrCommand::Shutdown);
+        }
     }
     let mut h = state.event_loop_handle.lock().await;
     if let Some(handle) = h.take() {
         let _ = handle.await;
     }
+    // Release the command channel so `ovr_init` can start a fresh overlay
+    // thread later. Without this, its `tx.is_some()` guard blocks every
+    // restart after a shutdown.
+    *state.cmd_tx.lock().await = None;
     Ok(())
 }
 
