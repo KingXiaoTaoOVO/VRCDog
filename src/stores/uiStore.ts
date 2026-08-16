@@ -3,7 +3,7 @@ import { ref, computed, markRaw } from 'vue';
 import { VrcApi, DbApi } from '../api';
 import { translate } from '../i18n';
 import { currentTheme, setTheme, themes, type ThemeId } from '../theme';
-import { Settings, RefreshCcw, Bone, X, Heart, Users, Wrench, Flame, StickyNote, Sparkles, Download, LogOut, Loader2, Search, Globe, Bell, UserCircle, ScrollText, UsersRound, LayoutDashboard, Rss, Image, ShieldAlert, Activity, Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette, Radio, Music } from "lucide-vue-next";
+import { Settings, RefreshCcw, Bone, X, Heart, Users, Wrench, Flame, StickyNote, Sparkles, Download, LogOut, Loader2, Search, Globe, Bell, UserCircle, ScrollText, UsersRound, LayoutDashboard, Rss, Image, ShieldAlert, Activity, Network, BarChart3, History, MapPinned, Languages, ScanEye, Monitor, Glasses, Palette, Radio, Music, Paintbrush } from "lucide-vue-next";
 
 export const useUiStore = defineStore('ui', () => {
   const appMode = ref<'pc' | 'vr' | null>(null);
@@ -41,6 +41,7 @@ export const useUiStore = defineStore('ui', () => {
     { key: 'presets', label: 'sidebar.presets', icon: markRaw(Sparkles) },
     { key: 'tools', label: 'sidebar.tools', icon: markRaw(Wrench) },
     { key: 'vrpiano', label: 'VRPiano', icon: markRaw(Music) },
+    { key: 'drawing', label: 'sidebar.drawing', icon: markRaw(Paintbrush) },
     { key: 'bilidown', label: 'sidebar.bilidown', icon: markRaw(Download) },
     { key: 'danmaku', label: 'sidebar.danmaku', icon: markRaw(Radio) },
     { key: 'translator', label: 'sidebar.translator', icon: markRaw(Languages) },

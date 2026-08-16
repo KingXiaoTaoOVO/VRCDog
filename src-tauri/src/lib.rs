@@ -24,6 +24,7 @@ pub mod vr_ui;
 pub mod vrc_api;
 pub mod pipeline_ws;
 pub mod vrct;
+pub mod vrdrawing;
 pub mod vrpiano;
 pub mod xiaohongshu;
 
@@ -246,6 +247,9 @@ pub fn run() {
             app.manage(vrct::VrctState::with_history_path(
                 app_dir.join("vrct-translation-history.json"),
             ));
+            let drawing_state = vrdrawing::VrDrawingState::default();
+            vrdrawing::register_runtime(app.handle().clone(), drawing_state.clone());
+            app.manage(drawing_state);
 
             // NOTE: OVRAS auto-install/launch has been REMOVED to prevent
             // interfering with player's own OpenVR Advanced Settings.
@@ -504,6 +508,14 @@ pub fn run() {
             vrpiano::vrpiano_toggle_pause,
             vrpiano::vrpiano_set_speed,
             vrpiano::vrpiano_set_hotkeys,
+            vrdrawing::vrdrawing_prepare,
+            vrdrawing::vrdrawing_get_plan,
+            vrdrawing::vrdrawing_get_status,
+            vrdrawing::vrdrawing_set_config,
+            vrdrawing::vrdrawing_start,
+            vrdrawing::vrdrawing_pause,
+            vrdrawing::vrdrawing_resume,
+            vrdrawing::vrdrawing_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

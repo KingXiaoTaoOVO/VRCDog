@@ -93,6 +93,8 @@ const StatusPresetsView = lazyView('StatusPresetsView', () => import('./componen
 const BilidownView = lazyView('BilidownView', () => import('./components/BilidownView.vue'));
 const DanmakuView = lazyView('DanmakuView', () => import('./components/DanmakuView.vue'));
 const VrpianoView = lazyView('VrpianoView', () => import('./components/VrpianoView.vue'));
+const DrawingView = lazyView('DrawingView', () => import('./components/DrawingView.vue'));
+const DrawingOverlayView = lazyView('DrawingOverlayView', () => import('./components/DrawingOverlayView.vue'));
 const ToolsView = lazyView('ToolsView', () => import('./components/ToolsView.vue'));
 const TranslatorView = lazyView('TranslatorView', () => import('./components/TranslatorView.vue'));
 const OvrTranslatorView = lazyView('OvrTranslatorView', () => import('./components/OvrTranslatorView.vue'));
@@ -112,7 +114,8 @@ const { appMode, activeTab } = storeToRefs(uiStore);
 const overlayMode = new URLSearchParams(window.location.search).get('mode');
 const isTranslationOverlayMode = overlayMode === 'overlay';
 const isVrpianoOverlayMode = overlayMode === 'vrpiano-overlay';
-const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode;
+const isDrawingOverlayMode = overlayMode === 'drawing-overlay';
+const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode || isDrawingOverlayMode;
 let ovrAutoInitTimer: number | null = null;
 let ovrAutoInitInFlight = false;
 let ovrWaitingLogged = false;
@@ -159,6 +162,8 @@ document.documentElement.classList.toggle('translation-overlay-mode', isTranslat
 document.body.classList.toggle('translation-overlay-mode', isTranslationOverlayMode);
 document.documentElement.classList.toggle('vrpiano-overlay-mode', isVrpianoOverlayMode);
 document.body.classList.toggle('vrpiano-overlay-mode', isVrpianoOverlayMode);
+document.documentElement.classList.toggle('drawing-overlay-mode', isDrawingOverlayMode);
+document.body.classList.toggle('drawing-overlay-mode', isDrawingOverlayMode);
 const serverDashboardTarget = ref<{
   mode: 'local' | 'remote';
   url: string;
@@ -438,6 +443,7 @@ if (typeof window !== 'undefined') {
 
   <OverlayView v-if="isTranslationOverlayMode" />
   <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
+  <DrawingOverlayView v-else-if="isDrawingOverlayMode" />
   
   <ServerDashboardView
     v-else-if="appRole === 'server'"
@@ -527,6 +533,7 @@ if (typeof window !== 'undefined') {
       <BilidownView v-else-if="activeTab === 'bilidown'" />
       <DanmakuView v-else-if="activeTab === 'danmaku'" />
       <VrpianoView v-else-if="activeTab === 'vrpiano'" />
+      <DrawingView v-else-if="activeTab === 'drawing'" />
       <ToolsView v-else-if="activeTab === 'tools'" />
       <TranslatorView v-else-if="activeTab === 'translator'" />
       <RemoteAssistView v-else-if="activeTab === 'remote'" />

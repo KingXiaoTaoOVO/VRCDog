@@ -1610,8 +1610,8 @@ fn vr_thread_main(
                     1 | 2 | 3 | 6 => 4,
                     4 | 5 => 3,
                     7 => 5,
-                    8 | 9 | 10 | 11 => 4,
-                    12 => 5,
+                    8 | 10 | 11 => 4,
+                    9 | 12 | 13 => 5,
                     _ => 4,
                 };
 
@@ -1626,7 +1626,7 @@ fn vr_thread_main(
 
                 // Use joystick X to switch pages (with cooldown to prevent rapid switching)
                 if joystick_nav_cooldown == 0 && !right_grip_held {
-                    if joy_x > 0.7 && menu_page < 12 {
+                    if joy_x > 0.7 && menu_page < 13 {
                         menu_page += 1;
                         menu_selection = 0;
                         joystick_nav_cooldown = 18; // ~200ms cooldown at 90Hz
@@ -1695,7 +1695,7 @@ fn vr_thread_main(
                 {
                     let back_idx = max_items - 1;
                     if menu_selection == back_idx && menu_page > 0 {
-                        menu_page = if menu_page == 12 { 9 } else { 0 };
+                        menu_page = if menu_page == 12 || menu_page == 13 { 9 } else { 0 };
                         menu_selection = 0;
                     } else {
                         match menu_page {
@@ -1861,6 +1861,11 @@ fn vr_thread_main(
                                     menu_selection = 0;
                                 }
                                 2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"danmaku"})); }
+                                3 => {
+                                    let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"}));
+                                    menu_page = 13;
+                                    menu_selection = 0;
+                                }
                                 _ => {}
                             },
                             10 => match menu_selection {
@@ -1923,6 +1928,13 @@ fn vr_thread_main(
                                 3 => { let _ = app_handle.emit("vrpiano_vr_action", "next"); }
                                 _ => {}
                             },
+                            13 => match menu_selection {
+                                0 => { let _ = crate::vrdrawing::handle_vr_action("start"); }
+                                1 => { let _ = crate::vrdrawing::handle_vr_action("toggle_pause"); }
+                                2 => { let _ = crate::vrdrawing::handle_vr_action("stop"); }
+                                3 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"})); }
+                                _ => {}
+                            },
                             _ => {}
                         }
                         // Persist VR-side changes and immediately apply transforms. This keeps
@@ -1967,6 +1979,7 @@ fn vr_thread_main(
                 // Re-render menu if state changed
                 if last_menu_render_page != menu_page as i32
                     || last_menu_render_sel != menu_selection as i32
+                    || (menu_page == 13 && tick % 30 == 0)
                 {
                     if let (Some(h), Some(ref f)) = (overlay_handle, &font) {
                         let pixels = crate::vr_ui::VrUiRenderer::render_vr_menu(

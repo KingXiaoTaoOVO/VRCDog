@@ -47,6 +47,23 @@ const createBrowserVrpianoStatus = () => ({
 });
 
 let browserVrpianoStatus = createBrowserVrpianoStatus();
+let browserDrawingStatus = {
+  prepared: false,
+  running: false,
+  paused: false,
+  progress: 0,
+  current_stroke: 0,
+  total_strokes: 0,
+  total_points: 0,
+  source_path: '',
+  last_event: 'browser_preview',
+  last_error: '',
+  hotkeys_enabled: true,
+  hotkeys_available: true,
+  last_hotkey: '',
+  last_hotkey_at_ms: 0,
+  stage: '',
+};
 
 const sanitizeInvokeValue = (value: unknown, seen = new WeakSet<object>()): unknown => {
   if (value === null || typeof value !== 'object') return value;
@@ -277,6 +294,24 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       }) as any;
     }
     if (cmd === 'vrpiano_init' || cmd === 'vrpiano_get_status') return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    if (cmd === 'vrdrawing_get_status') return Promise.resolve({ ...browserDrawingStatus }) as any;
+    if (cmd === 'vrdrawing_get_plan') return Promise.resolve(null) as any;
+    if (cmd === 'vrdrawing_set_config') {
+      browserDrawingStatus = { ...browserDrawingStatus, hotkeys_enabled: Boolean((args?.config as any)?.hotkeys_enabled) };
+      return Promise.resolve({ ...browserDrawingStatus }) as any;
+    }
+    if (cmd === 'vrdrawing_start') {
+      browserDrawingStatus = { ...browserDrawingStatus, running: true, paused: false, last_event: 'Drawing started' };
+      return Promise.resolve({ ...browserDrawingStatus }) as any;
+    }
+    if (cmd === 'vrdrawing_pause' || cmd === 'vrdrawing_resume') {
+      browserDrawingStatus = { ...browserDrawingStatus, paused: cmd === 'vrdrawing_pause', last_event: cmd === 'vrdrawing_pause' ? 'Drawing paused' : 'Drawing resumed' };
+      return Promise.resolve({ ...browserDrawingStatus }) as any;
+    }
+    if (cmd === 'vrdrawing_stop') {
+      browserDrawingStatus = { ...browserDrawingStatus, running: false, paused: false, last_event: 'Drawing stopped' };
+      return Promise.resolve({ ...browserDrawingStatus }) as any;
+    }
     if (cmd === 'vrpiano_stop') {
       browserVrpianoStatus = { ...browserVrpianoStatus, running: false, paused: false, last_event: 'Browser preview stopped' };
       return Promise.resolve({ ...browserVrpianoStatus }) as any;
@@ -1210,6 +1245,83 @@ export const VrpianoApi = {
       speed: params.speed,
     },
   }),
+};
+
+export interface DrawingPoint {
+  x: number;
+  y: number;
+}
+
+export interface DrawingStroke {
+  points: DrawingPoint[];
+}
+
+export interface DrawingConfig {
+  mode: 'lineart' | 'edges' | 'dither' | 'ai';
+  max_dimension: number;
+  threshold: number;
+  blur: number;
+  invert: boolean;
+  bridge_gaps: boolean;
+  prune_length: number;
+  min_stroke_length: number;
+  smooth_window: number;
+  simplify_epsilon: number;
+  merge_distance: number;
+  optimize_path: boolean;
+  sensitivity: number;
+  vertical_stretch: number;
+  max_step_px: number;
+  point_delay_ms: number;
+  lift_delay_ms: number;
+  start_delay_ms: number;
+  focus_vrchat: boolean;
+  hotkeys_enabled: boolean;
+  ai_model: string;
+  contrast: number;
+  artifact_removal: number;
+  model_size: number;
+  lift_speed: number;
+}
+
+export interface PreparedDrawing {
+  source_path: string;
+  width: number;
+  height: number;
+  strokes: DrawingStroke[];
+  total_points: number;
+}
+
+export interface DrawingStatus {
+  prepared: boolean;
+  running: boolean;
+  paused: boolean;
+  progress: number;
+  current_stroke: number;
+  total_strokes: number;
+  total_points: number;
+  source_path: string;
+  last_event: string;
+  last_error: string;
+  hotkeys_enabled: boolean;
+  hotkeys_available: boolean;
+  last_hotkey: string;
+  last_hotkey_at_ms: number;
+  stage: string;
+}
+
+export const DrawingApi = {
+  prepare: (params: { sourcePath: string; config: DrawingConfig }) => safeInvoke<PreparedDrawing>('vrdrawing_prepare', {
+    sourcePath: params.sourcePath,
+    config: params.config,
+  }),
+  getPlan: () => safeInvoke<PreparedDrawing | null>('vrdrawing_get_plan'),
+  getStatus: () => safeInvoke<DrawingStatus>('vrdrawing_get_status'),
+  setConfig: (params: { config: DrawingConfig }) => safeInvoke<DrawingStatus>('vrdrawing_set_config', params),
+  start: () => safeInvoke<DrawingStatus>('vrdrawing_start'),
+  pause: () => safeInvoke<DrawingStatus>('vrdrawing_pause'),
+  resume: () => safeInvoke<DrawingStatus>('vrdrawing_resume'),
+  stop: () => safeInvoke<DrawingStatus>('vrdrawing_stop'),
 };
 
 export {
