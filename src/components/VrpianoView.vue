@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
-import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
+import { songIcon, songCover, isImageIcon, useVrpianoIcons } from '../composables/useVrpianoIcons';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Effect, EffectState } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -126,7 +127,7 @@ onMounted(() => {
   if (midishowLoginOpen.value) forceClearLoginFields();
 });
 const signupUrl = 'https://www.midishow.com/user/account/signup';
-const songIcons = ref<Record<string, string>>({});
+const { songIcons } = useVrpianoIcons();
 const iconFileInput = ref<HTMLInputElement | null>(null);
 const iconTargetPath = ref('');
 const editDialogMode = ref<'icon' | 'rename' | null>(null);
@@ -488,38 +489,6 @@ const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
   }
 };
 
-const iconStorageKey = 'vrcdog.vrpiano.songIcons.v1';
-
-const loadSongIcons = () => {
-  try {
-    songIcons.value = JSON.parse(localStorage.getItem(iconStorageKey) || '{}');
-  } catch {
-    songIcons.value = {};
-  }
-};
-
-const saveSongIcons = () => {
-  localStorage.setItem(iconStorageKey, JSON.stringify(songIcons.value));
-};
-
-const songIcon = (song: VrpianoSong) => songIcons.value[song.path] || '';
-const isImageIcon = (value: string) => /^(data:image\/|https?:\/\/|blob:)/i.test(value);
-
-/**
- * 把本地封面图绝对路径转换为可在 WebView 中渲染的 `asset://` URL。
- * 若路径缺失/转换失败则返回空字符串，由模板回落到默认 Music 图标。
- * 这里用 try/catch 包住 convertFileSrc，避免在未配置 assetProtocol 时
- * 让单首曲目错误把整个曲库列表搞挂。
- */
-const songCover = (song: VrpianoSong): string => {
-  const cover = song.cover_path;
-  if (!cover) return '';
-  try {
-    return convertFileSrc(cover);
-  } catch {
-    return '';
-  }
-};
 
 const closeEditDialog = () => {
   if (loading.value) return;
@@ -554,7 +523,6 @@ const saveSongIconEditor = () => {
     delete nextIcons[selectedSong.value.path];
     songIcons.value = nextIcons;
   }
-  saveSongIcons();
   closeEditDialog();
 };
 
@@ -576,7 +544,6 @@ const handleSongIconFile = (event: Event) => {
   const reader = new FileReader();
   reader.onload = () => {
     songIcons.value = { ...songIcons.value, [iconTargetPath.value]: String(reader.result || '') };
-    saveSongIcons();
   };
   reader.readAsDataURL(file);
 };
@@ -753,7 +720,6 @@ const init = async () => {
   loading.value = true;
   error.value = '';
   try {
-    loadSongIcons();
     status.value = await VrpianoApi.init();
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     await Promise.all([refreshSongs(), loadMidishowAccounts()]);
@@ -813,7 +779,6 @@ const submitRenameSong = async () => {
       const nextIcons = { ...songIcons.value, [renamed.path]: songIcons.value[selectedSong.value.path] };
       delete nextIcons[selectedSong.value.path];
       songIcons.value = nextIcons;
-      saveSongIcons();
     }
     await refreshSongs();
     selectedPath.value = renamed.path;
@@ -846,7 +811,6 @@ const deleteSong = async () => {
       const nextIcons = { ...songIcons.value };
       delete nextIcons[selectedSong.value.path];
       songIcons.value = nextIcons;
-      saveSongIcons();
     }
     addLog(l(`已删除 ${selectedSong.value.name}`, `Deleted ${selectedSong.value.name}`));
     selectedPath.value = '';
