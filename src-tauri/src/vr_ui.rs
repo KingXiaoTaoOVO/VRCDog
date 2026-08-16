@@ -343,22 +343,30 @@ impl VrUiRenderer {
         let bg = Self::parse_hex_rgb(&theme_or(&config.vr_menu_bg, "#faf7ed"));
         let text_c = Self::parse_hex_rgb(&theme_or(&config.vr_menu_text, "#5d4037"));
         let muted = Self::parse_hex_rgb(&theme_or(&config.vr_menu_text_muted, "#76584d"));
-        let border = mix(bg, text_c, 0.22);
-        let header_bg = mix(bg, accent, 0.08);
-        let sel_bg = mix(bg, accent, 0.20);
+        // Neutral, very subtle hairline — never an accent/colored bar.
+        let border = mix(bg, text_c, 0.14);
+        // PC-style active/selected state: a soft accent wash, not a solid block.
+        let header_bg = mix(bg, accent, 0.06);
+        let sel_bg = mix(bg, accent, 0.18);
+        // Faint lifted card for ordinary rows.
+        let card = mix(bg, [255u8, 255, 255], 0.5);
         let green = [22u8, 163, 108];
         let gray = [150u8, 140, 128];
 
-        // ---- Floating rounded glass panel ----
+        // ---- Floating rounded glass panel (no colored edges) ----
         let px0 = 16i32;
         let py0 = 16i32;
         let pw = 992u32;
         let ph = 608u32;
         let radius = 32u32;
-        fill_rounded(&mut pixels, w, h, px0 + 8, py0 + 14, pw, ph, radius, [60, 40, 20], 0.18);
+        // Soft drop shadow for depth.
+        fill_rounded(&mut pixels, w, h, px0 + 10, py0 + 16, pw, ph, radius, [40, 30, 20], 0.16);
+        // Hairline neutral border ring.
         fill_rounded(&mut pixels, w, h, px0, py0, pw, ph, radius, border, 1.0);
+        // Glass body.
         fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, ph - 4, radius - 2, bg, 1.0);
-        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, 56, radius - 2, mix(bg, [255, 255, 255], 0.5), 0.30);
+        // Top sheen.
+        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, 54, radius - 2, mix(bg, [255, 255, 255], 0.5), 0.30);
 
         // ---- Header ----
         let header_h: i32 = 84;
@@ -366,7 +374,7 @@ impl VrUiRenderer {
         fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, header_h as u32, radius - 2, header_bg, 0.9);
         for x in (px0 + 28)..(px0 + pw as i32 - 28) {
             let idx = (((hy as u32) * w + x as u32) * 4) as usize;
-            blend(&mut pixels, idx, border, 0.55);
+            blend(&mut pixels, idx, border, 0.28);
         }
         draw_text(&mut pixels, w, h, font, "VrcDog", 46.0, 48.0, py0 as f32 + 58.0, accent, pw as f32 - 60.0, 0);
         let page_names = [
@@ -394,9 +402,9 @@ impl VrUiRenderer {
             let ry = ty + 3;
             let rh = (tab_h - 6) as u32;
             if active {
-                fill_rounded(&mut pixels, w, h, tab_x, ry, tab_w, rh, 10, accent, 1.0);
+                fill_rounded(&mut pixels, w, h, tab_x, ry, tab_w, rh, 12, sel_bg, 1.0);
                 let lbl = fit_text(font, tab_short[i as usize], 20.0, tab_w as f32 - 24.0);
-                draw_text(&mut pixels, w, h, font, &lbl, 20.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, [255, 255, 255], tab_w as f32 - 24.0, 0);
+                draw_text(&mut pixels, w, h, font, &lbl, 20.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, accent, tab_w as f32 - 24.0, 0);
             } else {
                 draw_text(&mut pixels, w, h, font, tab_short[i as usize], 19.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, muted, tab_w as f32 - 24.0, 0);
             }
@@ -417,17 +425,22 @@ impl VrUiRenderer {
             let rect = (c_x, iy, c_w as u32, item_h as u32);
             let selected = i == selection;
             if selected {
-                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 14, accent, 1.0);
-                fill_rounded(&mut pixels, w, h, rect.0 + 2, rect.1 + 2, rect.2 - 4, rect.3 - 4, 12, sel_bg, 1.0);
-                fill_rounded(&mut pixels, w, h, rect.0 + 2, rect.1 + 2, 8, rect.3 - 4, 4, accent, 1.0);
+                // Soft accent wash only — no border, no vertical bar.
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 16, sel_bg, 1.0);
             } else if item.back {
-                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 14, mix(bg, text_c, 0.06), 1.0);
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 16, mix(bg, text_c, 0.06), 1.0);
             } else {
-                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 14, mix(bg, [255, 255, 255], 0.30), 0.55);
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 16, card, 0.55);
             }
-            let tcol = if item.info { muted } else { text_c };
+            let tcol = if item.info {
+                muted
+            } else if selected {
+                accent
+            } else {
+                text_c
+            };
             let lsize = if item.info { 22.0 } else { 28.0 };
-            let lx = rect.0 as f32 + if selected { 22.0 } else { 18.0 };
+            let lx = rect.0 as f32 + 20.0;
             let baseline = rect.1 as f32 + rect.3 as f32 / 2.0 + lsize * 0.35;
             let max_lw = if item.value.is_some() { rect.2 as f32 - 210.0 } else { rect.2 as f32 - 40.0 };
             let label = fit_text(font, &item.label, lsize, max_lw);
@@ -442,7 +455,7 @@ impl VrUiRenderer {
                 } else if is_off(v) {
                     (gray, [255, 255, 255])
                 } else {
-                    (mix(bg, accent, 0.5), accent)
+                    (mix(bg, accent, 0.35), accent)
                 };
                 fill_rounded(&mut pixels, w, h, pvx as i32, pvy as i32, vw as u32, 42, 21, pbg, 1.0);
                 let vfit = fit_text(font, v, psize, vw - 32.0);

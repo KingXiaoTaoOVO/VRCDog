@@ -1003,6 +1003,8 @@ export const OvrApi = {
   shutdown: () => safeInvoke<void>('ovr_shutdown'),
   getStatus: () => safeInvoke<any>('ovr_get_status'),
   setConfig: (params: { config: any }) => safeInvoke<void>('ovr_set_config', params),
+  setVrMenuTheme: (params: { accent: string; bg: string; text: string; muted: string }) =>
+    safeInvoke<void>('ovr_set_menu_theme', params),
   syncOvrasIni: (params: { payload: string }) => safeInvoke<void>('ovr_sync_ovras_ini', params),
   loadOvrasIni: () => safeInvoke<string>('ovr_load_ovras_ini'),
   toggleTranslation: () => safeInvoke<boolean>('ovr_toggle_translation'),

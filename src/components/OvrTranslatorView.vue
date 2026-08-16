@@ -829,11 +829,6 @@ const syncConfigToBackend = async () => {
         result_offset_z: generalNumber('resultOffsetZ') || -1.10,
         scan_frame_width_m: generalNumber('scanFrameWidthM') || 0.34,
         scan_frame_distance_m: generalNumber('scanFrameDistanceM') || 0.72,
-        // Native VR menu theme (driven by the app's active theme)
-        vr_menu_accent: currentTheme.value.colors.primaryBtnBg,
-        vr_menu_bg: currentTheme.value.colors.bgMain,
-        vr_menu_text: currentTheme.value.colors.text,
-        vr_menu_text_muted: currentTheme.value.colors.textMuted,
       }
     });
   } catch (err) {
@@ -841,10 +836,7 @@ const syncConfigToBackend = async () => {
   }
 };
 
-// Keep the native VR menu in sync with the active app theme so it always matches the UI.
-watch(() => currentTheme.value.id, () => {
-  void syncConfigToBackend();
-});
+// App.vue owns the global theme -> VR-menu sync.
 
 const syncConfigToOvrasIni = async () => {
   if (ovrasSyncChecked && !ovrasSyncAvailable) return;
