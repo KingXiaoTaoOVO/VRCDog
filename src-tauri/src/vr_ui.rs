@@ -625,20 +625,9 @@ impl VrUiRenderer {
             }
             // Subtle left-edge accent bar on selected (no hard color strip — kept
             // short and rounded).
-            if selected {
-                fill_rounded(
-                    &mut pixels,
-                    w,
-                    h,
-                    rect.0 + 6,
-                    rect.1 + 16,
-                    3,
-                    rect.3.saturating_sub(32),
-                    1,
-                    accent,
-                    0.9,
-                );
-            }
+            // REMOVED per user feedback: no left color strip on selected items.
+            // The selected background wash + (optional) right-side accent dot already
+            // carries the affordance; a vertical bar reads as dated.
             // Title typography.
             let has_desc = item.desc.is_some() && !item.back && !item.info;
             let lsize: f32 = if has_desc {
