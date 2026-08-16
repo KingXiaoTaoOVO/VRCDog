@@ -427,42 +427,115 @@ pub fn osc_start_monitor(
     routes: Option<Vec<OscRouteRule>>,
 ) -> AppResult<()> {
     let endpoint = validate_endpoint(&host, port)?;
+
+    // Validate all routes up-front so we don't bind a port only to surface a
+    // half-started listener to the user.
+    let routes_vec = routes.unwrap_or_default();
+    for rule in routes_vec.iter().filter(|rule| rule.enabled) {
+        validate_endpoint(&rule.target_host, rule.target_port)?;
+        if !rule.target_address.trim().is_empty() {
+            validate_address(&rule.target_address)?;
+        }
+    }
+
     osc_stop_monitor()?;
 
-    let socket = UdpSocket::bind(&endpoint).map_err(app_error)?;
+    let socket = UdpSocket::bind(&endpoint).map_err(|err| {
+        // Surface a precise, user-actionable message instead of a raw OS error.
+        let hint = if err.kind() == std::io::ErrorKind::AddrInUse {
+            format!(
+                "OSC 监听端口 {endpoint} 已被占用（可能 VRChat 正占用该端口，或上一次监听未完全释放）。可稍候重试或更换端口。"
+            )
+        } else if err.kind() == std::io::ErrorKind::PermissionDenied {
+            format!("没有权限绑定 {endpoint}，请尝试更高权限或更换端口。")
+        } else {
+            format!("无法绑定 OSC 监听端口 {endpoint}: {err}")
+        };
+        app_error(hint)
+    })?;
     socket.set_nonblocking(true).map_err(app_error)?;
     let socket = TokioUdpSocket::from_std(socket).map_err(app_error)?;
+
     let app_handle = app.clone();
     let listen_endpoint = endpoint.clone();
-    let routes = routes.unwrap_or_default();
 
     let handle = tauri::async_runtime::spawn(async move {
+        use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
+
         OSC_MONITOR_RUNNING.store(true, Ordering::SeqCst);
         let _ = app_handle.emit("osc-monitor-status", true);
         let mut buffer = vec![0_u8; 65_535];
 
-        loop {
-            match socket.recv_from(&mut buffer).await {
-                Ok((size, sender)) => {
-                    if let Ok((_remaining, packet)) = rosc::decoder::decode_udp(&buffer[..size]) {
-                        emit_packet(
-                            &app_handle,
-                            &sender.to_string(),
-                            packet,
-                            &routes,
-                            &listen_endpoint,
+        let outcome = AssertUnwindSafe(async {
+            loop {
+                match socket.recv_from(&mut buffer).await {
+                    Ok((0, _)) => continue,
+                    Ok((size, sender)) => match rosc::decoder::decode_udp(&buffer[..size]) {
+                        Ok((_, packet)) => {
+                            emit_packet(
+                                &app_handle,
+                                &sender.to_string(),
+                                packet,
+                                &routes_vec,
+                                &listen_endpoint,
+                            );
+                        }
+                        Err(decode_err) => {
+                            // Malformed packets are dropped silently (avoids spam),
+                            // but the warning event lets the UI show a counter.
+                            let _ = app_handle.emit(
+                                "osc-monitor-warning",
+                                format!("解码失败: {decode_err}"),
+                            );
+                        }
+                    },
+                    Err(error) => {
+                        // Non-fatal: log, throttle, and keep listening. Aborting
+                        // the JoinHandle will drop the future and close the
+                        // socket on shutdown.
+                        let _ = app_handle.emit(
+                            "osc-monitor-warning",
+                            format!("socket 错误: {error}"),
                         );
+                        if matches!(error.kind(), std::io::ErrorKind::Interrupted) {
+                            continue;
+                        }
+                        // Brief backoff so a flood of errors doesn't pin a CPU.
+                        tokio::time::sleep(Duration::from_millis(50)).await;
                     }
                 }
-                Err(error) => {
-                    let _ = app_handle.emit("osc-monitor-error", error.to_string());
-                    break;
-                }
             }
-        }
+            #[allow(unreachable_code)]
+            Ok::<(), String>(())
+        })
+        .catch_unwind()
+        .await;
 
         OSC_MONITOR_RUNNING.store(false, Ordering::SeqCst);
         let _ = app_handle.emit("osc-monitor-status", false);
+
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                let _ = app_handle.emit("osc-monitor-error", error);
+            }
+            Err(panic) => {
+                // Catch_unwind ensures any internal panic (decode error,
+                // emitter failure, etc.) is converted into a user-visible
+                // error event instead of silently terminating the task
+                // while leaving the listener UI stuck on "monitoring".
+                let panic_msg = panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                    .unwrap_or_else(|| "未知 panic".to_string());
+                let _ = app_handle.emit(
+                    "osc-monitor-error",
+                    format!("OSC 监听任务异常终止: {panic_msg}"),
+                );
+            }
+        }
     });
 
     *OSC_MONITOR
