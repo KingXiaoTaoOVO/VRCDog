@@ -4,6 +4,9 @@ use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 /// can render labels, optional value pills and back/info affordances cleanly).
 struct VrMenuItem {
     label: String,
+    /// Optional secondary line (smaller, muted) — gives the menu a two-tier
+    /// hierarchy so it reads like a real settings surface, not a flat list.
+    desc: Option<String>,
     value: Option<String>,
     back: bool,
     info: bool,
@@ -343,54 +346,189 @@ impl VrUiRenderer {
         let bg = Self::parse_hex_rgb(&theme_or(&config.vr_menu_bg, "#faf7ed"));
         let text_c = Self::parse_hex_rgb(&theme_or(&config.vr_menu_text, "#5d4037"));
         let muted = Self::parse_hex_rgb(&theme_or(&config.vr_menu_text_muted, "#76584d"));
-        // Neutral, very subtle hairline — never an accent/colored bar.
-        let border = mix(bg, text_c, 0.14);
+        // Neutral, very subtle hairlines — never an accent/colored bar.
+        let hairline = mix(bg, text_c, 0.12);
+        let whisper = mix(bg, text_c, 0.06);
         // PC-style active/selected state: a soft accent wash, not a solid block.
-        let header_bg = mix(bg, accent, 0.06);
-        let sel_bg = mix(bg, accent, 0.18);
-        // Faint lifted card for ordinary rows.
-        let card = mix(bg, [255u8, 255, 255], 0.5);
+        let sel_bg = mix(bg, accent, 0.16);
+        // Subtle vertical gradient on the glass body — lit from above.
+        let panel_top = mix(bg, [255u8, 255, 255], 0.55);
+        let panel_bot = mix(bg, text_c, 0.04);
+        // Lifted card for ordinary rows.
+        let card = mix(bg, [255u8, 255, 255], 0.55);
         let green = [22u8, 163, 108];
         let gray = [150u8, 140, 128];
 
-        // ---- Floating rounded glass panel (no colored edges) ----
-        let px0 = 16i32;
-        let py0 = 16i32;
-        let pw = 992u32;
-        let ph = 608u32;
-        let radius = 32u32;
-        // Soft drop shadow for depth.
-        fill_rounded(&mut pixels, w, h, px0 + 10, py0 + 16, pw, ph, radius, [40, 30, 20], 0.16);
+        // ---- Floating rounded glass panel ----
+        let px0 = 18i32;
+        let py0 = 14i32;
+        let pw = 988u32;
+        let ph = 612u32;
+        let radius = 36u32;
+
+        // Layered drop shadow for depth (no colored edges).
+        fill_rounded(&mut pixels, w, h, px0 + 4, py0 + 8, pw, ph, radius, [40, 30, 20], 0.10);
+        fill_rounded(&mut pixels, w, h, px0 + 8, py0 + 14, pw, ph, radius, [40, 30, 20], 0.08);
         // Hairline neutral border ring.
-        fill_rounded(&mut pixels, w, h, px0, py0, pw, ph, radius, border, 1.0);
+        fill_rounded(&mut pixels, w, h, px0, py0, pw, ph, radius, hairline, 1.0);
         // Glass body.
         fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, ph - 4, radius - 2, bg, 1.0);
-        // Top sheen.
-        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, 54, radius - 2, mix(bg, [255, 255, 255], 0.5), 0.30);
+        // Top sheen (lit from above) — never an accent strip.
+        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, 110, radius - 2, panel_top, 0.32);
+        // Bottom whisper for depth.
+        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + ph as i32 - 90, pw - 4, 90, radius - 2, panel_bot, 0.30);
 
-        // ---- Header ----
-        let header_h: i32 = 84;
-        let hy = py0 + header_h;
-        fill_rounded(&mut pixels, w, h, px0 + 2, py0 + 2, pw - 4, header_h as u32, radius - 2, header_bg, 0.9);
-        for x in (px0 + 28)..(px0 + pw as i32 - 28) {
-            let idx = (((hy as u32) * w + x as u32) * 4) as usize;
-            blend(&mut pixels, idx, border, 0.28);
-        }
-        draw_text(&mut pixels, w, h, font, "VrcDog", 46.0, 48.0, py0 as f32 + 58.0, accent, pw as f32 - 60.0, 0);
+        // ---- Header (logo + brand + page + status pill) ----
+        let header_h: i32 = 96;
+        let header_div_y = py0 + header_h;
+        let logo_size = 40i32;
+        let logo_x = px0 + 28;
+        let logo_y = py0 + 26;
+
+        // Logo: accent rounded square with white "V" monogram + subtle inner highlight.
+        fill_rounded(&mut pixels, w, h, logo_x, logo_y, logo_size as u32, logo_size as u32, 11, accent, 1.0);
+        fill_rounded(
+            &mut pixels,
+            w,
+            h,
+            logo_x + 2,
+            logo_y + 2,
+            logo_size as u32 - 4,
+            (logo_size as f32 * 0.45) as u32,
+            8,
+            mix(accent, [255u8, 255, 255], 0.40),
+            0.40,
+        );
+        draw_text(
+            &mut pixels,
+            w,
+            h,
+            font,
+            "V",
+            24.0,
+            logo_x as f32 + 12.0,
+            logo_y as f32 + 30.0,
+            [255u8, 255, 255],
+            20.0,
+            1,
+        );
+
+        // Brand + page title (two-tier).
+        let brand_x = logo_x as f32 + logo_size as f32 + 14.0;
+        draw_text(
+            &mut pixels,
+            w,
+            h,
+            font,
+            "VrcDog",
+            22.0,
+            brand_x,
+            logo_y as f32 + 16.0,
+            text_c,
+            200.0,
+            0,
+        );
         let page_names = [
-            "VrcDog 主菜单", "基础设置", "桌面投屏翻译", "OCR 设置", "翻译服务", "叠加层外观",
-            "高级性能", "操作说明", "VrcDog 社交状态", "VrcDog 语音输入", "VRCLS 日志追踪",
-            "OVRAS 空间控制", "VRPiano 播放控制", "VRChat 自动绘画",
+            "主菜单",
+            "基础设置",
+            "桌面投屏翻译",
+            "OCR 设置",
+            "翻译服务",
+            "叠加层外观",
+            "高级性能",
+            "操作说明",
+            "社交状态",
+            "语音输入",
+            "日志追踪",
+            "空间控制",
+            "钢琴控制",
+            "自动绘画",
         ];
         let pname = page_names[page.min(13)];
-        draw_text(&mut pixels, w, h, font, pname, 30.0, 40.0, py0 as f32 + 56.0, text_c, pw as f32 - 80.0, 2);
-        fill_rounded(&mut pixels, w, h, px0 + pw as i32 - 52, py0 + 34, 16, 16, 8, if translation_enabled { green } else { gray }, 1.0);
+        draw_text(
+            &mut pixels,
+            w,
+            h,
+            font,
+            pname,
+            21.0,
+            brand_x,
+            logo_y as f32 + 44.0,
+            muted,
+            300.0,
+            0,
+        );
 
-        // ---- Left page tab strip (OVRAS-style orientation) ----
-        let tab_x = 32i32;
-        let tab_w = 216u32;
-        let area_top = 116i32;
-        let area_bottom = 584i32;
+        // Status pill (right).
+        let pill_text = if translation_enabled { "翻译运行中" } else { "翻译已关闭" };
+        let pill_dot = if translation_enabled { green } else { gray };
+        let psize = 19.0;
+        let pwidth = text_width(font, pill_text, PxScale::from(psize)) + 38.0;
+        let pill_x = (px0 + pw as i32) - 28 - pwidth as i32;
+        let pill_y = logo_y + 6;
+        let pill_h = 32i32;
+        fill_rounded(
+            &mut pixels,
+            w,
+            h,
+            pill_x,
+            pill_y,
+            pwidth as u32,
+            pill_h as u32,
+            16,
+            mix(bg, pill_dot, 0.10),
+            1.0,
+        );
+        // Soft outer halo on the status dot for the "lit" feel.
+        fill_rounded(
+            &mut pixels,
+            w,
+            h,
+            pill_x + 10,
+            pill_y + (pill_h - 14) / 2,
+            14,
+            14,
+            7,
+            mix(bg, pill_dot, 0.25),
+            0.6,
+        );
+        fill_rounded(
+            &mut pixels,
+            w,
+            h,
+            pill_x + 12,
+            pill_y + (pill_h - 10) / 2,
+            10,
+            10,
+            5,
+            pill_dot,
+            1.0,
+        );
+        draw_text(
+            &mut pixels,
+            w,
+            h,
+            font,
+            pill_text,
+            psize,
+            pill_x as f32 + 30.0,
+            pill_y as f32 + pill_h as f32 / 2.0 + psize * 0.35,
+            pill_dot,
+            pwidth - 36.0,
+            0,
+        );
+
+        // Header bottom hairline.
+        for x in (px0 + 22)..(px0 + pw as i32 - 22) {
+            let idx = (((header_div_y as u32) * w + x as u32) * 4) as usize;
+            blend(&mut pixels, idx, hairline, 0.55);
+        }
+
+        // ---- Left page tab strip (refined: subtle separators + accent dot) ----
+        let tab_x = 30i32;
+        let tab_w = 198u32;
+        let area_top = header_div_y + 14;
+        let area_bottom = 568i32;
         let tab_h = ((area_bottom - area_top) as f32 / 14.0) as i32;
         let tab_short = [
             "主菜单", "基础设置", "投屏翻译", "OCR 设置", "翻译服务", "叠加外观", "性能", "操作说明",
@@ -399,73 +537,341 @@ impl VrUiRenderer {
         for i in 0..14 {
             let ty = area_top + i * tab_h;
             let active = i == (page as i32);
-            let ry = ty + 3;
-            let rh = (tab_h - 6) as u32;
+            let ry = ty + 2;
+            let rh = (tab_h - 4) as u32;
             if active {
-                fill_rounded(&mut pixels, w, h, tab_x, ry, tab_w, rh, 12, sel_bg, 1.0);
-                let lbl = fit_text(font, tab_short[i as usize], 20.0, tab_w as f32 - 24.0);
-                draw_text(&mut pixels, w, h, font, &lbl, 20.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, accent, tab_w as f32 - 24.0, 0);
+                fill_rounded(&mut pixels, w, h, tab_x, ry, tab_w, rh, 14, sel_bg, 1.0);
+                // Tiny accent dot at left edge — "you are here" cue.
+                fill_rounded(
+                    &mut pixels,
+                    w,
+                    h,
+                    tab_x + 7,
+                    ry + (rh as i32 - 4) / 2,
+                    4,
+                    4,
+                    2,
+                    accent,
+                    1.0,
+                );
+                let lbl = fit_text(font, tab_short[i as usize], 19.0, tab_w as f32 - 32.0);
+                draw_text(
+                    &mut pixels,
+                    w,
+                    h,
+                    font,
+                    &lbl,
+                    19.0,
+                    tab_x as f32 + 19.0,
+                    ry as f32 + rh as f32 / 2.0 + 6.0,
+                    accent,
+                    tab_w as f32 - 32.0,
+                    0,
+                );
             } else {
-                draw_text(&mut pixels, w, h, font, tab_short[i as usize], 19.0, tab_x as f32 + 14.0, ry as f32 + rh as f32 / 2.0 + 7.0, muted, tab_w as f32 - 24.0, 0);
+                let lbl = fit_text(font, tab_short[i as usize], 19.0, tab_w as f32 - 24.0);
+                draw_text(
+                    &mut pixels,
+                    w,
+                    h,
+                    font,
+                    &lbl,
+                    19.0,
+                    tab_x as f32 + 16.0,
+                    ry as f32 + rh as f32 / 2.0 + 6.0,
+                    muted,
+                    tab_w as f32 - 24.0,
+                    0,
+                );
+            }
+            // Subtle hairline between tabs (not after the last).
+            if i < 13 {
+                let sep_y = (ty + tab_h) as u32;
+                for sx in (tab_x + 14)..(tab_x + tab_w as i32 - 14) {
+                    let idx = ((sep_y * w + sx as u32) * 4) as usize;
+                    blend(&mut pixels, idx, whisper, 0.55);
+                }
             }
         }
 
-        // ---- Content list ----
-        let c_x = 272i32;
-        let c_w = (px0 + pw as i32 - 16) - c_x;
-        let item_h = 66i32;
+        // Vertical divider between tabs and content (very subtle).
+        let vdiv_x = 240i32;
+        for y in (area_top)..(area_bottom) {
+            let idx = ((y as u32 * w + vdiv_x as u32) * 4) as usize;
+            blend(&mut pixels, idx, whisper, 0.65);
+        }
+
+        // ---- Content list (elevated cards with right-side caret on selection) ----
+        let c_x = 256i32;
+        let c_w = (px0 + pw as i32 - 18) - c_x;
+        let item_h = 74i32;
         let gap = 8i32;
-        let base_y = 120i32;
+        let base_y = header_div_y + 14;
         let items = build_vr_menu_items(page, scan_active, translation_enabled, config);
         for (i, item) in items.iter().enumerate() {
             let iy = base_y + i as i32 * (item_h + gap);
-            if iy + item_h > area_bottom {
+            if iy + item_h > 580 {
                 break;
             }
             let rect = (c_x, iy, c_w as u32, item_h as u32);
             let selected = i == selection;
+            // Background — soft, no colored block.
             if selected {
-                // Soft accent wash only — no border, no vertical bar.
-                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 16, sel_bg, 1.0);
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 18, sel_bg, 1.0);
             } else if item.back {
-                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 16, mix(bg, text_c, 0.06), 1.0);
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 18, mix(bg, text_c, 0.04), 1.0);
             } else {
-                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 16, card, 0.55);
+                fill_rounded(&mut pixels, w, h, rect.0, rect.1, rect.2, rect.3, 18, card, 0.55);
             }
-            let tcol = if item.info {
+            // Subtle left-edge accent bar on selected (no hard color strip — kept
+            // short and rounded).
+            if selected {
+                fill_rounded(
+                    &mut pixels,
+                    w,
+                    h,
+                    rect.0 + 6,
+                    rect.1 + 16,
+                    3,
+                    rect.3.saturating_sub(32),
+                    1,
+                    accent,
+                    0.9,
+                );
+            }
+            // Title typography.
+            let has_desc = item.desc.is_some() && !item.back && !item.info;
+            let lsize: f32 = if has_desc {
+                23.0
+            } else if item.info {
+                20.0
+            } else if item.back {
+                22.0
+            } else {
+                27.0
+            };
+            let lx = rect.0 as f32 + (if selected { 26.0 } else { 22.0 });
+            let title_baseline = if has_desc {
+                rect.1 as f32 + rect.3 as f32 / 2.0 - 4.0
+            } else {
+                rect.1 as f32 + rect.3 as f32 / 2.0 + lsize * 0.35
+            };
+            let max_lw = if item.value.is_some() {
+                rect.2 as f32 - 200.0
+            } else {
+                rect.2 as f32 - 50.0
+            };
+            let label_col = if item.info {
                 muted
             } else if selected {
                 accent
             } else {
                 text_c
             };
-            let lsize = if item.info { 22.0 } else { 28.0 };
-            let lx = rect.0 as f32 + 20.0;
-            let baseline = rect.1 as f32 + rect.3 as f32 / 2.0 + lsize * 0.35;
-            let max_lw = if item.value.is_some() { rect.2 as f32 - 210.0 } else { rect.2 as f32 - 40.0 };
             let label = fit_text(font, &item.label, lsize, max_lw);
-            draw_text(&mut pixels, w, h, font, &label, lsize, lx, baseline, tcol, max_lw, 0);
+            draw_text(
+                &mut pixels,
+                w,
+                h,
+                font,
+                &label,
+                lsize,
+                lx,
+                title_baseline,
+                label_col,
+                max_lw,
+                0,
+            );
+            // Description (two-tier hierarchy).
+            if let Some(d) = &item.desc {
+                if !d.is_empty() {
+                    let dsize = 16.0;
+                    let desc_baseline = title_baseline + lsize * 0.78;
+                    let desc_fit = fit_text(font, d, dsize, max_lw);
+                    let desc_col = if selected { accent } else { muted };
+                    draw_text(
+                        &mut pixels,
+                        w,
+                        h,
+                        font,
+                        &desc_fit,
+                        dsize,
+                        lx,
+                        desc_baseline,
+                        desc_col,
+                        max_lw,
+                        0,
+                    );
+                }
+            }
+            // Value pill — refined proportions with proper border.
             if let Some(v) = &item.value {
-                let psize = 24.0;
-                let vw = text_width(font, v, PxScale::from(psize)) + 40.0;
-                let pvx = rect.0 as f32 + rect.2 as f32 - vw - 16.0;
-                let pvy = rect.1 as f32 + (rect.3 as f32 - 42.0) / 2.0;
-                let (pbg, pfg) = if is_on(v) {
-                    (green, [255, 255, 255])
+                let psize = 20.0;
+                let vw = text_width(font, v, PxScale::from(psize)) + 36.0;
+                let pvx = rect.0 as f32 + rect.2 as f32 - vw - 18.0;
+                let pvy = rect.1 as f32 + (rect.3 as f32 - 36.0) / 2.0;
+                let (pbg, pfg, pborder) = if is_on(v) {
+                    (
+                        mix(bg, green, 0.10),
+                        green,
+                        mix(green, [255u8, 255, 255], 0.40),
+                    )
                 } else if is_off(v) {
-                    (gray, [255, 255, 255])
+                    (
+                        mix(bg, gray, 0.08),
+                        gray,
+                        mix(gray, [255u8, 255, 255], 0.40),
+                    )
                 } else {
-                    (mix(bg, accent, 0.35), accent)
+                    (bg, accent, mix(accent, [255u8, 255, 255], 0.40))
                 };
-                fill_rounded(&mut pixels, w, h, pvx as i32, pvy as i32, vw as u32, 42, 21, pbg, 1.0);
-                let vfit = fit_text(font, v, psize, vw - 32.0);
-                draw_text(&mut pixels, w, h, font, &vfit, psize, pvx + 20.0, pvy + 42.0 / 2.0 + psize * 0.35, pfg, vw - 32.0, 1);
+                fill_rounded(
+                    &mut pixels,
+                    w,
+                    h,
+                    pvx as i32,
+                    pvy as i32,
+                    vw as u32,
+                    36,
+                    18,
+                    pborder,
+                    1.0,
+                );
+                fill_rounded(
+                    &mut pixels,
+                    w,
+                    h,
+                    pvx as i32 + 1,
+                    pvy as i32 + 1,
+                    vw as u32 - 2,
+                    34,
+                    17,
+                    pbg,
+                    1.0,
+                );
+                // Draw the value text directly — no fit_text, because the pill
+                // width was sized exactly to the glyph metrics and the text is
+                // guaranteed to fit.
+                draw_text(
+                    &mut pixels,
+                    w,
+                    h,
+                    font,
+                    v,
+                    psize,
+                    pvx + vw / 2.0,
+                    pvy + 36.0 / 2.0 + psize * 0.35,
+                    pfg,
+                    vw,
+                    1,
+                );
+            }
+            // Right-side accent dot on selected, non-back, no-value items — keeps selection
+            // discoverable without using a colored strip. When a value pill is
+            // already present, the pill itself indicates the selected state.
+            if selected && !item.back && item.value.is_none() {
+                let dot_x = rect.0 + rect.2 as i32 - 18;
+                let dot_y = rect.1 + (rect.3 as i32) / 2;
+                fill_rounded(
+                    &mut pixels,
+                    w,
+                    h,
+                    dot_x - 4,
+                    dot_y - 4,
+                    16,
+                    16,
+                    8,
+                    mix(bg, accent, 0.18),
+                    1.0,
+                );
+                fill_rounded(
+                    &mut pixels,
+                    w,
+                    h,
+                    dot_x,
+                    dot_y - 3,
+                    8,
+                    8,
+                    4,
+                    accent,
+                    1.0,
+                );
             }
         }
 
-        // ---- Footer hints ----
-        let footer = "扳机=确认    摇杆上下=选择    摇杆左右=切页    B键=关闭菜单";
-        draw_text(&mut pixels, w, h, font, footer, 22.0, 40.0, 584.0 + 28.0, muted, pw as f32 - 80.0, 1);
+        // ---- Footer (kbd-style control hints) ----
+        let footer_y = 590i32;
+        let hints: [(&str, &str); 5] = [
+            ("扳机", "确认"),
+            ("扳机 + 握把", "拖拽框选"),
+            ("摇杆", "选择 / 翻页"),
+            ("握把 + 摇杆", "缩放菜单"),
+            ("B 键", "关闭"),
+        ];
+        let mut cursor_x = 38.0;
+        for (k, desc) in hints.iter() {
+            let kwidth = text_width(font, k, PxScale::from(17.0)) + 16.0;
+            fill_rounded(
+                &mut pixels,
+                w,
+                h,
+                cursor_x as i32,
+                footer_y,
+                kwidth as u32,
+                26,
+                6,
+                mix(bg, text_c, 0.08),
+                1.0,
+            );
+            // Top hairline on the kbd box for a "press" feel.
+            for sx in (cursor_x as i32)..(cursor_x as i32 + kwidth as i32) {
+                let idx = ((footer_y as u32 * w + sx as u32) * 4) as usize;
+                blend(&mut pixels, idx, hairline, 0.5);
+            }
+            draw_text(
+                &mut pixels,
+                w,
+                h,
+                font,
+                k,
+                17.0,
+                cursor_x + 8.0,
+                footer_y as f32 + 20.0,
+                text_c,
+                kwidth - 12.0,
+                0,
+            );
+            cursor_x += kwidth + 8.0;
+            let dw = text_width(font, desc, PxScale::from(17.0));
+            draw_text(
+                &mut pixels,
+                w,
+                h,
+                font,
+                desc,
+                17.0,
+                cursor_x,
+                footer_y as f32 + 20.0,
+                muted,
+                dw + 4.0,
+                0,
+            );
+            cursor_x += dw + 24.0;
+        }
+        // Bottom-right version tag (subtle, muted).
+        draw_text(
+            &mut pixels,
+            w,
+            h,
+            font,
+            "v5.0.1",
+            15.0,
+            (px0 + pw as i32 - 28) as f32 - 60.0,
+            footer_y as f32 + 22.0,
+            muted,
+            60.0,
+            2,
+        );
 
         pixels
     }
@@ -717,16 +1123,25 @@ fn is_off(v: &str) -> bool {
 }
 
 fn mi(label: &str) -> VrMenuItem {
-    VrMenuItem { label: label.to_string(), value: None, back: false, info: false }
+    VrMenuItem { label: label.to_string(), desc: None, value: None, back: false, info: false }
 }
 fn mib(label: &str) -> VrMenuItem {
-    VrMenuItem { label: label.to_string(), value: None, back: true, info: false }
+    VrMenuItem { label: label.to_string(), desc: None, value: None, back: true, info: false }
 }
 fn mii(label: &str) -> VrMenuItem {
-    VrMenuItem { label: label.to_string(), value: None, back: false, info: true }
+    VrMenuItem { label: label.to_string(), desc: None, value: None, back: false, info: true }
 }
 fn miv(label: &str, v: String) -> VrMenuItem {
-    VrMenuItem { label: label.to_string(), value: Some(v), back: false, info: false }
+    VrMenuItem { label: label.to_string(), desc: None, value: Some(v), back: false, info: false }
+}
+fn mid(label: &str, desc: &str) -> VrMenuItem {
+    VrMenuItem {
+        label: label.to_string(),
+        desc: Some(desc.to_string()),
+        value: None,
+        back: false,
+        info: false,
+    }
 }
 
 fn build_vr_menu_items(
@@ -780,12 +1195,12 @@ fn build_vr_menu_items(
         }
         _ => match page {
             0 => vec![
-                mi("常规与翻译设置"),
-                mi("VrcDog · 好友与社交"),
-                mi("VrcDog · 麦克风语音"),
-                mi("VRCLS · 游戏内日志"),
-                mi("OVRAS · 游玩空间"),
-                mi("操作说明 (必看)"),
+                mid("基础设置", "翻译、OCR、叠加层等核心开关"),
+                mid("好友与社交", "VRChat 好友与通知中心"),
+                mid("语音与媒体", "麦克风翻译、VRPiano、弹幕"),
+                mid("日志追踪", "VRCLS 游戏内日志面板"),
+                mid("空间控制", "OVRAS 高度、重置、修复地板"),
+                mid("操作说明", "必看：手势、扳机、握把速查"),
             ],
             1 => vec![
                 miv("主功能启用", (if translation_enabled { "开" } else { "关" }).to_string()),
