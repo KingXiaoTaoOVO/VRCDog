@@ -969,8 +969,11 @@ onUnmounted(() => {
           </button>
           <div v-if="filteredMonitorEvents.length === 0" class="monitor-empty">
             <Radio :size="30" />
-            <strong>{{ l('等待 OSC 数据', 'Waiting for OSC data') }}</strong>
-            <span>{{ l('VRChat 常用回传端口为 9001', 'VRChat commonly sends data on port 9001') }}</span>
+            <strong>{{ monitorRunning
+              ? l('正在监听，等待数据', 'Listening, waiting for data')
+              : l('等待 OSC 数据', 'Waiting for OSC data') }}</strong>
+            <span v-if="monitorRunning">{{ l('当前监听', 'Currently listening on') }} {{ endpoint.monitorHost }}:{{ endpoint.monitorPort }}</span>
+            <span v-else>{{ l('VRChat 常用回传端口为 9001', 'VRChat commonly sends data on port 9001') }}</span>
           </div>
         </div>
 
@@ -1637,7 +1640,7 @@ code {
   overflow: auto;
   border: 1px solid var(--theme-border-soft);
   border-radius: 7px;
-  background: var(--theme-terminal-bg, #111827);
+  background: var(--theme-surface-hover);
 }
 
 .monitor-row {
@@ -1648,32 +1651,34 @@ code {
   align-items: center;
   gap: 10px;
   border: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid var(--theme-border-soft);
   border-radius: 0;
   padding: 6px 10px;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--theme-text);
   background: transparent;
   text-align: left;
 }
 
 .monitor-row:hover:not(.monitor-header) {
-  color: white;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--theme-primary);
+  background: var(--theme-active-bg);
 }
 
 .monitor-header {
   position: sticky;
   top: 0;
   z-index: 1;
-  color: rgba(255, 255, 255, 0.5);
-  background: #111827;
+  color: var(--theme-text-muted);
+  background: var(--theme-surface);
   font-size: 10px;
   font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .monitor-row time,
 .monitor-row small {
-  color: rgba(255, 255, 255, 0.48);
+  color: var(--theme-text-muted);
   font-size: 10px;
 }
 
@@ -1687,8 +1692,8 @@ code {
 .event-values code {
   padding: 2px 5px;
   border-radius: 4px;
-  color: #a7f3d0;
-  background: rgba(16, 185, 129, 0.12);
+  color: var(--theme-primary);
+  background: var(--theme-active-bg);
 }
 
 .monitor-empty,
@@ -1699,7 +1704,12 @@ code {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--theme-text-muted);
+}
+
+.monitor-empty strong,
+.route-empty strong {
+  color: var(--theme-text);
 }
 
 .monitor-empty span,
