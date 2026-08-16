@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Effect } from '@tauri-apps/api/window';
+import { Effect, EffectState } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   AlertTriangle,
@@ -443,7 +443,12 @@ const toggleVrpianoOverlay = async () => {
     height: 620,
     minWidth: 320,
     minHeight: 420,
-    ...(backdropEnabled ? { windowEffects: { effects: [Effect.Acrylic] } } : {}),
+    ...(backdropEnabled ? {
+      windowEffects: {
+        effects: [Effect.Acrylic],
+        state: EffectState.Active,
+      },
+    } : {}),
     ...(Number.isFinite(savedPosition.x) ? { x: savedPosition.x } : {}),
     ...(Number.isFinite(savedPosition.y) ? { y: savedPosition.y } : {}),
   });

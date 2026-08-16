@@ -116,6 +116,7 @@ const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode;
 let ovrAutoInitTimer: number | null = null;
 let ovrAutoInitInFlight = false;
 let ovrWaitingLogged = false;
+let allowMainWindowClose = false;
 
 const stopOvrAutoInit = () => {
   if (ovrAutoInitTimer !== null) {
@@ -308,10 +309,17 @@ onMounted(async () => {
       await applyProxyFromSettings(allSettings);
     } catch { /* ignore */ }
 
-    await getCurrentWindow().onCloseRequested((event) => {
-      if (!minimizeToTrayEnabled.value) return;
-      event.preventDefault();
-      void getCurrentWindow().hide();
+    const mainWindow = getCurrentWindow();
+    await mainWindow.onCloseRequested(async (event) => {
+      if (allowMainWindowClose || !minimizeToTrayEnabled.value) return;
+      await event.preventDefault();
+      try {
+        await mainWindow.hide();
+      } catch (error) {
+        console.error('Failed to hide the main window; closing instead.', error);
+        allowMainWindowClose = true;
+        await mainWindow.close();
+      }
     });
 
     window.addEventListener('settings-updated', (e: Event) => {

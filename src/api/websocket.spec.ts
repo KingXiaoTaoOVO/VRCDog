@@ -10,10 +10,15 @@ const mocks = vi.hoisted(() => ({
   getSetting: vi.fn(),
   startPipelineWs: vi.fn().mockResolvedValue(undefined),
   stopPipelineWs: vi.fn().mockResolvedValue(undefined),
+  getUser: vi.fn(),
+  getCachedFriends: vi.fn(),
+  addFriendLog: vi.fn(),
+  saveNotification: vi.fn(),
   notify: vi.fn(),
   updateFriend: vi.fn(),
   addFriend: vi.fn(),
   removeFriend: vi.fn(),
+  allFriends: [] as any[],
   markDataHealthy: vi.fn(),
 }));
 
@@ -36,14 +41,16 @@ vi.mock('./index', () => ({
     request: mocks.request,
     startPipelineWs: mocks.startPipelineWs,
     stopPipelineWs: mocks.stopPipelineWs,
+    getUser: mocks.getUser,
   },
   DbApi: {
     getAuth: mocks.getAuth,
     getSetting: mocks.getSetting,
-    addFriendLog: vi.fn(),
+    addFriendLog: mocks.addFriendLog,
+    getCachedFriends: mocks.getCachedFriends,
     saveFriend: vi.fn(),
     removeFriend: vi.fn(),
-    saveNotification: vi.fn(),
+    saveNotification: mocks.saveNotification,
     deleteNotification: vi.fn(),
     recordActivity: vi.fn(),
     getAllSettings: vi.fn().mockResolvedValue({}),
@@ -67,6 +74,7 @@ vi.mock('../stores/notificationEngine', () => ({
 
 vi.mock('../stores/friendsStore', () => ({
   useFriendsStore: () => ({
+    allFriends: mocks.allFriends,
     updateFriend: mocks.updateFriend,
     addFriend: mocks.addFriend,
     removeFriend: mocks.removeFriend,
@@ -83,10 +91,15 @@ describe('VRChat pipeline native bridge', () => {
     mocks.getSetting.mockReset().mockResolvedValue(null);
     mocks.startPipelineWs.mockReset().mockResolvedValue(undefined);
     mocks.stopPipelineWs.mockReset().mockResolvedValue(undefined);
+    mocks.getUser.mockReset().mockRejectedValue(new Error('not found'));
+    mocks.getCachedFriends.mockReset().mockResolvedValue([]);
+    mocks.addFriendLog.mockReset().mockResolvedValue(undefined);
+    mocks.saveNotification.mockReset().mockResolvedValue(undefined);
     mocks.notify.mockReset();
     mocks.updateFriend.mockReset();
     mocks.addFriend.mockReset();
     mocks.removeFriend.mockReset();
+    mocks.allFriends = [];
     mocks.markDataHealthy.mockReset();
     listeners['pipeline_ws_status'] = undefined as any;
     listeners['pipeline_ws_message'] = undefined as any;
@@ -183,6 +196,69 @@ describe('VRChat pipeline native bridge', () => {
     const call = mocks.updateFriend.mock.calls[0];
     expect(call[0]).toBe('usr_friend');
     expect(call[1].location).toBe('wrld_example:123');
+  });
+
+  it('uses the cached friend name when an offline event only contains a user id', async () => {
+    mocks.allFriends = [{ id: 'usr_friend', displayName: 'Alice' }];
+    const { initWebsocket } = await import('./websocket');
+
+    await initWebsocket();
+    listeners['pipeline_ws_message']!({
+      payload: JSON.stringify({
+        type: 'friend-offline',
+        content: { userId: 'usr_friend' },
+      }),
+    });
+    await flush();
+    await flush();
+
+    expect(mocks.addFriendLog).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'offline',
+      userId: 'usr_friend',
+      displayName: 'Alice',
+    }));
+    expect(mocks.notify).toHaveBeenCalledWith(
+      'VRC 好友状态',
+      expect.stringContaining('Alice 已下线'),
+      'friend_offline',
+    );
+    const saved = JSON.parse(mocks.saveNotification.mock.calls[0][0].notificationJson);
+    expect(saved.senderUsername).toBe('Alice');
+  });
+
+  it('retains a name from a full presence event for a later abbreviated offline event', async () => {
+    const { initWebsocket } = await import('./websocket');
+
+    await initWebsocket();
+    listeners['pipeline_ws_message']!({
+      payload: JSON.stringify({
+        type: 'friend-online',
+        content: {
+          userId: 'usr_friend',
+          location: 'wrld_example:123',
+          user: { id: 'usr_friend', displayName: 'Alice' },
+        },
+      }),
+    });
+    await flush();
+    mocks.addFriendLog.mockClear();
+    mocks.notify.mockClear();
+
+    listeners['pipeline_ws_message']!({
+      payload: JSON.stringify({ type: 'friend-offline', content: { userId: 'usr_friend' } }),
+    });
+    await flush();
+    await flush();
+
+    expect(mocks.addFriendLog).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'offline',
+      displayName: 'Alice',
+    }));
+    expect(mocks.notify).toHaveBeenCalledWith(
+      'VRC 好友状态',
+      expect.stringContaining('Alice 已下线'),
+      'friend_offline',
+    );
   });
 
   it('marks the data service healthy on any inbound pipeline message', async () => {

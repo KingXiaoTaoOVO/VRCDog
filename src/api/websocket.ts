@@ -29,6 +29,18 @@ const MAX_HANDLERS = 50;
 const FRIEND_NOTIFY_DEBOUNCE_MS = 45_000;
 const friendNotifyTimes = new Map<string, number>();
 const notificationToastTimes = new Map<string, number>();
+const friendDisplayNameCache = new Map<string, string>();
+const friendIdentityLookups = new Map<string, Promise<string>>();
+
+const FRIEND_IDENTITY_EVENTS = new Set([
+  'friend-online',
+  'friend-active',
+  'friend-offline',
+  'friend-location',
+  'friend-update',
+  'friend-add',
+  'friend-delete',
+]);
 
 export function onPipelineMessage(handler: PipelineHandler): () => void {
   if (handlers.length >= MAX_HANDLERS) {
@@ -142,8 +154,98 @@ export async function closeWebSocket() {
   wsState.bytesReceived = 0;
 }
 
+function getFriendUserId(content: any): string {
+  return String(
+    content?.userId
+    || content?.user_id
+    || content?.user?.id
+    || content?.user?.userId
+    || '',
+  ).trim();
+}
+
+function usableDisplayName(value: unknown, userId = ''): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!name || name === userId || name.toLowerCase() === 'unknown') return '';
+  return name;
+}
+
+function displayNameFromUser(user: any, userId = ''): string {
+  return usableDisplayName(
+    user?.displayName || user?.display_name || user?.username || user?.name,
+    userId,
+  );
+}
+
 function getFriendDisplayName(content: any): string {
-  return content?.user?.displayName || content?.displayName || 'Unknown';
+  const userId = getFriendUserId(content);
+  return displayNameFromUser(content?.user, userId)
+    || usableDisplayName(content?.displayName || content?.display_name, userId)
+    || friendDisplayNameCache.get(userId)
+    || userId
+    || 'VRChat 好友';
+}
+
+function rememberFriendDisplayName(userId: string, displayName: string) {
+  if (userId && displayName) friendDisplayNameCache.set(userId, displayName);
+}
+
+async function lookupFriendDisplayName(userId: string): Promise<string> {
+  try {
+    const friendsStore = useFriendsStore();
+    const friend = Array.isArray(friendsStore.allFriends)
+      ? friendsStore.allFriends.find((candidate: any) => candidate?.id === userId || candidate?.userId === userId)
+      : undefined;
+    const storeName = displayNameFromUser(friend, userId);
+    if (storeName) return storeName;
+  } catch {
+    // Pinia may not be active during the earliest pipeline events.
+  }
+
+  try {
+    const cached = await DbApi.getCachedFriends();
+    const friend = Array.isArray(cached)
+      ? cached.find((candidate: any) => candidate?.id === userId || candidate?.userId === userId || candidate?.user_id === userId)
+      : undefined;
+    const cachedName = displayNameFromUser(friend, userId);
+    if (cachedName) return cachedName;
+  } catch {
+    // Continue to the API fallback when the local cache is unavailable.
+  }
+
+  try {
+    const user = await VrcApi.getUser({ userId });
+    return displayNameFromUser(user, userId);
+  } catch {
+    return '';
+  }
+}
+
+async function enrichFriendIdentity(content: any): Promise<any> {
+  const source = content && typeof content === 'object' ? content : {};
+  const userId = getFriendUserId(source);
+  if (!userId) return source;
+
+  let displayName = displayNameFromUser(source.user, userId)
+    || usableDisplayName(source.displayName || source.display_name, userId)
+    || friendDisplayNameCache.get(userId)
+    || '';
+
+  if (!displayName) {
+    let lookup = friendIdentityLookups.get(userId);
+    if (!lookup) {
+      lookup = lookupFriendDisplayName(userId).finally(() => friendIdentityLookups.delete(userId));
+      friendIdentityLookups.set(userId, lookup);
+    }
+    displayName = await lookup;
+  }
+
+  rememberFriendDisplayName(userId, displayName);
+  return {
+    ...source,
+    userId,
+    ...(displayName ? { displayName } : {}),
+  };
 }
 
 function getFriendLocation(content: any): string {
@@ -151,16 +253,18 @@ function getFriendLocation(content: any): string {
 }
 
 function friendPatchFromPipeline(type: string, content: any): { userId: string; patch: Record<string, unknown> } | null {
-  const userId = content?.userId || content?.user?.id;
+  const userId = getFriendUserId(content);
   if (!userId) return null;
 
   const user = content?.user || {};
+  const displayName = getFriendDisplayName(content);
   const location = type === 'friend-offline' ? 'offline' : getFriendLocation(content) || user.location;
   return {
     userId,
     patch: {
       ...user,
       id: userId,
+      ...(usableDisplayName(displayName, userId) ? { displayName } : {}),
       location,
       status: type === 'friend-offline' ? 'offline' : user.status || 'online',
     },
@@ -168,7 +272,7 @@ function friendPatchFromPipeline(type: string, content: any): { userId: string; 
 }
 
 function shouldEmitFriendPresenceNotification(type: string, content: any): boolean {
-  const userId = content?.userId || content?.user?.id;
+  const userId = getFriendUserId(content);
   if (!userId) return false;
 
   const location = type === 'friend-online' ? getFriendLocation(content) : '';
@@ -195,7 +299,7 @@ async function emitFriendPresenceNotification(type: string, content: any) {
   if (type !== 'friend-online' && type !== 'friend-offline' && type !== 'friend-location') return;
   if (!shouldEmitFriendPresenceNotification(type, content)) return;
 
-  const userId = content?.userId || content?.user?.id;
+  const userId = getFriendUserId(content);
   if (!userId) return;
 
   const displayName = getFriendDisplayName(content);
@@ -323,40 +427,44 @@ async function handlePipeline(json: any) {
 
   try {
     const type = json.type;
-    const content = json.content;
+    let content = json.content;
+    if (FRIEND_IDENTITY_EVENTS.has(type)) {
+      content = await enrichFriendIdentity(content);
+      json.content = content;
+    }
 
     // ====== 1. Friend log recording ======
     if (type === 'friend-online') {
-      const userId = content.userId || content.user?.id;
-      const displayName = content.user?.displayName || 'Unknown';
+      const userId = getFriendUserId(content);
+      const displayName = getFriendDisplayName(content);
       if (userId) {
         await DbApi.addFriendLog({ eventType: 'online', userId, displayName, detail: content.location });
       }
       await emitFriendPresenceNotification(type, content);
     } else if (type === 'friend-offline') {
-      const userId = content.userId || content.user?.id;
-      const displayName = content.user?.displayName || 'Unknown';
+      const userId = getFriendUserId(content);
+      const displayName = getFriendDisplayName(content);
       if (userId) {
         await DbApi.addFriendLog({ eventType: 'offline', userId, displayName, detail: null });
       }
       await emitFriendPresenceNotification(type, content);
     } else if (type === 'friend-location') {
-      const userId = content.userId || content.user?.id;
-      const displayName = content.user?.displayName || 'Unknown';
+      const userId = getFriendUserId(content);
+      const displayName = getFriendDisplayName(content);
       if (userId) {
         await DbApi.addFriendLog({ eventType: 'location_change', userId, displayName, detail: content.location });
       }
       await emitFriendPresenceNotification(type, content);
     } else if (type === 'friend-add') {
-      const userId = content.userId || content.user?.id;
-      const displayName = content.user?.displayName || 'Unknown';
+      const userId = getFriendUserId(content);
+      const displayName = getFriendDisplayName(content);
       if (userId) {
         await DbApi.addFriendLog({ eventType: 'friend_add', userId, displayName, detail: null });
       }
     } else if (type === 'friend-delete') {
-      const userId = content.userId;
+      const userId = getFriendUserId(content);
       if (userId) {
-        await DbApi.addFriendLog({ eventType: 'friend_remove', userId, displayName: 'Unknown', detail: null });
+        await DbApi.addFriendLog({ eventType: 'friend_remove', userId, displayName: getFriendDisplayName(content), detail: null });
       }
     }
 
@@ -379,7 +487,7 @@ async function handlePipeline(json: any) {
       if (content.user) {
         await DbApi.saveFriend({
           userId: pipelineFriend.userId,
-          displayName: content.user.displayName,
+          displayName: getFriendDisplayName(content),
           status: String(pipelineFriend.patch.status || 'offline'),
           location: String(pipelineFriend.patch.location || ''),
           friendData: JSON.stringify(pipelineFriend.patch)
@@ -423,7 +531,7 @@ async function handlePipeline(json: any) {
       if (content.userId) {
         await DbApi.recordActivity({
           userId: content.userId,
-          displayName: content.user?.displayName || 'Unknown',
+          displayName: getFriendDisplayName(content),
           status: content.user?.status || 'online',
           location: content.location
         });

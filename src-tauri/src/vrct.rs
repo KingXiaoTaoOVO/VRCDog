@@ -2,7 +2,7 @@ use crate::ovr::OvrState;
 use crate::translate::{translate, TranslateRequest};
 use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,6 +35,8 @@ pub struct VrctProcessRequest {
     pub source_lang: String,
     #[serde(default = "default_target_lang")]
     pub target_lang: String,
+    #[serde(default)]
+    pub target_langs: Vec<String>,
     #[serde(default = "default_service")]
     pub service: String,
     #[serde(default)]
@@ -75,6 +77,12 @@ pub struct VrctProcessRequest {
     pub translation_first: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VrctTranslation {
+    pub target_lang: String,
+    pub translated: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VrctMessageRecord {
     pub id: u64,
@@ -83,6 +91,8 @@ pub struct VrctMessageRecord {
     pub translated: String,
     pub source_lang: String,
     pub target_lang: String,
+    #[serde(default)]
+    pub translations: Vec<VrctTranslation>,
     pub service: String,
     pub sent_osc: bool,
     pub overlay_updated: bool,
@@ -118,7 +128,9 @@ impl VrctState {
         while records.len() > HISTORY_LIMIT {
             records.pop_front();
         }
-        let next_id = records.back().map_or(1, |record| record.id.saturating_add(1));
+        let next_id = records
+            .back()
+            .map_or(1, |record| record.id.saturating_add(1));
         Self {
             history: Arc::new(Mutex::new(records)),
             next_id: Arc::new(Mutex::new(next_id)),
@@ -186,7 +198,7 @@ fn format_part(prefix: &str, text: &str, suffix: &str) -> String {
     format!("{}{}{}", prefix, text, suffix)
 }
 
-fn osc_text(req: &VrctProcessRequest, translated: &str) -> String {
+fn osc_text_single(req: &VrctProcessRequest, translated: &str) -> String {
     let message = req.text.trim();
     let translation = translated.trim();
     let translation_part = format_part(
@@ -327,16 +339,12 @@ pub async fn vrct_process_message(
         req.custom_api_url.clone()
     };
 
-    let translate_req = TranslateRequest {
-        text: text.clone(),
-        source_lang: normalize_lang(&source_lang),
-        target_lang: normalize_lang(&target_lang),
-        service: normalize_lang(&service),
-        api_key,
-        model,
-        prompt,
-        custom_api_url,
-    };
+    let source_lang = normalize_lang(&source_lang);
+    let service = normalize_lang(&service);
+    let target_languages = collect_target_languages(&target_lang, &req.target_langs);
+    if target_languages.is_empty() {
+        return Err("VrcDog translation target language is empty".into());
+    }
 
     let osc_destination = req.send_osc.then(|| osc_target(&req));
     if req.send_typing {
@@ -345,25 +353,46 @@ pub async fn vrct_process_message(
         }
     }
 
-    let translated = match translate(&translate_req).await {
-        Ok(result) => result.translated,
-        Err(error) => {
-            if req.send_typing {
-                if let Some((host, port)) = osc_destination.as_ref() {
-                    let _ = send_osc_typing(host, *port, false);
+    let mut translations = Vec::with_capacity(target_languages.len());
+    for target_language in &target_languages {
+        let translate_req = TranslateRequest {
+            text: text.clone(),
+            source_lang: source_lang.clone(),
+            target_lang: target_language.clone(),
+            service: service.clone(),
+            api_key: api_key.clone(),
+            model: model.clone(),
+            prompt: prompt.clone(),
+            custom_api_url: custom_api_url.clone(),
+        };
+        match translate(&translate_req).await {
+            Ok(result) => translations.push(VrctTranslation {
+                target_lang: target_language.clone(),
+                translated: result.translated,
+            }),
+            Err(error) => {
+                if req.send_typing {
+                    if let Some((host, port)) = osc_destination.as_ref() {
+                        let _ = send_osc_typing(host, *port, false);
+                    }
                 }
+                return Err(error.into());
             }
-            return Err(error.into());
         }
-    };
+    }
+    let translated = translations
+        .first()
+        .map(|item| item.translated.clone())
+        .unwrap_or_default();
 
     let mut sent_osc = false;
     if req.send_osc {
-        let (osc_host, osc_port) = osc_destination.expect("OSC destination exists when send_osc is true");
+        let (osc_host, osc_port) =
+            osc_destination.expect("OSC destination exists when send_osc is true");
         let send_result = send_osc_chatbox(
             &osc_host,
             osc_port,
-            trim_for_chatbox(osc_text(&req, &translated)),
+            trim_for_chatbox(osc_text(&req, &translations)),
             req.complete,
             req.notification,
         );
@@ -380,7 +409,7 @@ pub async fn vrct_process_message(
             &app_handle,
             &ovr_state,
             text.clone(),
-            translated.clone(),
+            overlay_translation_text(&translations),
         )
         .await?;
     }
@@ -391,9 +420,10 @@ pub async fn vrct_process_message(
         source: req.source.clone(),
         original: text,
         translated,
-        source_lang: translate_req.source_lang,
-        target_lang: translate_req.target_lang,
-        service: translate_req.service,
+        source_lang,
+        target_lang: target_languages[0].clone(),
+        translations,
+        service,
         sent_osc,
         overlay_updated,
         timestamp: chrono::Local::now().to_rfc3339(),
@@ -426,4 +456,128 @@ pub async fn vrct_clear_history(state: tauri::State<'_, VrctState>) -> crate::Ap
     history.clear();
     state.persist_history(&history);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request() -> VrctProcessRequest {
+        VrctProcessRequest {
+            text: "hello".into(),
+            source: VrctMessageSource::Mic,
+            source_lang: "en-US".into(),
+            target_lang: "zh-CN".into(),
+            target_langs: vec![],
+            service: "google_free".into(),
+            api_key: String::new(),
+            model: String::new(),
+            prompt: String::new(),
+            custom_api_url: String::new(),
+            send_osc: true,
+            complete: true,
+            notification: false,
+            update_overlay: true,
+            show_original_in_osc: true,
+            osc_port: None,
+            osc_host: None,
+            send_typing: false,
+            message_prefix: String::new(),
+            message_suffix: String::new(),
+            translation_prefix: String::new(),
+            translation_suffix: String::new(),
+            separator: " ".into(),
+            translation_first: false,
+        }
+    }
+
+    #[test]
+    fn target_languages_are_normalized_deduplicated_and_bounded() {
+        let languages = collect_target_languages(
+            "zh-Hans",
+            &[
+                "zh-CN".into(),
+                "ja-JP".into(),
+                "ko-KR".into(),
+                "fr-FR".into(),
+                "de-DE".into(),
+            ],
+        );
+        assert_eq!(languages, vec!["zh-CN", "ja", "ko", "fr"]);
+    }
+
+    #[test]
+    fn multilingual_osc_contains_source_and_all_translations_in_one_message() {
+        let translations = vec![
+            VrctTranslation {
+                target_lang: "zh-CN".into(),
+                translated: "你好".into(),
+            },
+            VrctTranslation {
+                target_lang: "ja".into(),
+                translated: "こんにちは".into(),
+            },
+        ];
+        let text = osc_text(&request(), &translations);
+        assert_eq!(text, "[en] hello | [zh-CN] 你好 | [ja] こんにちは");
+    }
+
+    #[test]
+    fn chatbox_clipping_is_unicode_safe() {
+        let clipped = trim_for_chatbox("你".repeat(200));
+        assert_eq!(clipped.chars().count(), VRC_CHATBOX_LIMIT);
+        assert!(clipped.ends_with('…'));
+    }
+}
+
+fn collect_target_languages(primary: &str, additional: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    std::iter::once(primary)
+        .chain(additional.iter().map(String::as_str))
+        .map(normalize_lang)
+        .filter(|language| language != "auto" && seen.insert(language.to_ascii_lowercase()))
+        .take(4)
+        .collect()
+}
+
+fn osc_text(req: &VrctProcessRequest, translations: &[VrctTranslation]) -> String {
+    if translations.len() <= 1 {
+        return osc_text_single(
+            req,
+            translations
+                .first()
+                .map(|item| item.translated.as_str())
+                .unwrap_or_default(),
+        );
+    }
+
+    let translated = translations
+        .iter()
+        .map(|item| format!("[{}] {}", item.target_lang, item.translated.trim()))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if !req.show_original_in_osc || req.text.trim().is_empty() {
+        return translated;
+    }
+
+    let original = format!("[{}] {}", normalize_lang(&req.source_lang), req.text.trim());
+    if req.translation_first {
+        format!("{} | {}", translated, original)
+    } else {
+        format!("{} | {}", original, translated)
+    }
+}
+
+fn overlay_translation_text(translations: &[VrctTranslation]) -> String {
+    if translations.len() <= 1 {
+        return translations
+            .first()
+            .map(|item| item.translated.clone())
+            .unwrap_or_default();
+    }
+    translations
+        .iter()
+        .map(|item| format!("[{}] {}", item.target_lang, item.translated.trim()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

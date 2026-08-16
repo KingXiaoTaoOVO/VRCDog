@@ -409,7 +409,11 @@ pub fn db_add_friend_log(
 
     let mut final_display_name = display_name;
     if let Some(uid) = &user_id {
-        if final_display_name.is_none() || final_display_name.as_deref() == Some("Unknown") {
+        let needs_cached_name = final_display_name
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|name| name.is_empty() || name.eq_ignore_ascii_case("unknown") || name == uid);
+        if needs_cached_name {
             if let Ok(Some(cached_name)) = conn
                 .query_row(
                     "SELECT display_name FROM friends WHERE user_id = ?1",

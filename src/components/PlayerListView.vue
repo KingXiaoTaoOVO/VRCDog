@@ -7,6 +7,7 @@ import VrcResourceCard from './VrcResourceCard.vue';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useAuthStore } from '../stores/authStore';
 import { buildCurrentRoomPlayers, type GameLogEvent } from '../utils/gameLogSession';
+import { currentInstanceState, refreshCurrentInstance } from '../stores/currentInstance';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
@@ -37,6 +38,25 @@ let refreshTimer: number | null = null;
 let fetchInFlight = false;
 let fetchPending = false;
 let componentMounted = false;
+
+function applySharedInstanceSnapshot() {
+  if (!currentInstanceState.updatedAt) return;
+  currentLocation.value = currentInstanceState.location;
+  if (currentInstanceState.roomName) currentRoom.value = currentInstanceState.roomName;
+  instancePlayerCount.value = currentInstanceState.playerCount;
+
+  const sharedPlayers: Player[] = currentInstanceState.players.map(player => ({
+    name: player.name,
+    userId: player.userId,
+    joinTime: player.joinTime,
+    userData: player.userData,
+    loadingData: false,
+  }));
+  const merged = new Map<string, Player>();
+  mergePlayers(merged, players.value);
+  mergePlayers(merged, sharedPlayers);
+  players.value = Array.from(merged.values()).sort((a, b) => b.joinTime.localeCompare(a.joinTime));
+}
 
 function parseLocation(location: string): { worldId: string; instanceId: string } | null {
   if (!location || !location.startsWith('wrld_') || !location.includes(':')) return null;
@@ -293,9 +313,12 @@ const resolvePlayerData = async (player: Player) => {
 
 onMounted(() => {
   componentMounted = true;
+  applySharedInstanceSnapshot();
+  void refreshCurrentInstance({ force: true });
   fetchPlayerList();
   refreshTimer = window.setInterval(fetchPlayerList, 30000);
   window.addEventListener('vrc-gamelog-updated', fetchPlayerList);
+  window.addEventListener('vrc-instance-updated', applySharedInstanceSnapshot);
 });
 
 onUnmounted(() => {
@@ -303,6 +326,7 @@ onUnmounted(() => {
   fetchPending = false;
   if (refreshTimer) window.clearInterval(refreshTimer);
   window.removeEventListener('vrc-gamelog-updated', fetchPlayerList);
+  window.removeEventListener('vrc-instance-updated', applySharedInstanceSnapshot);
 });
 
 const filteredPlayers = computed(() => {

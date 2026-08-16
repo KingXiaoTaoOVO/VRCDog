@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
     return vi.fn();
   }),
   onMoved: vi.fn(async () => vi.fn()),
+  onFocusChanged: vi.fn(async (handler: (event: { payload: boolean }) => void) => {
+    mocks.focusHandler = handler;
+    return vi.fn();
+  }),
   setAlwaysOnTop: vi.fn(async () => undefined),
   setEffects: vi.fn(async () => undefined),
   setResizable: vi.fn(async () => undefined),
@@ -21,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   previewSong: vi.fn(),
   status: {} as any,
   songs: [] as any[],
+  focusHandler: null as null | ((event: { payload: boolean }) => void),
 }));
 
 vi.hoisted(() => {
@@ -44,10 +49,12 @@ vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true }));
 vi.mock('@tauri-apps/api/event', () => ({ emit: mocks.emit, listen: mocks.listen }));
 vi.mock('@tauri-apps/api/window', () => ({
   Effect: { Acrylic: 'acrylic' },
+  EffectState: { Active: 'active' },
   getCurrentWindow: () => ({
     clearEffects: mocks.clearEffects,
     destroy: vi.fn(async () => undefined),
     onMoved: mocks.onMoved,
+    onFocusChanged: mocks.onFocusChanged,
     setAlwaysOnTop: mocks.setAlwaysOnTop,
     setEffects: mocks.setEffects,
     setResizable: mocks.setResizable,
@@ -77,6 +84,7 @@ describe('VrpianoOverlayView appearance controls', () => {
     localStorage.clear();
     vi.clearAllMocks();
     mocks.listeners.clear();
+    mocks.focusHandler = null;
     mocks.status = {
       running: false,
       paused: false,
@@ -118,7 +126,7 @@ describe('VrpianoOverlayView appearance controls', () => {
     const wrapper = mount(VrpianoOverlayView);
     await flushPromises();
 
-    expect(mocks.setEffects).toHaveBeenCalledWith({ effects: ['acrylic'] });
+    expect(mocks.setEffects).toHaveBeenCalledWith({ effects: ['acrylic'], state: 'active' });
 
     await wrapper.get('button[title="外观设置"]').trigger('click');
     await wrapper.get('input[type="range"]').setValue('0.4');
@@ -127,6 +135,27 @@ describe('VrpianoOverlayView appearance controls', () => {
     await wrapper.get('input[type="checkbox"]').setValue(false);
     await flushPromises();
     expect(mocks.clearEffects).toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('reapplies the saved opacity and blur when the overlay loses focus', async () => {
+    localStorage.setItem('vrcdog.vrpiano.overlay.opacity', '0.55');
+    localStorage.setItem('vrcdog.vrpiano.overlay.blur', '30');
+    const wrapper = mount(VrpianoOverlayView);
+    await flushPromises();
+
+    expect(wrapper.attributes('style')).toContain('--vrpiano-overlay-opacity: 0.55');
+    expect(wrapper.attributes('style')).toContain('--vrpiano-overlay-blur: 30px');
+    mocks.setEffects.mockClear();
+
+    mocks.focusHandler?.({ payload: false });
+    await new Promise(resolve => window.setTimeout(resolve, 0));
+    await flushPromises();
+
+    expect(wrapper.attributes('style')).toContain('--vrpiano-overlay-opacity: 0.55');
+    expect(wrapper.attributes('style')).toContain('--vrpiano-overlay-blur: 30px');
+    expect(mocks.setEffects).toHaveBeenCalledWith({ effects: ['acrylic'], state: 'active' });
 
     wrapper.unmount();
   });
