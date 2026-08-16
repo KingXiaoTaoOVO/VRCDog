@@ -314,7 +314,15 @@ const processMessageNow = async (
         source,
         source_lang: sourceLanguage,
         target_lang: targetLanguage,
-        target_langs: multiLangEnabled.value ? multiLangTargets.value : [],
+        target_langs: multiLangEnabled.value
+          ? Array.from(
+              new Set(
+                multiLangTargets.value.filter(
+                  (l) => l !== sourceLanguage && l !== targetLanguage,
+                ),
+              ),
+            )
+          : [],
         service: translateEngine.value,
         api_key: apiKey.value.trim(),
         model: model.value.trim(),
@@ -680,7 +688,7 @@ onUnmounted(async () => {
             <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">{{ l('额外目标语言 (多语言 OSC)', 'Additional target languages (multi-language OSC)') }}</label>
             <div class="flex flex-wrap gap-2">
               <label
-                v-for="opt in languageOptions.filter(o => o.value !== 'auto' && o.value !== targetLang)"
+                v-for="opt in languageOptions.filter(o => o.value !== 'auto' && o.value !== targetLang && o.value !== sourceLang)"
                 :key="opt.value"
                 class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft cursor-pointer hover:border-primary transition-all text-xs font-bold"
                 :class="multiLangTargets.includes(opt.value) ? 'border-primary text-primary bg-primary/5' : 'text-text-muted'"

@@ -31,6 +31,7 @@ import {
   VRPIANO_OVERLAY_OPACITY_KEY,
 } from './vrpianoOverlayAppearance';
 import { VRPIANO_PREVIEW_SONG_EVENT } from './vrpianoEvents';
+import { songIcon, songCover, isImageIcon } from '../composables/useVrpianoIcons';
 
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
@@ -475,7 +476,12 @@ onUnmounted(() => {
           @click="handleSongClick(song)"
           @dblclick.prevent="previewSong(song)"
         >
-          <span>{{ index + 1 }}</span>
+          <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
+            <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
+            <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
+            <img v-else-if="songCover(song)" :src="songCover(song)" alt="">
+            <b v-else class="song-index">{{ index + 1 }}</b>
+          </span>
           <strong :title="song.name">{{ song.name }}</strong>
           <small v-if="index === currentIndex">{{ status.paused ? '暂停' : status.running ? '播放中' : '当前' }}</small>
         </button>
@@ -1009,6 +1015,39 @@ input {
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   text-align: center;
+}
+
+.playlist-scroll .song-note {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  overflow: hidden;
+  color: white;
+  background: var(--theme-primary);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.playlist-scroll .song-note.custom {
+  color: var(--theme-text);
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border-soft);
+}
+
+.playlist-scroll .song-note img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.playlist-scroll .song-note .song-index {
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--theme-text-muted);
 }
 
 .playlist-scroll button strong {
