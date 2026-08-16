@@ -547,6 +547,11 @@ pub fn osc_start_monitor(
                             format!("socket 错误 (连续第 {consecutive_errors} 次): {error}"),
                         );
                         if consecutive_errors >= 100 {
+                            // Drop the dead socket FIRST so its port is released. Without
+                            // this, binding a fresh socket to the same endpoint fails with
+                            // AddrInUse and every rebind attempt is wasted — the feature
+                            // would never recover on its own.
+                            drop(socket);
                             match try_rebind_monitor_socket(&app_handle, &rebind_endpoint).await {
                                 Some(new_socket) => {
                                     socket = new_socket;
