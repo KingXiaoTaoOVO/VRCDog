@@ -419,6 +419,56 @@ fn emit_packet(
     }
 }
 
+/// Bind the listening UDP socket used by the OSC monitor.
+///
+/// Extracted into its own function so the monitor loop can re-create the socket
+/// after a fatal transport error (e.g. the network interface went down) instead
+/// of dying and forcing the user to manually restart the listener.
+fn bind_monitor_socket(endpoint: &str) -> AppResult<TokioUdpSocket> {
+    let std_socket = UdpSocket::bind(endpoint).map_err(|err| {
+        // Surface a precise, user-actionable message instead of a raw OS error.
+        let hint = if err.kind() == std::io::ErrorKind::AddrInUse {
+            format!(
+                "OSC 监听端口 {endpoint} 已被占用（可能 VRChat 正占用该端口，或上一次监听未完全释放）。可稍候重试或更换端口。"
+            )
+        } else if err.kind() == std::io::ErrorKind::PermissionDenied {
+            format!("没有权限绑定 {endpoint}，请尝试更高权限或更换端口。")
+        } else {
+            format!("无法绑定 OSC 监听端口 {endpoint}: {err}")
+        };
+        app_error(hint)
+    })?;
+    std_socket.set_nonblocking(true).map_err(app_error)?;
+    TokioUdpSocket::from_std(std_socket).map_err(app_error)
+}
+
+/// Attempt to transparently rebind the OSC monitor socket after a fatal
+/// transport error. Tries up to `MAX_REBIND_ATTEMPTS` times with a short
+/// backoff between attempts, so transient interface resets recover on their
+/// own. Returns `Some(socket)` on success, `None` if every attempt failed.
+async fn try_rebind_monitor_socket(
+    app_handle: &AppHandle,
+    endpoint: &str,
+) -> Option<TokioUdpSocket> {
+    const MAX_REBIND_ATTEMPTS: u32 = 5;
+    const REBIND_BACKOFF: Duration = Duration::from_secs(1);
+    for attempt in 1..=MAX_REBIND_ATTEMPTS {
+        // Yield so the runtime can service other tasks while we wait for the
+        // interface to recover.
+        tokio::time::sleep(REBIND_BACKOFF).await;
+        match bind_monitor_socket(endpoint) {
+            Ok(socket) => return Some(socket),
+            Err(err) => {
+                let _ = app_handle.emit(
+                    "osc-monitor-warning",
+                    format!("OSC 监听 socket 重绑失败 (第 {attempt} 次): {}", err.message),
+                );
+            }
+        }
+    }
+    None
+}
+
 #[tauri::command]
 pub fn osc_start_monitor(
     app: AppHandle,
@@ -440,24 +490,11 @@ pub fn osc_start_monitor(
 
     osc_stop_monitor()?;
 
-    let socket = UdpSocket::bind(&endpoint).map_err(|err| {
-        // Surface a precise, user-actionable message instead of a raw OS error.
-        let hint = if err.kind() == std::io::ErrorKind::AddrInUse {
-            format!(
-                "OSC 监听端口 {endpoint} 已被占用（可能 VRChat 正占用该端口，或上一次监听未完全释放）。可稍候重试或更换端口。"
-            )
-        } else if err.kind() == std::io::ErrorKind::PermissionDenied {
-            format!("没有权限绑定 {endpoint}，请尝试更高权限或更换端口。")
-        } else {
-            format!("无法绑定 OSC 监听端口 {endpoint}: {err}")
-        };
-        app_error(hint)
-    })?;
-    socket.set_nonblocking(true).map_err(app_error)?;
-    let socket = TokioUdpSocket::from_std(socket).map_err(app_error)?;
+    let mut socket = bind_monitor_socket(&endpoint)?;
 
     let app_handle = app.clone();
     let listen_endpoint = endpoint.clone();
+    let rebind_endpoint = endpoint.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
         use futures::FutureExt;
@@ -500,20 +537,33 @@ pub fn osc_start_monitor(
                             continue;
                         }
                         consecutive_errors += 1;
-                        // Persistent transport errors mean the socket is dead
-                        // (e.g. interface went down). Throttle, surface the count,
-                        // and stop cleanly after a burst instead of spinning forever.
+                        // Persistent transport errors mean the socket is likely dead
+                        // (e.g. the network interface went down). Surface the count, then
+                        // try to transparently rebind the socket so monitoring survives
+                        // transient outages without user intervention. Only give up (clean
+                        // stop) once rebind itself has repeatedly failed.
                         let _ = app_handle.emit(
                             "osc-monitor-warning",
                             format!("socket 错误 (连续第 {consecutive_errors} 次): {error}"),
                         );
                         if consecutive_errors >= 100 {
-                            let _ = app_handle.emit(
-                                "osc-monitor-error",
-                                "OSC 监听持续出错已超上限，已自动停止。请检查网络或端口占用后重新启动监听。"
-                                    .to_string(),
-                            );
-                            break;
+                            match try_rebind_monitor_socket(&app_handle, &rebind_endpoint).await {
+                                Some(new_socket) => {
+                                    socket = new_socket;
+                                    consecutive_errors = 0;
+                                    let _ = app_handle.emit(
+                                        "osc-monitor-warning",
+                                        "OSC 监听 socket 已自动重绑，继续监听。".to_string(),
+                                    );
+                                }
+                                None => {
+                                    let _ = app_handle.emit(
+                                        "osc-monitor-error",
+                                        "OSC 监听持续出错且重绑失败，已自动停止。请检查网络或端口占用后重新启动监听。".to_string(),
+                                    );
+                                    break;
+                                }
+                            }
                         }
                         tokio::time::sleep(Duration::from_millis(50)).await;
                     }
