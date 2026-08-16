@@ -125,6 +125,15 @@ pub struct OvrConfig {
     pub scan_frame_width_m: f32,
     #[serde(default = "default_scan_frame_distance_m")]
     pub scan_frame_distance_m: f32,
+    // ===== Native VR Menu Theme (driven by the app's live theme) =====
+    #[serde(default = "default_vr_menu_accent")]
+    pub vr_menu_accent: String,
+    #[serde(default = "default_vr_menu_bg")]
+    pub vr_menu_bg: String,
+    #[serde(default = "default_vr_menu_text")]
+    pub vr_menu_text: String,
+    #[serde(default = "default_vr_menu_text_muted")]
+    pub vr_menu_text_muted: String,
 }
 
 fn default_auto_scan_interval() -> u32 {
@@ -186,6 +195,19 @@ fn default_scan_frame_width_m() -> f32 {
 }
 fn default_scan_frame_distance_m() -> f32 {
     0.72
+}
+
+fn default_vr_menu_accent() -> String {
+    "#d97706".into()
+}
+fn default_vr_menu_bg() -> String {
+    "#faf7ed".into()
+}
+fn default_vr_menu_text() -> String {
+    "#5d4037".into()
+}
+fn default_vr_menu_text_muted() -> String {
+    "#76584d".into()
 }
 fn default_merge_x() -> f32 {
     0.2
@@ -249,6 +271,10 @@ impl Default for OvrConfig {
             result_offset_z: -1.10,
             scan_frame_width_m: 0.34,
             scan_frame_distance_m: 0.72,
+            vr_menu_accent: default_vr_menu_accent(),
+            vr_menu_bg: default_vr_menu_bg(),
+            vr_menu_text: default_vr_menu_text(),
+            vr_menu_text_muted: default_vr_menu_text_muted(),
             ocr_contrast: 1.0,
             ocr_sharpen: false,
             ocr_denoise: false,
@@ -857,6 +883,9 @@ fn vr_thread_main(
                 OvrCommand::UpdateConfig(new_config) => {
                     current_config = *new_config;
                     normalize_overlay_layout(&mut current_config);
+                    // Force the VR menu to re-render with the (possibly) new theme colors.
+                    last_menu_render_page = -1;
+                    last_menu_render_sel = -1;
                     // Apply config changes to overlay
                     if let Ok(mut ovr) = context.overlay() {
                         let left_idx = context.system().ok().and_then(|sys| {
@@ -1991,7 +2020,7 @@ fn vr_thread_main(
                             &current_config,
                         );
                         if let Ok(mut ovr) = context.overlay() {
-                            let _ = ovr.set_raw_data(h, &pixels, 512, 320, 4);
+                            let _ = ovr.set_raw_data(h, &pixels, 1024, 640, 4);
                         }
                     }
                     last_menu_render_page = menu_page as i32;
