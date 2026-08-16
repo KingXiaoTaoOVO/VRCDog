@@ -1126,17 +1126,10 @@ const refreshStatus = async () => {
   }
 };
 
-const handleHotkey = (event: KeyboardEvent) => {
-  if (!hotkeysEnabled.value) return;
-  if (!['F1', 'F2', 'F3', 'F4', 'F5'].includes(event.key)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.key === 'F1') void togglePlayback();
-  else if (event.key === 'F2' && hasStartedPlayback.value) void restartPlayback();
-  else if (event.key === 'F3') adjustSpeed(0.1);
-  else if (event.key === 'F4') adjustSpeed(-0.1);
-  else if (event.key === 'F5') resetSpeed();
-};
+// Global hotkeys (F1–F5) are handled by the OS-level keyboard hook installed in
+// Rust (vrpiano.rs::start_global_hotkey_hook via SetWindowsHookExW WH_KEYBOARD_LL).
+// That hook is system-wide and fires regardless of which window is focused, so a
+// JS window keydown listener here is redundant and would double-fire with it.
 
 watch(speed, () => {
   scheduleSpeedApply();
@@ -1184,7 +1177,8 @@ onMounted(async () => {
   if (pollTimer === null) {
     pollTimer = window.setInterval(refreshStatus, 1500);
   }
-  window.addEventListener('keydown', handleHotkey, { capture: true });
+  // F1–F5 global hotkeys are owned by the Rust WH_KEYBOARD_LL hook (system-wide,
+  // works without VRCDog being focused) — no JS keydown listener needed here.
 });
 
 onUnmounted(() => {
@@ -1201,7 +1195,6 @@ onUnmounted(() => {
   onlineSearchRequestId += 1;
   pausePlayer();
   void audioContext?.close();
-  window.removeEventListener('keydown', handleHotkey, { capture: true } as any);
 });
 </script>
 
@@ -1394,7 +1387,7 @@ onUnmounted(() => {
         <div class="hotkey-panel" :class="{ enabled: hotkeysEnabled }">
           <div>
             <strong>{{ l('全局快捷键', 'Global shortcuts') }}</strong>
-            <span>{{ l('F1 开始、暂停或继续；开始后可用 F2 重新开始。F3/F4 调整速度，F5 恢复默认速度。', 'F1 starts, pauses, or resumes. After playback starts, F2 restarts it. F3/F4 adjust speed and F5 restores the default.') }}</span>
+            <span>{{ l('F1 开始、暂停或继续；开始后可用 F2 重新开始。F3/F4 调整速度，F5 恢复默认速度。（系统级全局快捷键，在 VRChat 或任意软件中按下均生效）', 'F1 starts, pauses, or resumes. After playback starts, F2 restarts it. F3/F4 adjust speed and F5 restores the default. (System-wide global shortcuts — they work in VRChat or any other app.)') }}</span>
           </div>
           <button class="toggle-btn" :class="{ enabled: hotkeysEnabled }" :disabled="!status.hotkeys_available" @click="toggleHotkeys">
             {{ hotkeysEnabled ? l('已开启', 'Enabled') : l('已关闭', 'Disabled') }}
