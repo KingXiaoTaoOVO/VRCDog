@@ -12,12 +12,14 @@ import {
   Send,
   Trash2,
   Video,
+  X,
 } from 'lucide-vue-next';
 import { SysApi, VrcApi } from '../api';
 import { buildSurveyWorkbook, surveyExportFileName } from '../utils/surveyExcel';
 import type {
   Survey,
   SurveyMediaType,
+  SurveyOption,
   SurveyQuestion,
   SurveyQuestionType,
   SurveySubmission,
@@ -68,8 +70,8 @@ const blankQuestion = (questionType: SurveyQuestionType = 'single_choice'): Surv
   require_correct: false,
   options: questionType.includes('choice')
     ? [
-      { option_id: newId('option'), label: '' },
-      { option_id: newId('option'), label: '' },
+      { option_id: newId('option'), label: '', media: [] },
+      { option_id: newId('option'), label: '', media: [] },
     ]
     : [],
   correct_answers: [],
@@ -230,14 +232,14 @@ const setQuestionType = (question: SurveyQuestion, type: SurveyQuestionType) => 
   question.correct_answers = [];
   question.options = type.includes('choice')
     ? [
-      { option_id: newId('option'), label: '' },
-      { option_id: newId('option'), label: '' },
+      { option_id: newId('option'), label: '', media: [] },
+      { option_id: newId('option'), label: '', media: [] },
     ]
     : [];
 };
 
 const addOption = (question: SurveyQuestion) => {
-  question.options.push({ option_id: newId('option'), label: '' });
+  question.options.push({ option_id: newId('option'), label: '', media: [] });
 };
 
 const removeOption = (question: SurveyQuestion, optionId: string) => {
@@ -328,7 +330,7 @@ const rewardEnabled = computed<boolean>({
     if (!selected.value) return;
     if (on) {
       if (!selected.value.reward) {
-        selected.value.reward = { role_id: roles.value[0]?.role_id || '', duration_hours: null };
+        selected.value.reward = { role_id: roles.value[0]?.role_id || '', duration_value: null, duration_unit: 'hour' };
       }
     } else {
       selected.value.reward = null;
@@ -336,15 +338,15 @@ const rewardEnabled = computed<boolean>({
   },
 });
 
-// A reward is "permanent" when duration_hours is null.
+// A reward is "permanent" when duration_value is null.
 const rewardPermanent = computed<boolean>({
   get: () => {
     const reward = selected.value?.reward;
-    return !reward || reward.duration_hours === null;
+    return !reward || reward.duration_value === null;
   },
   set: (permanent) => {
     if (!selected.value?.reward) return;
-    selected.value.reward.duration_hours = permanent ? null : 24;
+    selected.value.reward.duration_value = permanent ? null : 24;
   },
 });
 
@@ -356,7 +358,17 @@ const setRewardDuration = (event: Event) => {
   if (!selected.value?.reward) return;
   const raw = (event.target as HTMLInputElement).value;
   const parsed = Number(raw);
-  selected.value.reward.duration_hours = Number.isFinite(parsed) ? parsed : null;
+  selected.value.reward.duration_value = raw === '' || !Number.isFinite(parsed) ? null : parsed;
+};
+
+const setRewardUnit = (event: Event) => {
+  if (!selected.value?.reward) return;
+  selected.value.reward.duration_unit = (event.target as HTMLSelectElement).value;
+};
+
+const addOptionMedia = (option: SurveyOption) => {
+  if (!option.media) option.media = [];
+  option.media.push({ media_type: 'image', url: '', caption: '' });
 };
 
 // Resolve a question_id to its title for display in the detail modal
@@ -565,22 +577,37 @@ onMounted(fetchData);
               </select>
               <span v-if="roles.length === 0" class="block text-[10px] text-amber-500 mt-1">尚未创建任何角色，请先在「角色管理」中添加。</span>
             </label>
-            <div class="flex items-end gap-3">
+            <div class="flex items-end gap-3 flex-wrap">
               <label class="flex items-center gap-2 text-xs text-text cursor-pointer pb-2 shrink-0">
                 <input v-model="rewardPermanent" type="checkbox" class="w-4 h-4 accent-primary"> 永久有效
               </label>
-              <label v-if="!rewardPermanent" class="block">
-                <span class="block text-[10px] font-bold text-text-muted mb-1">有效时长（小时）</span>
-                <input
-                  :value="selected.reward?.duration_hours ?? ''"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="w-28 h-9 px-2 rounded-md bg-background border border-border-soft text-sm text-text"
-                  placeholder="如 24"
-                  @input="setRewardDuration"
-                >
-              </label>
+              <template v-if="!rewardPermanent">
+                <label class="block">
+                  <span class="block text-[10px] font-bold text-text-muted mb-1">有效时长</span>
+                  <input
+                    :value="selected.reward?.duration_value ?? ''"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="w-24 h-9 px-2 rounded-md bg-background border border-border-soft text-sm text-text"
+                    placeholder="如 7"
+                    @input="setRewardDuration"
+                  >
+                </label>
+                <label class="block">
+                  <span class="block text-[10px] font-bold text-text-muted mb-1">单位</span>
+                  <select
+                    :value="selected.reward?.duration_unit || 'hour'"
+                    class="h-9 px-2 rounded-md bg-background border border-border-soft text-sm text-text"
+                    @change="setRewardUnit"
+                  >
+                    <option value="hour">小时</option>
+                    <option value="day">天</option>
+                    <option value="month">月</option>
+                    <option value="year">年</option>
+                  </select>
+                </label>
+              </template>
             </div>
           </div>
         </section>
@@ -603,23 +630,45 @@ onMounted(fetchData);
           <div class="p-4 space-y-4">
             <input v-model="question.description" class="w-full h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" placeholder="题目补充说明（可选）">
 
-            <div v-if="question.question_type.includes('choice')" class="space-y-2">
-              <div v-for="(option, optionIndex) in question.options" :key="option.option_id" class="flex items-center gap-2">
-                <button
-                  class="w-5 h-5 shrink-0 border grid place-items-center"
-                  :class="[
-                    question.question_type === 'single_choice' ? 'rounded-full' : 'rounded',
-                    question.correct_answers.includes(option.option_id) ? 'bg-green-500 border-green-500 text-white' : 'border-border-strong text-transparent',
-                  ]"
-                  :title="question.require_correct ? '设为正确答案' : '开启“答错阻断”后可设置正确答案'"
-                  @click="toggleCorrect(question, option.option_id)"
-                >
-                  <CheckCircle2 :size="12" />
-                </button>
-                <input v-model="option.label" class="flex-1 h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="`选项 ${optionIndex + 1}`">
-                <button class="w-7 h-7 grid place-items-center text-text-muted hover:text-red-500 disabled:opacity-30" :disabled="question.options.length <= 2" title="删除选项" @click="removeOption(question, option.option_id)">
-                  <Trash2 :size="13" />
-                </button>
+            <div v-if="question.question_type.includes('choice')" class="space-y-3">
+              <div v-for="(option, optionIndex) in question.options" :key="option.option_id" class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <button
+                    class="w-5 h-5 shrink-0 border grid place-items-center"
+                    :class="[
+                      question.question_type === 'single_choice' ? 'rounded-full' : 'rounded',
+                      question.correct_answers.includes(option.option_id) ? 'bg-green-500 border-green-500 text-white' : 'border-border-strong text-transparent',
+                    ]"
+                    :title="question.require_correct ? '设为正确答案' : '开启“答错阻断”后可设置正确答案'"
+                    @click="toggleCorrect(question, option.option_id)"
+                  >
+                    <CheckCircle2 :size="12" />
+                  </button>
+                  <input v-model="option.label" class="flex-1 h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="`选项 ${optionIndex + 1}`">
+                  <button class="w-7 h-7 grid place-items-center text-text-muted hover:text-red-500 disabled:opacity-30" :disabled="question.options.length <= 2" title="删除选项" @click="removeOption(question, option.option_id)">
+                    <Trash2 :size="13" />
+                  </button>
+                </div>
+                <div class="pl-7 flex items-center gap-2 flex-wrap">
+                  <button class="text-[11px] text-text-muted hover:text-primary flex items-center gap-1" @click="addOptionMedia(option)"><Image :size="12" /> 选项图片</button>
+                  <div v-if="option.media && option.media.length" class="flex flex-wrap gap-2">
+                    <div v-for="(m, mi) in option.media" :key="mi" class="flex items-center gap-1 bg-background border border-border-soft rounded-md px-1.5 py-1">
+                      <span class="text-[10px] text-text-muted truncate max-w-[120px]">{{ m.url || '（未填链接）' }}</span>
+                      <button class="w-4 h-4 grid place-items-center text-red-500" title="删除图片" @click="option.media!.splice(mi, 1)"><X :size="11" /></button>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="option.media && option.media.length" class="pl-7 space-y-1">
+                  <div v-for="(m, mi) in option.media" :key="mi" class="grid grid-cols-[80px_1fr_1fr_28px] gap-1 items-center">
+                    <select v-model="m.media_type" class="h-7 px-1 rounded-md bg-background border border-border-soft text-[11px] text-text">
+                      <option value="image">图片</option>
+                      <option value="video">视频</option>
+                    </select>
+                    <input v-model="m.url" type="url" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" placeholder="https://...">
+                    <input v-model="m.caption" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" placeholder="说明">
+                    <button class="w-7 h-7 grid place-items-center text-red-500" title="删除图片" @click="option.media!.splice(mi, 1)"><Trash2 :size="12" /></button>
+                  </div>
+                </div>
               </div>
               <button class="h-8 px-3 rounded-md border border-dashed border-border-strong text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addOption(question)">
                 <Plus :size="13" /> 添加选项
@@ -639,6 +688,14 @@ onMounted(fetchData);
               <input v-model="media.url" type="url" class="h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" placeholder="https://...">
               <input v-model="media.caption" class="h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" placeholder="媒体说明（可选）">
               <button class="w-8 h-8 grid place-items-center text-red-500" title="删除媒体" @click="question.media.splice(mediaIndex, 1)"><Trash2 :size="13" /></button>
+            </div>
+
+            <div v-if="question.media.some((m) => m.url)" class="flex flex-wrap gap-3 pt-1">
+              <figure v-for="(media, previewIndex) in question.media.filter((m) => m.url)" :key="'pv' + previewIndex" class="relative">
+                <img v-if="media.media_type === 'image'" :src="media.url" referrerpolicy="no-referrer" class="h-28 w-28 object-cover rounded-md border border-border-soft bg-black/5">
+                <video v-else :src="media.url" controls preload="metadata" class="h-28 rounded-md border border-border-soft bg-black"></video>
+                <figcaption v-if="media.caption" class="mt-1 text-[10px] text-text-muted max-w-28 truncate">{{ media.caption }}</figcaption>
+              </figure>
             </div>
 
             <div class="flex flex-wrap items-center gap-4 pt-1">
@@ -789,6 +846,19 @@ onMounted(fetchData);
                 <span v-if="selectedSubmission.failed_question_ids.includes(questionId)" class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-500 shrink-0">答错</span>
               </div>
               <div class="text-xs text-text leading-relaxed whitespace-pre-wrap break-words">{{ formatAnswer(answer, questionId) }}</div>
+              <div v-if="selectedSubmission.answer_files[questionId] && selectedSubmission.answer_files[questionId].length" class="mt-2 flex flex-wrap gap-2">
+                <a
+                  v-for="file in selectedSubmission.answer_files[questionId]"
+                  :key="file.file_id"
+                  :href="props.serverUrl + file.url"
+                  target="_blank"
+                  rel="noopener"
+                  class="relative shrink-0"
+                >
+                  <img v-if="file.mime_type.startsWith('image/')" :src="props.serverUrl + file.url" class="h-24 w-24 object-cover rounded border border-border-soft" :alt="file.file_name">
+                  <span v-else class="h-24 px-2 grid place-items-center rounded border border-border-soft text-[10px] text-text-muted max-w-[96px] truncate">{{ file.file_name }}</span>
+                </a>
+              </div>
             </div>
             <div v-if="Object.keys(selectedSubmission.answers).length === 0" class="py-10 text-center text-xs text-text-muted">该提交没有任何答案记录</div>
           </div>

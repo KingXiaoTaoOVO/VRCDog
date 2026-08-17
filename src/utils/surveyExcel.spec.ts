@@ -76,6 +76,7 @@ const submission: SurveySubmission = {
     old_question: '旧答案',
   },
   failed_question_ids: ['q_text'],
+  answer_files: {},
 };
 
 describe('survey Excel export table', () => {

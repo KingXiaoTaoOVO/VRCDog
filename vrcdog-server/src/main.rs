@@ -1,21 +1,23 @@
 use axum::{
-    extract::{ws::WebSocketUpgrade, ConnectInfo, Path, State},
-    http::StatusCode,
+    body::{Body, Bytes},
+    extract::{ws::WebSocketUpgrade, ConnectInfo, Path, Query, State},
+    http::{header::{CONTENT_TYPE, HeaderMap, HeaderValue}, StatusCode},
     middleware,
-    response::Html,
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use chrono::{Duration, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     env,
     net::SocketAddr,
     path::{Path as FsPath, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration as StdDuration,
@@ -30,7 +32,7 @@ use tracing::{info, warn};
 mod remote_assist_hub;
 mod survey;
 
-use survey::{Survey, SurveySettings, SurveySubmission};
+use survey::{Survey, SurveyAnswerFile, SurveySettings, SurveySubmission};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct ClientInfo {
@@ -239,6 +241,9 @@ struct SubmitSurveyRequest {
     survey_revision: u32,
     #[serde(default)]
     answers: HashMap<String, Value>,
+    /// Per-question file attachments uploaded by the respondent.
+    #[serde(default)]
+    answer_files: Option<HashMap<String, Vec<SurveyAnswerFile>>>,
 }
 
 #[derive(Deserialize)]
@@ -684,6 +689,175 @@ async fn client_surveys(State(state): State<AppState>, Path(user_id): Path<Strin
     }))
 }
 
+const MAX_UPLOAD_BYTES: u64 = 10 * 1024 * 1024; // 10 MiB
+
+static UPLOAD_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Directory that stores respondent-uploaded files; derived from the state file location.
+fn uploads_dir(state: &AppState) -> PathBuf {
+    let parent = state
+        .data_file
+        .parent()
+        .unwrap_or_else(|| FsPath::new("."));
+    parent.join("uploads")
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn safe_extension(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 12 && name.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+fn extension_for(mime: &str, file_name: Option<&str>) -> String {
+    if let Some(name) = file_name {
+        if let Some((_, ext)) = name.rsplit_once('.') {
+            let ext = ext.to_lowercase();
+            if safe_extension(&ext) {
+                return ext;
+            }
+        }
+    }
+    match mime {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
+        "text/plain" => "txt",
+        "application/msword" => "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        _ => "bin",
+    }
+    .to_string()
+}
+
+fn mime_for(name: &str) -> &'static str {
+    match name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).as_deref() {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        Some("txt") => "text/plain",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        _ => "application/octet-stream",
+    }
+}
+
+#[derive(Deserialize)]
+struct UploadQuery {
+    user_id: String,
+    survey_id: String,
+    question_id: String,
+    #[serde(default)]
+    file_name: Option<String>,
+}
+
+async fn client_upload_file(
+    State(state): State<AppState>,
+    Query(params): Query<UploadQuery>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if body.is_empty() {
+        return (StatusCode::BAD_REQUEST, "empty file").into_response();
+    }
+    if body.len() as u64 > MAX_UPLOAD_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "file exceeds size limit (10 MiB)",
+        )
+            .into_response();
+    }
+    let uploads = uploads_dir(&state);
+    if let Err(error) = std::fs::create_dir_all(&uploads) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to create uploads dir: {error}"),
+        )
+            .into_response();
+    }
+    let mime = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let ext = extension_for(&mime, params.file_name.as_deref());
+    let mut hasher = Sha256::new();
+    hasher.update(now_string().as_bytes());
+    hasher.update(UPLOAD_SEQ.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+    hasher.update(&body);
+    let file_id = to_hex(&hasher.finalize());
+    let stored_name = format!("{file_id}.{ext}");
+    let path = uploads.join(&stored_name);
+    if let Err(error) = std::fs::write(&path, &body) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to write file: {error}"),
+        )
+            .into_response();
+    }
+    let file_name = params.file_name.unwrap_or_else(|| stored_name.clone());
+    let payload = SurveyAnswerFile {
+        file_id,
+        file_name,
+        mime_type: mime,
+        size: body.len() as u64,
+        url: format!("/api/client/uploads/{stored_name}"),
+    };
+    info!(
+        user_id = %params.user_id,
+        survey_id = %params.survey_id,
+        question_id = %params.question_id,
+        "respondent uploaded a survey answer file"
+    );
+    Json(payload).into_response()
+}
+
+async fn client_get_upload(State(state): State<AppState>, Path(raw): Path<String>) -> Response {
+    if raw.is_empty()
+        || raw.contains('/')
+        || raw.contains('\\')
+        || raw.contains("..")
+        || raw.contains('\0')
+    {
+        return (StatusCode::BAD_REQUEST, "invalid file id").into_response();
+    }
+    let uploads = uploads_dir(&state);
+    let _ = std::fs::create_dir_all(&uploads);
+    let Ok(root) = std::fs::canonicalize(&uploads) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let path = uploads.join(&raw);
+    let Ok(target) = std::fs::canonicalize(&path) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    if !target.starts_with(&root) {
+        return (StatusCode::FORBIDDEN, "forbidden").into_response();
+    }
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => {
+            let mut response = Response::new(Body::from(bytes));
+            if let Ok(value) = HeaderValue::from_str(mime_for(&raw)) {
+                response.headers_mut().insert(CONTENT_TYPE, value);
+            }
+            response
+        }
+        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
 async fn client_submit_survey(
     State(state): State<AppState>,
     Json(request): Json<SubmitSurveyRequest>,
@@ -714,6 +888,7 @@ async fn client_submit_survey(
             status: status.to_string(),
             passed: evaluation.passed,
             answers: request.answers,
+            answer_files: request.answer_files.unwrap_or_default(),
             failed_question_ids: evaluation.failed_question_ids.clone(),
         },
     );
@@ -725,18 +900,31 @@ async fn client_submit_survey(
         if let Some(grant) = &survey.reward {
             if let Some(user) = data.users.get_mut(&request.user_id) {
                 user.role_id = Some(grant.role_id.clone());
-                let expires_at = grant.duration_hours.map(|hours| {
-                    (Local::now() + Duration::seconds((hours * 3600.0) as i64))
-                        .format("%Y-%m-%d %H:%M:%S")
-                        .to_string()
+                let expires_at = grant.duration_value.and_then(|value| {
+                    let seconds = match grant.duration_unit.as_str() {
+                        "day" => value * 86400.0,
+                        "month" => value * 2_592_000.0,
+                        "year" => value * 31_536_000.0,
+                        _ => value * 3600.0, // hour (default)
+                    };
+                    let secs = seconds as i64;
+                    if secs <= 0 {
+                        return None;
+                    }
+                    Some(
+                        (Local::now() + Duration::seconds(secs))
+                            .format("%Y-%m-%d %H:%M:%S")
+                            .to_string(),
+                    )
                 });
                 user.role_expires_at = expires_at.clone();
                 reward_payload = Some(json!({
                     "role_id": grant.role_id,
                     "role_name": data.roles.get(&grant.role_id).map(|role| role.role_name.clone()),
-                    "duration_hours": grant.duration_hours,
+                    "duration_value": grant.duration_value,
+                    "duration_unit": grant.duration_unit,
                     "expires_at": expires_at,
-                    "permanent": grant.duration_hours.is_none()
+                    "permanent": grant.duration_value.is_none()
                 }));
             }
         }
@@ -784,6 +972,7 @@ async fn client_dismiss_survey(
             status: "dismissed".to_string(),
             passed: false,
             answers: HashMap::new(),
+            answer_files: HashMap::new(),
             failed_question_ids: Vec::new(),
         },
     );
@@ -1306,6 +1495,8 @@ fn router(state: AppState) -> Router {
         .route("/api/client/surveys/{user_id}", get(client_surveys))
         .route("/api/client/surveys/submit", post(client_submit_survey))
         .route("/api/client/surveys/dismiss", post(client_dismiss_survey))
+        .route("/api/client/surveys/upload", post(client_upload_file))
+        .route("/api/client/uploads/{file_id}", get(client_get_upload))
         .route(
             "/api/client/survey-history/{user_id}",
             get(client_survey_history),

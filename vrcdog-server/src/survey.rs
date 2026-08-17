@@ -40,6 +40,8 @@ pub struct SurveyMedia {
 pub struct SurveyOption {
     pub option_id: String,
     pub label: String,
+    #[serde(default)]
+    pub media: Vec<SurveyMedia>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -65,9 +67,17 @@ pub struct SurveyQuestion {
 pub struct SurveyReward {
     /// Role granted to the user when they pass this survey.
     pub role_id: String,
-    /// Hours the granted role stays active. `None` means permanent.
-    #[serde(default)]
-    pub duration_hours: Option<f64>,
+    /// How long the granted role stays active, measured in `duration_unit`.
+    /// `None` means permanent.
+    #[serde(default, alias = "duration_hours")]
+    pub duration_value: Option<f64>,
+    /// Granularity of `duration_value`: "hour" | "day" | "month" | "year".
+    #[serde(default = "default_duration_unit")]
+    pub duration_unit: String,
+}
+
+fn default_duration_unit() -> String {
+    "hour".into()
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -118,6 +128,19 @@ pub struct SurveySubmission {
     pub answers: HashMap<String, Value>,
     #[serde(default)]
     pub failed_question_ids: Vec<String>,
+    /// Per-question file attachments uploaded by the respondent (images, docs, etc.).
+    #[serde(default)]
+    pub answer_files: HashMap<String, Vec<SurveyAnswerFile>>,
+}
+
+/// A file attached to a survey answer by the respondent.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SurveyAnswerFile {
+    pub file_id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub size: u64,
+    pub url: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -191,6 +214,15 @@ pub fn validate_survey(survey: &mut Survey) -> Result<(), String> {
             }
             if option.label.is_empty() || !option_ids.insert(option.option_id.clone()) {
                 return Err("Options need unique IDs and non-empty labels".to_string());
+            }
+            for media in &mut option.media {
+                media.url = media.url.trim().to_string();
+                if !matches!(media.media_type.as_str(), "image" | "video") {
+                    return Err("Option media type must be image or video".to_string());
+                }
+                if !(media.url.starts_with("https://") || media.url.starts_with("http://")) {
+                    return Err("Option media URL must start with http:// or https://".to_string());
+                }
             }
         }
         if is_choice

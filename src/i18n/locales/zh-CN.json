@@ -1524,7 +1524,7 @@
 		"preview_hide": "隐藏预览",
 		"preview_show": "显示预览",
 		"preview_click_scan": "扳机拖拽框选翻译",
-		"preview_click_toggle": "B键长按2秒打开菜单",
+		"preview_click_toggle": "点击文字切换原文/译文",
 		"preview_drag": "左手握键拖拽叠加层",
 		"tab_lang": "语言",
 		"tab_help": "帮助",

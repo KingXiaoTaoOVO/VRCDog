@@ -635,7 +635,7 @@ fn vr_thread_main(
                 }
                 // Render initial menu
                 if let Some(ref f) = font {
-                    let menu_text = "VrcDog VR 翻译器\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n手柄操作:\n  [B长按] 开关菜单  [扳机] 扫描\n  [摇杆] 导航      [右侧握把+摇杆] 缩放推拉\n  [左侧摇杆按下] 清除结果";
+                    let menu_text = "VrcDog VR 翻译器\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n手柄操作:\n  [双手柄握把] 开关菜单  [扳机] 扫描\n  [摇杆] 导航      [右侧握把+摇杆] 缩放推拉\n  [左侧摇杆按下] 清除结果";
                     let pixels = crate::vr_ui::VrUiRenderer::render_text_to_rgba(
                         f,
                         "",
@@ -764,7 +764,7 @@ fn vr_thread_main(
     let mut current_config = OvrConfig::default();
     let mut prev_left_buttons: u64 = 0;
     let mut prev_right_buttons: u64 = 0;
-    let mut overlay_menu_visible = false; // Start hidden, user summons with right B long-press
+    let mut overlay_menu_visible = false; // Start hidden; shown by holding both grips (anti-VRChat chord)
     let mut result_overlay_visible = false;
     let mut scan_active = false;
     // Channel for scan results (async task -> VR thread)
@@ -780,9 +780,7 @@ fn vr_thread_main(
     let mut last_menu_render_sel: i32 = -1;
     let _scan_start_pos: Option<[f32; 3]> = None;
 
-    let mut last_right_b_press_tick: u64 = 0;
     let mut menu_combo_ticks: u64 = 0;
-    let mut app_menu_hold_ticks: u64 = 0;
 
     let _last_right_trigger_press_tick: u64 = 0;
     let _is_scan_primed = false;
@@ -842,7 +840,7 @@ fn vr_thread_main(
         let pixels = crate::vr_ui::VrUiRenderer::render_text_to_rgba(
             f,
             "",
-            "VrcDog\n双击右手B键 开启菜单\n双击并长按右手扳机 框选翻译",
+            "VrcDog\n双手柄握把同时按住 开启菜单\n双击并长按右手扳机 框选翻译",
             false,
             512,
             320,
@@ -1558,41 +1556,22 @@ fn vr_thread_main(
                 }
             }
 
-            // --- Menu toggle: works on Vive/Index/Touch without relying on A/B/X/Y ---
-            // APPLICATION_MENU remains supported, but both grips held together is the
-            // universal fallback for Vive wands and other minimal controllers.
-            let b_mask = 1u64 << openvr::button_id::APPLICATION_MENU;
-            let right_b_pressed = right_new & b_mask != 0;
-            let right_app_menu_held = right_pressed & b_mask != 0;
+            // --- VR menu toggle ---
+            // Activated ONLY by holding BOTH grips together. This chord never collides
+            // with VRChat's own bindings (which use B/X/Y, triggers and single grips for
+            // grab/scale), keeping the overlay menu separated from VRChat's Quick Menu
+            // (B button). ~0.75s hold at 60Hz: responsive yet anti-accidental.
             let left_grip_held_for_menu = left_pressed & grip_mask != 0;
             let right_grip_held_for_menu = (right_pressed & grip_mask != 0) || ivr_scale_pressed;
 
             let mut should_toggle = false;
-            if right_b_pressed {
-                if tick.saturating_sub(last_right_b_press_tick) < 30 {
-                    should_toggle = true;
-                    last_right_b_press_tick = 0; // reset
-                } else {
-                    last_right_b_press_tick = tick;
-                }
-            }
-
             if left_grip_held_for_menu && right_grip_held_for_menu {
                 menu_combo_ticks += 1;
-                if menu_combo_ticks == 64 {
+                if menu_combo_ticks == 45 {
                     should_toggle = true;
                 }
             } else {
                 menu_combo_ticks = 0;
-            }
-
-            if right_app_menu_held {
-                app_menu_hold_ticks += 1;
-                if app_menu_hold_ticks == 64 {
-                    should_toggle = true;
-                }
-            } else {
-                app_menu_hold_ticks = 0;
             }
 
             if should_toggle {
@@ -1655,7 +1634,8 @@ fn vr_thread_main(
                     4 | 5 => 3,
                     7 => 5,
                     8 | 10 | 11 => 4,
-                    9 | 12 | 13 => 5,
+                    9 => 6,
+                    12 | 13 => 5,
                     _ => 4,
                 };
 
@@ -1910,6 +1890,7 @@ fn vr_thread_main(
                                     menu_page = 13;
                                     menu_selection = 0;
                                 }
+                                4 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"survey"})); }
                                 _ => {}
                             },
                             10 => match menu_selection {

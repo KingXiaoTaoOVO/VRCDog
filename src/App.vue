@@ -35,7 +35,7 @@ import DebugConsole from './components/DebugConsole.vue';
 
 // Assets
 import dogImg from './assets/dog.jpg';
-import { Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
+import { ClipboardList, Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
 import { setAppLocale } from './i18n';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -308,6 +308,11 @@ onMounted(async () => {
   if (isTauri()) {
     await listen<{ tab: string }>('ovr_menu_navigate', (event) => {
       const tab = event.payload?.tab;
+      if (tab === 'survey') {
+        uiStore.appMode = 'vr';
+        openSurveyHistory();
+        return;
+      }
       if (!tab || !uiStore.sidebarTabs.some((item) => item.key === tab)) return;
       uiStore.appMode = 'vr';
       uiStore.activeTab = tab;
@@ -622,6 +627,15 @@ if (typeof window !== 'undefined') {
         </div>
       </div>
     </div>
+
+    <button
+      v-if="clientServerUrl"
+      class="fixed bottom-5 right-5 z-[9990] h-11 px-4 rounded-full bg-primary text-white text-sm font-bold shadow-lg flex items-center gap-2 hover:bg-primary-hover"
+      title="我的问卷"
+      @click="openSurveyHistory"
+    >
+      <ClipboardList :size="16" /> 我的问卷
+    </button>
   </template>
 
   <SurveyCenter

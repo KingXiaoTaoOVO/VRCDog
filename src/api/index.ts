@@ -23,6 +23,7 @@ import { getStoredAuthCookie, parseExecuteResponse, request as baseRequest, VrcR
 import { isDebugLogEnabled } from './debugConfig';
 import { toCleanBase64 } from './utils';
 import { normalizeTwoFactorMethod } from './twoFactor';
+import type { SurveyAnswerAttachment } from '../types/survey';
 
 const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|bili_jct|csrf|csrf_token|buvid3|stream_key|token|access[_-]?token|refresh[_-]?token|secret)$/i;
 
@@ -1325,6 +1326,35 @@ export const DrawingApi = {
   resume: () => safeInvoke<DrawingStatus>('vrdrawing_resume'),
   stop: () => safeInvoke<DrawingStatus>('vrdrawing_stop'),
 };
+
+export async function uploadSurveyFile(
+  serverUrl: string,
+  params: { user_id: string; survey_id: string; question_id: string },
+  file: File,
+): Promise<SurveyAnswerAttachment> {
+  const base = serverUrl.replace(/\/+$/, '');
+  const query = new URLSearchParams({
+    user_id: params.user_id,
+    survey_id: params.survey_id,
+    question_id: params.question_id,
+    file_name: file.name,
+  });
+  const res = await fetch(`${base}/api/client/surveys/upload?${query.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = (await res.json())?.message || '';
+    } catch {
+      /* ignore parse errors */
+    }
+    throw new Error(detail || `附件上传失败（${res.status}）`);
+  }
+  return (await res.json()) as SurveyAnswerAttachment;
+}
 
 export {
   AuthApi,
