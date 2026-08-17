@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import {
   CheckCircle2,
   ClipboardList,
@@ -30,9 +30,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ log: [message: string] }>();
-const surveys = ref<Survey[]>([]);
-const submissions = ref<SurveySubmission[]>([]);
-const users = ref<Array<{ user_id: string; display_name: string }>>([]);
+const surveys = shallowRef<Survey[]>([]);
+const submissions = shallowRef<SurveySubmission[]>([]);
+const users = shallowRef<Array<{ user_id: string; display_name: string }>>([]);
+const roles = shallowRef<Array<{ role_id: string; role_name: string; is_default: boolean }>>([]);
 const selected = ref<Survey | null>(null);
 const enabled = ref(false);
 const loading = ref(false);
@@ -87,6 +88,7 @@ const createSurvey = () => {
     updated_at: '',
     published_at: null,
     questions: [blankQuestion()],
+    reward: null,
   };
 };
 
@@ -101,16 +103,18 @@ const fetchData = async () => {
   if (!props.active) return;
   loading.value = true;
   try {
-    const [settingsData, surveyData, submissionData, userData] = await Promise.all([
+    const [settingsData, surveyData, submissionData, userData, roleData] = await Promise.all([
       request('/api/admin/survey-settings'),
       request('/api/admin/surveys'),
       request('/api/admin/survey-submissions'),
       request('/api/admin/users'),
+      request('/api/admin/roles'),
     ]);
     enabled.value = Boolean(settingsData?.enabled);
     surveys.value = surveyData?.surveys || [];
     submissions.value = submissionData?.submissions || [];
     users.value = userData?.users || [];
+    roles.value = roleData?.roles || [];
     if (selected.value) {
       const fresh = surveys.value.find((item) => item.survey_id === selected.value?.survey_id);
       // Same fix: use JSON round-trip instead of structuredClone to handle proxies.
@@ -202,6 +206,25 @@ const deleteSurvey = async () => {
   }
 };
 
+const deleteSubmission = async (submission: SurveySubmission) => {
+  if (!submission) return;
+  if (!confirm(`确定删除 ${userName(submission.user_id)} 的这份答卷吗？此操作不可恢复。`)) return;
+  try {
+    const data = await request('/api/admin/survey-submissions/delete', {
+      method: 'POST',
+      params: { submission_id: submission.submission_id },
+    });
+    if (!data?.success) throw new Error(data?.message || '删除失败');
+    notify('答卷已删除');
+    if (selectedSubmission.value?.submission_id === submission.submission_id) {
+      selectedSubmission.value = null;
+    }
+    await fetchData();
+  } catch (error: any) {
+    notify(error?.message || String(error), true);
+  }
+};
+
 const setQuestionType = (question: SurveyQuestion, type: SurveyQuestionType) => {
   question.question_type = type;
   question.correct_answers = [];
@@ -241,15 +264,41 @@ const addMedia = (question: SurveyQuestion, mediaType: SurveyMediaType) => {
   question.media.push({ media_type: mediaType, url: '', caption: '' });
 };
 
-const submissionCount = (surveyId: string) => submissions.value.filter(
-  (submission) => submission.survey_id === surveyId,
-).length;
-
 const surveySubmissions = computed(() => {
   if (!selected.value) return [];
   return submissions.value
     .filter((s) => s.survey_id === selected.value!.survey_id)
     .sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
+});
+
+// Per-survey submission counts, memoized so the survey list doesn't re-filter
+// the whole submissions array on every render.
+const submissionCounts = computed<Record<string, number>>(() => {
+  const map: Record<string, number> = {};
+  for (const item of submissions.value) {
+    map[item.survey_id] = (map[item.survey_id] || 0) + 1;
+  }
+  return map;
+});
+
+// Paginate the (potentially huge) submission list so we never render thousands
+// of DOM rows at once.
+const SUBMISSIONS_PAGE_SIZE = 50;
+const submissionsPage = ref(1);
+const totalSubmissionPages = computed(() =>
+  Math.max(1, Math.ceil(surveySubmissions.value.length / SUBMISSIONS_PAGE_SIZE)),
+);
+const pagedSubmissions = computed(() => {
+  const page = Math.min(submissionsPage.value, totalSubmissionPages.value);
+  const start = (page - 1) * SUBMISSIONS_PAGE_SIZE;
+  return surveySubmissions.value.slice(start, start + SUBMISSIONS_PAGE_SIZE);
+});
+watch(
+  () => selected.value?.survey_id,
+  () => { submissionsPage.value = 1; },
+);
+watch(totalSubmissionPages, (pages) => {
+  if (submissionsPage.value > pages) submissionsPage.value = pages;
 });
 
 const userName = (userId: string) => {
@@ -269,6 +318,45 @@ const setWorkspaceMode = (mode: 'design' | 'responses') => {
     if (!selected.value && surveys.value.length > 0) selectSurvey(surveys.value[0]);
     selectedSubmission.value = surveySubmissions.value[0] || null;
   }
+};
+
+// ─── 通过奖励编辑器 ───
+// rewardEnabled drives whether a survey grants a role on a passing submission.
+const rewardEnabled = computed<boolean>({
+  get: () => Boolean(selected.value?.reward),
+  set: (on) => {
+    if (!selected.value) return;
+    if (on) {
+      if (!selected.value.reward) {
+        selected.value.reward = { role_id: roles.value[0]?.role_id || '', duration_hours: null };
+      }
+    } else {
+      selected.value.reward = null;
+    }
+  },
+});
+
+// A reward is "permanent" when duration_hours is null.
+const rewardPermanent = computed<boolean>({
+  get: () => {
+    const reward = selected.value?.reward;
+    return !reward || reward.duration_hours === null;
+  },
+  set: (permanent) => {
+    if (!selected.value?.reward) return;
+    selected.value.reward.duration_hours = permanent ? null : 24;
+  },
+});
+
+const setRewardRole = (roleId: string) => {
+  if (selected.value?.reward) selected.value.reward.role_id = roleId;
+};
+
+const setRewardDuration = (event: Event) => {
+  if (!selected.value?.reward) return;
+  const raw = (event.target as HTMLInputElement).value;
+  const parsed = Number(raw);
+  selected.value.reward.duration_hours = Number.isFinite(parsed) ? parsed : null;
 };
 
 // Resolve a question_id to its title for display in the detail modal
@@ -398,7 +486,7 @@ onMounted(fetchData);
             <span class="w-2 h-2 rounded-full" :class="survey.status === 'published' ? 'bg-green-500' : 'bg-amber-500'" />
             <span class="text-xs font-bold text-text-strong truncate">{{ survey.title }}</span>
           </span>
-          <span class="block text-[10px] text-text-muted mt-1.5">v{{ survey.revision }} · {{ submissionCount(survey.survey_id) }} 次提交</span>
+          <span class="block text-[10px] text-text-muted mt-1.5">v{{ survey.revision }} · {{ submissionCounts[survey.survey_id] || 0 }} 次提交</span>
         </button>
         <div v-if="!loading && surveys.length === 0" class="py-12 text-center text-xs text-text-muted">
           暂无问卷
@@ -453,6 +541,48 @@ onMounted(fetchData);
               <span class="block text-[10px] leading-4 text-text-muted mt-1">开启后，必答题未完成或门禁题答错时不能进入产品。</span>
             </span>
           </label>
+        </section>
+
+        <section class="border-b border-border-soft pb-5">
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <div class="text-xs font-black text-text-strong">通过奖励（可选）</div>
+              <p class="text-[10px] text-text-muted mt-1 leading-4">用户提交并通过本问卷后，自动授予下方角色以解锁对应功能；未通过则无奖励。</p>
+            </div>
+            <label class="flex items-center gap-2 text-xs text-text cursor-pointer shrink-0">
+              <input v-model="rewardEnabled" type="checkbox" class="w-4 h-4 accent-primary"> 启用奖励
+            </label>
+          </div>
+          <div v-if="rewardEnabled && selected" class="mt-4 grid grid-cols-2 gap-4">
+            <label class="block">
+              <span class="block text-[11px] font-bold text-text-muted mb-1">奖励角色</span>
+              <select
+                :value="selected.reward?.role_id || ''"
+                class="w-full h-9 px-3 rounded-md bg-background border border-border-soft text-sm text-text"
+                @change="setRewardRole(($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="role in roles" :key="role.role_id" :value="role.role_id">{{ role.role_name }}</option>
+              </select>
+              <span v-if="roles.length === 0" class="block text-[10px] text-amber-500 mt-1">尚未创建任何角色，请先在「角色管理」中添加。</span>
+            </label>
+            <div class="flex items-end gap-3">
+              <label class="flex items-center gap-2 text-xs text-text cursor-pointer pb-2 shrink-0">
+                <input v-model="rewardPermanent" type="checkbox" class="w-4 h-4 accent-primary"> 永久有效
+              </label>
+              <label v-if="!rewardPermanent" class="block">
+                <span class="block text-[10px] font-bold text-text-muted mb-1">有效时长（小时）</span>
+                <input
+                  :value="selected.reward?.duration_hours ?? ''"
+                  type="number"
+                  min="0"
+                  step="1"
+                  class="w-28 h-9 px-2 rounded-md bg-background border border-border-soft text-sm text-text"
+                  placeholder="如 24"
+                  @input="setRewardDuration"
+                >
+              </label>
+            </div>
+          </div>
         </section>
 
         <section v-for="(question, questionIndex) in selected.questions" :key="question.question_id" class="border border-border-soft rounded-lg overflow-hidden">
@@ -560,7 +690,7 @@ onMounted(fetchData);
             @click="selectSurvey(survey)"
           >
             <div class="text-xs font-bold text-text-strong truncate">{{ survey.title }}</div>
-            <div class="text-[10px] text-text-muted mt-1">v{{ survey.revision }} · {{ submissionCount(survey.survey_id) }} 份答卷</div>
+            <div class="text-[10px] text-text-muted mt-1">v{{ survey.revision }} · {{ submissionCounts[survey.survey_id] || 0 }} 份答卷</div>
           </button>
           <div v-if="surveys.length === 0" class="py-10 text-center text-xs text-text-muted">暂无问卷</div>
         </div>
@@ -584,10 +714,10 @@ onMounted(fetchData);
           </button>
         </header>
         <div class="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
-          <button
-            v-for="submission in surveySubmissions"
+          <div
+            v-for="submission in pagedSubmissions"
             :key="submission.submission_id"
-            class="w-full text-left p-3 rounded-md border transition-colors"
+            class="group relative w-full text-left p-3 pr-10 rounded-md border transition-colors cursor-pointer"
             :class="selectedSubmission?.submission_id === submission.submission_id ? 'bg-primary/10 border-primary/40' : 'border-border-soft bg-background hover:border-primary/30'"
             @click="openSubmissionDetail(submission)"
           >
@@ -603,9 +733,31 @@ onMounted(fetchData);
             <div v-if="hasUserName(submission.user_id)" class="text-[9px] text-text-muted mt-1 font-mono truncate">{{ submission.user_id }}</div>
             <div class="text-[10px] text-text-muted mt-1">{{ submission.submitted_at }}</div>
             <div class="text-[10px] text-text-muted mt-0.5">问卷版本 v{{ submission.survey_revision }}</div>
-          </button>
+            <button
+              class="absolute right-2 top-2 w-7 h-7 grid place-items-center rounded-md text-text-muted opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-500 transition-colors"
+              :title="'删除此答卷'"
+              @click.stop="deleteSubmission(submission)"
+            >
+              <Trash2 :size="14" />
+            </button>
+          </div>
           <div v-if="selected && surveySubmissions.length === 0" class="py-10 text-center text-xs text-text-muted">该问卷暂无提交记录</div>
           <div v-else-if="!selected" class="py-10 text-center text-xs text-text-muted">请从左侧选择问卷</div>
+        </div>
+        <div v-if="surveySubmissions.length > SUBMISSIONS_PAGE_SIZE" class="shrink-0 flex items-center justify-between px-3 py-2 border-t border-border-soft text-[10px] text-text-muted">
+          <span>{{ surveySubmissions.length }} 条 · 第 {{ Math.min(submissionsPage, totalSubmissionPages) }} / {{ totalSubmissionPages }} 页</span>
+          <div class="flex gap-2">
+            <button
+              class="px-2.5 py-1 rounded border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              :disabled="submissionsPage <= 1"
+              @click="submissionsPage--"
+            >上一页</button>
+            <button
+              class="px-2.5 py-1 rounded border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              :disabled="submissionsPage >= totalSubmissionPages"
+              @click="submissionsPage++"
+            >下一页</button>
+          </div>
         </div>
       </section>
 
@@ -642,7 +794,15 @@ onMounted(fetchData);
           </div>
           <footer class="px-5 py-3 border-t border-border-soft text-[10px] text-text-muted flex items-center justify-between gap-3 shrink-0">
             <span class="truncate">提交 ID：{{ selectedSubmission.submission_id }}</span>
-            <span v-if="selectedSubmission.failed_question_ids.length > 0" class="text-red-500 shrink-0">{{ selectedSubmission.failed_question_ids.length }} 题答错</span>
+            <div class="flex items-center gap-3 shrink-0">
+              <span v-if="selectedSubmission.failed_question_ids.length > 0" class="text-red-500">{{ selectedSubmission.failed_question_ids.length }} 题答错</span>
+              <button
+                class="flex items-center gap-1 px-2 py-1 rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
+                @click="deleteSubmission(selectedSubmission)"
+              >
+                <Trash2 :size="13" /> 删除此答卷
+              </button>
+            </div>
           </footer>
         </template>
         <div v-else class="h-full grid place-items-center text-center p-6">

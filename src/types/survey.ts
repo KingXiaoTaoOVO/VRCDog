@@ -13,6 +13,13 @@ export interface SurveyOption {
   label: string;
 }
 
+export interface SurveyReward {
+  /** Role granted to a user after a passing submission. */
+  role_id: string;
+  /** Hours the granted role stays active; null/undefined means permanent. */
+  duration_hours: number | null;
+}
+
 export interface SurveyQuestion {
   question_id: string;
   question_type: SurveyQuestionType;
@@ -36,6 +43,8 @@ export interface Survey {
   updated_at: string;
   published_at: string | null;
   questions: SurveyQuestion[];
+  /** Optional incentive granted (role, temporary or permanent) on a passing submission. */
+  reward: SurveyReward | null;
 }
 
 export interface SurveySubmission {

@@ -2,6 +2,7 @@ use axum::{
     extract::{ws::WebSocketUpgrade, ConnectInfo, Path, State},
     http::StatusCode,
     middleware,
+    response::Html,
     routing::{get, post},
     Json, Router,
 };
@@ -13,9 +14,13 @@ use std::{
     env,
     net::SocketAddr,
     path::{Path as FsPath, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration as StdDuration,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -47,6 +52,8 @@ struct UserRecord {
     login_count: u32,
     is_online: bool,
     role_id: Option<String>,
+    #[serde(default)]
+    role_expires_at: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -80,25 +87,29 @@ impl Default for FeatureConfig {
         let menus = [
             "dashboard",
             "feed",
-            "friendlog",
             "locations",
             "charts",
             "playerlist",
             "gallery",
             "social",
+            "friendslist",
+            "moderation",
             "search",
             "notifications",
             "groups",
             "avatars",
             "favorites",
-            "moderation",
             "heatmap",
-            "gamelog",
             "notes",
             "presets",
             "tools",
+            "vrpiano",
+            "drawing",
+            "bilidown",
+            "danmaku",
             "translator",
             "ovr",
+            "remote",
             "env",
             "export",
             "settings",
@@ -175,6 +186,8 @@ struct AppState {
     data: Arc<RwLock<PersistentData>>,
     data_file: Arc<PathBuf>,
     remote_assist: remote_assist_hub::RemoteAssistHub,
+    persist_dirty: Arc<AtomicBool>,
+    persist_notify: Arc<Notify>,
 }
 
 #[derive(Deserialize)]
@@ -290,16 +303,56 @@ fn ban_is_expired(ban: &BanInfo) -> bool {
     Local::now().naive_local() > banned_at + Duration::seconds((hours * 3600.0) as i64)
 }
 
-async fn persist(state: &AppState) -> Result<(), String> {
-    let snapshot = state.data.read().await.clone();
-    let bytes = serde_json::to_vec_pretty(&snapshot).map_err(|error| error.to_string())?;
+/// True when the user's granted role has an expiry that is already in the past.
+fn role_expired(user: &UserRecord) -> bool {
+    let Some(expires_at) = &user.role_expires_at else {
+        return false;
+    };
+    let Ok(parsed) = NaiveDateTime::parse_from_str(expires_at, "%Y-%m-%d %H:%M:%S") else {
+        return false;
+    };
+    Local::now().naive_local() > parsed
+}
+
+/// Revoke a user's granted role once it has expired. Uses a read check first so
+/// healthy heartbeats (the common case) never take a write lock.
+async fn revoke_expired_user_role(state: &AppState, user_id: &str) {
+    let expired = {
+        let data = state.data.read().await;
+        data.users.get(user_id).is_some_and(role_expired)
+    };
+    if expired {
+        let mut data = state.data.write().await;
+        if let Some(user) = data.users.get_mut(user_id) {
+            if role_expired(user) {
+                user.role_id = None;
+                user.role_expires_at = None;
+            }
+        }
+        drop(data);
+        schedule_persist(state);
+    }
+}
+
+// Mutations mark state dirty instead of blocking on a full serialize+write.
+// The background writer coalesces bursts into a single disk write within this
+// window, which slashes IOPS and the transient 2x memory peak from cloning.
+const PERSIST_DEBOUNCE_MS: u64 = 800;
+
+async fn persist_inner(state: &AppState) -> Result<(), String> {
+    // Serialize in place under a read lock (no full clone of PersistentData),
+    // then drop the lock before touching the disk.
+    let bytes = {
+        let data = state.data.read().await;
+        serde_json::to_vec_pretty(&*data).map_err(|error| error.to_string())?
+    };
     if let Some(parent) = state.data_file.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|error| error.to_string())?;
     }
     let temp_file = state.data_file.with_extension("json.tmp");
-    tokio::fs::write(&temp_file, bytes)
+    tokio::fs::write(&temp_file, &bytes)
         .await
         .map_err(|error| error.to_string())?;
     if tokio::fs::try_exists(state.data_file.as_ref())
@@ -311,6 +364,25 @@ async fn persist(state: &AppState) -> Result<(), String> {
     tokio::fs::rename(temp_file, state.data_file.as_ref())
         .await
         .map_err(|error| error.to_string())
+}
+
+fn schedule_persist(state: &AppState) {
+    state.persist_dirty.store(true, Ordering::SeqCst);
+    state.persist_notify.notify_one();
+}
+
+async fn persist_worker(state: AppState) {
+    loop {
+        state.persist_notify.notified().await;
+        // Quiet window: any mutations within it coalesce into one write.
+        tokio::time::sleep(StdDuration::from_millis(PERSIST_DEBOUNCE_MS)).await;
+        if state.persist_dirty.swap(false, Ordering::SeqCst) {
+            if let Err(error) = persist_inner(&state).await {
+                warn!("persist failed: {error}");
+                state.persist_dirty.store(true, Ordering::SeqCst);
+            }
+        }
+    }
 }
 
 async fn load_data(path: &FsPath) -> PersistentData {
@@ -329,6 +401,82 @@ async fn ping() -> Json<Value> {
     }))
 }
 
+// Self-contained (no external assets) browser status page shown at the server
+// root. Rendered dark/glassmorphism so it looks good behind any reverse proxy.
+const STATUS_PAGE_HTML: &str = r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VRCDog 服务端</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2a4a 0%, #0b1020 55%, #070a14 100%);
+    color: #e8ecf4; padding: 24px;
+  }
+  .card {
+    width: min(520px, 92vw);
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.10); border-radius: 22px; padding: 40px 36px;
+    text-align: center; backdrop-filter: blur(8px); box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  }
+  .badge {
+    width: 84px; height: 84px; margin: 0 auto 22px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #2bd47f, #18a0fb);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .badge svg { width: 42px; height: 42px; stroke: #06121f; }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 8px rgba(43,212,127,0.12), 0 10px 30px rgba(24,160,251,0.35); }
+    50% { box-shadow: 0 0 0 14px rgba(43,212,127,0.06), 0 10px 36px rgba(24,160,251,0.45); }
+  }
+  .title {
+    font-size: 26px; font-weight: 800; letter-spacing: .5px;
+    background: linear-gradient(90deg, #6fe3ff, #18a0fb);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .status { margin-top: 10px; font-size: 17px; font-weight: 700; color: #d6e2ff; }
+  .hint { margin-top: 6px; font-size: 14px; color: #9fb0cc; }
+  .meta { margin-top: 26px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; color: #aab8d4; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08); padding: 6px 12px; border-radius: 999px;
+  }
+  .chip b { color: #e8ecf4; font-weight: 700; }
+  .foot { margin-top: 22px; font-size: 11px; color: #6b7a99; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+    </div>
+    <div class="title">VRCDog 服务端</div>
+    <div class="status">服务已成功运行</div>
+    <div class="hint">请用客户端连接！</div>
+    <div class="meta">
+      <span class="chip">版本 <b>{{VERSION}}</b></span>
+      <span class="chip">端口 <b>11451</b></span>
+      <span class="chip">启动于 <b>{{NOW}}</b></span>
+    </div>
+    <div class="foot">VRCDog Standalone Server · 此页面仅用于部署状态确认</div>
+  </div>
+</body>
+</html>"#;
+
+async fn status_page() -> Html<String> {
+    let html = STATUS_PAGE_HTML
+        .replace("{{VERSION}}", env!("CARGO_PKG_VERSION"))
+        .replace("{{NOW}}", &now_string());
+    Html(html)
+}
+
 async fn remote_assist_ws(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
@@ -342,15 +490,12 @@ async fn register(
     Json(request): Json<RegisterRequest>,
 ) -> Json<Value> {
     let now = now_string();
-    if state
-        .data
-        .write()
-        .await
-        .kicked
-        .remove(&request.user_id)
-        .is_some()
-    {
-        let _ = persist(&state).await;
+    let was_kicked = state.data.read().await.kicked.contains_key(&request.user_id);
+    if was_kicked {
+        let mut data = state.data.write().await;
+        data.kicked.remove(&request.user_id);
+        drop(data);
+        schedule_persist(&state);
         return Json(json!({ "status": "kicked", "reason": "Removed by administrator" }));
     }
     {
@@ -387,20 +532,28 @@ async fn register(
                 login_count: 1,
                 is_online: true,
                 role_id: None,
+                role_expires_at: None,
             });
+        // Drop an expired incentive role on (re)connection so the default role applies.
+        if let Some(user) = data.users.get_mut(&request.user_id) {
+            if role_expired(user) {
+                user.role_id = None;
+                user.role_expires_at = None;
+            }
+        }
     }
     state.clients.write().await.insert(
         request.user_id.clone(),
         ClientInfo {
             user_id: request.user_id.clone(),
             display_name: request.display_name.clone(),
-            avatar_url: request.avatar_url,
+            avatar_url: request.avatar_url.clone(),
             ip_address: address.to_string(),
             connected_at: now.clone(),
             last_heartbeat: now,
         },
     );
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     info!(user_id = %request.user_id, ip = %address, "client registered");
     let data = state.data.read().await;
     let mut response = survey_gate_payload(&data, &request.user_id);
@@ -412,15 +565,12 @@ async fn heartbeat(
     State(state): State<AppState>,
     Json(request): Json<UserIdRequest>,
 ) -> Json<Value> {
-    if state
-        .data
-        .write()
-        .await
-        .kicked
-        .remove(&request.user_id)
-        .is_some()
-    {
-        let _ = persist(&state).await;
+    let was_kicked = state.data.read().await.kicked.contains_key(&request.user_id);
+    if was_kicked {
+        let mut data = state.data.write().await;
+        data.kicked.remove(&request.user_id);
+        drop(data);
+        schedule_persist(&state);
         return Json(json!({ "status": "kicked", "reason": "Removed by administrator" }));
     }
     {
@@ -439,6 +589,7 @@ async fn heartbeat(
             return Json(json!({ "status": "frozen", "reason": freeze.reason }));
         }
     }
+    revoke_expired_user_role(&state, &request.user_id).await;
     let mut clients = state.clients.write().await;
     let Some(client) = clients.get_mut(&request.user_id) else {
         return Json(json!({ "status": "register_required" }));
@@ -458,7 +609,7 @@ async fn disconnect(
         user.is_online = false;
         user.last_seen = now_string();
     }
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "status": "ok" }))
 }
 
@@ -486,16 +637,36 @@ async fn get_features(State(state): State<AppState>, Path(user_id): Path<String>
     let user_role = data
         .users
         .get(&user_id)
-        .and_then(|user| user.role_id.as_ref())
+        .and_then(|user| {
+            if role_expired(user) {
+                None
+            } else {
+                user.role_id.as_ref()
+            }
+        })
         .and_then(|role_id| data.roles.get(role_id));
     let features = user_role
         .or(default_role)
         .map(|role| role.features.clone())
         .unwrap_or_default();
+    let (role_id, role_expires_at, role_expired_flag) = data
+        .users
+        .get(&user_id)
+        .map(|user| {
+            (
+                user.role_id.clone(),
+                user.role_expires_at.clone(),
+                role_expired(user),
+            )
+        })
+        .unwrap_or((None, None, true));
     Json(json!({
         "menus": features.menus,
         "themes": features.themes,
-        "modes": features.modes
+        "modes": features.modes,
+        "role_id": role_id,
+        "role_expires_at": role_expires_at,
+        "role_expired": role_expired_flag
     }))
 }
 
@@ -546,15 +717,44 @@ async fn client_submit_survey(
             failed_question_ids: evaluation.failed_question_ids.clone(),
         },
     );
+
+    // Incentive: when the submission passes and the survey defines a reward, grant
+    // the configured role (temporary or permanent) to the submitting user.
+    let mut reward_payload: Option<Value> = None;
+    if evaluation.passed {
+        if let Some(grant) = &survey.reward {
+            if let Some(user) = data.users.get_mut(&request.user_id) {
+                user.role_id = Some(grant.role_id.clone());
+                let expires_at = grant.duration_hours.map(|hours| {
+                    (Local::now() + Duration::seconds((hours * 3600.0) as i64))
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                });
+                user.role_expires_at = expires_at.clone();
+                reward_payload = Some(json!({
+                    "role_id": grant.role_id,
+                    "role_name": data.roles.get(&grant.role_id).map(|role| role.role_name.clone()),
+                    "duration_hours": grant.duration_hours,
+                    "expires_at": expires_at,
+                    "permanent": grant.duration_hours.is_none()
+                }));
+            }
+        }
+    }
+
     drop(data);
-    let _ = persist(&state).await;
-    Json(json!({
+    schedule_persist(&state);
+    let mut response = json!({
         "success": true,
         "submission_id": submission_id,
         "passed": evaluation.passed,
         "failed_question_ids": evaluation.failed_question_ids,
         "access_granted": evaluation.passed || !survey.required_for_access
-    }))
+    });
+    if let Some(reward) = reward_payload {
+        response["reward"] = reward;
+    }
+    Json(response)
 }
 
 async fn client_dismiss_survey(
@@ -588,7 +788,7 @@ async fn client_dismiss_survey(
         },
     );
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "Survey dismissed" }))
 }
 
@@ -621,7 +821,7 @@ async fn client_delete_submission(
     }
     drop(data);
     if owned {
-        let _ = persist(&state).await;
+        schedule_persist(&state);
     }
     Json(json!({
         "success": owned,
@@ -695,7 +895,7 @@ async fn admin_kick(
             .kicked
             .insert(request.user_id.clone(), now_string());
     }
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": existed,
         "message": if existed { "Client kicked" } else { "Client is not online" }
@@ -720,7 +920,7 @@ async fn admin_ban(State(state): State<AppState>, Json(request): Json<BanRequest
         },
     );
     mark_offline(&state, &request.user_id).await;
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "User banned" }))
 }
 
@@ -735,7 +935,7 @@ async fn admin_unban(
         .bans
         .remove(&request.user_id)
         .is_some();
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": removed,
         "message": if removed { "User unbanned" } else { "User was not banned" }
@@ -755,7 +955,7 @@ async fn admin_freeze(
         },
     );
     mark_offline(&state, &request.user_id).await;
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "User frozen" }))
 }
 
@@ -770,7 +970,7 @@ async fn admin_unfreeze(
         .frozen
         .remove(&request.user_id)
         .is_some();
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": removed,
         "message": if removed { "User unfrozen" } else { "User was not frozen" }
@@ -787,8 +987,12 @@ async fn admin_remove(
     data.bans.remove(&request.user_id);
     data.frozen.remove(&request.user_id);
     data.kicked.remove(&request.user_id);
+    // Cascade: the player's own survey submissions are the same records the client
+    // shows, so removing the user must also purge their submissions.
+    data.survey_submissions
+        .retain(|_, submission| submission.user_id != request.user_id);
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "User record removed" }))
 }
 
@@ -810,7 +1014,7 @@ async fn admin_save_role(State(state): State<AppState>, Json(mut role): Json<Rol
     }
     data.roles.insert(role.role_id.clone(), role);
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "Role saved" }))
 }
 
@@ -835,7 +1039,7 @@ async fn admin_delete_role(
         }
     }
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": removed,
         "message": if removed { "Role deleted" } else { "Role not found" }
@@ -854,7 +1058,7 @@ async fn admin_set_default_role(
         role.is_default = role.role_id == request.role_id;
     }
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "Default role updated" }))
 }
 
@@ -875,7 +1079,7 @@ async fn admin_set_user_role(
     };
     user.role_id = request.role_id;
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({ "success": true, "message": "User role updated" }))
 }
 
@@ -889,7 +1093,7 @@ async fn admin_save_survey_settings(
     Json(settings): Json<SurveySettings>,
 ) -> Json<Value> {
     state.data.write().await.survey_settings = settings.clone();
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": true,
         "enabled": settings.enabled,
@@ -913,6 +1117,14 @@ async fn admin_save_survey(
     }
     let now = now_string();
     let mut data = state.data.write().await;
+    if let Some(reward) = &incoming.reward {
+        if !data.roles.contains_key(&reward.role_id) {
+            return Json(json!({
+                "success": false,
+                "message": "奖励角色不存在，请选择一个有效角色"
+            }));
+        }
+    }
     if let Some(existing) = data.surveys.get(&incoming.survey_id) {
         incoming.created_at = existing.created_at.clone();
         incoming.revision = existing.revision.max(1);
@@ -941,7 +1153,7 @@ async fn admin_save_survey(
     let revision = incoming.revision;
     data.surveys.insert(survey_id.clone(), incoming);
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": true,
         "survey_id": survey_id,
@@ -967,7 +1179,7 @@ async fn admin_publish_survey(
     survey.updated_at = now;
     let revision = survey.revision;
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": true,
         "revision": revision,
@@ -991,7 +1203,7 @@ async fn admin_resend_survey(
     survey.updated_at = now_string();
     let revision = survey.revision;
     drop(data);
-    let _ = persist(&state).await;
+    schedule_persist(&state);
     Json(json!({
         "success": true,
         "revision": revision,
@@ -1011,7 +1223,7 @@ async fn admin_delete_survey(
     }
     drop(data);
     if removed {
-        let _ = persist(&state).await;
+        schedule_persist(&state);
     }
     Json(json!({
         "success": removed,
@@ -1025,6 +1237,25 @@ async fn admin_survey_submissions(State(state): State<AppState>) -> Json<Value> 
         data.survey_submissions.values().cloned().collect();
     submissions.sort_by(|left, right| right.submitted_at.cmp(&left.submitted_at));
     Json(json!({ "submissions": submissions }))
+}
+
+async fn admin_delete_submission(
+    State(state): State<AppState>,
+    Json(request): Json<DeleteSubmissionRequest>,
+) -> Json<Value> {
+    let mut data = state.data.write().await;
+    let removed = data
+        .survey_submissions
+        .remove(&request.submission_id)
+        .is_some();
+    drop(data);
+    if removed {
+        schedule_persist(&state);
+    }
+    Json(json!({
+        "success": removed,
+        "message": if removed { "Submission deleted" } else { "Submission not found" }
+    }))
 }
 
 fn router(state: AppState) -> Router {
@@ -1056,9 +1287,14 @@ fn router(state: AppState) -> Router {
             "/api/admin/survey-submissions",
             get(admin_survey_submissions),
         )
+        .route(
+            "/api/admin/survey-submissions/delete",
+            post(admin_delete_submission),
+        )
         .route_layer(middleware::from_fn(require_admin_password));
 
     Router::new()
+        .route("/", get(status_page))
         .route("/ping", get(ping))
         .route("/api/admin/auth", post(admin_auth))
         .route("/api/client/register", post(register))
@@ -1113,7 +1349,7 @@ async fn cleanup_stale_clients(state: AppState) {
             warn!(%user_id, "heartbeat timed out");
             mark_offline(&state, &user_id).await;
         }
-        let _ = persist(&state).await;
+        schedule_persist(&state);
     }
 }
 
@@ -1141,8 +1377,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         data: Arc::new(RwLock::new(data)),
         data_file: Arc::new(data_file),
         remote_assist: remote_assist_hub::RemoteAssistHub::default(),
+        persist_dirty: Arc::new(AtomicBool::new(false)),
+        persist_notify: Arc::new(Notify::new()),
     };
-    persist(&state).await?;
+    if let Err(error) = persist_inner(&state).await {
+        return Err(format!("initial persist failed: {error}").into());
+    }
+    tokio::spawn(persist_worker(state.clone()));
     tokio::spawn(cleanup_stale_clients(state.clone()));
 
     let address: SocketAddr = format!("{host}:{port}").parse()?;
@@ -1150,11 +1391,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(%address, "VRCDog standalone server started");
     axum::serve(
         listener,
-        router(state).into_make_service_with_connect_info::<SocketAddr>(),
+        router(state.clone()).into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(async {
+    .with_graceful_shutdown(async move {
         let _ = tokio::signal::ctrl_c().await;
         info!("shutdown signal received");
+        let _ = persist_inner(&state).await;
     })
     .await?;
     Ok(())

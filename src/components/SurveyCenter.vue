@@ -119,14 +119,23 @@ const submit = async () => {
     });
     if (!data?.success) throw new Error(data?.message || '提交失败');
     failedQuestionIds.value = data.failed_question_ids || [];
+    const reward = data.reward as
+      | { role_id: string; role_name?: string | null; permanent?: boolean; expires_at?: string | null }
+      | undefined;
     if (!data.passed) {
       error.value = currentIsBlocking.value
-        ? '尚未通过：请检查标红的必答题或答案后重新提交。'
-        : '问卷已记录，但有题目未通过。你可以修改后重试，或跳过本问卷。';
+        ? '尚未通过要求：请检查标红题目或答案后重新提交，本次无奖励。'
+        : '问卷已记录，但未满足奖励要求，本次无奖励。可修改后重试或跳过。';
       await fetchHistory();
       return;
     }
-    message.value = '提交成功';
+    if (reward) {
+      const roleName = reward.role_name || reward.role_id;
+      const validity = reward.permanent ? '永久有效' : `有效期至 ${reward.expires_at ?? '未知'}`;
+      message.value = `提交成功，已发放奖励：角色「${roleName}」（${validity}）`;
+    } else {
+      message.value = '提交成功';
+    }
     await Promise.all([fetchPending(), fetchHistory()]);
     if (surveys.value.length === 0) {
       window.setTimeout(() => emit('close'), 500);
