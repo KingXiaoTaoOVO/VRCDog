@@ -50,6 +50,18 @@ pub struct DrawingConfig {
     pub artifact_removal: f32,
     pub model_size: u32,
     pub lift_speed: f32,
+    /// Extra wait after `mouse_left(true)` before the first move step. Lets the canvas
+    /// commit the pen-down state so the first point is not lost or offset by a half-step.
+    pub pen_settle_ms: u64,
+    /// Optional explicit canvas size in screen pixels. When > 0 the engine computes an
+    /// automatic scale = canvas_size_px / max(plan.width, plan.height) so the image is
+    /// mapped 1:1 to the real VRChat drawing canvas. 0 keeps the legacy sensitivity-only
+    /// behavior for backwards compatibility.
+    pub canvas_size_px: u32,
+    /// When true, the engine attempts a lightweight 2-opt pass after nearest-neighbour
+    /// ordering. Roughly halves aerial pen travel on complex images; cheap relative to the
+    /// overall drawing time.
+    pub two_opt_path: bool,
 }
 
 impl Default for DrawingConfig {
@@ -80,6 +92,9 @@ impl Default for DrawingConfig {
             artifact_removal: 0.6,
             model_size: 512,
             lift_speed: 1.0,
+            pen_settle_ms: 15,
+            canvas_size_px: 0,
+            two_opt_path: true,
         }
     }
 }
@@ -109,6 +124,8 @@ impl DrawingConfig {
         self.artifact_removal = finite_or(self.artifact_removal, 0.6).clamp(0.0, 1.0);
         self.model_size = self.model_size.clamp(128, 1024);
         self.lift_speed = finite_or(self.lift_speed, 1.0).clamp(0.2, 3.0);
+        self.pen_settle_ms = self.pen_settle_ms.min(300);
+        self.canvas_size_px = self.canvas_size_px.min(8192);
         self
     }
 }
@@ -401,6 +418,10 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     report_stage(state, app, "optimize", 0.95);
     if config.optimize_path {
         strokes = order_strokes(strokes);
+    } else if config.two_opt_path {
+        // Even without nearest-neighbour ordering, a 2-opt pass over the raw extract order
+        // can noticeably reduce aerial travel on complex images.
+        strokes = two_opt_pass(strokes, 2);
     }
     let total_points = strokes.iter().map(|stroke| stroke.points.len()).sum();
     if strokes.is_empty() || total_points < 2 {
@@ -647,11 +668,39 @@ fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) 
             let next = if let Some(previous) = previous {
                 let px = (current % width) as f32 - (previous % width) as f32;
                 let py = (current / width) as f32 - (previous / width) as f32;
+                let in_len = px.hypot(py).max(0.001);
                 *candidates.iter().max_by(|a, b| {
-                    let score = |index: usize| {
+                    let score = |index: usize| -> f32 {
                         let dx = (index % width) as f32 - (current % width) as f32;
                         let dy = (index / width) as f32 - (current / width) as f32;
-                        (px * dx + py * dy) / (px.hypot(py) * dx.hypot(dy)).max(0.001)
+                        let out_len = dx.hypot(dy).max(0.001);
+                        // cosine similarity with the incoming direction
+                        let cosine = (px * dx + py * dy) / (in_len * out_len);
+                        // look-ahead: average direction of this candidate's unvisited
+                        // neighbours. If continuing through this candidate also keeps the
+                        // stroke straight, prefer it over a sharp turn.
+                        let ahead = neighbors(data, width, height, index % width, index / width)
+                            .into_iter()
+                            .filter(|n| !visited[*n])
+                            .collect::<Vec<_>>();
+                        if ahead.is_empty() { return cosine; }
+                        let mut ax = 0.0f32;
+                        let mut ay = 0.0f32;
+                        for n in &ahead {
+                            ax += (*n % width) as f32 - (index % width) as f32;
+                            ay += (*n / width) as f32 - (index / width) as f32;
+                        }
+                        let ncount = ahead.len() as f32;
+                        // Composite direction: the average of the chosen step and the
+                        // average of the following steps. If this composite is collinear
+                        // with the incoming direction, the candidate continues smoothly.
+                        let cx = dx + ax / ncount;
+                        let cy = dy + ay / ncount;
+                        let c_len = cx.hypot(cy).max(0.001);
+                        let continuity = (px * cx + py * cy) / (in_len * c_len);
+                        // 0.4 immediate cosine + 0.6 look-ahead continuity: a small turn
+                        // is acceptable if the next segment continues the original heading.
+                        cosine * 0.4 + continuity * 0.6
                     };
                     score(**a).partial_cmp(&score(**b)).unwrap_or(CmpOrdering::Equal)
                 }).unwrap()
@@ -666,6 +715,10 @@ fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) 
 
 fn smooth_points(points: &[DrawingPoint], window: usize) -> Vec<DrawingPoint> {
     if points.len() <= 2 || window <= 1 { return points.to_vec(); }
+    // window >= 4 enables uniform Catmull-Rom smoothing (preserves curve shape far better
+    // than a flat moving average). For smaller windows fall back to the moving average so
+    // short strokes and endpoints still get a sane result.
+    if window >= 4 { return catmull_rom_smooth(points, window); }
     let radius = window / 2;
     points.iter().enumerate().map(|(index, _)| {
         if index == 0 || index + 1 == points.len() { return points[index].clone(); }
@@ -675,6 +728,38 @@ fn smooth_points(points: &[DrawingPoint], window: usize) -> Vec<DrawingPoint> {
         DrawingPoint {
             x: points[start..end].iter().map(|point| point.x).sum::<f32>() / count,
             y: points[start..end].iter().map(|point| point.y).sum::<f32>() / count,
+        }
+    }).collect()
+}
+
+/// Uniform Catmull-Rom spline evaluation at t=0.5 across four control points. Pass-through
+/// for collinear control points, smooth blending for curved segments. Endpoints clamp the
+/// missing neighbour to keep the curve stable near the head/tail of the stroke.
+fn catmull_rom_smooth(points: &[DrawingPoint], window: usize) -> Vec<DrawingPoint> {
+    if points.len() < 4 || window < 4 { return points.to_vec(); }
+    let half: isize = (window / 2).max(1) as isize;
+    let fetch = |i: isize| -> DrawingPoint {
+        let n = points.len() as isize;
+        let idx = i.clamp(0, n - 1) as usize;
+        points[idx].clone()
+    };
+    let t: f32 = 0.5;
+    let t2 = t * t;
+    let t3 = t2 * t;
+    points.iter().enumerate().map(|(i, _)| {
+        let p0 = fetch(i as isize - half);
+        let p1 = points[i].clone();
+        let p2 = fetch(i as isize + half);
+        let p3 = fetch(i as isize + half * 2);
+        DrawingPoint {
+            x: 0.5 * ((2.0 * p1.x)
+                + (-p0.x + p2.x) * t
+                + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
+                + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3),
+            y: 0.5 * ((2.0 * p1.y)
+                + (-p0.y + p2.y) * t
+                + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
+                + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3),
         }
     }).collect()
 }
@@ -730,8 +815,9 @@ fn merge_nearby_strokes(mut strokes: Vec<DrawingStroke>, distance: f32) -> Vec<D
     strokes
 }
 
-fn order_strokes(mut strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
+fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
     if strokes.len() <= 1 { return strokes; }
+    let mut strokes = strokes;
     let first = strokes.iter().enumerate().min_by(|(_, a), (_, b)| {
         let da = a.points[0].x.hypot(a.points[0].y);
         let db = b.points[0].x.hypot(b.points[0].y);
@@ -750,7 +836,46 @@ fn order_strokes(mut strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
         if best.2 { next.points.reverse(); }
         ordered.push(next);
     }
-    ordered
+    // Two-opt improvement: cap at 3 passes; empirically enough for image-sized stroke
+    // counts and bounded so we never spend more than a few ms on routing.
+    two_opt_pass(ordered, 3)
+}
+
+/// Reverses segments of the tour when doing so reduces the total endpoint-to-endpoint
+/// pen travel. Operates in place; `max_passes` caps iterations to keep the cost bounded.
+fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize) -> Vec<DrawingStroke> {
+    if tour.len() < 4 { return tour; }
+    for _ in 0..max_passes.max(1) {
+        let mut improved = false;
+        let n = tour.len();
+        for i in 1..n - 1 {
+            let prev_end = tour[i - 1].points.last().unwrap().clone();
+            for j in (i + 1)..n {
+                let cur_first = tour[i].points.first().unwrap().clone();
+                let cur_last = tour[j].points.last().unwrap().clone();
+                let next_first = if j + 1 < n { Some(tour[j + 1].points.first().unwrap().clone()) } else { None };
+                // After reversing the segment [i..=j] AND each stroke's points inside it,
+                // the new boundary is: prev -> (old j's last), (old i's first) -> next.
+                let new_first = tour[j].points.last().unwrap().clone();
+                let new_last = tour[i].points.first().unwrap().clone();
+                let mut before = point_distance(&prev_end, &cur_first);
+                let mut after = point_distance(&prev_end, &new_first);
+                if let Some(next) = next_first {
+                    before += point_distance(&cur_last, &next);
+                    after += point_distance(&new_last, &next);
+                }
+                if after + 1e-3 < before {
+                    for k in i..=j {
+                        tour[k].points.reverse();
+                    }
+                    tour[i..=j].reverse();
+                    improved = true;
+                }
+            }
+        }
+        if !improved { break; }
+    }
+    tour
 }
 
 fn start_drawing(app: &tauri::AppHandle, state: &VrDrawingState) -> Result<(), String> {
@@ -814,17 +939,32 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
         let mut current_y = center_y;
         let mut error_x = 0.0f32;
         let mut error_y = 0.0f32;
+        // Optional explicit canvas size: when set, derive scale so 1 image pixel maps to
+        // (canvas_size_px / plan.dim) screen pixels. The user still controls the fine-tune
+        // via `sensitivity` and `vertical_stretch`. canvas_size_px == 0 keeps the legacy
+        // sensitivity-only behaviour.
+        let (scale_x, scale_y) = if config.canvas_size_px > 0 && plan.width > 0 && plan.height > 0 {
+            let sx = config.canvas_size_px as f32 / plan.width as f32;
+            let sy = config.canvas_size_px as f32 / plan.height as f32;
+            (sx, sy)
+        } else { (1.0, 1.0) };
         for (index, stroke) in plan.strokes.iter().enumerate() {
             if stop.load(Ordering::SeqCst) { break; }
             wait_while_paused(&stop, &paused);
             if stop.load(Ordering::SeqCst) { break; }
             mouse_left(false);
             let first = &stroke.points[0];
-            move_planar(&mut current_x, &mut current_y, first, &config, true, &stop, &paused, &mut error_x, &mut error_y);
+            move_planar(&mut current_x, &mut current_y, first, &config, true, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y);
             if stop.load(Ordering::SeqCst) { break; }
             mouse_left(true);
+            // Pen-down settle: give the canvas a few ms to register the click so the first
+            // actual stroke point isn't lost or offset by a half-pixel.
+            if config.pen_settle_ms > 0 {
+                interruptible_sleep(config.pen_settle_ms, &stop, &paused);
+            }
+            if stop.load(Ordering::SeqCst) { break; }
             for point in stroke.points.iter().skip(1) {
-                move_planar(&mut current_x, &mut current_y, point, &config, false, &stop, &paused, &mut error_x, &mut error_y);
+                move_planar(&mut current_x, &mut current_y, point, &config, false, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y);
                 if stop.load(Ordering::SeqCst) { break; }
             }
             mouse_left(false);
@@ -861,10 +1001,10 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
 }
 
 #[allow(clippy::too_many_arguments)]
-fn move_planar(current_x: &mut f32, current_y: &mut f32, target: &DrawingPoint, config: &DrawingConfig, pen_up: bool, stop: &AtomicBool, paused: &AtomicBool, error_x: &mut f32, error_y: &mut f32) {
+fn move_planar(current_x: &mut f32, current_y: &mut f32, target: &DrawingPoint, config: &DrawingConfig, pen_up: bool, stop: &AtomicBool, paused: &AtomicBool, error_x: &mut f32, error_y: &mut f32, scale_x: f32, scale_y: f32) {
     let pen_speed = if pen_up { config.lift_speed } else { 1.0 };
-    let delta_x = (target.x - *current_x) * config.sensitivity * pen_speed;
-    let delta_y = (target.y - *current_y) * config.sensitivity * config.vertical_stretch * pen_speed;
+    let delta_x = (target.x - *current_x) * scale_x * config.sensitivity * pen_speed;
+    let delta_y = (target.y - *current_y) * scale_y * config.sensitivity * config.vertical_stretch * pen_speed;
     let distance = delta_x.hypot(delta_y);
     let steps = (distance / config.max_step_px).ceil().max(1.0) as usize;
     for _ in 0..steps {

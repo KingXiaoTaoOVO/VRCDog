@@ -18,12 +18,9 @@ import { initGamelogWatcher } from './api/gamelogWatcher';
 
 // Layouts and components
 import ToastContainer from './components/ToastContainer.vue';
-import ServerDashboardView from './components/ServerDashboardView.vue';
 import SurveyCenter from './components/SurveyCenter.vue';
 import RoleSelectView from './components/RoleSelectView.vue';
 import LoginView from './components/LoginView.vue';
-import OverlayView from './components/OverlayView.vue';
-import VrpianoOverlayView from './components/VrpianoOverlayView.vue';
 import ModeSelect from './components/layout/ModeSelect.vue';
 import VrLayout from './components/layout/VrLayout.vue';
 import PcLayout from './components/layout/PcLayout.vue';
@@ -35,7 +32,7 @@ import DebugConsole from './components/DebugConsole.vue';
 
 // Assets
 import dogImg from './assets/dog.jpg';
-import { ClipboardList, Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
+import { Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
 import { setAppLocale } from './i18n';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -101,6 +98,9 @@ const OvrTranslatorView = lazyView('OvrTranslatorView', () => import('./componen
 const ExportView = lazyView('ExportView', () => import('./components/ExportView.vue'));
 const EnvView = lazyView('EnvView', () => import('./components/EnvView.vue'));
 const RemoteAssistView = lazyView('RemoteAssistView', () => import('./components/RemoteAssistView.vue'));
+const ServerDashboardView = lazyView('ServerDashboardView', () => import('./components/ServerDashboardView.vue'));
+const OverlayView = lazyView('OverlayView', () => import('./components/OverlayView.vue'));
+const VrpianoOverlayView = lazyView('VrpianoOverlayView', () => import('./components/VrpianoOverlayView.vue'));
 
 const { t, locale } = useI18n({ useScope: 'global' });
 
@@ -530,7 +530,6 @@ if (typeof window !== 'undefined') {
   <VrLayout v-else-if="isLoggedIn && appMode === 'vr'" />
 
   <PcLayout v-else-if="isLoggedIn && appMode === 'pc'">
-    <KeepAlive>
       <DashboardView v-if="activeTab === 'dashboard'" />
       <FeedView v-else-if="activeTab === 'feed'" />
       <FriendLocationsView v-else-if="activeTab === 'locations'" />
@@ -560,7 +559,6 @@ if (typeof window !== 'undefined') {
       <RemoteAssistView v-else-if="activeTab === 'remote'" />
       <ExportView v-else-if="activeTab === 'export'" />
       <EnvView v-else-if="activeTab === 'env'" />
-    </KeepAlive>
   </PcLayout>
 
   <!-- Global Modals for PC and VR Modes -->
@@ -627,15 +625,6 @@ if (typeof window !== 'undefined') {
         </div>
       </div>
     </div>
-
-    <button
-      v-if="clientServerUrl"
-      class="fixed bottom-5 right-5 z-[9990] h-11 px-4 rounded-full bg-primary text-white text-sm font-bold shadow-lg flex items-center gap-2 hover:bg-primary-hover"
-      title="我的问卷"
-      @click="openSurveyHistory"
-    >
-      <ClipboardList :size="16" /> 我的问卷
-    </button>
   </template>
 
   <SurveyCenter

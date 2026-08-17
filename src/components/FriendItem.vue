@@ -9,6 +9,7 @@ const props = defineProps<{
   statusColor: string;
   trustColor: string;
   isOffline?: boolean;
+  locationName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -134,8 +135,8 @@ const handleWorldClick = (event: MouseEvent) => {
            <span class="truncate cursor-pointer hover:text-primary hover:underline transition-colors"
                  v-if="friend.location.startsWith('wrld_')"
                  @click.stop="handleWorldClick($event)"
-                 title="点击查看世界详情">{{ cleanLocName(friend.location) }}</span>
-           <span v-else class="truncate">{{ cleanLocName(friend.location) }}</span>
+                 title="点击查看世界详情">{{ props.locationName || cleanLocName(friend.location) }}</span>
+           <span v-else class="truncate">{{ props.locationName || cleanLocName(friend.location) }}</span>
          </div>
           <div v-else class="text-[12px] font-bold text-[var(--theme-text-muted)] mt-1 truncate bg-[var(--theme-bg-main)]/5 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
            {{ isOffline ? t('auto_50d4a850') : t('auto_7cdc4c2a') }}

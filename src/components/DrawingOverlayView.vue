@@ -109,6 +109,14 @@ const startDrag = (event: PointerEvent) => {
         <span>{{ $t('drawing.point_delay') }} <b>{{ config.point_delay_ms }} ms</b></span>
         <input v-model.number="config.point_delay_ms" type="range" min="1" max="120" step="1">
       </label>
+      <label class="ov-field">
+        <span>{{ $t('drawing.canvas_size') }} <b>{{ config.canvas_size_px === 0 ? $t('drawing.auto') : config.canvas_size_px }}</b></span>
+        <input v-model.number="config.canvas_size_px" type="range" min="0" max="4096" step="64" :disabled="status.running">
+      </label>
+      <label class="ov-field">
+        <span>{{ $t('drawing.pen_settle') }} <b>{{ config.pen_settle_ms }} ms</b></span>
+        <input v-model.number="config.pen_settle_ms" type="range" min="0" max="120" step="1" :disabled="status.running">
+      </label>
 
       <div class="ov-preview">
         <canvas ref="canvasEl" />

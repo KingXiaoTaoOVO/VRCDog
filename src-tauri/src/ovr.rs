@@ -320,6 +320,7 @@ enum OvrCommand {
     ToggleHeight,              // Toggle height offset on/off
     ResetPlayspace,            // Reset all offsets to zero
     FixFloor,                  // Fix floor height using controller position
+    SetSurveyGate { status: String, pending: u32 }, // Backend survey gate status (drives VR menu visibility)
 }
 
 // ==================== State ====================
@@ -767,6 +768,8 @@ fn vr_thread_main(
     let mut overlay_menu_visible = false; // Start hidden; shown by holding both grips (anti-VRChat chord)
     let mut result_overlay_visible = false;
     let mut scan_active = false;
+    let mut survey_status: String = String::from("unknown"); // backend survey gate status (survey_required|survey_available|ok)
+    let mut survey_pending: u32 = 0; // pending survey count from backend gate
     // Channel for scan results (async task -> VR thread)
     let (scan_tx, scan_rx) = std::sync::mpsc::channel::<(String, String)>();
 
@@ -1234,6 +1237,10 @@ fn vr_thread_main(
                         "offset_x": ps_offset_x, "offset_y": ps_offset_y, "offset_z": ps_offset_z,
                         "rotation": ps_rotation_deg, "height_toggled": height_toggled,
                     }));
+                }
+                OvrCommand::SetSurveyGate { status, pending } => {
+                    survey_status = status;
+                    survey_pending = pending;
                 }
                 OvrCommand::ResetPlayspace => {
                     ps_offset_x = 0.0;
@@ -1877,21 +1884,41 @@ fn vr_thread_main(
                                 2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"notifications"})); }
                                 _ => {}
                             },
-                            9 => match menu_selection {
-                                0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"translator"})); }
-                                1 => {
-                                    let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"vrpiano"}));
-                                    menu_page = 12;
-                                    menu_selection = 0;
+                            9 => {
+                                if survey_status == "survey_required" || survey_status == "survey_available" {
+                                    match menu_selection {
+                                        0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"translator"})); }
+                                        1 => {
+                                            let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"vrpiano"}));
+                                            menu_page = 12;
+                                            menu_selection = 0;
+                                        }
+                                        2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"danmaku"})); }
+                                        3 => {
+                                            let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"}));
+                                            menu_page = 13;
+                                            menu_selection = 0;
+                                        }
+                                        4 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"survey"})); }
+                                        _ => {}
+                                    }
+                                } else {
+                                    match menu_selection {
+                                        0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"translator"})); }
+                                        1 => {
+                                            let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"vrpiano"}));
+                                            menu_page = 12;
+                                            menu_selection = 0;
+                                        }
+                                        2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"danmaku"})); }
+                                        3 => {
+                                            let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"}));
+                                            menu_page = 13;
+                                            menu_selection = 0;
+                                        }
+                                        _ => {}
+                                    }
                                 }
-                                2 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"danmaku"})); }
-                                3 => {
-                                    let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"}));
-                                    menu_page = 13;
-                                    menu_selection = 0;
-                                }
-                                4 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"survey"})); }
-                                _ => {}
                             },
                             10 => match menu_selection {
                                 0 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"feed"})); }
@@ -2014,6 +2041,8 @@ fn vr_thread_main(
                             scan_active,
                             translation_enabled,
                             &current_config,
+                            &survey_status,
+                            survey_pending,
                         );
                         if let Ok(mut ovr) = context.overlay() {
                             let _ = ovr.set_raw_data(h, &pixels, 1024, 640, 4);
@@ -2541,6 +2570,20 @@ pub async fn ovr_toggle_translation(
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     let s = state.status.lock().await;
     Ok(s.translation_enabled)
+}
+
+#[tauri::command]
+pub async fn ovr_set_survey_gate(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    status: String,
+    pending: u32,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetSurveyGate { status, pending });
+    }
+    Ok(())
 }
 
 fn legacy_button_mask(key: &str) -> u64 {
