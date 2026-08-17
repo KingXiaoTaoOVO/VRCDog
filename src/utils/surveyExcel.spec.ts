@@ -16,6 +16,7 @@ const survey: Survey = {
   created_at: '',
   updated_at: '',
   published_at: '',
+  reward: null,
   questions: [
     {
       question_id: 'q_choice',

@@ -61,7 +61,16 @@ pub struct SurveyQuestion {
     pub media: Vec<SurveyMedia>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SurveyReward {
+    /// Role granted to the user when they pass this survey.
+    pub role_id: String,
+    /// Hours the granted role stays active. `None` means permanent.
+    #[serde(default)]
+    pub duration_hours: Option<f64>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Survey {
     pub survey_id: String,
     pub title: String,
@@ -81,6 +90,10 @@ pub struct Survey {
     pub published_at: Option<String>,
     #[serde(default)]
     pub questions: Vec<SurveyQuestion>,
+    /// Optional incentive: grant a role (temporary or permanent) on a passing
+    /// submission. `None` disables the reward.
+    #[serde(default)]
+    pub reward: Option<SurveyReward>,
 }
 
 fn default_status() -> String {

@@ -333,7 +333,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="u in allUsers" :key="u.user_id" class="border-b border-border-soft/30 hover:bg-surface/40 transition-colors group">
+                <tr v-for="u in pagedUsers" :key="u.user_id" class="border-b border-border-soft/30 hover:bg-surface/40 transition-colors group">
                   <td class="p-4">
                     <div class="flex items-center gap-3">
                       <div class="relative">
@@ -394,6 +394,21 @@
             >
               <Users class="w-10 h-10 opacity-30" />
               {{ t('role.no_user_records') }}
+            </div>
+          </div>
+          <div v-if="allUsers.length > USERS_PAGE_SIZE" class="shrink-0 flex items-center justify-between px-4 py-2 border-t border-border-soft text-[10px] text-text-muted">
+            <span>{{ allUsers.length }} 名用户 · 第 {{ Math.min(usersPage, totalUserPages) }} / {{ totalUserPages }} 页</span>
+            <div class="flex gap-2">
+              <button
+                class="px-2.5 py-1 rounded border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                :disabled="usersPage <= 1"
+                @click="usersPage--"
+              >上一页</button>
+              <button
+                class="px-2.5 py-1 rounded border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                :disabled="usersPage >= totalUserPages"
+                @click="usersPage++"
+              >下一页</button>
             </div>
           </div>
         </div>
@@ -701,7 +716,7 @@ import AdminSurveyPanel from './AdminSurveyPanel.vue';
 import { useToast } from "../composables/useToast";
 
 const toast = useToast();
-import { ref, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, computed, reactive, shallowRef, watch } from 'vue';
 import { Server, Globe, Monitor, LogOut, Play, Square, Activity, Radar, ChevronRight, Terminal, Users, Shield, Star, Trash2, ShieldAlert, Snowflake, Check, Save, Palette, UserCheck, Cloud, RefreshCcw } from 'lucide-vue-next';
 import { currentThemeId, setTheme, themes, type ThemeId } from '../theme';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
@@ -817,12 +832,26 @@ interface FreezeInfo { user_id: string; reason: string; frozen_at: string; }
 interface FeatureConfig { menus: Record<string, boolean>; themes: Record<string, boolean>; modes: Record<string, boolean>; }
 interface Role { role_id: string; role_name: string; is_default: boolean; features: FeatureConfig; }
 
-const onlineClients = ref<ClientInfo[]>([]);
-const allUsers = ref<UserRecord[]>([]);
-const banMap = ref<Record<string, BanInfo>>({});
-const freezeMap = ref<Record<string, FreezeInfo>>({});
-const allRoles = ref<Role[]>([]);
+const onlineClients = shallowRef<ClientInfo[]>([]);
+const allUsers = shallowRef<UserRecord[]>([]);
+const banMap = shallowRef<Record<string, BanInfo>>({});
+const freezeMap = shallowRef<Record<string, FreezeInfo>>({});
+const allRoles = shallowRef<Role[]>([]);
 const selectedRole = ref<Role | null>(null);
+
+// The fetched collections above are always replaced wholesale (never mutated
+// field-by-field), so shallowRef avoids building a reactive proxy for every
+// user/role record on each 5s poll. The users table is also paginated to cap
+// rendered DOM rows for large user bases.
+const USERS_PAGE_SIZE = 50;
+const usersPage = ref(1);
+const totalUserPages = computed(() => Math.max(1, Math.ceil(allUsers.value.length / USERS_PAGE_SIZE)));
+const pagedUsers = computed(() => {
+  const page = Math.min(usersPage.value, totalUserPages.value);
+  const start = (page - 1) * USERS_PAGE_SIZE;
+  return allUsers.value.slice(start, start + USERS_PAGE_SIZE);
+});
+watch(totalUserPages, (pages) => { if (usersPage.value > pages) usersPage.value = pages; });
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -931,13 +960,33 @@ const confirmFreeze = () => {
 };
 
 // Roles Management
+// 标准菜单权限 key 集合 —— 必须与客户端实际侧边栏导航菜单保持一致
+// （src/stores/uiStore.ts 的 sidebarTabs 与 src/components/layout/VrLayout.vue 的 vrTabs 的并集）。
+// 管理端角色编辑器以此全集渲染复选框，避免与服务端/客户端菜单脱节。
+const ALL_MENU_KEYS = [
+  'dashboard', 'feed', 'locations', 'charts', 'playerlist', 'gallery', 'social',
+  'friendslist', 'moderation', 'search', 'notifications', 'groups', 'avatars',
+  'favorites', 'heatmap', 'notes', 'presets', 'tools', 'vrpiano', 'drawing',
+  'bilidown', 'danmaku', 'translator', 'ovr', 'remote', 'env', 'export', 'settings',
+] as const;
+
+// 把任意角色的 menus 对象归一化为标准全集：保留已有设置（false 即隐藏），
+// 缺失的 key 补 true，非标准 key（如旧版的 friendlog / gamelog）丢弃。
+const normalizeMenus = (menus?: Record<string, boolean>): Record<string, boolean> => {
+  const result: Record<string, boolean> = {};
+  for (const key of ALL_MENU_KEYS) {
+    result[key] = menus ? menus[key] !== false : true;
+  }
+  return result;
+};
+
 const createNewRole = () => {
   const newRole: Role = {
     role_id: 'role_' + Date.now(),
     role_name: t('role.new_role'),
     is_default: false,
     features: {
-      menus: { "dashboard":true, "feed":true, "friendlog":true, "locations":true, "charts":true, "playerlist":true, "gallery":true, "social":true, "search":true, "notifications":true, "groups":true, "avatars":true, "favorites":true, "moderation":true, "heatmap":true, "gamelog":true, "notes":true, "presets":true, "tools":true, "translator":true, "ovr":true, "env":true, "export":true, "settings":true },
+      menus: { ...normalizeMenus() },
       themes: { "dog":true, "cat":true, "helmet":true, "mono":true },
       modes: { "pc":true, "vr":true }
     }
@@ -945,7 +994,12 @@ const createNewRole = () => {
   selectedRole.value = newRole;
 };
 
-const selectRole = (r: Role) => { selectedRole.value = JSON.parse(JSON.stringify(r)); };
+const selectRole = (r: Role) => {
+  const cloned = JSON.parse(JSON.stringify(r));
+  cloned.features = cloned.features || {};
+  cloned.features.menus = normalizeMenus(cloned.features.menus);
+  selectedRole.value = cloned;
+};
 
 const saveRole = async () => {
   if (!selectedRole.value) return;
