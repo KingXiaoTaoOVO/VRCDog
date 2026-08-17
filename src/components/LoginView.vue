@@ -257,7 +257,7 @@ async function openUpdateDialog() {
 async function fetchReleases() {
   updateLoading.value = true;
   try {
-    const res = await fetch('https://api.github.com/repos/KingXiaoTaoOVO/VRCDog/releases?per_page=30', {
+    const res = await fetch('https://api.github.com/repos/KingXiaoTaoOVO/vrcdog-releases/releases?per_page=30', {
       headers: { 'Accept': 'application/vnd.github+json' }
     });
     if (res.ok) {
@@ -291,7 +291,7 @@ async function downloadUpdate() {
   if (!rel) return;
   // 优先找 .exe 安装包，没有就打开 release 页面
   const exeAsset = rel.assets.find((a: any) => a.name.endsWith('.exe') || a.name.endsWith('.msi'));
-  const url = exeAsset?.browser_download_url || `https://github.com/KingXiaoTaoOVO/VRCDog/releases/tag/${rel.tag}`;
+  const url = exeAsset?.browser_download_url || `https://github.com/KingXiaoTaoOVO/vrcdog-releases/releases/tag/${rel.tag}`;
   window.open(url, '_blank');
 }
 
