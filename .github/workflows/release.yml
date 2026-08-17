@@ -1,6 +1,7 @@
 name: Release VRCDog
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*' # 当推送以 v 开头的 tag 时触发，例如 v5.0.1
@@ -46,8 +47,10 @@ jobs:
       - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 用于自动更新包的签名。必须在 GitHub 仓库设置中添加这两个 Secret!
+          GITHUB_TOKEN: ${{ secrets.VRCDOG_RELEASES_TOKEN }}
+          # 用于自动更新包的签名。
+          # VRCDOG_RELEASES_TOKEN 是有 public_repo 权限的 PAT，用于把 release 推到跨仓库 vrcdog-releases。
+          # TAURI_PRIVATE_KEY / TAURI_KEY_PASSWORD 用于签名 updater.json。
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
@@ -61,5 +64,9 @@ jobs:
             如果有疑问，请加入我们的交流群。
           releaseDraft: false
           prerelease: false
+          # 把 release / updater.json / 安装包推到专门的发版仓 vrcdog-releases（VRCDog 本身是私有的）
+          owner: KingXiaoTaoOVO
+          repo: vrcdog-releases
+          releaseCommitish: main
           # 自动合并更新文件以便生成 updater.json
           updaterJsonKeepUniversal: false
