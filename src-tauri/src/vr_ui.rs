@@ -1151,6 +1151,7 @@ fn build_vr_menu_items(
             mi("打开 VRPiano"),
             mi("打开直播弹幕"),
             mi("打开自动绘画"),
+            mi("打开我的问卷"),
             mib("返回主菜单"),
         ],
         10 => vec![

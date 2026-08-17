@@ -11,13 +11,17 @@ export interface SurveyMedia {
 export interface SurveyOption {
   option_id: string;
   label: string;
+  /** Optional images/videos attached to this choice option. */
+  media?: SurveyMedia[];
 }
 
 export interface SurveyReward {
   /** Role granted to a user after a passing submission. */
   role_id: string;
-  /** Hours the granted role stays active; null/undefined means permanent. */
-  duration_hours: number | null;
+  /** How long the granted role stays active, in `duration_unit` units; null/undefined means permanent. */
+  duration_value: number | null;
+  /** Granularity of `duration_value`: 'hour' | 'day' | 'month' | 'year'. */
+  duration_unit: string;
 }
 
 export interface SurveyQuestion {
@@ -47,6 +51,14 @@ export interface Survey {
   reward: SurveyReward | null;
 }
 
+export interface SurveyAnswerAttachment {
+  file_id: string;
+  file_name: string;
+  mime_type: string;
+  size: number;
+  url: string;
+}
+
 export interface SurveySubmission {
   submission_id: string;
   survey_id: string;
@@ -58,4 +70,6 @@ export interface SurveySubmission {
   passed: boolean;
   answers: Record<string, string | string[]>;
   failed_question_ids: string[];
+  /** Per-question file attachments uploaded by the respondent. */
+  answer_files: Record<string, SurveyAnswerAttachment[]>;
 }
