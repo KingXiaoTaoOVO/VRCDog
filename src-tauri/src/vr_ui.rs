@@ -336,6 +336,8 @@ impl VrUiRenderer {
         scan_active: bool,
         translation_enabled: bool,
         config: &crate::ovr::OvrConfig,
+        survey_status: &str,
+        survey_pending: u32,
     ) -> Vec<u8> {
         let w: u32 = 1024;
         let h: u32 = 640;
@@ -607,7 +609,7 @@ impl VrUiRenderer {
         let item_h = 74i32;
         let gap = 8i32;
         let base_y = header_div_y + 14;
-        let items = build_vr_menu_items(page, scan_active, translation_enabled, config);
+        let items = build_vr_menu_items(page, scan_active, translation_enabled, config, survey_status, survey_pending);
         for (i, item) in items.iter().enumerate() {
             let iy = base_y + i as i32 * (item_h + gap);
             if iy + item_h > 580 {
@@ -1138,6 +1140,8 @@ fn build_vr_menu_items(
     scan_active: bool,
     translation_enabled: bool,
     config: &crate::ovr::OvrConfig,
+    survey_status: &str,
+    survey_pending: u32,
 ) -> Vec<VrMenuItem> {
     match page {
         8 => vec![
@@ -1146,14 +1150,24 @@ fn build_vr_menu_items(
             mi("通知中心"),
             mib("返回主菜单"),
         ],
-        9 => vec![
-            mi("打开语音翻译"),
-            mi("打开 VRPiano"),
-            mi("打开直播弹幕"),
-            mi("打开自动绘画"),
-            mi("打开我的问卷"),
-            mib("返回主菜单"),
-        ],
+        9 => {
+            let mut items = vec![
+                mi("打开语音翻译"),
+                mi("打开 VRPiano"),
+                mi("打开直播弹幕"),
+                mi("打开自动绘画"),
+                mib("返回主菜单"),
+            ];
+            if survey_status == "survey_required" || survey_status == "survey_available" {
+                let label = if survey_status == "survey_required" {
+                    format!("打开我的问卷 · 必填")
+                } else {
+                    format!("打开我的问卷 · {}", survey_pending)
+                };
+                items.insert(items.len() - 1, mi(&label));
+            }
+            items
+        }
         10 => vec![
             mi("打开事件动态"),
             mi("打开统计图表"),

@@ -668,6 +668,13 @@ onMounted(fetchData);
                     <input v-model="m.caption" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" placeholder="说明">
                     <button class="w-7 h-7 grid place-items-center text-red-500" title="删除图片" @click="option.media!.splice(mi, 1)"><Trash2 :size="12" /></button>
                   </div>
+                  <div v-if="option.media.some((mm) => mm.url)" class="flex flex-wrap gap-2 pt-1">
+                    <figure v-for="(pm, previewIndex) in option.media.filter((mm) => mm.url)" :key="'opv' + previewIndex" class="relative">
+                      <img v-if="pm.media_type === 'image'" :src="pm.url" referrerpolicy="no-referrer" class="h-20 w-20 object-cover rounded-md border border-border-soft bg-black/5">
+                      <video v-else :src="pm.url" controls preload="metadata" class="h-20 rounded-md border border-border-soft bg-black"></video>
+                      <figcaption v-if="pm.caption" class="mt-1 text-[10px] text-text-muted max-w-20 truncate">{{ pm.caption }}</figcaption>
+                    </figure>
+                  </div>
                 </div>
               </div>
               <button class="h-8 px-3 rounded-md border border-dashed border-border-strong text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addOption(question)">

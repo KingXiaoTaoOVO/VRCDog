@@ -168,6 +168,12 @@ const openRecentUser = (log: FriendLog) => {
   } as any);
 };
 
+const eventAvatar = (log: FriendLog): string => {
+  if (!log.user_id) return '';
+  const f = allFriends.value.find((item) => item.id === log.user_id);
+  return (f?.currentAvatarThumbnailImageUrl || f?.profilePicOverride || f?.userIcon || '') as string;
+};
+
 const eventLabel = (eventType: string) => {
   if (eventType === 'online') return t('status.online');
   if (eventType === 'offline') return t('status.offline');
@@ -531,7 +537,10 @@ onUnmounted(() => {
                 :disabled="!log.user_id"
                 @click="openRecentUser(log)"
               >
-                <span class="event-avatar">{{ (log.display_name || t('charts.system')).trim().charAt(0).toUpperCase() }}</span>
+                <span class="event-avatar">
+                  <img v-if="eventAvatar(log)" :src="eventAvatar(log)" referrerpolicy="no-referrer" class="event-avatar-img" alt="">
+                  <template v-else>{{ (log.display_name || t('charts.system')).trim().charAt(0).toUpperCase() }}</template>
+                </span>
                 <span class="event-copy">
                   <strong>{{ log.display_name || t('charts.system') }}</strong>
                   <small><i :class="eventDotClass(log.event_type)" />{{ eventLabel(log.event_type) }}</small>
@@ -812,7 +821,8 @@ onUnmounted(() => {
 .event-row:active { transform: translateY(1px); }
 .event-row:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: -2px; }
 .event-row:disabled { cursor: default; }
-.event-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 7px; color: var(--theme-primary); background: color-mix(in srgb, var(--theme-primary) 10%, var(--theme-surface)); font-size: 12px; font-weight: 850; }
+.event-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 7px; color: var(--theme-primary); background: color-mix(in srgb, var(--theme-primary) 10%, var(--theme-surface)); font-size: 12px; font-weight: 850; overflow: hidden; }
+.event-avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .event-copy { min-width: 0; display: grid; gap: 3px; }
 .event-copy strong { overflow: hidden; color: var(--theme-text-strong); font-size: 13px; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
 .event-copy small { display: flex; align-items: center; gap: 6px; color: var(--theme-text-muted); font-size: 11px; font-weight: 650; }

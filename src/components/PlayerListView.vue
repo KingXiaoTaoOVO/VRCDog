@@ -335,11 +335,25 @@ const filteredPlayers = computed(() => {
   return players.value.filter(p => p.name.toLowerCase().includes(q));
 });
 
-const openPlayerProfile = (player: Player) => {
+const openPlayerProfile = async (player: Player) => {
   if (player.userData) {
     profileStore.openProfile(player.userData.id, player.userData);
-  } else if (player.userId) {
+    return;
+  }
+  if (player.userId) {
     profileStore.openProfile(player.userId);
+    return;
+  }
+  // 日志来源玩家可能只有名字：尝试按名字解析并打开详情
+  try {
+    const resolved = (await VrcApi.searchUsers({ query: player.name, n: 1, offset: 0 }))?.[0];
+    if (resolved?.id) {
+      player.userData = resolved;
+      player.userId = resolved.id;
+      profileStore.openProfile(resolved.id, resolved);
+    }
+  } catch (e) {
+    console.warn('Failed to resolve player by name', player.name, e);
   }
 };
 </script>
@@ -440,7 +454,8 @@ const openPlayerProfile = (player: Player) => {
             
             <div
               v-else
-              class="h-36 bg-surface/85 backdrop-blur rounded-xl overflow-hidden border border-border-soft shadow-sm flex items-center justify-center relative transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30"
+              class="h-36 bg-surface/85 backdrop-blur rounded-xl overflow-hidden border border-border-soft shadow-sm flex items-center justify-center relative transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-primary/30 cursor-pointer"
+              @click="openPlayerProfile(player)"
             >
               <div
                 v-if="player.loadingData"

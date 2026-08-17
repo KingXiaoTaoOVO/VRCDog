@@ -1285,6 +1285,9 @@ export interface DrawingConfig {
   artifact_removal: number;
   model_size: number;
   lift_speed: number;
+  pen_settle_ms: number;
+  canvas_size_px: number;
+  two_opt_path: boolean;
 }
 
 export interface PreparedDrawing {

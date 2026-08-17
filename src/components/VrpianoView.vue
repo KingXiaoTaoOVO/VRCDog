@@ -1279,8 +1279,8 @@ onUnmounted(() => {
           >
             <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
               <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
-              <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
               <img v-else-if="songCover(song)" :src="songCover(song)" :title="l('来自 Midishow 的封面', 'Cover from Midishow')" alt="">
+              <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
               <Music v-else :size="15" />
             </span>
             <span class="song-meta">

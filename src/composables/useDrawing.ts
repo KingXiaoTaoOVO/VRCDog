@@ -37,6 +37,9 @@ const defaultConfig: DrawingConfig = {
   artifact_removal: 0.6,
   model_size: 512,
   lift_speed: 1,
+  pen_settle_ms: 15,
+  canvas_size_px: 0,
+  two_opt_path: true,
 };
 
 const emptyStatus = (): DrawingStatus => ({
@@ -62,11 +65,11 @@ const processingSectionKeys: (keyof DrawingConfig)[] = [
   'ai_model', 'contrast', 'artifact_removal', 'model_size',
 ];
 const strokeSectionKeys: (keyof DrawingConfig)[] = [
-  'min_stroke_length', 'smooth_window', 'simplify_epsilon', 'merge_distance', 'optimize_path',
+  'min_stroke_length', 'smooth_window', 'simplify_epsilon', 'merge_distance', 'optimize_path', 'two_opt_path',
 ];
 const executionSectionKeys: (keyof DrawingConfig)[] = [
   'sensitivity', 'vertical_stretch', 'max_step_px', 'point_delay_ms', 'lift_delay_ms',
-  'start_delay_ms', 'focus_vrchat', 'hotkeys_enabled', 'lift_speed',
+  'start_delay_ms', 'focus_vrchat', 'hotkeys_enabled', 'lift_speed', 'pen_settle_ms', 'canvas_size_px',
 ];
 
 export function useDrawing() {

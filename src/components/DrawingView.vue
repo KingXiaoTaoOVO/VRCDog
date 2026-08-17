@@ -190,6 +190,9 @@ const openVrOverlay = () => {
               <label class="field"><span>{{ $t('drawing.simplify') }} <b>{{ config.simplify_epsilon.toFixed(1) }}</b></span><input v-model.number="config.simplify_epsilon" type="range" min="0" max="6" step="0.1" :disabled="status.running"></label>
               <label class="field"><span>{{ $t('drawing.merge') }} <b>{{ config.merge_distance.toFixed(1) }}</b></span><input v-model.number="config.merge_distance" type="range" min="0" max="12" step="0.5" :disabled="status.running"></label>
             </div>
+            <div class="toggle-row">
+              <label><input v-model="config.two_opt_path" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.two_opt_path') }}</span></label>
+            </div>
           </section>
 
           <section class="control-section">
@@ -205,6 +208,8 @@ const openVrOverlay = () => {
               <label class="field"><span>{{ $t('drawing.lift_speed') }} <b>{{ Math.round(config.lift_speed * 100) }}%</b></span><input v-model.number="config.lift_speed" type="range" min="0.2" max="3" step="0.1" :disabled="status.running"></label>
               <label class="field"><span>{{ $t('drawing.point_delay') }} <b>{{ config.point_delay_ms }} ms</b></span><input v-model.number="config.point_delay_ms" type="range" min="1" max="120" step="1"></label>
               <label class="field"><span>{{ $t('drawing.start_delay') }} <b>{{ (config.start_delay_ms / 1000).toFixed(1) }} s</b></span><input v-model.number="config.start_delay_ms" type="range" min="0" max="10000" step="250"></label>
+              <label class="field"><span>{{ $t('drawing.canvas_size') }} <b>{{ config.canvas_size_px === 0 ? $t('drawing.auto') : config.canvas_size_px }}</b></span><input v-model.number="config.canvas_size_px" type="range" min="0" max="4096" step="64" :disabled="status.running"></label>
+              <label class="field"><span>{{ $t('drawing.pen_settle') }} <b>{{ config.pen_settle_ms }} ms</b></span><input v-model.number="config.pen_settle_ms" type="range" min="0" max="120" step="1" :disabled="status.running"></label>
             </div>
             <div class="toggle-row">
               <label><input v-model="config.focus_vrchat" type="checkbox"><span>{{ $t('drawing.focus_vrchat') }}</span></label>

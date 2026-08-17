@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { VrcApi, DbApi, SysApi } from '../api';
 import { initWebsocket, closeWebSocket } from '../api/websocket';
 import { initGamelogWatcher, stopGamelogWatcher } from '../api/gamelogWatcher';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 import type { VrcUser } from '../types/vrc';
 import { setAppLocale, translate } from '../i18n';
 import { normalizeNotificationForDb } from '../api/notificationNormalization';
@@ -34,14 +34,22 @@ export const useAuthStore = defineStore('auth', () => {
 
   const getBaseUrl = () => clientServerUrl.value.replace(/\/+$/, '');
 
+  const pushSurveyGateToRust = () => {
+    if (!isTauri()) return;
+    const status = surveyRequired.value ? 'survey_required' : (pendingSurveyCount.value > 0 ? 'survey_available' : 'ok');
+    invoke('ovr_set_survey_gate', { status, pending: pendingSurveyCount.value }).catch(() => {});
+  };
+
   const applySurveyStatus = (data: any) => {
     pendingSurveyCount.value = Number(data?.pending_survey_count || 0);
     surveyRequired.value = Boolean(data?.survey_required || data?.status === 'survey_required');
+    pushSurveyGateToRust();
   };
 
   const resolveSurveyPrompt = (pendingCount = 0, required = false) => {
     pendingSurveyCount.value = Math.max(0, pendingCount);
     surveyRequired.value = required;
+    pushSurveyGateToRust();
   };
 
   const normalizeServerEventUserId = (payload: any): string => {

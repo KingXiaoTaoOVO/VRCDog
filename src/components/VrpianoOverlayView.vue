@@ -478,8 +478,8 @@ onUnmounted(() => {
         >
           <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
             <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
-            <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
             <img v-else-if="songCover(song)" :src="songCover(song)" alt="">
+            <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
             <b v-else class="song-index">{{ index + 1 }}</b>
           </span>
           <strong :title="song.name">{{ song.name }}</strong>

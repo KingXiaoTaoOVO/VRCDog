@@ -462,6 +462,7 @@ const resolveWorldNames = async () => {
                 :friend="friend" 
                 :statusColor="getStatusColor(friend.status)" 
                 :trustColor="getTrustColor(friend.tags)" 
+                :location-name="cleanLocName(friend.location)"
                 @click="openDetail(friend)"
               />
             </div>
@@ -484,6 +485,7 @@ const resolveWorldNames = async () => {
                 :friend="friend" 
                 :statusColor="getStatusColor(friend.status)" 
                 :trustColor="getTrustColor(friend.tags)" 
+                :location-name="cleanLocName(friend.location)"
                 @click="openDetail(friend)"
               />
             </div>
@@ -507,6 +509,7 @@ const resolveWorldNames = async () => {
                 :statusColor="''" 
                 :trustColor="''" 
                 :isOffline="true"
+                :location-name="cleanLocName(friend.location)"
                 @click="openDetail(friend)"
               />
             </div>
