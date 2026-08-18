@@ -20,6 +20,7 @@ pub mod server_survey;
 pub mod sys;
 pub mod toolchain;
 pub mod translate;
+pub mod update;
 pub mod vr_ui;
 pub mod vrc_api;
 pub mod pipeline_ws;
@@ -396,6 +397,9 @@ pub fn run() {
             sys::sys_backup_database,
             sys::sys_restore_database,
             sys::sys_open_steamvr_bindings,
+            update::update_remote_releases,
+            update::update_install_release,
+            update::update_restart,
             audio_capture::vrct_get_audio_devices,
             audio_capture::vrct_start_audio_capture,
             audio_capture::vrct_stop_audio_capture,

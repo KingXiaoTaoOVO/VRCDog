@@ -276,6 +276,9 @@
     "update_checking": "Checking for updates...",
     "update_found": "New version v{version} available!\n\n{body}\n\nDownload and update now?",
     "update_downloading": "Downloading update...",
+    "update_verifying": "Verifying installer integrity...",
+    "update_installing": "Installing new version silently, app will restart automatically...",
+    "update_restarting": "Launching new version...",
     "update_cancelled": "Update cancelled",
     "update_latest": "You are on the latest version",
     "update_failed": "Update check failed: {error}",
@@ -651,12 +654,17 @@
       "favorited": "Added to favorites",
       "unfriend_confirm": "Are you sure you want to unfriend this user?",
       "unfriend_success": "Friend removed",
+      "unfriend_failed": "Failed to unfriend: {error}",
       "block_success": "Player blocked",
       "mute_success": "Player muted",
       "show_avatar_success": "Avatar shown",
       "hide_avatar_success": "Avatar hidden",
       "request_invite_success": "Invite request sent",
       "invite_success": "Invite sent",
+      "send_friend_request_success": "Friend request sent",
+      "send_friend_request_failed": "Failed to send friend request: {error}",
+      "cancel_friend_request_success": "Friend request cancelled",
+      "cancel_friend_request_failed": "Failed to cancel friend request: {error}",
       "action_failed": "Action failed: {error}",
       "action_success": "Action successful: {action}",
       "copied_value": "Copied: {value}",
@@ -695,7 +703,12 @@
       "hide_avatar": "Hide Avatar",
       "mute": "Mute",
       "block": "Block",
-      "unfriend": "Unfriend"
+      "unfriend": "Unfriend",
+      "add_friend": "Add Friend",
+      "cancel_friend_request": "Cancel Friend Request",
+      "friend_confirmed": "Friend",
+      "friend_request_pending": "Friend Request Pending",
+      "friend_request_received": "Friend Request Received"
     },
     "badges": {
       "assigned": "Assigned",
@@ -1297,7 +1310,10 @@
       "no_releases": "No releases found",
       "up_to_date": "VrcDog is up to date",
       "has_new": "New version available: {version}",
-      "download": "Download"
+      "download": "Download",
+      "installing": "Updating {percent}%",
+      "install_done": "Install complete, launching new version...",
+      "install_failed": "Auto-update failed: {error}"
     }
   },
   "tools": {
@@ -2611,7 +2627,9 @@
     "copy_id": "Copy ID",
     "open_browser": "Open in Browser",
     "favorite": "Favorite/Group",
-    "create_instance": "Create Instance"
+    "create_instance": "Create Instance",
+    "add_friend": "Add Friend",
+    "friend_badge": "Friend"
   },
   "common": {
     "yes": "Yes",

@@ -32,7 +32,7 @@ use tracing::{info, warn};
 mod remote_assist_hub;
 mod survey;
 
-use survey::{Survey, SurveyAnswerFile, SurveySettings, SurveySubmission};
+use survey::{Survey, SurveyAnswerFile, SurveyClickEvent, SurveySettings, SurveySubmission};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct ClientInfo {
@@ -161,6 +161,9 @@ struct PersistentData {
     surveys: HashMap<String, Survey>,
     #[serde(default)]
     survey_submissions: HashMap<String, SurveySubmission>,
+    /// Raw per-option click events reported by clients while filling surveys.
+    #[serde(default)]
+    survey_click_events: Vec<SurveyClickEvent>,
 }
 
 impl PersistentData {
@@ -252,6 +255,33 @@ struct DismissSurveyRequest {
     survey_id: String,
     survey_revision: u32,
 }
+
+/// A single click/interaction reported by the client while the respondent is
+/// filling a survey. Labels sent by the client are only used as a fallback when
+/// the server-side survey snapshot cannot resolve them.
+#[derive(Deserialize)]
+struct ClickSurveyRequest {
+    user_id: String,
+    survey_id: String,
+    #[serde(default)]
+    survey_revision: u32,
+    question_id: String,
+    #[serde(default)]
+    option_id: String,
+    #[serde(default)]
+    option_label: String,
+    #[serde(default)]
+    question_title: String,
+    /// "select" | "deselect" | "input"
+    #[serde(default)]
+    action: String,
+    #[serde(default)]
+    text_value: String,
+}
+
+/// Upper bound for stored raw click events; oldest events are dropped first so
+/// the persistence file cannot grow without limit.
+const MAX_SURVEY_CLICK_EVENTS: usize = 20_000;
 
 #[derive(Deserialize)]
 struct DeleteSubmissionRequest {
@@ -858,6 +888,85 @@ async fn client_get_upload(State(state): State<AppState>, Path(raw): Path<String
     }
 }
 
+async fn client_click_survey(
+    State(state): State<AppState>,
+    Json(request): Json<ClickSurveyRequest>,
+) -> Json<Value> {
+    let mut data = state.data.write().await;
+    // Snapshot question/option/survey labels server-side so the click log stays
+    // readable even after the survey is edited or deleted.
+    let (survey_title, revision, question_title, option_label) =
+        match data.surveys.get(&request.survey_id) {
+            Some(survey) => {
+                let question = survey
+                    .questions
+                    .iter()
+                    .find(|question| question.question_id == request.question_id);
+                let question_title = question
+                    .map(|question| question.title.clone())
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| request.question_title.clone());
+                let option_label = question
+                    .and_then(|question| {
+                        question
+                            .options
+                            .iter()
+                            .find(|option| option.option_id == request.option_id)
+                    })
+                    .map(|option| option.label.clone())
+                    .filter(|label| !label.is_empty())
+                    .unwrap_or_else(|| request.option_label.clone());
+                (
+                    survey.title.clone(),
+                    if request.survey_revision > 0 {
+                        request.survey_revision
+                    } else {
+                        survey.revision
+                    },
+                    question_title,
+                    option_label,
+                )
+            }
+            None => (
+                String::new(),
+                request.survey_revision,
+                request.question_title.clone(),
+                request.option_label.clone(),
+            ),
+        };
+
+    let action = match request.action.as_str() {
+        "deselect" | "input" => request.action.clone(),
+        _ => "select".to_string(),
+    };
+    let event = SurveyClickEvent {
+        event_id: survey::new_id("click"),
+        survey_id: request.survey_id,
+        survey_revision: revision,
+        survey_title,
+        user_id: request.user_id,
+        question_id: request.question_id,
+        question_title,
+        option_id: request.option_id,
+        option_label,
+        action,
+        text_value: request.text_value,
+        clicked_at: now_string(),
+        submission_id: String::new(),
+    };
+    data.survey_click_events.push(event);
+    let overflow = data
+        .survey_click_events
+        .len()
+        .saturating_sub(MAX_SURVEY_CLICK_EVENTS);
+    if overflow > 0 {
+        data.survey_click_events.drain(0..overflow);
+    }
+    drop(data);
+    schedule_persist(&state);
+    Json(json!({ "success": true }))
+}
+
 async fn client_submit_survey(
     State(state): State<AppState>,
     Json(request): Json<SubmitSurveyRequest>,
@@ -876,6 +985,22 @@ async fn client_submit_survey(
     } else {
         "failed"
     };
+    // Link this user's unclaimed clicks for the same survey + revision to the
+    // submission so the admin panel can show a per-submission click timeline.
+    let click_events: Vec<SurveyClickEvent> = data
+        .survey_click_events
+        .iter_mut()
+        .filter(|event| {
+            event.submission_id.is_empty()
+                && event.user_id == request.user_id
+                && event.survey_id == request.survey_id
+                && event.survey_revision == survey.revision
+        })
+        .map(|event| {
+            event.submission_id = submission_id.clone();
+            event.clone()
+        })
+        .collect();
     data.survey_submissions.insert(
         submission_id.clone(),
         SurveySubmission {
@@ -890,6 +1015,7 @@ async fn client_submit_survey(
             answers: request.answers,
             answer_files: request.answer_files.unwrap_or_default(),
             failed_question_ids: evaluation.failed_question_ids.clone(),
+            click_events,
         },
     );
 
@@ -974,6 +1100,7 @@ async fn client_dismiss_survey(
             answers: HashMap::new(),
             answer_files: HashMap::new(),
             failed_question_ids: Vec::new(),
+            click_events: Vec::new(),
         },
     );
     drop(data);
@@ -1180,6 +1307,8 @@ async fn admin_remove(
     // shows, so removing the user must also purge their submissions.
     data.survey_submissions
         .retain(|_, submission| submission.user_id != request.user_id);
+    data.survey_click_events
+        .retain(|event| event.user_id != request.user_id);
     drop(data);
     schedule_persist(&state);
     Json(json!({ "success": true, "message": "User record removed" }))
@@ -1428,6 +1557,34 @@ async fn admin_survey_submissions(State(state): State<AppState>) -> Json<Value> 
     Json(json!({ "submissions": submissions }))
 }
 
+/// Raw click log for the admin panel. Clicks keep server-side snapshots of the
+/// survey/question/option labels, so they remain readable even for deleted or
+/// revised surveys. Optional `survey_id` query parameter filters the output.
+#[derive(Deserialize)]
+struct SurveyClicksQuery {
+    survey_id: Option<String>,
+}
+
+async fn admin_survey_clicks(
+    State(state): State<AppState>,
+    Query(query): Query<SurveyClicksQuery>,
+) -> Json<Value> {
+    let data = state.data.read().await;
+    let mut clicks: Vec<SurveyClickEvent> = data
+        .survey_click_events
+        .iter()
+        .filter(|event| {
+            query
+                .survey_id
+                .as_deref()
+                .map_or(true, |survey_id| event.survey_id == survey_id)
+        })
+        .cloned()
+        .collect();
+    clicks.sort_by(|left, right| right.clicked_at.cmp(&left.clicked_at));
+    Json(json!({ "clicks": clicks }))
+}
+
 async fn admin_delete_submission(
     State(state): State<AppState>,
     Json(request): Json<DeleteSubmissionRequest>,
@@ -1480,6 +1637,7 @@ fn router(state: AppState) -> Router {
             "/api/admin/survey-submissions/delete",
             post(admin_delete_submission),
         )
+        .route("/api/admin/survey-clicks", get(admin_survey_clicks))
         .route_layer(middleware::from_fn(require_admin_password));
 
     Router::new()
@@ -1494,6 +1652,7 @@ fn router(state: AppState) -> Router {
         .route("/api/client/features/{user_id}", get(get_features))
         .route("/api/client/surveys/{user_id}", get(client_surveys))
         .route("/api/client/surveys/submit", post(client_submit_survey))
+        .route("/api/client/surveys/click", post(client_click_survey))
         .route("/api/client/surveys/dismiss", post(client_dismiss_survey))
         .route("/api/client/surveys/upload", post(client_upload_file))
         .route("/api/client/uploads/{file_id}", get(client_get_upload))

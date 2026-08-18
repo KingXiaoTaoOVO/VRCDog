@@ -14,7 +14,7 @@ import {
   XCircle,
 } from 'lucide-vue-next';
 import { uploadSurveyFile, VrcApi } from '../api';
-import type { Survey, SurveyAnswerAttachment, SurveySubmission } from '../types/survey';
+import type { Survey, SurveyAnswerAttachment, SurveyClickEvent, SurveySubmission } from '../types/survey';
 import { useUiStore } from '../stores/uiStore';
 const uiStore = useUiStore();
 
@@ -94,13 +94,64 @@ const load = async () => {
   }
 };
 
+// ─── 点击行为上报 ───
+// 每次选择/取消选项或输入文字时上报服务端，由服务端快照题干与选项文案，
+// 保证管理端后续查看时点击数据不再为空白。
+const reportClick = (
+  question: { question_id: string; title: string },
+  option: { option_id: string; label: string } | null,
+  action: SurveyClickEvent['action'],
+  textValue = '',
+) => {
+  const survey = currentSurvey.value;
+  if (!survey || !props.userId) return;
+  void VrcApi.request(endpoint('/api/client/surveys/click'), {
+    method: 'POST',
+    params: {
+      user_id: props.userId,
+      survey_id: survey.survey_id,
+      survey_revision: survey.revision,
+      question_id: question.question_id,
+      question_title: question.title,
+      option_id: option?.option_id || '',
+      option_label: option?.label || '',
+      action,
+      text_value: textValue,
+    },
+  }).catch((clickError) => {
+    // 点击上报失败不影响答题流程，仅在控制台留痕
+    console.warn('survey click report failed', clickError);
+  });
+};
+
+// 文本输入防抖：停止输入 800ms 后上报一次最终内容，避免每个按键都发请求
+const textInputTimers = new Map<string, { value: string; timer: number }>();
+const reportTextInput = (question: { question_id: string; title: string }, value: string) => {
+  const existing = textInputTimers.get(question.question_id);
+  if (existing) {
+    if (existing.value === value) return;
+    window.clearTimeout(existing.timer);
+  }
+  const timer = window.setTimeout(() => {
+    textInputTimers.delete(question.question_id);
+    reportClick(question, null, 'input', value);
+  }, 800);
+  textInputTimers.set(question.question_id, { value, timer });
+};
+
 const toggleMultiple = (questionId: string, optionId: string) => {
+  const question = currentSurvey.value?.questions.find((item) => item.question_id === questionId);
+  const option = question?.options.find((item) => item.option_id === optionId);
   const current = Array.isArray(answers.value[questionId])
     ? answers.value[questionId] as string[]
     : [];
-  answers.value[questionId] = current.includes(optionId)
+  const selected = current.includes(optionId);
+  answers.value[questionId] = selected
     ? current.filter((value) => value !== optionId)
     : [...current, optionId];
+  if (question && option) {
+    reportClick(question, option, selected ? 'deselect' : 'select');
+  }
 };
 
 const isMultipleChecked = (questionId: string, optionId: string) => {
@@ -332,7 +383,7 @@ onMounted(load);
             <div v-if="question.question_type === 'single_choice'" class="mt-4 grid gap-2">
               <label v-for="option in question.options" :key="option.option_id" class="min-h-10 px-3 py-2 border border-border-soft rounded-md flex flex-col gap-2 cursor-pointer hover:bg-surface-hover">
                 <div class="flex items-center gap-3">
-                  <input v-model="answers[question.question_id]" type="radio" :name="question.question_id" :value="option.option_id" class="w-4 h-4 accent-primary">
+                  <input v-model="answers[question.question_id]" type="radio" :name="question.question_id" :value="option.option_id" class="w-4 h-4 accent-primary" @change="reportClick(question, option, 'select')">
                   <span class="text-sm text-text">{{ option.label }}</span>
                 </div>
                 <div v-if="option.media && option.media.length" class="flex flex-wrap gap-2 pl-7">
@@ -371,7 +422,7 @@ onMounted(load);
               :value="answers[question.question_id]"
               class="mt-4 w-full h-10 px-3 rounded-md bg-surface border border-border-soft text-sm text-text outline-none focus:border-primary"
               placeholder="请输入答案"
-              @input="answers[question.question_id] = ($event.target as HTMLInputElement).value"
+              @input="answers[question.question_id] = ($event.target as HTMLInputElement).value; reportTextInput(question, ($event.target as HTMLInputElement).value)"
             >
 
             <textarea
@@ -380,7 +431,7 @@ onMounted(load);
               rows="5"
               class="mt-4 w-full px-3 py-2 rounded-md bg-surface border border-border-soft text-sm text-text outline-none resize-y focus:border-primary"
               placeholder="请输入你的意见"
-              @input="answers[question.question_id] = ($event.target as HTMLTextAreaElement).value"
+              @input="answers[question.question_id] = ($event.target as HTMLTextAreaElement).value; reportTextInput(question, ($event.target as HTMLTextAreaElement).value)"
             />
 
             <div v-if="question.question_type === 'short_text' || question.question_type === 'long_text'" class="mt-3">

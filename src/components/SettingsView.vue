@@ -8,8 +8,8 @@ import { SysApi, DbApi } from '../api';
 import { useI18n } from 'vue-i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { check } from '@tauri-apps/plugin-updater';
 import { getVersion } from '@tauri-apps/api/app';
+import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import CustomSelect from './CustomSelect.vue';
 import { localeOptions, normalizeLocale, setAppLocale } from '../i18n';
@@ -428,24 +428,109 @@ const openBindings = async () => {
   }
 };
 
+// ---- 自动更新（直连 GitHub Releases，绕过需要 updater.json 的官方插件）----
+
+interface ReleaseInfo {
+  tag: string;
+  name: string;
+  prerelease: boolean;
+  draft: boolean;
+  published_at: string;
+  body: string;
+  html_url: string;
+  installer_url: string;
+  installer_sha256: string | null;
+  installer_size: number | null;
+  version: string;
+}
+
+const updateProgress = ref<{ percent: number; bytesDone: number; bytesTotal: number } | null>(null);
+
+// 与 Rust 端 update.rs 的 cmp_versions 保持一致的语义化版本比较
+const cmpVersions = (a: string, b: string): number => {
+  const parse = (v: string) => {
+    const core = v.trim().replace(/^v/i, '');
+    const m = core.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-.](.+))?$/);
+    if (!m) return { nums: [0, 0, 0], pre: '' as string };
+    const nums = [parseInt(m[1] || '0', 10), parseInt(m[2] || '0', 10), parseInt(m[3] || '0', 10)];
+    return { nums, pre: (m[4] || '').toLowerCase() };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < 3; i++) {
+    if (pa.nums[i] !== pb.nums[i]) return pa.nums[i] < pb.nums[i] ? -1 : 1;
+  }
+  // 无预发布标签 > 有预发布标签
+  if (!pa.pre && pb.pre) return 1;
+  if (pa.pre && !pb.pre) return -1;
+  if (pa.pre && pb.pre && pa.pre !== pb.pre) return pa.pre < pb.pre ? -1 : 1;
+  return 0;
+};
+
+const fmtMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+
+// 全自动更新：下载 → 校验 → 静默安装 → 启动新版本 → 退出旧进程（Rust 端完成）
+const runAutoUpdate = async (release: ReleaseInfo) => {
+  const unlisten = await listen<any>('app-update://progress', (ev) => {
+    const p = ev.payload || {};
+    if (p.stage === 'downloading' && p.bytes_total > 0) {
+      updateProgress.value = {
+        percent: Math.min(100, Math.floor((p.bytes_done / p.bytes_total) * 100)),
+        bytesDone: p.bytes_done,
+        bytesTotal: p.bytes_total,
+      };
+      checkUpdateStatus.value = `${t('settings.update_downloading')} ${updateProgress.value.percent}% (${fmtMb(p.bytes_done)}/${fmtMb(p.bytes_total)} MB)`;
+    } else if (p.stage === 'verifying') {
+      checkUpdateStatus.value = t('settings.update_verifying');
+    } else if (p.stage === 'installing') {
+      checkUpdateStatus.value = t('settings.update_installing');
+    } else if (p.message) {
+      checkUpdateStatus.value = p.message;
+    }
+  });
+  try {
+    checkUpdateStatus.value = t('settings.update_downloading');
+    await invoke('update_install_release', {
+      downloadUrl: release.installer_url,
+      expectedSha256: release.installer_sha256 ?? null,
+      expectedSize: release.installer_size ?? null,
+    });
+    // 正常情况下 Rust 端安装完成后会自动启动新版本并退出当前进程，
+    // 下面的代码只在上面的 invoke 意外返回时作为兜底执行
+    checkUpdateStatus.value = t('settings.update_restarting');
+    await invoke('update_restart');
+  } finally {
+    unlisten();
+  }
+};
+
 const checkForUpdates = async (silent = false) => {
   if (isCheckingUpdate.value) return;
   isCheckingUpdate.value = true;
+  updateProgress.value = null;
   checkUpdateStatus.value = silent ? '' : t('settings.update_checking');
   try {
-    const update = await check();
-    if (update) {
-      if (confirm(t('settings.update_found').replace('{version}', update.version).replace('{body}', update.body || ''))) {
-        checkUpdateStatus.value = t('settings.update_downloading');
-        await update.downloadAndInstall();
-        await invoke('process::restart');
-      } else {
-        checkUpdateStatus.value = t('settings.update_cancelled');
-      }
-    } else {
+    // 真实拉取 GitHub 仓库 KingXiaoTaoOVO/vrcdog-releases 的所有发布
+    const releases = await invoke<ReleaseInfo[]>('update_remote_releases');
+    const latest = releases.find((r) => !r.prerelease && !r.draft && r.installer_url);
+    if (!latest) {
       checkUpdateStatus.value = t('settings.update_latest');
       if (!silent) setTimeout(() => { checkUpdateStatus.value = ''; }, 3000);
+      return;
     }
+    if (cmpVersions(latest.version, appVersion.value) <= 0) {
+      checkUpdateStatus.value = t('settings.update_latest');
+      if (!silent) setTimeout(() => { checkUpdateStatus.value = ''; }, 3000);
+      return;
+    }
+    const proceed = silent
+      ? true // 自动检查模式下全自动更新，无需确认
+      : confirm(t('settings.update_found').replace('{version}', latest.version).replace('{body}', latest.body || ''));
+    if (!proceed) {
+      checkUpdateStatus.value = t('settings.update_cancelled');
+      return;
+    }
+    await runAutoUpdate(latest);
   } catch (err) {
     console.error('Update check failed:', err);
     checkUpdateStatus.value = t('settings.update_failed').replace('{error}', String(err));
@@ -868,6 +953,11 @@ const selectInterfaceLanguage = (nextLocale: string) => {
               </div>
               <div v-if="checkUpdateStatus" class="px-3 py-2 text-[12px] text-primary ml-6">
                 {{ checkUpdateStatus }}
+              </div>
+              <div v-if="updateProgress" class="mx-6 mb-2">
+                <div class="h-1.5 w-full rounded-full bg-[var(--theme-surface)] overflow-hidden">
+                  <div class="h-full bg-primary rounded-full transition-all" :style="{ width: updateProgress.percent + '%' }" />
+                </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.autoCheckUpdate = !config.autoCheckUpdate">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_32f4a3ee') }}</div>

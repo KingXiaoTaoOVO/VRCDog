@@ -2,8 +2,11 @@
 import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 import { ref, computed } from 'vue';
-import { Users, Globe, UserCircle, Star, Copy, ExternalLink, Play, MoreVertical, Shield } from 'lucide-vue-next';
+import { Users, Globe, UserCircle, Star, Copy, ExternalLink, Play, MoreVertical, Shield, UserPlus, UserCheck, Clock3 } from 'lucide-vue-next';
 import { SysApi, VrcApi } from '../api';
+import { useFriendsStore } from '../stores/friendsStore';
+
+const friendsStore = useFriendsStore();
 
 const props = defineProps<{
   type: 'world' | 'avatar' | 'user' | 'group';
@@ -58,6 +61,30 @@ const openInBrowser = () => {
   }
 };
 
+// ── 好友状态（搜索结果 → 与好友缓存交叉判断） ─────────────────
+const isFriend = computed(() => {
+  if (!props.isUser && props.type !== 'user') return false;
+  const uid = props.data?.id;
+  if (!uid) return false;
+  // 1. 本地好友缓存 (VRC friendsStore.getAllFriends 后的 allFriends)
+  if (friendsStore.allFriends.some((f: any) => f?.id === uid)) return true;
+  // 2. 当前卡片对象自带的 isFriend 字段 (VRCX 风格兼容)
+  if (props.data?.isFriend === true) return true;
+  return false;
+});
+
+const addFriendFromCard = async () => {
+  const uid = props.data?.id;
+  if (!uid) return;
+  try {
+    await VrcApi.sendFriendRequest({ userId: uid });
+    // 乐观更新：标记为已发送请求 (outgoing)；不一定会立即变成 isFriend
+    friendsStore.updateFriend(uid, { friendKey: undefined });
+  } catch (e) {
+    console.warn('sendFriendRequest failed', e);
+  }
+};
+
 const showMenu = ref(false);
 let closeMenuTimeout: any = null;
 
@@ -79,11 +106,30 @@ const handleMouseEnter = () => {
   }
 };
 
-const menuItems = computed(() => [
-  { key: 'copy', icon: Copy, label: t('card.copy_id'), action: copyId, visible: true },
-  { key: 'browser', icon: ExternalLink, label: t('card.open_browser'), action: openInBrowser, visible: true },
-  { key: 'favorite', icon: Star, label: t('card.favorite'), action: () => emit('favorite', props.data), visible: props.type !== 'group' },
-]);
+const menuItems = computed(() => {
+  const base = [
+    { key: 'copy', icon: Copy, label: t('card.copy_id'), action: copyId, visible: true },
+    { key: 'browser', icon: ExternalLink, label: t('card.open_browser'), action: openInBrowser, visible: true },
+  ];
+  // 只在 user 类型且不是好友时显示 Add Friend
+  if ((props.isUser || props.type === 'user') && !isFriend.value) {
+    base.push({
+      key: 'add_friend',
+      icon: UserPlus,
+      label: t('card.add_friend'),
+      action: addFriendFromCard,
+      visible: true,
+    });
+  }
+  base.push({
+    key: 'favorite',
+    icon: Star,
+    label: t('card.favorite'),
+    action: () => emit('favorite', props.data),
+    visible: props.type !== 'group',
+  });
+  return base;
+});
 
 const runMenuAction = (action: () => void | Promise<void>) => {
   void action();
@@ -182,6 +228,13 @@ const runMenuAction = (action: () => void | Promise<void>) => {
            class="px-2 py-1 bg-[var(--theme-bg-main)]/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
         >
           <Users :size="12" /> {{ data.memberCount }}
+        </span>
+        <!-- 好友状态徽章 (user card) -->
+        <span
+          v-if="(isUser || type === 'user') && isFriend"
+          class="px-2 py-1 bg-[var(--theme-bg-main)]/60 backdrop-blur-md text-white text-[10px] font-black rounded-lg flex items-center gap-1.5 shadow-sm border-transparent"
+        >
+          <UserCheck :size="12" /> {{ t('card.friend_badge') }}
         </span>
       </div>
     </div>

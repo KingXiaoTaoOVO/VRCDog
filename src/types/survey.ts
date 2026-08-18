@@ -59,6 +59,22 @@ export interface SurveyAnswerAttachment {
   url: string;
 }
 
+export interface SurveyClickEvent {
+  event_id: string;
+  survey_id: string;
+  survey_revision: number;
+  survey_title: string;
+  user_id: string;
+  question_id: string;
+  question_title: string;
+  option_id: string;
+  option_label: string;
+  action: 'select' | 'deselect' | 'input';
+  text_value: string;
+  clicked_at: string;
+  submission_id: string;
+}
+
 export interface SurveySubmission {
   submission_id: string;
   survey_id: string;
@@ -72,4 +88,6 @@ export interface SurveySubmission {
   failed_question_ids: string[];
   /** Per-question file attachments uploaded by the respondent. */
   answer_files: Record<string, SurveyAnswerAttachment[]>;
+  /** Option-level click events recorded while the respondent filled the survey. */
+  click_events?: SurveyClickEvent[];
 }
