@@ -14,8 +14,10 @@ const PYTHON_VERSION = '3.13.12';
 const PYTHON_ARCHIVE = `python-${PYTHON_VERSION}-embed-amd64.zip`;
 const PYTHON_URL = `https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_ARCHIVE}`;
 const PYTHON_SHA256 = '76f238f606250c87c6beac75dccd35ee99070a13490555936abb6cb64ecce3d0';
-const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
-const GET_PIP_SHA256 = '25b5c39ade96bab5eabe6404ce83cab6da2deb5fe3c07d9881f43803edb6f9c8';
+// bootstrap.pypa.io/get-pip.py 是滚动文件, pypa 每次发新版都会变, pin 它的 hash 必坏 (2026-08-17 CI 事故根因)。
+// 改用 PyPI 上永久不可变的 pinned pip wheel: files.pythonhosted.org URL 一经发布永不变更。
+const PIP_WHEEL_URL = 'https://files.pythonhosted.org/packages/62/36/a3aed958d60531cb442b7ab4596cda7b3621cfb916f8ae1d6769795c7dc1/pip-26.2-py3-none-any.whl';
+const PIP_WHEEL_SHA256 = '931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad';
 const PIP_VERSION = '26.2';
 const WINDOWS_TAR = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
 
@@ -45,9 +47,9 @@ async function prepare() {
   }
   await mkdir(CACHE_DIR, { recursive: true });
   const archive = path.join(CACHE_DIR, PYTHON_ARCHIVE);
-  const getPip = path.join(CACHE_DIR, 'get-pip.py');
+  const pipWheel = path.join(CACHE_DIR, `pip-${PIP_VERSION}-py3-none-any.whl`);
   await download(PYTHON_URL, archive, PYTHON_SHA256);
-  await download(GET_PIP_URL, getPip, GET_PIP_SHA256);
+  await download(PIP_WHEEL_URL, pipWheel, PIP_WHEEL_SHA256);
 
   const stagedRuntime = `${RUNTIME_DIR}.next-${process.pid}`;
   const previousRuntime = `${RUNTIME_DIR}.previous-${process.pid}`;
@@ -62,7 +64,14 @@ async function prepare() {
 
   const python = path.join(stagedRuntime, 'python.exe');
   const isolatedEnv = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONUTF8: '1' };
-  await run(python, [getPip, '--disable-pip-version-check', '--no-warn-script-location', `pip==${PIP_VERSION}`], { env: isolatedEnv });
+
+  // 直接解压 pip wheel 到 site-packages, 替代原来的 get-pip.py bootstrap。
+  // 之后所有调用统一走 `python -m pip`, 不依赖 Scripts/ 下的 entry point。
+  const sitePackages = path.join(stagedRuntime, 'Lib', 'site-packages');
+  await mkdir(sitePackages, { recursive: true });
+  await run(WINDOWS_TAR, ['-xf', pipWheel, '-C', sitePackages]);
+  await run(python, ['-m', 'pip', '--version'], { env: isolatedEnv });
+
   await run(python, [
     '-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location',
     '--no-cache-dir', '--only-binary=:all:', '--no-compile',
