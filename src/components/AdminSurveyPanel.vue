@@ -18,6 +18,7 @@ import { SysApi, VrcApi } from '../api';
 import { buildSurveyWorkbook, surveyExportFileName } from '../utils/surveyExcel';
 import type {
   Survey,
+  SurveyClickEvent,
   SurveyMediaType,
   SurveyOption,
   SurveyQuestion,
@@ -387,10 +388,27 @@ const formatAnswer = (answer: string | string[] | undefined, questionId?: string
   const labels = values.map((value) => {
     const text = String(value).trim();
     if (!text) return '';
-    return question?.options.find((option) => option.option_id === text)?.label || text;
+    const option = question?.options.find((option) => option.option_id === text);
+    if (option) return option.label || text;
+    // 选项已被删除或问卷已改版：展示原始值并注明，避免整题显示为空白
+    return question ? `${text}（原选项已删除）` : text;
   }).filter(Boolean);
   if (labels.length === 0) return Array.isArray(answer) ? '(未选择)' : '(空白)';
   return labels.join('、');
+};
+
+// ─── 答题点击记录 ───
+// 点击事件在服务端保存了题干/选项文案快照，即使问卷被修改或删除也能完整展示。
+const submissionClicks = computed<SurveyClickEvent[]>(() => {
+  const clicks = selectedSubmission.value?.click_events;
+  if (!clicks || clicks.length === 0) return [];
+  return [...clicks].sort((a, b) => a.clicked_at.localeCompare(b.clicked_at));
+});
+
+const clickActionLabel = (event: SurveyClickEvent) => {
+  if (event.action === 'input') return event.text_value?.trim() ? `输入：${event.text_value}` : '输入内容（空）';
+  if (event.action === 'deselect') return `取消选择：${event.option_label || event.option_id || '未知选项'}`;
+  return `选择：${event.option_label || event.option_id || '未知选项'}`;
 };
 
 const downloadWorkbookFallback = (content: Uint8Array, fileName: string) => {
@@ -867,7 +885,31 @@ onMounted(fetchData);
                 </a>
               </div>
             </div>
-            <div v-if="Object.keys(selectedSubmission.answers).length === 0" class="py-10 text-center text-xs text-text-muted">该提交没有任何答案记录</div>
+            <div v-if="Object.keys(selectedSubmission.answers).length === 0 && submissionClicks.length === 0" class="py-10 text-center text-xs text-text-muted">该提交没有任何答案记录</div>
+
+            <!-- 答题点击记录：展示用户答题过程中的每次选择/取消/输入 -->
+            <div v-if="submissionClicks.length" class="mt-4">
+              <div class="text-xs font-black text-text-strong mb-2">答题点击记录（{{ submissionClicks.length }} 条）</div>
+              <div class="border border-border-soft rounded-md bg-background overflow-hidden">
+                <div
+                  v-for="event in submissionClicks"
+                  :key="event.event_id"
+                  class="px-3 py-2 border-b border-border-soft last:border-0 flex items-start gap-3"
+                >
+                  <span
+                    class="shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold"
+                    :class="event.action === 'deselect' ? 'bg-gray-500/15 text-gray-500' : event.action === 'input' ? 'bg-blue-500/15 text-blue-500' : 'bg-green-500/15 text-green-500'"
+                  >
+                    {{ event.action === 'deselect' ? '取消' : event.action === 'input' ? '输入' : '点击' }}
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[11px] font-bold text-text-strong truncate">{{ event.question_title || event.question_id }}</div>
+                    <div class="text-[11px] text-text mt-0.5 break-words">{{ clickActionLabel(event) }}</div>
+                  </div>
+                  <span class="shrink-0 text-[9px] text-text-muted font-mono">{{ event.clicked_at }}</span>
+                </div>
+              </div>
+            </div>
           </div>
           <footer class="px-5 py-3 border-t border-border-soft text-[10px] text-text-muted flex items-center justify-between gap-3 shrink-0">
             <span class="truncate">提交 ID：{{ selectedSubmission.submission_id }}</span>

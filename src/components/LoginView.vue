@@ -5,6 +5,8 @@ import { Bone, Key, User, Loader2, Globe, ArrowLeft, Trash2, Settings, ArrowDown
 import { useI18n } from 'vue-i18n';
 import { getLocaleLabel, localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { currentTheme } from '../theme';
 import { mergeCookiesAndSave, normalizeAuthCookieJson, parseCookieInput } from '../api/cookies';
 import {
@@ -233,7 +235,7 @@ async function saveSettingsAndRestart() {
 const showUpdateDialog = ref(false);
 const updateChannel = ref<'stable' | 'beta'>('stable');
 const updateLoading = ref(false);
-const updateReleases = ref<{ tag: string; name: string; prerelease: boolean; published_at: string; body?: string; assets: any[] }[]>([]);
+const updateReleases = ref<{ tag: string; name: string; prerelease: boolean; published_at: string; body?: string; installer_url?: string; installer_sha256?: string | null; installer_size?: number | null }[]>([]);
 const updateSelectedTag = ref('');
 const showUpdateVersionDropdown = ref(false);
 
@@ -257,22 +259,22 @@ async function openUpdateDialog() {
 async function fetchReleases() {
   updateLoading.value = true;
   try {
-    const res = await fetch('https://api.github.com/repos/KingXiaoTaoOVO/vrcdog-releases/releases?per_page=30', {
-      headers: { 'Accept': 'application/vnd.github+json' }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      updateReleases.value = data.map((r: any) => ({
-        tag: r.tag_name,
-        name: r.name || r.tag_name,
+    // 通过 Rust 后端真实拉取 GitHub Releases（避免 webview CORS/CSP 限制）
+    const data = await invoke<any[]>('update_remote_releases');
+    updateReleases.value = data
+      .filter((r) => !r.draft)
+      .map((r: any) => ({
+        tag: r.tag,
+        name: r.name || r.tag,
         prerelease: !!r.prerelease,
         published_at: r.published_at,
         body: r.body,
-        assets: r.assets || []
+        installer_url: r.installer_url,
+        installer_sha256: r.installer_sha256 ?? null,
+        installer_size: r.installer_size ?? null
       }));
-      const list = updateChannelReleases.value;
-      if (list.length) updateSelectedTag.value = list[0].tag;
-    }
+    const list = updateChannelReleases.value;
+    if (list.length) updateSelectedTag.value = list[0].tag;
   } catch (e) {
     console.warn('Failed to fetch releases', e);
   } finally {
@@ -286,13 +288,42 @@ function switchUpdateChannel(ch: 'stable' | 'beta') {
   if (list.length) updateSelectedTag.value = list[0].tag;
 }
 
+const updateInstalling = ref(false);
+const updateInstallPercent = ref(0);
+
+// 全自动更新：下载安装包 → SHA-256 校验 → 静默安装 → 自动启动新版本 → 退出旧进程
 async function downloadUpdate() {
   const rel = updateReleases.value.find(r => r.tag === updateSelectedTag.value);
-  if (!rel) return;
-  // 优先找 .exe 安装包，没有就打开 release 页面
-  const exeAsset = rel.assets.find((a: any) => a.name.endsWith('.exe') || a.name.endsWith('.msi'));
-  const url = exeAsset?.browser_download_url || `https://github.com/KingXiaoTaoOVO/vrcdog-releases/releases/tag/${rel.tag}`;
-  window.open(url, '_blank');
+  if (!rel || updateInstalling.value) return;
+  if (!rel.installer_url) {
+    // 极端情况下仓库没有安装包资产，回退到打开 release 页面
+    window.open(`https://github.com/KingXiaoTaoOVO/vrcdog-releases/releases/tag/${rel.tag}`, '_blank');
+    return;
+  }
+  updateInstalling.value = true;
+  updateInstallPercent.value = 0;
+  const unlisten = await listen<any>('app-update://progress', (ev) => {
+    const p = ev.payload || {};
+    if (p.stage === 'downloading' && p.bytes_total > 0) {
+      updateInstallPercent.value = Math.min(100, Math.floor((p.bytes_done / p.bytes_total) * 100));
+    }
+  });
+  try {
+    await invoke('update_install_release', {
+      downloadUrl: rel.installer_url,
+      expectedSha256: rel.installer_sha256 ?? null,
+      expectedSize: rel.installer_size ?? null,
+    });
+    // Rust 端安装完成后会自动启动新版本并退出当前进程；
+    // 若 invoke 意外返回则兜底重启
+    await invoke('update_restart');
+  } catch (e: any) {
+    console.error('Auto update failed:', e);
+    alert(t('login.update.install_failed', { error: String(e?.message || e) }));
+    updateInstalling.value = false;
+  } finally {
+    unlisten();
+  }
 }
 
 // ========== 登录逻辑 ==========
@@ -804,9 +835,9 @@ onUnmounted(() => {
           <div class="vrcdog-dialog-footer">
             <button
               class="vrcdog-btn-primary"
-              :disabled="!updateSelectedTag"
+              :disabled="!updateSelectedTag || updateInstalling"
               @click="downloadUpdate"
-            >{{ t('login.update.download') }}</button>
+            >{{ updateInstalling ? t('login.update.installing', { percent: updateInstallPercent }) : t('login.update.download') }}</button>
           </div>
         </div>
       </div>

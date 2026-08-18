@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2 } from "lucide-vue-next";
+import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, UserPlus, UserCheck, Clock3, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2 } from "lucide-vue-next";
 import { useUserProfileStore } from "../stores/userProfile";
 import { useAuthStore } from "../stores/authStore";
 import { useEntityModalStore } from "../stores/entityModal";
+import { useFriendsStore } from "../stores/friendsStore";
 import { useToast } from "../composables/useToast";
 import { VrcApi, DbApi, OvrApi } from "../api";
 import VrcAvatar from "./VrcAvatar.vue";
@@ -14,6 +15,7 @@ const { t, locale } = useI18n();
 const profileStore = useUserProfileStore();
 const authStore = useAuthStore();
 const entityStore = useEntityModalStore();
+const friendsStore = useFriendsStore();
 const toast = useToast();
 
 type TabId = "info" | "mutual" | "groups" | "created_worlds" | "fav_worlds" | "created_avatars" | "activity" | "raw_json";
@@ -141,6 +143,59 @@ const fetchFriendNumber = async () => {
     }
   } catch { /* ignore */ }
 };
+
+// ── 好友关系三态 (VRCX / VRC 对齐) ───────────────────────────
+//   isFriend=true        → 已是好友 → 显示「删除好友」
+//   outgoingRequest=true → 已发送未通过 → 显示「取消好友请求」
+//   都不是               → 显示「添加好友」
+const friendStatus = ref<{ isFriend: boolean; incomingRequest: boolean; outgoingRequest: boolean }>({
+  isFriend: false,
+  incomingRequest: false,
+  outgoingRequest: false,
+});
+const fetchingFriendStatus = ref(false);
+
+const fetchFriendStatus = async () => {
+  const uid = profileStore.targetUserId;
+  if (!uid) return;
+  if ((profileStore.baseInfo as any)?.id === profileStore.myId) {
+    friendStatus.value = { isFriend: false, incomingRequest: false, outgoingRequest: false };
+    return;
+  }
+  fetchingFriendStatus.value = true;
+  try {
+    const res: any = await VrcApi.getFriendStatus({ userId: uid });
+    friendStatus.value = {
+      isFriend: !!res?.isFriend,
+      incomingRequest: !!res?.incomingRequest,
+      outgoingRequest: !!res?.outgoingRequest,
+    };
+    // 顺便刷新 baseInfo.isFriend，免得菜单和 badge 不一致
+    if (profileStore.baseInfo) {
+      (profileStore.baseInfo as any).isFriend = friendStatus.value.isFriend;
+    }
+  } catch {
+    // friendStatus 三态 API 偶尔被风控降级到只返 isFriend；fallback 到 baseInfo.isFriend
+    friendStatus.value = {
+      isFriend: !!(profileStore.baseInfo as any)?.isFriend,
+      incomingRequest: false,
+      outgoingRequest: false,
+    };
+  } finally {
+    fetchingFriendStatus.value = false;
+  }
+};
+
+// 监听 profile 切换时刷新三态
+watch(
+  () => profileStore.targetUserId,
+  () => {
+    // targetUserId 切换时清空旧的，再异步拉新
+    friendStatus.value = { isFriend: false, incomingRequest: false, outgoingRequest: false };
+    fetchFriendStatus();
+  },
+  { immediate: true }
+);
 
 // Load real favorite groups from VRChat API
 const loadFavGroups = async () => {
@@ -1232,18 +1287,90 @@ const executeAction = async (action: string) => {
   showMoreMenu.value = false;
   try {
     switch (action) {
-      case "refresh": await profileStore.openProfile(userId); toast.success(t("user_profile.actions.refresh_success")); break;
+      case "refresh": await profileStore.openProfile(userId); toast.success(t("user_profile.actions.refresh_success")); fetchFriendStatus(); break;
       case "copy_id": navigator.clipboard.writeText(userId); toast.success(t("user_profile.actions.copy_id_success")); break;
       case "copy_url": navigator.clipboard.writeText("https://vrchat.com/home/user/" + userId); toast.success(t("user_profile.actions.copy_url_success")); break;
       case "view_vrc": window.open("https://vrchat.com/home/user/" + userId, "_blank"); break;
       case "invite": openEditor('send_invite'); break;
       case "request_invite": openEditor('send_invite_request'); break;
       case "invite_group": openEditor('invite_group'); break;
-      case "unfriend": if (confirm(t("user_profile.actions.unfriend_confirm"))) { await VrcApi.unfriend({ userId }); toast.success(t("user_profile.actions.unfriend_success")); profileStore.closeProfile(); } break;
-      case "block": await VrcApi.moderateUser({ moderated: userId, type: "block" }); toast.success(t("user_profile.actions.block_success")); break;
-      case "mute": await VrcApi.moderateUser({ moderated: userId, type: "mute" }); toast.success(t("user_profile.actions.mute_success")); break;
-      case "show_avatar": await VrcApi.moderateUser({ moderated: userId, type: "showAvatar" }); toast.success(t("user_profile.actions.show_avatar_success")); break;
-      case "hide_avatar": await VrcApi.moderateUser({ moderated: userId, type: "hideAvatar" }); toast.success(t("user_profile.actions.hide_avatar_success")); break;
+      // ── 好友关系操作（按 VRCX：isFriend → 删除好友；outgoingRequest → 取消请求；否则 → 添加好友）──
+      case "add_friend": {
+        if (friendStatus.value.isFriend || friendStatus.value.outgoingRequest) return;
+        try {
+          await VrcApi.sendFriendRequest({ userId });
+          friendStatus.value.outgoingRequest = true;
+          if (profileStore.baseInfo) (profileStore.baseInfo as any).isFriend = false;
+          toast.success(t("user_profile.actions.send_friend_request_success"));
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.send_friend_request_failed", { error: e?.message || e }));
+        }
+        break;
+      }
+      case "cancel_friend_request": {
+        if (!friendStatus.value.outgoingRequest) return;
+        try {
+          await VrcApi.cancelFriendRequest({ userId });
+          friendStatus.value.outgoingRequest = false;
+          toast.success(t("user_profile.actions.cancel_friend_request_success"));
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.cancel_friend_request_failed", { error: e?.message || e }));
+        }
+        break;
+      }
+      case "unfriend": {
+        if (!friendStatus.value.isFriend) return;
+        if (!confirm(t("user_profile.actions.unfriend_confirm"))) break;
+        try {
+          await VrcApi.unfriend({ userId });
+          friendStatus.value.isFriend = false;
+          if (profileStore.baseInfo) (profileStore.baseInfo as any).isFriend = false;
+          // 同步删除 store / 本地缓存的好友
+          await friendsStore.removeFriend(userId);
+          toast.success(t("user_profile.actions.unfriend_success"));
+          // 重新拉一次三态确认
+          fetchFriendStatus();
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.unfriend_failed", { error: e?.message || e }));
+        }
+        break;
+      }
+      case "block": {
+        try {
+          await VrcApi.moderateUser({ moderated: userId, type: "block" });
+          toast.success(t("user_profile.actions.block_success"));
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.action_failed", { error: e?.message || e }));
+        }
+        break;
+      }
+      case "mute": {
+        try {
+          await VrcApi.moderateUser({ moderated: userId, type: "mute" });
+          toast.success(t("user_profile.actions.mute_success"));
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.action_failed", { error: e?.message || e }));
+        }
+        break;
+      }
+      case "show_avatar": {
+        try {
+          await VrcApi.moderateUser({ moderated: userId, type: "showAvatar" });
+          toast.success(t("user_profile.actions.show_avatar_success"));
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.action_failed", { error: e?.message || e }));
+        }
+        break;
+      }
+      case "hide_avatar": {
+        try {
+          await VrcApi.moderateUser({ moderated: userId, type: "hideAvatar" });
+          toast.success(t("user_profile.actions.hide_avatar_success"));
+        } catch (e: any) {
+          toast.error(t("user_profile.actions.action_failed", { error: e?.message || e }));
+        }
+        break;
+      }
       // ── 看自己时的菜单（VrcDog 对齐，先 toast 占位，子对话框后续实现）──
       case "show_avatar_info": {
         const info = profileStore.baseInfo as any;
@@ -1757,6 +1884,16 @@ watch(activeTab, (tab) => {
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
                   {{ friendNumber }}
                 </span>
+                <!-- 好友状态徽章（VRCX 风格）-->
+                <span v-if="!isSelf && friendStatus.isFriend" class="badge" style="color:#22c55e; border-color:#22c55e; background:#22c55e15;" :title="t('user_profile.menu.friend_confirmed')">
+                  <UserCheck :size="12" class="inline mr-1" :style="{ color: '#22c55e' }"/>{{ t('user_profile.menu.friend_confirmed') }}
+                </span>
+                <span v-else-if="!isSelf && friendStatus.outgoingRequest" class="badge" style="color:#f59e0b; border-color:#f59e0b; background:#f59e0b15;" :title="t('user_profile.menu.friend_request_pending')">
+                  <Clock3 :size="12" class="inline mr-1" :style="{ color: '#f59e0b' }"/>{{ t('user_profile.menu.friend_request_pending') }}
+                </span>
+                <span v-else-if="!isSelf && friendStatus.incomingRequest" class="badge" style="color:#3b82f6; border-color:#3b82f6; background:#3b82f615;" :title="t('user_profile.menu.friend_request_received')">
+                  <UserPlus :size="12" class="inline mr-1" :style="{ color: '#3b82f6' }"/>{{ t('user_profile.menu.friend_request_received') }}
+                </span>
                 <!-- 共同好友数 -->
                 <span v-if="!isSelf && profileStore.mutualFriends.length > 0" class="badge" style="color:#a3a3a3; border-color:#a3a3a360; background:#a3a3a315;" :title="t('user_profile.info.mutual_friends_count')">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1906,8 +2043,27 @@ watch(activeTab, (tab) => {
                         <button class="dropdown-item" @click="executeAction('edit_note_memo')"><PencilLine :size="14" class="mr-2"/>{{ t('user_profile.menu.note_memo') }}</button>
                       </template>
 
-                      <!-- 看别人时的菜单（VrcDog 对齐） -->
+                      <!-- 看别人时的菜单（VRCX / VrcDog 对齐 + 添加好友三态） -->
                       <template v-else>
+                        <!-- 好友关系三态按钮（已移到星标旁，让用户一眼看到关系） -->
+                        <template v-if="friendStatus.isFriend">
+                          <button class="dropdown-item" disabled style="opacity:.85; cursor:default;">
+                            <UserCheck :size="14" class="mr-2" :style="{ color: '#22c55e' }" />{{ t('user_profile.menu.friend_confirmed') }}
+                          </button>
+                          <div class="dropdown-divider"></div>
+                        </template>
+                        <template v-else-if="friendStatus.outgoingRequest">
+                          <button class="dropdown-item" disabled style="opacity:.85; cursor:default;">
+                            <Clock3 :size="14" class="mr-2" :style="{ color: '#f59e0b' }" />{{ t('user_profile.menu.friend_request_pending') }}
+                          </button>
+                          <div class="dropdown-divider"></div>
+                        </template>
+                        <template v-else-if="friendStatus.incomingRequest">
+                          <button class="dropdown-item" disabled style="opacity:.85; cursor:default;">
+                            <UserPlus :size="14" class="mr-2" :style="{ color: '#3b82f6' }" />{{ t('user_profile.menu.friend_request_received') }}
+                          </button>
+                          <div class="dropdown-divider"></div>
+                        </template>
                         <button class="dropdown-item" @click="executeAction('request_invite')"><LogIn :size="14" class="mr-2"/>{{ t('user_profile.menu.request_invite') }}</button>
                         <button class="dropdown-item" @click="executeAction('invite')"><Mail :size="14" class="mr-2"/>{{ t('user_profile.menu.invite') }}</button>
                         <button class="dropdown-item" @click="executeAction('invite_group')"><UsersRound :size="14" class="mr-2"/>{{ t('user_profile.menu.invite_group') }}</button>
@@ -1920,7 +2076,19 @@ watch(activeTab, (tab) => {
                         <button class="dropdown-item" @click="executeAction('mute')"><VolumeX :size="14" class="mr-2"/>{{ t('user_profile.menu.mute') }}</button>
                         <button class="dropdown-item" @click="executeAction('block')"><ShieldBan :size="14" class="mr-2"/>{{ t('user_profile.menu.block') }}</button>
                         <div class="dropdown-divider"></div>
-                        <button class="dropdown-item danger" @click="executeAction('unfriend')"><UserMinus :size="14" class="mr-2"/>{{ t('user_profile.menu.unfriend') }}</button>
+
+                        <!-- 好友关系操作：三态按钮（VRCX / VrcDog 对齐） -->
+                        <template v-if="friendStatus.isFriend">
+                          <button class="dropdown-item danger" @click="executeAction('unfriend')"><UserMinus :size="14" class="mr-2"/>{{ t('user_profile.menu.unfriend') }}</button>
+                        </template>
+                        <template v-else-if="friendStatus.outgoingRequest">
+                          <button class="dropdown-item" @click="executeAction('cancel_friend_request')"><X :size="14" class="mr-2"/>{{ t('user_profile.menu.cancel_friend_request') }}</button>
+                        </template>
+                        <template v-else>
+                          <button class="dropdown-item" @click="executeAction('add_friend')" style="color: var(--theme-primary); font-weight:700;">
+                            <UserPlus :size="14" class="mr-2"/>{{ t('user_profile.menu.add_friend') }}
+                          </button>
+                        </template>
                       </template>
                     </div>
                   </transition>

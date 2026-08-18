@@ -68,5 +68,8 @@ jobs:
           owner: KingXiaoTaoOVO
           repo: vrcdog-releases
           releaseCommitish: main
+          # 生成并发布签名 updater.json（供官方 updater 插件作为兜底通道；
+          # 应用内更新已改为直连 GitHub Releases API，不依赖该文件）
+          tauriUpdater: true
           # 自动合并更新文件以便生成 updater.json
           updaterJsonKeepUniversal: false

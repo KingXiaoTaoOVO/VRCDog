@@ -131,6 +131,49 @@ pub struct SurveySubmission {
     /// Per-question file attachments uploaded by the respondent (images, docs, etc.).
     #[serde(default)]
     pub answer_files: HashMap<String, Vec<SurveyAnswerFile>>,
+    /// Option-level click events recorded while the respondent was filling the
+    /// survey. Snapshotted server-side so they stay readable even if the survey
+    /// or its options are edited/deleted afterwards.
+    #[serde(default)]
+    pub click_events: Vec<SurveyClickEvent>,
+}
+
+/// A single interaction the respondent performed on a survey question:
+/// selecting / deselecting a choice option or typing into a text field.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SurveyClickEvent {
+    pub event_id: String,
+    pub survey_id: String,
+    pub survey_revision: u32,
+    /// Snapshot of the survey title at click time.
+    #[serde(default)]
+    pub survey_title: String,
+    pub user_id: String,
+    pub question_id: String,
+    /// Snapshot of the question title at click time.
+    #[serde(default)]
+    pub question_title: String,
+    /// Empty for text inputs.
+    #[serde(default)]
+    pub option_id: String,
+    /// Snapshot of the option label at click time (falls back to the client
+    /// supplied label when the option was already deleted).
+    #[serde(default)]
+    pub option_label: String,
+    /// "select" | "deselect" | "input"
+    #[serde(default = "default_click_action")]
+    pub action: String,
+    /// Text typed by the respondent, only for "input" actions.
+    #[serde(default)]
+    pub text_value: String,
+    pub clicked_at: String,
+    /// Set when the click is linked to a submitted answer sheet.
+    #[serde(default)]
+    pub submission_id: String,
+}
+
+fn default_click_action() -> String {
+    "select".to_string()
 }
 
 /// A file attached to a survey answer by the respondent.
@@ -363,15 +406,18 @@ mod tests {
                     SurveyOption {
                         option_id: "a".into(),
                         label: "A".into(),
+                        media: Vec::new(),
                     },
                     SurveyOption {
                         option_id: "b".into(),
                         label: "B".into(),
+                        media: Vec::new(),
                     },
                 ],
                 correct_answers: vec!["a".into(), "b".into()],
                 media: Vec::new(),
             }],
+            reward: None,
         }
     }
 
@@ -413,7 +459,9 @@ mod tests {
                 status: "passed".into(),
                 passed: true,
                 answers: HashMap::new(),
+                answer_files: HashMap::new(),
                 failed_question_ids: Vec::new(),
+                click_events: Vec::new(),
             },
         )]);
         assert!(pending_surveys(true, &surveys, &submissions, "user").is_empty());
