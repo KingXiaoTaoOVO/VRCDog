@@ -9,6 +9,10 @@
 - **Graceful Fallback (优雅降级)**: 在处理如“共同好友”等可能涉及 VRChat 隐私限制的数据时，若遇到 401 或受限情况，不进行无意义的本地暴力猜测，而是向用户明确展示“对方隐藏了此信息”的优雅提示。
 - **Inline Aggregation & Auto-save (内联聚合与无缝保存)**: 本地离线数据（如备注）与线上数据在同一层级聚合展示。修改本地备注采用内联文本框结合失去焦点(OnBlur)静默保存的设计，避免二次弹窗打断操作流。
 - **Context-Aware Triggers (环境感知触发器)**: 细粒度的通知与 TTS 播放控制。底层 Rust 持续轮询 SteamVR 与 VRChat 的进程状态，前端依据当前应用所处的上下文（桌面、VR、离线等）动态决断是否放行通知。
+- **Auto-Update Pipeline (自动更新管线)**: 绕过 Tauri 官方 `tauri-plugin-updater`，由 `src-tauri/src/update.rs` 直连 GitHub Releases API。下载安装包到 `%TEMP%` 后通过 Windows Task Scheduler (`schtasks`) 派发引导脚本 (`bootstrapper.cmd`) 完成静默安装。不使用 `DETACHED_PROCESS` 或 `cmd.exe` 直接派发，因为 Windows Terminal 会劫持 cmd.exe 子进程接管到 tab 里导致黑屏。
+- **Silent Pre-Check (静默预检测)**: 登录页 `LoginView` 在 `onMounted` 后台检测新版本，发现时仅在工具栏按钮上显示红色脉冲圆点提示，不弹模态对话框，不打断用户登录流程。
+- **Survey Gate (问卷门控)**: 服务端问卷系统支持"使用门禁"模式。客户端登录注册后通过 15 秒心跳发现新版本问卷，在进入产品界面前弹出。侧边栏"问卷中心"入口 (`PcLayout.vue`) 显示待答数量徽章。
+- **OS Error 32 (共享违例)**: Windows 上应用自身还在运行时直接 `CreateProcess` 启动安装包，会因 Windows Defender 实时扫描 + 进程 image mapping 残留句柄被拒绝。解决方案是引导脚本轮询等待进程退出后再安装。
 
 ## 架构决策记录 (ADRs)
 

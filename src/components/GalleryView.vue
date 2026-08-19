@@ -158,6 +158,11 @@ const uploadToVrcPlus = async () => {
         uploadingToVrcPlus.value = false;
       }
     };
+    reader.onerror = () => {
+      // 读取失败时必须复位状态，否则上传按钮永久禁用
+      toast.error(t('auto_4c368c6a') + (reader.error?.message || 'read failed'));
+      uploadingToVrcPlus.value = false;
+    };
   } catch (err: any) {
     toast.error(t('auto_4c368c6a') + (err.message || err));
     uploadingToVrcPlus.value = false;

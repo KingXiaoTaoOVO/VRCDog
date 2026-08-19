@@ -333,6 +333,15 @@ export function request<T = any>(url: string, options: RequestOptions = {}): Pro
   const pending = pendingGetRequests.get(key) as Promise<T> | undefined;
   if (pending) return pending;
 
+  // Bound the in-flight map so a flood of distinct URLs cannot grow it without
+  // limit. Each entry is removed once settled, but this guards against
+  // pathological cases where a promise never resolves (e.g. a stuck backend).
+  const MAX_PENDING_GET_REQUESTS = 300;
+  if (pendingGetRequests.size >= MAX_PENDING_GET_REQUESTS) {
+    const oldest = pendingGetRequests.keys().next().value;
+    if (oldest !== undefined) pendingGetRequests.delete(oldest);
+  }
+
   const operation = requestInternal<T>(url, options);
   pendingGetRequests.set(key, operation);
   const cleanup = () => {

@@ -538,7 +538,11 @@ const loadAudioDevices = async () => {
   }
 };
 
+// 竞态防护：onMounted 里有多个 await，组件可能在监听器注册前被卸载
+let translatorDisposed = false;
+
 onMounted(async () => {
+  translatorDisposed = false;
   if (isTauri()) {
     overlayWebview = await WebviewWindow.getByLabel('translation-overlay');
     isOverlayOpen.value = Boolean(overlayWebview);
@@ -600,6 +604,14 @@ onMounted(async () => {
     unlistenVrct = await listen('vrct_translation_event', (event: any) => {
       addHistory(event.payload as VrctMessageRecord);
     });
+
+    if (translatorDisposed) {
+      // await 期间组件已被卸载：立即注销刚拿到的监听器，防止泄漏
+      unlistenAudio?.();
+      unlistenVrct?.();
+      unlistenAudio = null;
+      unlistenVrct = null;
+    }
   }
 
   try {
@@ -613,6 +625,7 @@ onMounted(async () => {
 });
 
 onUnmounted(async () => {
+  translatorDisposed = true;
   if (isTauri()) {
     await Promise.all([
       SysApi.stopAudioCapture({ source: 'mic' }).catch(() => undefined),

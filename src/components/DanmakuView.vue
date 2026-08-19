@@ -459,41 +459,57 @@ const openBiliLogin = async () => {
     qrStatusText.value = l('请使用哔哩哔哩 APP 扫码登录', 'Scan with the Bilibili app to sign in');
     addLog(l('Bilibili 登录二维码已生成', 'Bilibili login QR code generated'));
 
+    let pollFailures = 0;
     qrPollTimer = window.setInterval(async () => {
-      const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
-      const code = pollRes?.data?.code;
-      if (code === 0) {
-        stopQrPolling();
-        const sessdata = pollRes.sessdata_extracted;
-        if (!sessdata) throw new Error(l('登录成功但未获得 SESSDATA', 'Signed in, but no SESSDATA was returned'));
-        config.value.bili_sessdata = sessdata;
-        biliSession.value = {
-          sessdata,
-          bili_jct: pollRes.bili_jct_extracted || '',
-          buvid3: pollRes.buvid3_extracted || '',
-        };
-        const savedSession = { ...biliSession.value };
-        await Promise.all([
-          saveSettings(),
-          DbApi.saveSetting({ key: 'bili_jct', value: savedSession.bili_jct }),
-          DbApi.saveSetting({ key: 'bili_buvid3', value: savedSession.buvid3 || '' }),
-        ]);
-        biliSession.value = savedSession;
-        biliLoggedIn.value = true;
-        await refreshLiveRoom();
-        void refreshContributionRank();
-        qrStatusText.value = l('登录成功', 'Signed in');
-        qrLoading.value = false;
-        addLog(l('Bilibili 扫码登录成功', 'Bilibili QR sign-in succeeded'), 'success');
-        window.setTimeout(() => { qrModalOpen.value = false; }, 900);
-      } else if (code === 86090) {
-        qrStatusText.value = l('已扫码，请在手机上确认', 'QR code scanned. Confirm on your phone.');
-      } else if (code === 86038) {
-        stopQrPolling();
-        qrLoading.value = false;
-        qrStatusText.value = l('二维码已过期，请重新生成', 'The QR code expired. Generate a new one.');
-      } else {
-        qrStatusText.value = l('等待扫码...', 'Waiting for scan...');
+      try {
+        const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
+        pollFailures = 0;
+        const code = pollRes?.data?.code;
+        if (code === 0) {
+          stopQrPolling();
+          const sessdata = pollRes.sessdata_extracted;
+          if (!sessdata) {
+            qrStatusText.value = l('登录成功但未获得 SESSDATA', 'Signed in, but no SESSDATA was returned');
+            qrLoading.value = false;
+            return;
+          }
+          config.value.bili_sessdata = sessdata;
+          biliSession.value = {
+            sessdata,
+            bili_jct: pollRes.bili_jct_extracted || '',
+            buvid3: pollRes.buvid3_extracted || '',
+          };
+          const savedSession = { ...biliSession.value };
+          await Promise.all([
+            saveSettings(),
+            DbApi.saveSetting({ key: 'bili_jct', value: savedSession.bili_jct }),
+            DbApi.saveSetting({ key: 'bili_buvid3', value: savedSession.buvid3 || '' }),
+          ]);
+          biliSession.value = savedSession;
+          biliLoggedIn.value = true;
+          await refreshLiveRoom();
+          void refreshContributionRank();
+          qrStatusText.value = l('登录成功', 'Signed in');
+          qrLoading.value = false;
+          addLog(l('Bilibili 扫码登录成功', 'Bilibili QR sign-in succeeded'), 'success');
+          window.setTimeout(() => { qrModalOpen.value = false; }, 900);
+        } else if (code === 86090) {
+          qrStatusText.value = l('已扫码，请在手机上确认', 'QR code scanned. Confirm on your phone.');
+        } else if (code === 86038) {
+          stopQrPolling();
+          qrLoading.value = false;
+          qrStatusText.value = l('二维码已过期，请重新生成', 'The QR code expired. Generate a new one.');
+        } else {
+          qrStatusText.value = l('等待扫码...', 'Waiting for scan...');
+        }
+      } catch (pollError) {
+        // 轮询单次失败不打断；连续 5 次失败停止并提示，避免 unhandled rejection 刷屏
+        pollFailures++;
+        if (pollFailures >= 5) {
+          stopQrPolling();
+          qrLoading.value = false;
+          qrStatusText.value = l(`登录状态查询失败：${String(pollError)}`, `Login status check failed: ${String(pollError)}`);
+        }
       }
     }, 1600);
   } catch (e) {

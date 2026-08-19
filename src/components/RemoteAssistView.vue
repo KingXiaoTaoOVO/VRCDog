@@ -131,7 +131,11 @@ const initializeBrowserPreview = () => {
   }];
 };
 
+// 竞态防护：onMounted 里有多个 await（含网络请求），组件可能在监听器注册前被卸载
+let remoteAssistDisposed = false;
+
 onMounted(async () => {
+  remoteAssistDisposed = false;
   if (!nativeRuntime) {
     initializeBrowserPreview();
     return;
@@ -215,9 +219,20 @@ onMounted(async () => {
     viewerFrame.value = `data:image/jpeg;base64,${data.data}`;
     viewerLoading.value = false;
   });
+
+  if (remoteAssistDisposed) {
+    // await 期间组件已被卸载：立即注销刚拿到的监听器，防止泄漏
+    unlistenRemoteEvent?.();
+    unlistenRemoteChat?.();
+    unlistenRemoteFrame?.();
+    unlistenRemoteEvent = null;
+    unlistenRemoteChat = null;
+    unlistenRemoteFrame = null;
+  }
 });
 
 onUnmounted(() => {
+  remoteAssistDisposed = true;
   if (nativeRuntime && viewerSessionId.value) {
     void invoke('remote_assist_stop_view', { sessionId: viewerSessionId.value });
   }

@@ -523,7 +523,17 @@ pub async fn sys_open_dir(app_handle: tauri::AppHandle, target: String) -> Resul
                 .map_err(|error| error.to_string())?;
             std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
         }
-        _ => return Err("未知的目录目标".to_string()),
+        // 兼容历史枚举之外的用法：BilidownView 下载任务的"打开文件夹"按钮
+        // 直接传下载目录的绝对路径。若 target 本身就是一个存在的目录，
+        // 视为文件系统路径直接打开，而不是报"未知的目录目标"。
+        _ => {
+            let candidate = std::path::Path::new(&target);
+            if candidate.is_absolute() && candidate.is_dir() {
+                path = candidate.to_path_buf();
+            } else {
+                return Err("未知的目录目标".to_string());
+            }
+        }
     }
 
     if path.exists() {

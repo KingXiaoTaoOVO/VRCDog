@@ -340,10 +340,12 @@ const saveSettings = async () => {
         await SysApi.setDiscordRpc({
           details: config.value.discordRpcDetails,
           state: config.value.discordRpcState,
+          showWorldThumbnail: config.value.discordRpcShowWorldThumbnail,
+          showJoinButton: config.value.discordRpcShowJoinButton,
         });
       } catch { /* ignore */ }
     } else {
-      try { await SysApi.setDiscordRpc({ details: "", state: "" }); } catch { /* ignore */ }
+      try { await SysApi.setDiscordRpc({ details: "", state: "", showWorldThumbnail: false, showJoinButton: false }); } catch { /* ignore */ }
     }
 
     // 更新 OSC 硬件自动化

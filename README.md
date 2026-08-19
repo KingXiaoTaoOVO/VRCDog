@@ -14,7 +14,9 @@
 
 ---
 
-> **功能状态说明（2026-08-14）**：README 中的功能清单是产品目标和已接入模块的概览，不等同于 VRCX 逐项等价实现。真实差距、未消费设置和当前 API 审计见 [`docs/audits/vrcx-feature-parity-2026-08.md`](docs/audits/vrcx-feature-parity-2026-08.md)。VRChat 非公开/社区 API 可能发生变更，客户端会显示认证、权限和限流错误，不会把失败伪装成成功。
+> **当前版本：v5.0.9**（2026-08-19）— 自动更新改用 schtasks 派发修复黑屏 cmd 窗口；登录页新增静默预检测更新红点提示；问卷中心侧边栏入口上线。
+>
+> **功能状态说明（2026-08-19）**：README 中的功能清单是产品目标和已接入模块的概览，不等同于 VRCX 逐项等价实现。真实差距、未消费设置和当前 API 审计见 [`docs/audits/vrcx-feature-parity-2026-08.md`](docs/audits/vrcx-feature-parity-2026-08.md)。VRChat 非公开/社区 API 可能发生变更，客户端会显示认证、权限和限流错误，不会把失败伪装成成功。
 
 
 ## ✨ 核心功能清单
@@ -43,6 +45,7 @@
 | **状态预设** | 保存常用 status + description 组合，一键切换 | `StatusPresetsView` |
 | **数据导出** | JSON 格式导出全部本地数据 | `ExportView` |
 | **环境管家** | 检测/安装 Unity Hub、Unity 2022、VCC/ALCOM | `EnvView` |
+| **问卷中心** | 侧边栏入口，查看待答问卷和历史记录，支持门禁和徽章提示 | `SurveyCenter` / `PcLayout` |
 | **高级设置** | 语言、代理、Discord RPC、缓存清理、开发者调试 | `SettingsView` |
 
 ### 🌐 语音识别与翻译系统（源自 VRCT）
@@ -75,6 +78,7 @@
 | 功能 | 说明 | 对应组件 |
 |-----|------|---------|
 | **工具箱** | VRChat 启动器、OSC 参数调试、缓存清理 | `ToolsView` |
+| **自动更新** | 直连 GitHub Releases API，schtasks 派发引导脚本静默安装 | `update.rs` / `SettingsView` / `LoginView` |
 | **调试控制台** | 全局 API 调用日志实时查看 | `DebugConsole` |
 | **Discord RPC** | 在 Discord 展示当前 VRChat 活动详情 | `SettingsView` |
 | **SteamVR 检测** | 登录后选择 PC / VR 模式，VR 模式自动检测 SteamVR | `App.vue` |
@@ -105,7 +109,9 @@ VrcDog/
 │       ├── sys.rs                # 系统指令（OSC/SteamVR检测/文件操作）
 │       ├── hardware.rs           # 硬件检测（Unity/Hub/VCC/ALCOM）
 │       ├── gallery.rs            # VRChat 截图读取
-│       └── gamelog.rs            # 游戏日志解析
+│       ├── gamelog.rs            # 游戏日志解析
+│       ├── update.rs             # 应用内自动更新（GitHub Releases 直连 + schtasks 派发）
+│       └── server_survey.rs     # 服务端问卷门控与点击追踪
 ├── src-python/                   # Python 音频捕获模块
 │   └── vrcdog_audio.py           # 系统音频/麦克风捕获与 Whisper 识别
 └── OVR/ VRCT/ VrcDog/             # 参考项目源码（仅供设计参考）
@@ -131,8 +137,8 @@ VrcDog/
 
 ### 环境要求
 
-- **Node.js** >= 18
-- **pnpm** >= 8
+- **Node.js** >= 22（项目 `engines.node` 要求）
+- **pnpm** >= 11.10.0（lockfile v9，本地打包也支持 `bun`）
 - **Rust** (stable toolchain)
 - **Windows 10/11** (主要支持平台)
 
@@ -151,6 +157,31 @@ pnpm run tauri dev
 # 4. 构建生产包
 pnpm run tauri build
 ```
+
+### 本地打包（bun 加速）
+
+当 `prepare-python-runtime` 的 pip install 卡住（pythonhosted.org Fastly 龟速）时，可跳过该步骤：
+
+```bash
+# 1. 先单独构建前端
+bun run build
+
+# 2. 用 --config 覆盖 beforeBuildCommand 跳过 prepare 阶段
+node scripts/tauri.mjs build --config .scratch/tauri-skip-prepare.json
+# （该文件内容为 {"build":{"beforeBuildCommand":""}}）
+```
+
+前提是 `src-tauri/resources/python-runtime/` 已完整（`vrcdog-runtime.json` 存在 + import 自检通过）。
+
+### 发布新版本
+
+详细流程见 [`docs/release-and-build.md`](docs/release-and-build.md)。简要步骤：
+
+1. 同步更新三处版本号：`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`
+2. `cargo check`（src-tauri）+ `vue-tsc --noEmit` + `vite build` 全部通过
+3. `git commit` + `git tag v5.0.x` + `git push --tags`
+4. GitHub Actions `发布 VRCDog 新版本` 自动构建并发布到 `KingXiaoTaoOVO/vrcdog-releases`
+5. 本地 `bun` 打包生成 NSIS/MSI 安装包
 
 ### VR 模式额外要求
 
@@ -181,6 +212,8 @@ VrcDog 完整支持三种语言，覆盖全部 31 个组件的所有界面文本
 | `src/` | Vue 3 前端源码 |
 | `src-tauri/` | Rust 后端源码 |
 | `src-python/` | Python 音频处理模块（可选） |
+| `scripts/` | 构建/开发脚本（tauri.mjs、prepare-python-runtime.mjs 等） |
+| `.scratch/` | 临时工作区（issue 追踪、构建配置、日志） |
 | `OVR/` | OVR Overlay Translator 参考资料 |
 | `VRCT/` | VRCT 语音翻译参考源码 |
 | `VrcDog/` | VrcDog 伴侣应用参考源码 |
@@ -237,6 +270,28 @@ VrcDog 完整支持三种语言，覆盖全部 31 个组件的所有界面文本
 | 硬件加速 | ✅ 已集成 | CPU/GPU 加速开关 |
 | SteamVR 自动启动 | ✅ 已集成 | 启动清单注册 |
 | Dashboard 设置面板 | ✅ 已集成 | 5 个子标签页完整实现 |
+
+---
+
+## 🔄 自动更新系统
+
+VRCDog 不使用 Tauri 2 官方 `tauri-plugin-updater`（因为 `vrcdog-releases` 仓库的 `updater.json` 签名通道不稳定），而是自实现直连 GitHub Releases API 的更新流程：
+
+### 更新流程（`src-tauri/src/update.rs`）
+
+1. **查询版本** — `update_remote_releases` 直接 GET `api.github.com/repos/KingXiaoTaoOVO/vrcdog-releases/releases`，找 stable 最新版的 `.exe` / `.msi` 资产
+2. **流式下载** — 下载到 `%TEMP%\vrcdog-setup-<stamp>.exe`，通过 Tauri 事件 `app-update://progress` 推送进度，SHA-256 校验
+3. **schtasks 派发引导脚本** — 写 `bootstrapper.cmd` 到 `%TEMP%`，用 Windows Task Scheduler (`schtasks /Create /SC ONCE ... /Run`) 派发。Task Scheduler 宿主是 `svchost.exe -k netsvcs`，不绑定任何 console session，因此引导脚本**永远不会**被 conhost 或 Windows Terminal 劫持显示为黑屏窗口
+4. **引导脚本执行** — 轮询 `tasklist` 等 90s 让 VRCDog.exe 退出 → NSIS `/S /D=<dir>` 或 `msiexec /qn /i` 静默安装 → 扫描清理 `.exe.old` / `.exe.bak` → `start ""` 启动新版 → 自删
+5. **应用退出** — `app.exit(0)` 释放所有文件句柄和 Defender 扫描关联
+
+### 登录页静默预检测（v5.0.9+）
+
+`LoginView.vue` 在 `onMounted` 后台调用 `update_remote_releases`，semver 比较发现新版时在工具栏"检查更新"按钮右上角显示红色脉冲圆点 + tooltip 提示，不会自动弹模态对话框。
+
+### 为什么不直接 spawn 安装包？
+
+Windows 上 VRCDog.exe 还在运行时，`CreateProcess` 直接启动安装包会触发 `os error 32 (ERROR_SHARING_VIOLATION)` — Windows Defender 抓取文件做实时扫描 + 进程自身的 image mapping 残留句柄导致拒绝访问。引导脚本 + schtasks 派发绕过了这个问题。
 
 ---
 

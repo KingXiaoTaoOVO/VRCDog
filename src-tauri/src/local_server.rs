@@ -1,21 +1,60 @@
 use axum::{
-    extract::{ws::WebSocketUpgrade, ConnectInfo, Path, State},
-    http::StatusCode,
+    extract::{ws::WebSocketUpgrade, ConnectInfo, Path, Request, State},
+    http::{HeaderName, HeaderValue, Method, StatusCode},
     middleware,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::time::{Duration, Instant};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::server_survey::{self, Survey, SurveySettings, SurveySubmission};
+
+// ===== Admin brute-force protection =====
+// Tracks failed admin-password attempts per client IP and locks the IP out
+// for a cooldown window. This complements the static default password and
+// mitigates online guessing, addressing the audit's P0 admin-protection gap.
+lazy_static! {
+    static ref ADMIN_FAILED_ATTEMPTS: StdMutex<HashMap<IpAddr, (u32, Instant)>> =
+        StdMutex::new(HashMap::new());
+}
+
+const ADMIN_MAX_ATTEMPTS: u32 = 5;
+const ADMIN_LOCKOUT_SECS: u64 = 300;
+
+fn admin_is_locked(ip: IpAddr) -> bool {
+    let mut map = ADMIN_FAILED_ATTEMPTS.lock().unwrap();
+    if let Some((count, first)) = map.get(&ip) {
+        if *count >= ADMIN_MAX_ATTEMPTS
+            && first.elapsed() < Duration::from_secs(ADMIN_LOCKOUT_SECS)
+        {
+            return true;
+        }
+        if first.elapsed() >= Duration::from_secs(ADMIN_LOCKOUT_SECS) {
+            map.remove(&ip);
+        }
+    }
+    false
+}
+
+fn admin_register_failure(ip: IpAddr) {
+    let mut map = ADMIN_FAILED_ATTEMPTS.lock().unwrap();
+    let entry = map.entry(ip).or_insert((0u32, Instant::now()));
+    entry.0 += 1;
+}
+
+fn admin_reset_failures(ip: IpAddr) {
+    ADMIN_FAILED_ATTEMPTS.lock().unwrap().remove(&ip);
+}
 
 // ===== Data Models =====
 
@@ -340,10 +379,28 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
         remote_assist: crate::remote_assist_hub::RemoteAssistHub::default(),
     };
 
+    // Only trust loopback / same-machine browser origins by default. The Tauri
+    // client reaches the server through the Rust backend (reqwest), which is
+    // not subject to CORS, so tightening browser origins here blocks malicious
+    // websites from driving the local server via the user's browser without
+    // affecting legitimate client/server traffic.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any)
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+            match origin.to_str() {
+                Ok(s) => {
+                    s.starts_with("http://127.0.0.1")
+                        || s.starts_with("http://localhost")
+                        || s.starts_with("http://[::1]")
+                        || s == "null"
+                }
+                Err(_) => false,
+            }
+        }))
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("x-vrcdog-admin-password"),
+        ])
         .allow_private_network(true);
 
     let admin_routes = Router::new()
@@ -920,10 +977,28 @@ async fn handle_client_delete_submission(
 
 // ===== Handlers: Admin =====
 
-async fn handle_admin_auth(Json(req): Json<AdminAuthRequest>) -> impl IntoResponse {
+async fn handle_admin_auth(
+    ConnectInfo(client_ip): ConnectInfo<SocketAddr>,
+    Json(req): Json<AdminAuthRequest>,
+) -> impl IntoResponse {
+    let ip = client_ip.ip();
+    if admin_is_locked(ip) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "Too many failed attempts, please try again later"
+            })),
+        );
+    }
     if crate::verify_server_password(&req.password) {
-        (StatusCode::OK, Json(serde_json::json!({ "success": true })))
+        admin_reset_failures(ip);
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "success": true })),
+        )
     } else {
+        admin_register_failure(ip);
         (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
@@ -935,17 +1010,27 @@ async fn handle_admin_auth(Json(req): Json<AdminAuthRequest>) -> impl IntoRespon
 }
 
 async fn require_admin_password(
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
+    request: Request,
+    next: middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
+    let ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip())
+        .unwrap_or_else(|| IpAddr::from([0, 0, 0, 0]));
+    if admin_is_locked(ip) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
     let password = request
         .headers()
         .get("x-vrcdog-admin-password")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
     if !crate::verify_server_password(password) {
+        admin_register_failure(ip);
         return Err(StatusCode::UNAUTHORIZED);
     }
+    admin_reset_failures(ip);
     Ok(next.run(request).await)
 }
 

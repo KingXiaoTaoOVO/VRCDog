@@ -15,7 +15,7 @@ import {
   ScanLine,
   Sparkles,
 } from 'lucide-vue-next';
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useDrawing } from '../composables/useDrawing';
 
 const {
@@ -42,6 +42,15 @@ const {
 } = useDrawing();
 
 const overlayOpen = ref(false);
+
+// 组件重挂载时（用户切走再切回来）overlay 窗口可能仍然存在。
+// 不同步状态的话 overlayOpen 恒为 false，再次点击会因 label 冲突触发 tauri://error。
+onMounted(async () => {
+  if (!isTauri()) return;
+  try {
+    overlayOpen.value = Boolean(await WebviewWindow.getByLabel('drawing-overlay'));
+  } catch { /* ignore */ }
+});
 
 const openVrOverlay = () => {
   const overlay = new WebviewWindow('drawing-overlay', {

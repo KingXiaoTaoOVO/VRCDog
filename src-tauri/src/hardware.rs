@@ -1,6 +1,7 @@
 use crate::AppResult;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use rosc::{OscMessage, OscPacket, OscType};
+use serde::Deserialize;
 use std::net::UdpSocket;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -159,8 +160,19 @@ pub fn sys_send_osc_chatbox(text: String, complete: bool) -> AppResult<()> {
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscordRpcRequest {
+    pub details: String,
+    pub state: String,
+    #[serde(default)]
+    pub show_world_thumbnail: bool,
+    #[serde(default)]
+    pub show_join_button: bool,
+}
+
 #[tauri::command]
-pub fn sys_set_discord_rpc(details: String, state: String) -> AppResult<()> {
+pub fn sys_set_discord_rpc(req: DiscordRpcRequest) -> AppResult<()> {
     let client_mutex = DISCORD_CLIENT.get_or_init(|| {
         let mut client = DiscordIpcClient::new("112233445566778899");
         let _ = client.connect();
@@ -168,9 +180,21 @@ pub fn sys_set_discord_rpc(details: String, state: String) -> AppResult<()> {
     });
 
     if let Ok(mut client) = client_mutex.lock() {
-        let payload = activity::Activity::new().details(&details).state(&state);
-
-        let _ = client.set_activity(payload);
+        let mut activity = activity::Activity::new()
+            .details(&req.details)
+            .state(&req.state);
+        if req.show_world_thumbnail {
+            // Best-effort: only renders if the configured Discord application
+            // registers the "vrchat" asset key. Harmless otherwise.
+            activity = activity.assets(activity::Assets::default().large_image("vrchat"));
+        }
+        if req.show_join_button {
+            activity = activity.buttons(vec![activity::Button::new(
+                "Join VRChat",
+                "https://vrchat.com/home",
+            )]);
+        }
+        let _ = client.set_activity(activity);
     }
 
     Ok(())

@@ -143,6 +143,20 @@ const openPlayerProfile = (m: any) => {
         >
       </div>
 
+      <!-- 错误提示：加载 / 解除屏蔽失败时可见 -->
+      <div
+        v-if="errorMsg"
+        class="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm font-bold flex items-center justify-between gap-3 shrink-0"
+      >
+        <span class="truncate">{{ errorMsg }}</span>
+        <button
+          class="shrink-0 px-2 py-1 rounded-lg hover:bg-red-500/10 text-xs"
+          @click="errorMsg = ''"
+        >
+          {{ t('app.i_know') || 'I Know' }}
+        </button>
+      </div>
+
       <div class="flex-1 overflow-y-auto custom-scrollbar pr-2">
         <div
           v-if="filteredModerations.length === 0"
@@ -182,7 +196,7 @@ const openPlayerProfile = (m: any) => {
                 class="flex items-center gap-4 p-3 rounded-2xl bg-surface-hover border-border-soft"
               >
                 <div class="w-12 h-12 rounded-xl bg-surface/60 flex items-center justify-center text-text-muted font-black uppercase text-lg shadow-inner relative shrink-0">
-                  <span v-if="!item.loadingData">{{ item.name.charAt(0) }}</span>
+                  <span v-if="!item.loadingData">{{ (item.name || '?').charAt(0) }}</span>
                   <div
                     v-else
                     class="animate-spin w-5 h-5 border-2 border-border-soft border-t-transparent rounded-full"
