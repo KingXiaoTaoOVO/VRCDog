@@ -1,4 +1,4 @@
-name: Release VRCDog
+name: 发布 VRCDog 新版本
 
 on:
   workflow_dispatch:
@@ -55,7 +55,7 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }} # 使用触发该工作流的 tag 作为版本号
-          releaseName: 'VRCDog ${{ github.ref_name }}'
+          releaseName: '发布 ${{ github.ref_name }} 新版本'
           releaseBody: |
             ## VRCDog 更新发布
             有关此版本的详细更新内容，请参阅提交历史。
