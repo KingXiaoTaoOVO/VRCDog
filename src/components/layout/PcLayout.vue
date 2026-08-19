@@ -9,7 +9,7 @@ import { wsState, initWebsocket, closeWebSocket } from '../../api/websocket';
 import { dataHealth, dataServiceStatus, nowTs } from '../../stores/dataHealth';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
 import VrcAvatar from '../VrcAvatar.vue';
-import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert, Check, Database, RefreshCw } from 'lucide-vue-next';
+import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert, Check, Database, RefreshCw, ClipboardList } from 'lucide-vue-next';
 import CustomNavModal from '../CustomNavModal.vue';
 
 const { t } = useI18n();
@@ -26,7 +26,13 @@ const {
   vrcServerStatus 
 } = storeToRefs(uiStore);
 
-const { currentUser, serverConnected, clientServerUrl } = storeToRefs(authStore);
+const { currentUser, serverConnected, clientServerUrl, pendingSurveyCount, surveyRequired } = storeToRefs(authStore);
+
+// 打开问卷中心（待填写优先）。SurveyCenter 由 App.vue 挂载为模态层，
+// 这里通过窗口事件触发，避免把问卷状态再下沉到布局组件。
+const openSurveyCenter = () => {
+  window.dispatchEvent(new CustomEvent('open-survey-center', { detail: { tab: 'pending' } }));
+};
 
 const appVersion = ref('');
 onMounted(async () => {
@@ -336,6 +342,24 @@ const themeStyles = computed(() => {
           </button>
         </template>
       </div>
+
+      <!-- 问卷中心入口（固定在导航底部，带待填写徽章） -->
+      <button
+        class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px] mt-1"
+        :class="currentDensity.navClass"
+        :style="{ color: currentTheme.colors.textSoft }"
+        :title="$t('sidebar.survey')"
+        @click="openSurveyCenter"
+      >
+        <component :is="ClipboardList" :size="18" />
+        <span class="flex-1">{{ $t('sidebar.survey') }}</span>
+        <span
+          v-if="pendingSurveyCount > 0"
+          class="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black grid place-items-center text-white shrink-0"
+          :class="surveyRequired ? 'bg-red-500 animate-pulse' : ''"
+          :style="surveyRequired ? {} : { backgroundColor: currentTheme.colors.primaryBtnBg }"
+        >{{ pendingSurveyCount > 99 ? '99+' : pendingSurveyCount }}</span>
+      </button>
 
       <!-- 用户信息 + 退出 -->
       <div

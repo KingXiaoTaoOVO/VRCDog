@@ -198,7 +198,15 @@ const openSurveyHistory = () => {
   surveyCenterOpen.value = true;
 };
 
-window.addEventListener('open-survey-center', openSurveyHistory);
+// 通用打开入口：支持 detail.tab = 'pending' | 'history'。
+// 不传或非 'pending' 时回退到 'history'，保持"我的问卷记录"按钮的原有行为。
+const openSurveyCenter = (event: Event) => {
+  const tab = (event as CustomEvent).detail?.tab === 'pending' ? 'pending' : 'history';
+  surveyCenterInitialTab.value = tab;
+  surveyCenterOpen.value = true;
+};
+
+window.addEventListener('open-survey-center', openSurveyCenter as EventListener);
 
 watch(clientServerUrl, (value) => {
   disconnectedServerUrl.value = value;
