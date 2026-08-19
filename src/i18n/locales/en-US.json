@@ -110,7 +110,8 @@
     "remote": "Remote Assist",
     "env": "Environment Manager",
     "export": "Data Export",
-    "settings": "Settings"
+    "settings": "Settings",
+    "survey": "Survey Center"
   },
   "layout": {
     "desktop_translator": "Desktop Translator",

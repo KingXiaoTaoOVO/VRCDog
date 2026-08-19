@@ -112,7 +112,8 @@
 		"remote": "远程协助",
 		"env": "环境管家",
 		"export": "数据导出",
-		"settings": "高级设置"
+		"settings": "高级设置",
+		"survey": "问卷中心"
 	},
 	"layout": {
 		"desktop_translator": "桌面翻译",
