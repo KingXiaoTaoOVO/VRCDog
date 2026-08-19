@@ -252,6 +252,15 @@ pub fn run() {
             vrdrawing::register_runtime(app.handle().clone(), drawing_state.clone());
             app.manage(drawing_state);
 
+            // Sweep stale updater artifacts left over from prior
+            // interrupted runs (e.g. half-downloaded installers or
+            // bootstrapper .cmd scripts that never got cleaned up).
+            match update::update_cleanup_stale_artifacts() {
+                Ok(n) if n > 0 => println!("[VrcDog] swept {n} stale updater artifact(s)."),
+                Ok(_) => {}
+                Err(e) => eprintln!("[VrcDog] failed to sweep updater artifacts: {e}"),
+            }
+
             // NOTE: OVRAS auto-install/launch has been REMOVED to prevent
             // interfering with player's own OpenVR Advanced Settings.
             // VrcDog now implements core playspace features natively via OpenVR API.
@@ -400,6 +409,7 @@ pub fn run() {
             update::update_remote_releases,
             update::update_install_release,
             update::update_restart,
+            update::update_cleanup_stale_artifacts,
             audio_capture::vrct_get_audio_devices,
             audio_capture::vrct_start_audio_capture,
             audio_capture::vrct_stop_audio_capture,

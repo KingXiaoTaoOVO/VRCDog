@@ -484,6 +484,8 @@ const runAutoUpdate = async (release: ReleaseInfo) => {
       checkUpdateStatus.value = t('settings.update_verifying');
     } else if (p.stage === 'installing') {
       checkUpdateStatus.value = t('settings.update_installing');
+    } else if (p.stage === 'launching') {
+      checkUpdateStatus.value = t('settings.update_launching_old_exit');
     } else if (p.message) {
       checkUpdateStatus.value = p.message;
     }
@@ -499,6 +501,10 @@ const runAutoUpdate = async (release: ReleaseInfo) => {
     // 下面的代码只在上面的 invoke 意外返回时作为兜底执行
     checkUpdateStatus.value = t('settings.update_restarting');
     await invoke('update_restart');
+  } catch (err: any) {
+    checkUpdateStatus.value = t('settings.update_install_failed', {
+      error: String(err?.message || err),
+    });
   } finally {
     unlisten();
   }

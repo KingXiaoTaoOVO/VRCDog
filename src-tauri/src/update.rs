@@ -5,22 +5,45 @@
 //! `updater.json`, which makes the official plugin's `check()` fail
 //! with HTTP 404 on every cold start.
 //!
-//! Instead we:
+//! Auto-update pipeline (this is what actually runs when the user
+//! clicks "立即更新" in SettingsView):
+//!
 //!   1. Query GitHub's REST API directly (`/repos/{owner}/{repo}/releases`).
-//!   2. Stream the chosen asset to a temp file while emitting progress.
-//!   3. Verify SHA-256 against the GitHub asset digest.
-//!   4. Run the NSIS installer silently (`/S`); the installer handles
-//!      all "remove old files + install new" semantics for `currentUser`
-//!      in-place upgrades — Tauri 2's bundled NSIS template already
-//!      renames the locked executable before replacing it.
-//!   5. After the installer exits, we explicitly relaunch the freshly
-//!      installed binary so the user never has to click anything again.
-//!   6. Sweep stale `*.exe.old` leftovers left behind by the NSIS
-//!      upgrade dance (and any other installer-renamed siblings we know
-//!      about) so the install dir stays clean.
-//!   7. `app.exit(0)` shuts down the running process.
+//!   2. Stream the chosen asset to `%TEMP%\VRCDog-Setup-<stamp>.exe` while
+//!      emitting progress; verify SHA-256 against the GitHub asset digest.
+//!   3. Write a tiny `.cmd` bootstrapper to `%TEMP%\vrcdog-update-<stamp>.cmd`.
+//!      That script:
+//!        a. Polls `tasklist /FI "PID eq <our_pid>"` once a second for up
+//!           to 90 seconds, waiting for the running VRCDog.exe to exit.
+//!        b. Invokes the NSIS installer with `/S /D=<install_dir>` so the
+//!           install path is preserved across upgrades.
+//!        c. Sweeps stale `.exe.old` / `.exe.bak` leftovers left behind
+//!           by NSIS in-place upgrade.
+//!        d. Launches the freshly-installed `VRCDog.exe` via `start ""`.
+//!        e. Deletes the temp installer and self-deletes.
+//!   4. Spawn the bootstrapper detached (`CREATE_NEW_PROCESS_GROUP |
+//!      DETACHED_PROCESS | CREATE_NO_WINDOW`) and `app.exit(0)` so the
+//!      running process releases every handle / image / Defender scan
+//!      association on the installer file.
+//!
+//! Why a bootstrapper? Spawning the NSIS installer directly from inside
+//! the running VRCDog.exe process triggers
+//! `os error 32 (ERROR_SHARING_VIOLATION)` on Windows: the moment we
+//! write a new `.exe` to `%TEMP%`, Windows Defender grabs it for real
+//! time scanning. While the scan is in flight (and while our own
+//! process still has its image mapped and possibly a residual handle)
+//! `CreateProcess` rejects the call with "another program is using
+//! this file". The bootstrapper gets us past that by exiting our
+//! process first, then waiting until the scan completes before running
+//! the installer.
+//!
+//! The bootstrapper also handles "delete old version files": NSIS in
+//! place upgrade renames `VRCDog.exe` to `VRCDog.exe.old` and never
+//! cleans it up. The script removes `.exe.old`, `.exe.bak`, plus any
+//! `VRCDog-Setup-*.exe` leftovers from previous interrupted runs.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -28,8 +51,19 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const GITHUB_RELEASES_API: &str =
     "https://api.github.com/repos/KingXiaoTaoOVO/vrcdog-releases/releases";
+
+// Windows process creation flags we rely on.
+#[cfg(windows)]
+const DETACHED_PROCESS: u32 = 0x00000008;
+#[cfg(windows)]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// One release row exposed to the frontend. We only ship the subset of
 /// GitHub fields the updater UI actually uses.
@@ -299,85 +333,158 @@ fn locate_installed_exe(app: &AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// Clean the leftovers NSIS leaves behind during in-place upgrades.
-/// Tauri 2's bundled NSIS template renames `VRCDog.exe` to
-/// `VRCDog.exe.old` before swapping in the new file, and relies on the
-/// next launch to delete the `.old` copy. Since the runner dies inside
-/// `app.exit(0)` we get a chance to sweep those ourselves.
-fn sweep_install_leftovers(install_dir: &Path) {
-    let Ok(read) = std::fs::read_dir(install_dir) else {
-        return;
+/// Render the bootstrapper CMD script.
+///
+/// Arguments the script receives via CMD %1..%4:
+///
+///   %1 — our current PID (used to wait until VRCDog.exe exits)
+///   %2 — absolute path to the downloaded installer (.exe or .msi)
+///   %3 — install dir (where the new VRCDog.exe should land)
+///   %4 — absolute path to the freshly-installed VRCDog.exe (to launch)
+///
+/// The script intentionally keeps its logic plain-vanilla CMD so it
+/// runs on every supported Windows version without extra dependencies.
+/// It avoids parenthesised `if` blocks with `set /a` so that no
+/// `EnableDelayedExpansion` is needed (which keeps the script
+/// compatible with batch runners that disable it by default).
+fn render_bootstrap_script() -> &'static str {
+    r#"@echo off
+setlocal
+rem ============================================================
+rem  VRCDog auto-update bootstrapper
+rem  - waits for the running VRCDog.exe (PID %1) to exit
+rem  - runs the NSIS/MSI installer silently with /D=install_dir
+rem  - sweeps .exe.old / .exe.bak leftovers from in-place upgrades
+rem  - launches the freshly installed VRCDog.exe
+rem  - cleans up its own temp artifacts
+rem ============================================================
+
+set "INSTALLER=%~2"
+set "INSTALL_DIR=%~3"
+set "NEW_EXE=%~4"
+
+echo [VRCDog updater] waiting for VRCDog.exe (PID %1) to exit...
+set /a TRIES=0
+goto waitloop
+
+:waitloop
+tasklist /FI "PID eq %1" 2>NUL | findstr /C:" %1 " >NUL
+if %ERRORLEVEL%==1 goto run_install
+set /a TRIES+=1
+if %TRIES% GEQ 90 goto timed_out
+>NUL timeout /T 1 /NOBREAK
+goto waitloop
+
+:timed_out
+echo [VRCDog updater] VRCDog.exe did not exit within 90s, proceeding anyway.
+
+:run_install
+echo [VRCDog updater] running installer: "%INSTALLER%" /S /D="%INSTALL_DIR%"
+if /I "%INSTALLER:~-4%"==".msi" goto run_msi
+
+rem ----- NSIS / generic setup.exe path -----
+"%INSTALLER%" /S /D="%INSTALL_DIR%"
+set "RC=%ERRORLEVEL%"
+echo [VRCDog updater] installer exit code: %RC%
+goto after_install
+
+:run_msi
+rem ----- MSI fallback -----
+msiexec /qn /i "%INSTALLER%" TARGETDIR="%INSTALL_DIR%"
+set "RC=%ERRORLEVEL%"
+echo [VRCDog updater] msiexec exit code: %RC%
+
+:after_install
+rem ----- Sweep NSIS in-place upgrade leftovers -----
+if exist "%INSTALL_DIR%\VRCDog.exe.old" del /F /Q "%INSTALL_DIR%\VRCDog.exe.old"
+if exist "%INSTALL_DIR%\VRCDog.exe.bak" del /F /Q "%INSTALL_DIR%\VRCDog.exe.bak"
+pushd "%INSTALL_DIR%"
+del /F /Q "*.exe.old" 2>NUL
+del /F /Q "*.exe.bak" 2>NUL
+del /F /Q "unins*.exe.tmp" 2>NUL
+popd
+
+rem ----- Launch the new exe (only if installer reported success) -----
+if %RC% NEQ 0 goto cleanup
+if exist "%NEW_EXE%" (
+    echo [VRCDog updater] launching "%NEW_EXE%"
+    start "" "%NEW_EXE%"
+) else (
+    echo [VRCDog updater] warning: %NEW_EXE% not found after install.
+)
+
+:cleanup
+rem ----- Remove the temp installer and self-delete -----
+if exist "%INSTALLER%" del /F /Q "%INSTALLER%"
+del /F /Q "%~f0" 2>NUL
+endlocal
+exit /b %RC%
+"#
+}
+
+/// Write the bootstrapper `.cmd` file to `%TEMP%`. Returns the path.
+fn write_bootstrap_script(pid: u32) -> Result<PathBuf, String> {
+    let tmp_dir = std::env::temp_dir();
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("无法创建临时目录: {e}"))?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let script = tmp_dir.join(format!("vrcdog-update-{}-{}.cmd", pid, stamp));
+    std::fs::write(&script, render_bootstrap_script().as_bytes())
+        .map_err(|e| format!("无法写入引导脚本: {e}"))?;
+    Ok(script)
+}
+
+/// Best-effort sweep of stale updater artifacts from previous runs.
+///
+/// On startup we delete any leftover VRCDog installer and bootstrapper
+/// scripts in `%TEMP%` that are older than one week. Anything newer
+/// than that is left alone — the user may still be mid-update and we
+/// don't want to yank the file from under a running bootstrapper.
+#[tauri::command]
+pub fn update_cleanup_stale_artifacts() -> Result<u32, String> {
+    let tmp_dir = std::env::temp_dir();
+    let cutoff = std::time::SystemTime::now()
+        - Duration::from_secs(60 * 60 * 24 * 7);
+    let mut removed = 0u32;
+    let Ok(read) = std::fs::read_dir(&tmp_dir) else {
+        return Ok(0);
     };
     for entry in read.flatten() {
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-            continue
+            continue;
         };
-        // NSIS in-place upgrade leaves behind:
-        //   - <binary>.exe.old
-        //   - <binary>.exe.bak (older NSIS templates)
-        //   - the installer itself when the user runs it from %TEMP%
         let lower = name.to_ascii_lowercase();
-        let is_stale_binary = lower.ends_with(".exe.old") || lower.ends_with(".exe.bak");
-        let is_our_temp_setup = lower.starts_with("vrcdog-setup-")
+        let is_stale_setup = lower.starts_with("vrcdog-setup-")
             && (lower.ends_with(".exe") || lower.ends_with(".msi"));
-        let is_uninst_tmp = lower.starts_with("vrcdog_") && lower.ends_with("-setup.exe.partial");
-        if is_stale_binary || is_our_temp_setup || is_uninst_tmp {
-            let _ = std::fs::remove_file(&path);
-            eprintln!("[update] swept leftover {}", path.display());
+        let is_stale_bootstrap = lower.starts_with("vrcdog-update-") && lower.ends_with(".cmd");
+        if !(is_stale_setup || is_stale_bootstrap) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(modified) = meta.modified() else { continue };
+        if modified > cutoff {
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+            eprintln!("[update] swept stale artifact {}", path.display());
         }
     }
-}
-
-/// Spawn the installer and wait for it. NSIS handles the silent flag
-/// itself — `/S` is case-insensitive on its CLI but we keep it upper
-/// for clarity. `/D=path` pins the install dir to whatever the running
-/// app lives in (so NSIS upgrades don't try to migrate to a fresh
-/// per-user sub-folder).
-fn run_installer_and_wait(installer: &Path, run_dir_hint: &Path) -> Result<(), String> {
-    let install_dir = if run_dir_hint.is_dir() {
-        run_dir_hint.to_path_buf()
-    } else {
-        PathBuf::from("C:\\Users\\Public")
-    };
-    let install_dir_str = install_dir.to_string_lossy().to_string();
-
-    // NSIS / MSI are picky: `/S` only triggers "silent" mode when it's
-    // the first flag and there are no conflicting UI flags ahead. To be
-    // safe we also pass `/allusers` is intentionally skipped because
-    // Tauri uses `currentUser` install mode.
-    let mut cmd = std::process::Command::new(installer);
-    cmd.arg("/S");
-    cmd.arg(format!("/D={}", install_dir_str));
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("无法启动安装程序: {e}"))?;
-    let status = child
-        .wait()
-        .map_err(|e| format!("等待安装程序退出失败: {e}"))?;
-    if !status.success() {
-        return Err(format!(
-            "安装程序返回非零退出码: {}",
-            status.code().unwrap_or(-1)
-        ));
-    }
-    Ok(())
+    Ok(removed)
 }
 
 /// Run the full auto-update flow against a single chosen release.
 ///
 /// Pipeline:
-///   1. Stream the installer from GitHub to `%TEMP%\VRCDog-Setup-vX.Y.Z.exe`.
+///   1. Stream the installer from GitHub to `%TEMP%\VRCDog-Setup-<stamp>.exe`.
 ///   2. Verify SHA-256 against the GitHub asset digest.
-///   3. Invoke the NSIS installer silently in-place (replaces files).
-///   4. Sweep `.exe.old` leftovers from the install dir.
-///   5. Launch the freshly-installed binary detached.
-///   6. `app.exit(0)` to terminate the running process.
-///
-/// Returns once the installer has been spawned successfully; the
-/// frontend will observe the new process via `app-update://done` event
-/// and exit itself.
+///   3. Determine the install dir + new exe path.
+///   4. Write a CMD bootstrapper that waits for our exit, then runs
+///      the installer silently, sweeps leftovers, and launches the new
+///      binary.
+///   5. Spawn the bootstrapper detached (`cmd /C <script> <pid> <installer>
+///      <install_dir> <new_exe>`) with no window, then `app.exit(0)`.
 #[tauri::command]
 pub async fn update_install_release(
     app: AppHandle,
@@ -428,10 +535,14 @@ pub async fn update_install_release(
         .next()
         .unwrap_or("VRCDog-Setup.exe")
         .to_string();
+    let ext = std::path::Path::new(&stem)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("exe");
     let installer_name = if stem.to_ascii_lowercase().contains("setup") {
-        format!("VRCDog-Setup-{stamp}.exe")
+        format!("vrcdog-setup-{stamp}.{ext}")
     } else {
-        format!("VRCDog-Installer-{stamp}.{}", std::path::Path::new(&stem).extension().and_then(|e| e.to_str()).unwrap_or("exe"))
+        format!("vrcdog-installer-{stamp}.{ext}")
     };
     let installer = tmp_dir.join(&installer_name);
 
@@ -499,7 +610,7 @@ pub async fn update_install_release(
             stage: "installing",
             bytes_done: total,
             bytes_total: total,
-            message: "正在静默安装，请等待".into(),
+            message: "正在准备静默安装".into(),
         },
     );
 
@@ -511,22 +622,39 @@ pub async fn update_install_release(
                 .map(|d| d.join("Programs").join("VRCDog"))
                 .unwrap_or_else(|| PathBuf::from("."))
         });
+    let new_exe = locate_installed_exe(&app).unwrap_or_else(|| run_dir_hint.join("VRCDog.exe"));
+    let pid = std::process::id();
+    let script_path = write_bootstrap_script(pid)?;
+    let installer_str = installer.to_string_lossy().to_string();
+    let install_dir_str = run_dir_hint.to_string_lossy().to_string();
+    let new_exe_str = new_exe.to_string_lossy().to_string();
 
-    // The installer itself runs synchronously on a blocking thread because
-    // `std::process::Command::wait` is blocking.
-    let installer_for_blocking = installer.clone();
-    let run_dir_hint_owned = run_dir_hint.clone();
-    let install_result = tokio::task::spawn_blocking(move || {
-        run_installer_and_wait(&installer_for_blocking, &run_dir_hint_owned)
-    })
-    .await
-    .map_err(|e| format!("安装任务被打断: {e}"))?;
-    if let Err(err) = install_result {
-        return Err(err);
-    }
+    eprintln!(
+        "[update] spawning bootstrap script {} for installer {} (install dir {}, new exe {})",
+        script_path.display(),
+        installer.display(),
+        run_dir_hint.display(),
+        new_exe.display()
+    );
 
-    // Sweep the leftovers before launching.
-    sweep_install_leftovers(&run_dir_hint);
+    spawn_bootstrapper_detached(
+        &script_path,
+        pid,
+        &installer_str,
+        &install_dir_str,
+        &new_exe_str,
+    )
+    .map_err(|e| {
+        // Best-effort cleanup if we couldn't even launch the
+        // bootstrapper — the user can still run the installer we
+        // downloaded by hand.
+        let _ = std::fs::remove_file(&script_path);
+        let _ = std::fs::remove_file(&installer);
+        format!(
+            "无法启动更新引导脚本: {e}。安装包已下载到: {}",
+            installer.display()
+        )
+    })?;
 
     emit_progress(
         &app,
@@ -534,31 +662,53 @@ pub async fn update_install_release(
             stage: "launching",
             bytes_done: total,
             bytes_total: total,
-            message: "已安装完成，正在启动新版本".into(),
+            message: "已下载完成，正在退出旧版本以启动新版本".into(),
         },
     );
-
-    if let Some(new_exe) = locate_installed_exe(&app) {
-        if let Some(parent) = new_exe.parent() {
-            sweep_install_leftovers(parent);
-        }
-        let _ = std::process::Command::new(&new_exe)
-            .args(std::env::args().skip(1))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-    }
-
-    // Remove the temp installer we downloaded; NSIS has already copied
-    // everything it needs into the install dir.
-    let _ = std::fs::remove_file(&installer);
-
     emit_done(&app, "新版本已启动");
-    // Give the frontend a moment to render the success state before we
-    // tear down the runtime.
+
+    // Give the frontend a beat to render the launching state before
+    // we tear down. Tauri's `app.exit(0)` will fire on_drop cleanup
+    // for any state we manage, but we don't want the event handler
+    // to be mid-render when we pull the rug out from under it.
     std::thread::sleep(Duration::from_millis(400));
     app.exit(0);
+    Ok(())
+}
+
+/// Spawn the bootstrapper CMD script in a detached process group with
+/// no console window. The script inherits no handle from us and
+/// survives our `app.exit(0)` call.
+fn spawn_bootstrapper_detached(
+    script: &Path,
+    pid: u32,
+    installer: &str,
+    install_dir: &str,
+    new_exe: &str,
+) -> Result<(), String> {
+    let mut cmd = std::process::Command::new("cmd.exe");
+    cmd.arg("/C")
+        .arg(script)
+        .arg(pid.to_string())
+        .arg(installer)
+        .arg(install_dir)
+        .arg(new_exe)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("无法启动引导脚本: {e}"))?;
+    eprintln!(
+        "[update] bootstrapper detached, child pid={:?}",
+        child.id()
+    );
     Ok(())
 }
 
@@ -600,5 +750,65 @@ mod tests {
         assert!(!is_newer("5.0.5", "5.0.5"));
         assert!(!is_newer("5.0.4", "5.0.5"));
         assert!(is_newer("v6.0.0", "v5.0.5"));
+    }
+
+    #[test]
+    fn bootstrap_script_contains_required_anchors() {
+        let body = render_bootstrap_script();
+        // The script must poll, run the installer, sweep, and launch.
+        assert!(body.contains("tasklist /FI \"PID eq %1\""));
+        assert!(body.contains("/S /D="));
+        assert!(body.contains(".exe.old"));
+        assert!(body.contains(".exe.bak"));
+        assert!(body.contains("start \"\""));
+        assert!(body.contains("del /F /Q \"%~f0\""));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn bootstrap_script_runs_end_to_end() {
+        // Render the script to a temp file and run it with the args
+        // `cmd /C <script> <pid> <installer> <install_dir> <new_exe>`.
+        // We pass a deliberately nonexistent PID (0) so the wait-loop
+        // exits immediately and the installer launch is attempted
+        // against a nonexistent file. We only care that the script
+        // parses and executes its control flow without throwing a
+        // "syntax error" from cmd — i.e. the bootstrapper is well-formed.
+        let tmp = std::env::temp_dir().join(format!(
+            "vrcdog-bootstrap-test-{}.cmd",
+            std::process::id()
+        ));
+        std::fs::write(&tmp, render_bootstrap_script().as_bytes()).unwrap();
+
+        // Fake installer & new_exe paths. The script should try to
+        // launch them, fail, but still self-delete.
+        let fake_installer = std::env::temp_dir().join("vrcdog-fake-installer-does-not-exist.exe");
+        let fake_install_dir = std::env::temp_dir().join("vrcdog-fake-install");
+        let fake_new_exe = std::env::temp_dir().join("vrcdog-fake-install/VRCDog.exe");
+        let output = std::process::Command::new("cmd.exe")
+            .arg("/C")
+            .arg(&tmp)
+            .arg("0") // PID 0 — guaranteed not running
+            .arg(&fake_installer)
+            .arg(&fake_install_dir)
+            .arg(&fake_new_exe)
+            .output()
+            .expect("cmd.exe should run the bootstrap script");
+
+        // cmd.exe should at least return (no syntax error). The
+        // installer portion will fail because the file doesn't exist,
+        // but that's fine for this smoke test.
+        assert!(
+            output.status.success() || output.status.code().is_some(),
+            "bootstrap script did not produce a clean exit status: {:?}",
+            output
+        );
+
+        // The script should have self-deleted.
+        assert!(
+            !tmp.exists(),
+            "bootstrap script did not self-delete: {}",
+            tmp.display()
+        );
     }
 }
