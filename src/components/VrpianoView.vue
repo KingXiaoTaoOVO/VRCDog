@@ -1140,12 +1140,18 @@ watch([selectedPath, delaySecs], () => {
   if (hotkeysEnabled.value) scheduleHotkeyApply();
 });
 
+// 竞态防护：init() 是网络请求，组件可能在 await 期间被卸载。
+// 卸载后不再注册监听器 / 启动轮询，否则定时器和监听器永久泄漏。
+let vrpianoDisposed = false;
+
 onMounted(async () => {
+  vrpianoDisposed = false;
   const savedInstrument = localStorage.getItem(playerInstrumentStorageKey);
   if (savedInstrument === 'source' || (savedInstrument && Number(savedInstrument) >= 0 && Number(savedInstrument) <= 127)) {
     playerInstrument.value = savedInstrument;
   }
   await init();
+  if (vrpianoDisposed) return;
   try {
     overlayOpen.value = Boolean(await WebviewWindow.getByLabel('vrpiano-overlay'));
     unlistenOverlayClosed = await listen('vrpiano-overlay-closed', () => {
@@ -1174,6 +1180,15 @@ onMounted(async () => {
   } catch {
     // Non-Tauri preview.
   }
+  if (vrpianoDisposed) {
+    // await listen 期间组件被卸载：注销刚拿到的监听器，不再启动轮询
+    if (unlistenStatus) { unlistenStatus(); unlistenStatus = null; }
+    if (unlistenOverlayClosed) { unlistenOverlayClosed(); unlistenOverlayClosed = null; }
+    if (unlistenMidishowLogin) { unlistenMidishowLogin(); unlistenMidishowLogin = null; }
+    if (unlistenPreviewSong) { unlistenPreviewSong(); unlistenPreviewSong = null; }
+    if (unlistenVrAction) { unlistenVrAction(); unlistenVrAction = null; }
+    return;
+  }
   if (pollTimer === null) {
     pollTimer = window.setInterval(refreshStatus, 1500);
   }
@@ -1182,6 +1197,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  vrpianoDisposed = true;
   if (unlistenStatus) unlistenStatus();
   if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (unlistenMidishowLogin) unlistenMidishowLogin();

@@ -166,32 +166,48 @@ const generateQrUrl = (url: string) => {
 const openLogin = async () => {
     showQrModal.value = true;
     qrStatusText.value = t('bilidown.qr_fetching');
+    // 防御：重复打开时先清掉旧轮询，避免多个 interval 叠加
+    if (qrPollTimer) { clearInterval(qrPollTimer); qrPollTimer = null; }
     try {
         const res: any = await invoke('bili_new_qr');
         if (res.code === 0 && res.data) {
             qrCodeUrl.value = generateQrUrl(res.data.url);
             qrKey.value = res.data.qrcode_key;
             qrStatusText.value = t('bilidown.qr_scan_prompt');
-            
+
             // start polling
+            let pollFailures = 0;
             qrPollTimer = setInterval(async () => {
-                const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
-                if (pollRes.data) {
-                    if (pollRes.data.code === 0) {
-                        // success
-                        clearInterval(qrPollTimer);
-                        qrStatusText.value = t('bilidown.login_success');
-                        if (pollRes.sessdata_extracted) {
-                            sessdata.value = pollRes.sessdata_extracted;
-                            await DbApi.saveSetting({ key: 'bili_sessdata', value: sessdata.value });
-                            isLoggedIn.value = true;
+                try {
+                    const pollRes: any = await invoke('bili_get_qr_status', { qrKey: qrKey.value });
+                    pollFailures = 0;
+                    if (pollRes.data) {
+                        if (pollRes.data.code === 0) {
+                            // success
+                            clearInterval(qrPollTimer!);
+                            qrPollTimer = null;
+                            qrStatusText.value = t('bilidown.login_success');
+                            if (pollRes.sessdata_extracted) {
+                                sessdata.value = pollRes.sessdata_extracted;
+                                await DbApi.saveSetting({ key: 'bili_sessdata', value: sessdata.value });
+                                isLoggedIn.value = true;
+                            }
+                            setTimeout(() => { showQrModal.value = false; }, 1000);
+                        } else if (pollRes.data.code === 86038) {
+                            qrStatusText.value = t('bilidown.qr_expired');
+                            clearInterval(qrPollTimer!);
+                            qrPollTimer = null;
+                        } else if (pollRes.data.code === 86090) {
+                            qrStatusText.value = t('bilidown.qr_scanned');
                         }
-                        setTimeout(() => { showQrModal.value = false; }, 1000);
-                    } else if (pollRes.data.code === 86038) {
-                        qrStatusText.value = t('bilidown.qr_expired');
-                        clearInterval(qrPollTimer);
-                    } else if (pollRes.data.code === 86090) {
-                        qrStatusText.value = t('bilidown.qr_scanned');
+                    }
+                } catch (pollError) {
+                    // 轮询单次失败不打断，连续 5 次失败才停止，避免 unhandled rejection 刷屏
+                    pollFailures++;
+                    if (pollFailures >= 5) {
+                        clearInterval(qrPollTimer!);
+                        qrPollTimer = null;
+                        qrStatusText.value = t('bilidown.error_prefix') + String(pollError);
                     }
                 }
             }, 3000);

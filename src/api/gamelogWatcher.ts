@@ -71,7 +71,9 @@ export async function pollGamelogOnce() {
              const worldName = joinedEvent.content;
              await SysApi.setDiscordRpc({
                details: settings.discordRpcShowWorldName === 'true' ? `Playing in ${worldName}` : 'In VRChat',
-               state: 'Active'
+               state: 'Active',
+               showWorldThumbnail: settings.discordRpcShowWorldThumbnail === 'true',
+               showJoinButton: settings.discordRpcShowJoinButton === 'true',
              });
           }
         }

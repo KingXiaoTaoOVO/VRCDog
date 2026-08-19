@@ -20,6 +20,8 @@ const instanceStatus = ref({ loading: false, message: '', type: '' });
 
 const dirStatus = ref({ message: '', type: '' });
 let vrcStatusTimer: ReturnType<typeof setInterval> | null = null;
+let launchCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+let dirStatusTimeout: ReturnType<typeof setTimeout> | null = null;
 
 type InviteMessageType = 'message' | 'request' | 'response' | 'requestResponse';
 type InviteTemplateSlot = {
@@ -133,7 +135,8 @@ const checkVrc = async () => {
 const launchVrc = async () => {
   try {
     await SysApi.launchVrc();
-    setTimeout(checkVrc, 5000);
+    if (launchCheckTimeout) clearTimeout(launchCheckTimeout);
+    launchCheckTimeout = setTimeout(checkVrc, 5000);
   } catch (err) {
     console.warn(err);
   }
@@ -202,7 +205,8 @@ const openDirectory = async (target: string) => {
   } catch (err: any) {
     dirStatus.value = { message: t('tools.dir_open_fail', { err: err.message || err }), type: 'error' };
   }
-  setTimeout(() => { dirStatus.value = { message: '', type: '' }; }, 3000);
+  if (dirStatusTimeout) clearTimeout(dirStatusTimeout);
+  dirStatusTimeout = setTimeout(() => { dirStatus.value = { message: '', type: '' }; }, 3000);
 };
 
 onMounted(() => {
@@ -214,6 +218,10 @@ onMounted(() => {
 onUnmounted(() => {
   if (vrcStatusTimer) clearInterval(vrcStatusTimer);
   vrcStatusTimer = null;
+  if (launchCheckTimeout) clearTimeout(launchCheckTimeout);
+  launchCheckTimeout = null;
+  if (dirStatusTimeout) clearTimeout(dirStatusTimeout);
+  dirStatusTimeout = null;
 });
 </script>
 

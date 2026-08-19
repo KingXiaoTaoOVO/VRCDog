@@ -277,13 +277,14 @@ const getFlag = (locName: string) => {
 };
 
 const cleanLocName = (loc: string) => {
+  if (!loc) return t('auto_0fcd7253');
   if (loc === 'private') return t('auto_4ad3ada9');
   // 如果是 wrld_ 开头，尝试从缓存获取世界名
   if (loc.startsWith('wrld_')) {
     const worldId = loc.split(':')[0];
     return worldNameCache.value.get(worldId) || loc.split('~')[0];
   }
-  return loc?.split('~')[0] || t('auto_0fcd7253');
+  return loc.split('~')[0] || t('auto_0fcd7253');
 };
 
 // 世界名缓存 (响应式)

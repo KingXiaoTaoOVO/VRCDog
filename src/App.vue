@@ -179,22 +179,32 @@ const reconnectServerError = ref('');
 const minimizeToTrayEnabled = ref(true);
 const surveyCenterOpen = ref(false);
 const surveyCenterInitialTab = ref<'pending' | 'history'>('pending');
+// 区分"用户手动打开"与"服务端推送后自动弹出"：
+// 手动打开时即使没有待填写问卷也保持打开（显示空状态 / 历史记录）；
+// 自动弹出时用户提交完所有问卷后才自动关闭。
+const surveyCenterManualOpen = ref(false);
 const currentSurveyUserId = computed(() => currentUser.value?.id || currentUser.value?.displayName || '');
 
 watch([pendingSurveyCount, isLoggedIn], ([pending, loggedIn]) => {
   if (loggedIn && pending > 0) {
     surveyCenterInitialTab.value = 'pending';
+    surveyCenterManualOpen.value = false;
     surveyCenterOpen.value = true;
   }
 }, { immediate: true });
 
 const handleSurveyResolved = (pending: number, required: boolean) => {
   authStore.resolveSurveyPrompt(pending, required);
-  if (pending === 0 && surveyCenterInitialTab.value === 'pending') surveyCenterOpen.value = false;
+  // 仅自动弹出（非手动）且待填写列表清空时自动关闭；
+  // 手动打开的问卷中心保持打开，由用户自行关闭。
+  if (pending === 0 && !surveyCenterManualOpen.value && surveyCenterInitialTab.value === 'pending') {
+    surveyCenterOpen.value = false;
+  }
 };
 
 const openSurveyHistory = () => {
   surveyCenterInitialTab.value = 'history';
+  surveyCenterManualOpen.value = true;
   surveyCenterOpen.value = true;
 };
 
@@ -203,7 +213,13 @@ const openSurveyHistory = () => {
 const openSurveyCenter = (event: Event) => {
   const tab = (event as CustomEvent).detail?.tab === 'pending' ? 'pending' : 'history';
   surveyCenterInitialTab.value = tab;
+  surveyCenterManualOpen.value = true;
   surveyCenterOpen.value = true;
+};
+
+const closeSurveyCenter = () => {
+  surveyCenterManualOpen.value = false;
+  surveyCenterOpen.value = false;
 };
 
 window.addEventListener('open-survey-center', openSurveyCenter as EventListener);
@@ -643,7 +659,7 @@ if (typeof window !== 'undefined') {
     :forced="surveyRequired"
     :initial-tab="surveyCenterInitialTab"
     @resolved="handleSurveyResolved"
-    @close="surveyCenterOpen = false"
+    @close="closeSurveyCenter"
   />
 </template>
 

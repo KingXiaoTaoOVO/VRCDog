@@ -48,7 +48,6 @@
 //! `VRCDog-Setup-*.exe` leftovers from previous interrupted runs.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -62,11 +61,7 @@ use std::os::windows::process::CommandExt;
 const GITHUB_RELEASES_API: &str =
     "https://api.github.com/repos/KingXiaoTaoOVO/vrcdog-releases/releases";
 
-// Windows process creation flags we rely on.
-#[cfg(windows)]
-const DETACHED_PROCESS: u32 = 0x00000008;
-#[cfg(windows)]
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+// Windows process creation flag we rely on.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -740,7 +735,7 @@ fn spawn_bootstrapper_detached(
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .creation_flags(0x0800_0000 /* CREATE_NO_WINDOW */)
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("schtasks {args:?} 启动失败: {e}"))
     };

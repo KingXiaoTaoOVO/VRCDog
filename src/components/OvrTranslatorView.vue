@@ -855,7 +855,12 @@ const syncConfigToOvrasIni = async () => {
   }
 };
 
+// 竞态防护：onMounted 里有多个 await，组件可能在监听器注册完成前就被卸载。
+// 若已卸载则立即注销刚拿到的监听器，避免永久泄漏。
+let ovrDisposed = false;
+
 onMounted(async () => {
+  ovrDisposed = false;
   window.addEventListener('mousemove', onGlobalDrag);
   window.addEventListener('mouseup', stopDrag);
   await loadSettings();
@@ -871,7 +876,7 @@ onMounted(async () => {
       if (ovrLogs.value.length > 50) ovrLogs.value.shift();
     });
     const u2 = await listen<string>('ovr_error', (e) => {
-      ovrLogs.value.push(`鉂?${e.payload}`);
+      ovrLogs.value.push(`[错误] ${e.payload}`);
     });
     const u3 = await listen<any>('ovr_heartbeat', (e) => {
       if (e.payload) {
@@ -904,11 +909,17 @@ onMounted(async () => {
       void saveSettings();
     });
     ovrUnlisteners = [u1, u2, u3, u4, u5, u6, u7];
+    if (ovrDisposed) {
+      // 组件在监听器注册过程中已被卸载，立即注销防止泄漏
+      ovrUnlisteners.forEach(u => u());
+      ovrUnlisteners = [];
+    }
   } catch {
     // Tauri events not available (dev mode / non-Tauri env)
   }
 });
 onUnmounted(() => {
+  ovrDisposed = true;
   window.removeEventListener('mousemove', onGlobalDrag);
   window.removeEventListener('mouseup', stopDrag);
   clearTimeout(scanTimeout1);

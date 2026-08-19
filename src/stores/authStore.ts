@@ -187,7 +187,6 @@ export const useAuthStore = defineStore('auth', () => {
     await SysApi.pingServer({ url: normalized });
 
     clientServerUrl.value = normalized;
-    localStorage.setItem('vrc_server_url', normalized);
     await Promise.allSettled([
       SysApi.saveClientServerConfig({ serverUrl: normalized }),
       DbApi.saveSetting({ key: 'clientServerUrl', value: JSON.stringify(normalized) }),
