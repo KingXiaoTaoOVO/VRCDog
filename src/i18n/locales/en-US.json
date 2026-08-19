@@ -1293,7 +1293,8 @@
     "toolbar": {
       "settings": "Settings",
       "check_update": "Check for Updates",
-      "language": "Language"
+      "language": "Language",
+      "update_available": "New version {version} available. Click to check and update"
     },
     "settings": {
       "title": "Settings",

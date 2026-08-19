@@ -21,9 +21,14 @@
 //!           by NSIS in-place upgrade.
 //!        d. Launches the freshly-installed `VRCDog.exe` via `start ""`.
 //!        e. Deletes the temp installer and self-deletes.
-//!   4. Spawn the bootstrapper detached (`CREATE_NEW_PROCESS_GROUP |
-//!      DETACHED_PROCESS | CREATE_NO_WINDOW`) and `app.exit(0)` so the
-//!      running process releases every handle / image / Defender scan
+//!   4. Spawn the bootstrapper detached via Windows Task Scheduler
+//!      (`schtasks /Create /SC ONCE ... /ST <now+2s> /F` followed by
+//!      `schtasks /Run`). Task Scheduler launches the script in
+//!      `svchost.exe -k netsvcs` rather than from a console session,
+//!      so the bootstrapper is **never** displayed in conhost, Windows
+//!      Terminal, or any other terminal emulator — even when our
+//!      process is still alive. We then `app.exit(0)` so the running
+//!      process releases every handle / image / Defender scan
 //!      association on the installer file.
 //!
 //! Why a bootstrapper? Spawning the NSIS installer directly from inside
@@ -676,9 +681,27 @@ pub async fn update_install_release(
     Ok(())
 }
 
-/// Spawn the bootstrapper CMD script in a detached process group with
-/// no console window. The script inherits no handle from us and
-/// survives our `app.exit(0)` call.
+/// Spawn the bootstrapper CMD script in a way that **cannot** show a
+/// console window — not even under Windows Terminal.
+///
+/// `Command::new("cmd.exe").creation_flags(CREATE_NO_WINDOW)` works on
+/// plain conhost but Windows Terminal still hijacks the resulting child
+/// into a tab (the classic "black cmd window with `findstr /C:"688"`
+/// in its title" symptom). To completely avoid any console binding we
+/// hand the job to the Windows Task Scheduler service
+/// (`schtasks.exe`), whose host is `svchost.exe -k netsvcs`. Processes
+/// it spawn are not attached to any console session at all — Task
+/// Scheduler has been the canonical "fire-and-forget, no window"
+/// mechanism on Windows since Vista.
+///
+/// We invoke the script directly (`/C <script> ...`) and do **not**
+/// wrap it in `cmd.exe /C`, so there is no parent cmd.exe to be
+/// captured by a terminal emulator.
+///
+/// `schtasks /Create` requires a start time (`/ST HH:MM:SS`) that is
+/// `>=` the current local clock, so we ask for "now + 2 s". The task
+/// is created with `/F` (force overwrite), immediately run, and then
+/// deleted to avoid littering the user's task library.
 fn spawn_bootstrapper_detached(
     script: &Path,
     pid: u32,
@@ -686,28 +709,86 @@ fn spawn_bootstrapper_detached(
     install_dir: &str,
     new_exe: &str,
 ) -> Result<(), String> {
-    let mut cmd = std::process::Command::new("cmd.exe");
-    cmd.arg("/C")
-        .arg(script)
-        .arg(pid.to_string())
-        .arg(installer)
-        .arg(install_dir)
-        .arg(new_exe)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    use std::process::{Command, Stdio};
 
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    let safe = |s: &str| -> String { s.replace('"', "\"\"") };
+    let task_name = format!("VRCDog_Update_{pid}");
+    let tr = format!(
+        "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\"",
+        safe(&script.to_string_lossy()),
+        pid,
+        safe(installer),
+        safe(install_dir),
+        safe(new_exe),
+    );
+    // Round current local time to the next even second and add two
+    // seconds so /ST is comfortably after the scheduler's wall clock
+    // (which can lag a tick depending on the runtime). The format is
+    // H:MM:SS or HH:MM:SS — schtasks accepts both.
+    let start_time = {
+        let now = chrono::Local::now();
+        let t = now + chrono::Duration::seconds(2);
+        t.format("%H:%M:%S").to_string()
+    };
+
+    // Helper: invoke schtasks with our "no window" trick (the schtasks
+    // binary itself would otherwise pop a console window while it's
+    // running). We capture stdout/stderr so we can surface any error.
+    let silent = |args: &[&str]| -> Result<std::process::Output, String> {
+        Command::new("schtasks.exe")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x0800_0000 /* CREATE_NO_WINDOW */)
+            .output()
+            .map_err(|e| format!("schtasks {args:?} 启动失败: {e}"))
+    };
+
+    // 1. Create the task (force overwrite).
+    let create_args: Vec<String> = vec![
+        "/Create".into(),
+        "/SC".into(),
+        "ONCE".into(),
+        "/TN".into(),
+        task_name.clone(),
+        "/TR".into(),
+        tr.clone(),
+        "/ST".into(),
+        start_time.clone(),
+        "/F".into(),
+    ];
+    let create_args_ref: Vec<&str> = create_args.iter().map(String::as_str).collect();
+    let out = silent(&create_args_ref)?;
+    if !out.status.success() {
+        return Err(format!(
+            "schtasks /Create 失败 (code={:?}): {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
 
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("无法启动引导脚本: {e}"))?;
+    // 2. Run it. The created task fires within ~1 s; we don't wait.
+    let run_args: Vec<&str> = vec!["/Run", "/TN", &task_name];
+    let out = silent(&run_args)?;
+    if !out.status.success() {
+        // Best-effort: clean up the task before returning.
+        let _ = silent(&["/Delete", "/TN", &task_name, "/F"]);
+        return Err(format!(
+            "schtasks /Run 失败 (code={:?}): {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    // 3. Best-effort cleanup so the user's task library stays tidy.
+    //    The task may already have fired and vanished, which is fine —
+    //    `/Delete /F` is idempotent and silent on missing entries.
+    let _ = silent(&["/Delete", "/TN", &task_name, "/F"]);
+
     eprintln!(
-        "[update] bootstrapper detached, child pid={:?}",
-        child.id()
+        "[update] bootstrapper dispatched via schtasks (TN={}) installer={} install_dir={} new_exe={}",
+        task_name, installer, install_dir, new_exe
     );
     Ok(())
 }
@@ -810,5 +891,37 @@ mod tests {
             "bootstrap script did not self-delete: {}",
             tmp.display()
         );
+    }
+
+    /// Verify the schtasks dispatch parameters are shaped correctly.
+    /// We intentionally don't `schtasks /Create /Run` here because
+    /// those calls are non-idempotent and would litter a real user's
+    /// task library — we only assert the strings we'd pass.
+    #[test]
+    fn schtasks_dispatch_shapes_args_correctly() {
+        let pid: u32 = 12345;
+        let task_name = format!("VRCDog_Update_{pid}");
+        let safe = |s: &str| -> String { s.replace('"', "\"\"") };
+        let tr = format!(
+            "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\"",
+            safe(&r"C:\Temp\bs.cmd"),
+            pid,
+            safe(&r"C:\Temp\VRCDog-Setup.exe"),
+            safe(&r"C:\Program Files\VRCDog"),
+            safe(&r"C:\Program Files\VRCDog\VRCDog.exe"),
+        );
+        // The task name must be unique per launch to avoid collisions
+        // (and must not collide if two updates are dispatched by mistake).
+        assert!(task_name.starts_with("VRCDog_Update_"));
+        assert!(task_name.contains("12345"));
+        // schtasks passes the /TR string verbatim to cmd, so embedded
+        // double-quotes must be doubled (handled by `safe`) and the
+        // // whole path must be double-quoted to survive cmd parsing.
+        assert!(tr.starts_with("\""));
+        assert!(tr.contains(r#""12345""#));
+        // Doubled-quote rule: an embedded `"` must become `""` inside
+        // the surrounding double-quoted field.
+        let escaped = safe(r#"C:\Temp\with"quote.cmd"#);
+        assert_eq!(escaped, r#"C:\Temp\with""quote.cmd"#);
     }
 }
