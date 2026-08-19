@@ -1293,7 +1293,8 @@
 		"toolbar": {
 			"settings": "设置",
 			"check_update": "检查更新",
-			"language": "语言"
+			"language": "语言",
+			"update_available": "有新版本 {version} 可用，点击立即检查并更新"
 		},
 		"settings": {
 			"title": "设置",
@@ -2001,8 +2002,6 @@
 		"assign_success": "角色分配成功",
 		"default_changed": "默认角色已更改",
 		"delete_success": "删除成功",
-		"error_require_pwd": "请输入服务器密码",
-		"error_require_url": "请输入服务器地址",
 		"mode_": "模式",
 		"theme_": "主题"
 	},

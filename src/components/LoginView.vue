@@ -239,6 +239,14 @@ const updateReleases = ref<{ tag: string; name: string; prerelease: boolean; pub
 const updateSelectedTag = ref('');
 const showUpdateVersionDropdown = ref(false);
 
+// Silent background pre-check on mount: surfaces a small red dot on the
+// toolbar's update icon when a newer stable release exists, but never
+// opens the modal automatically — clicking the icon is the user's
+// explicit "go check" gesture. This is the "auto detect update on the
+// update screen" UX the user asked for.
+const updateAvailable = ref(false);
+const updateAvailableTag = ref('');
+
 const updateChannelReleases = computed(() =>
   updateReleases.value.filter(r => updateChannel.value === 'beta' ? r.prerelease : !r.prerelease)
 );
@@ -473,7 +481,49 @@ onMounted(async () => {
   } catch (e) {}
   await loadSavedAccounts();
   document.addEventListener('click', closeVrcDogMenusOutside);
+  // Background pre-check: never blocks the page, never opens a dialog.
+  // If a newer stable release is found we light up the toolbar dot.
+  silentlyCheckUpdate().catch(() => {});
 });
+
+/**
+ * Background update probe. Pulls the release list, filters to stable,
+ * and surfaces a red dot on the toolbar icon when the newest stable
+ * tag is newer than the running app version.
+ */
+async function silentlyCheckUpdate() {
+  try {
+    const data = await invoke<any[]>('update_remote_releases');
+    const stable = (data || []).filter((r) => !r.draft && !r.prerelease);
+    if (stable.length === 0) return;
+    const latestTag = String(stable[0].tag || '').replace(/^v/, '');
+    const currentTag = String(appVersion.value || '').replace(/^v/, '');
+    if (latestTag && currentTag && cmpVersions(latestTag, currentTag) > 0) {
+      updateAvailable.value = true;
+      updateAvailableTag.value = stable[0].tag;
+    }
+  } catch {
+    // best-effort; no UI feedback for failures during background check
+  }
+}
+
+/** Local semver-style compare (X.Y.Z with optional pre-release tag). */
+function cmpVersions(a: string, b: string): number {
+  const parse = (s: string) => {
+    const [core, pre] = s.split('-', 2);
+    const nums = core.split('.').map((n) => parseInt(n, 10) || 0);
+    return { nums, pre: pre || '' };
+  };
+  const A = parse(a);
+  const B = parse(b);
+  for (let i = 0; i < Math.max(A.nums.length, B.nums.length); i++) {
+    const diff = (A.nums[i] || 0) - (B.nums[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  // No pre-release > pre-release (5.0.6 > 5.0.6-beta.1)
+  if (A.pre !== B.pre) return A.pre ? -1 : 1;
+  return 0;
+}
 
 onUnmounted(() => {
   document.removeEventListener('click', closeVrcDogMenusOutside);
@@ -494,11 +544,16 @@ onUnmounted(() => {
       </button>
       <!-- 检查更新 -->
       <button
-        class="vrcdog-toolbar-btn"
+        class="vrcdog-toolbar-btn relative"
         :title="t('login.toolbar.check_update')"
         @click="openUpdateDialog"
       >
         <ArrowDownToLine :size="18" />
+        <span
+          v-if="updateAvailable"
+          class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-[var(--theme-bg-main)] animate-pulse"
+          :title="t('login.toolbar.update_available', { version: updateAvailableTag })"
+        />
       </button>
       <!-- 语言 -->
       <div class="relative vrcdog-lang-wrap">
