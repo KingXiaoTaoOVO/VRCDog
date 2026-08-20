@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useEntityModalStore } from '../stores/entityModal';
 import { useFriendsStore } from '../stores/friendsStore';
+import { useUiStore } from '../stores/uiStore';
 import FriendItem from './FriendItem.vue';
 
 const { t } = useI18n();
@@ -15,6 +16,7 @@ const profileStore = useUserProfileStore();
 const authStore = useAuthStore();
 const entityStore = useEntityModalStore();
 const friendsStore = useFriendsStore();
+const uiStore = useUiStore();
 
 const onlineFriends = ref<any[]>([]);
 const activeFriends = ref<any[]>([]); // 活跃中 (仅登录网页端)
@@ -584,7 +586,7 @@ const resolveWorldNames = async () => {
       
       <!-- Footer Settings / Refresh -->
       <div class="h-10 border-t border-border-soft shrink-0 flex items-center justify-between px-3 bg-[var(--theme-surface)]/50">
-        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors">
+        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" :title="$t('layout.settings') || 'Settings'" @click="uiStore.activeTab = 'settings'">
           <Settings class="w-4 h-4" />
         </button>
         <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" @click="refreshCurrentTab" :disabled="loading || groupsLoading">
