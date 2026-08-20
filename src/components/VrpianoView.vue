@@ -94,6 +94,8 @@ const hotkeysEnabled = ref(false);
 const onlineKeyword = ref('');
 const urlInput = ref('');
 const urlFilename = ref('');
+// 日志缓存上限：控制演奏日志内存占用，超出后自动丢弃最旧条目（内存回收）。
+const MAX_PIANO_LOG_ENTRIES = 100;
 const logs = ref<string[]>([]);
 const midishowAccounts = ref<VrpianoMidishowAccount[]>([]);
 const midishowAccount = ref('');
@@ -231,7 +233,7 @@ const hotkeyStatusText = computed(() => {
 
 const addLog = (message: string) => {
   const time = new Date().toLocaleTimeString(locale.value.startsWith('zh') ? 'zh-CN' : 'en-US', { hour12: false });
-  logs.value = [`${time} ${message}`, ...logs.value].slice(0, 100);
+  logs.value = [`${time} ${message}`, ...logs.value].slice(0, MAX_PIANO_LOG_ENTRIES);
 };
 
 const selectFirstFilteredSong = () => {
@@ -1144,6 +1146,13 @@ watch([selectedPath, delaySecs], () => {
 // 卸载后不再注册监听器 / 启动轮询，否则定时器和监听器永久泄漏。
 let vrpianoDisposed = false;
 
+// 演奏状态事件由 Rust 后端高频推送（自动演奏时尤其频繁）。
+// 直接每次都写日志会造成响应式更新风暴、日志列表反复重渲染，UI 越用越卡。
+// 这里做去重 + 限流：仅当事件文案变化且距上次记录超过阈值时才写入日志。
+let lastStatusLogMsg = '';
+let lastStatusLogAt = 0;
+const STATUS_LOG_THROTTLE_MS = 1000;
+
 onMounted(async () => {
   vrpianoDisposed = false;
   const savedInstrument = localStorage.getItem(playerInstrumentStorageKey);
@@ -1174,7 +1183,17 @@ onMounted(async () => {
       if (event.payload.song_path && songs.value.some((song) => song.path === event.payload.song_path)) {
         selectedPath.value = event.payload.song_path;
       }
-      if (event.payload.last_event) addLog(event.payload.last_event);
+      const ev = event.payload.last_event;
+      if (ev) {
+        // 去重 + 限流：仅在事件文案相对上次记录发生变化、且距上次记录超过
+        // 阈值时才写入日志，避免自动演奏时高频状态推送引发的响应式风暴与卡顿。
+        const now = Date.now();
+        if (ev !== lastStatusLogMsg && now - lastStatusLogAt >= STATUS_LOG_THROTTLE_MS) {
+          lastStatusLogMsg = ev;
+          lastStatusLogAt = now;
+          addLog(ev);
+        }
+      }
       if (event.payload.last_error) error.value = event.payload.last_error;
     });
   } catch {

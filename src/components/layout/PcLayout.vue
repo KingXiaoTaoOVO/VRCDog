@@ -341,11 +341,10 @@ const themeStyles = computed(() => {
             {{ $t(tab.label) }}
           </button>
         </template>
-      </div>
 
-      <!-- 问卷中心入口（固定在导航底部，带待填写徽章） -->
+      <!-- 问卷中心入口（统一放置在侧边列表内部，带待填写徽章） -->
       <button
-        class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px] mt-1"
+        class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px]"
         :class="currentDensity.navClass"
         :style="{ color: currentTheme.colors.textSoft }"
         :title="$t('sidebar.survey')"
@@ -360,6 +359,7 @@ const themeStyles = computed(() => {
           :style="surveyRequired ? {} : { backgroundColor: currentTheme.colors.primaryBtnBg }"
         >{{ pendingSurveyCount > 99 ? '99+' : pendingSurveyCount }}</span>
       </button>
+      </div>
 
       <!-- 用户信息 + 退出 -->
       <div
