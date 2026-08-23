@@ -352,6 +352,7 @@ pub fn run() {
             db::db_get_friend_logs,
             db::db_clear_friend_logs,
             db::db_save_setting,
+            db::db_save_settings,
             db::db_get_setting,
             db::db_get_all_settings,
             db::db_save_friend,

@@ -119,7 +119,7 @@ async fn get_json(
     session: &BiliLiveSession,
     room_id: Option<u64>,
 ) -> Result<Value, String> {
-    reqwest::Client::new()
+    crate::bilibili::bili_http_client()
         .get(url)
         .headers(session_headers(session, room_id)?)
         .send()
@@ -136,7 +136,7 @@ async fn post_form(
     room_id: u64,
     form: Vec<(&str, String)>,
 ) -> Result<Value, String> {
-    reqwest::Client::new()
+    crate::bilibili::bili_http_client()
         .post(url)
         .headers(session_headers(session, Some(room_id))?)
         .form(&form)

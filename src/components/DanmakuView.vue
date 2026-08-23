@@ -227,7 +227,7 @@ const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error'
         ? l('[警告] ', '[Warning] ')
         : '';
   logs.value.push(`${time} ${prefix}${message}`);
-  logs.value = logs.value.slice(-500);
+  if (logs.value.length > 600) logs.value = logs.value.slice(-500);
 };
 
 const clearLog = () => {
@@ -709,7 +709,7 @@ onMounted(async () => {
     }));
     unlisteners.push(await listen<DanmakuMessage>('danmaku_message', (event) => {
       messages.value.push(event.payload);
-      messages.value = messages.value.slice(-500);
+      if (messages.value.length > 550) messages.value = messages.value.slice(-500);
     }));
     unlisteners.push(await listen<DanmakuConfig>('danmaku_config', (event) => {
       config.value = { ...config.value, ...event.payload };

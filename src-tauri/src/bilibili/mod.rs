@@ -3,22 +3,40 @@ use qrcode::QrCode;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
+use std::time::Duration;
 
 pub mod parser;
 pub mod queue;
 
 pub use parser::bili_parse_url;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BiliResponse<T> {
-    pub code: i32,
-    pub message: String,
-    pub data: Option<T>,
+/// Shared User-Agent used by all Bilibili HTTP calls. Centralized so it only
+/// needs updating in one place if Bilibili tightens UA filtering.
+pub const BILI_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+/// Shared, connection-pooled Bilibili HTTP client with hard connect/read timeouts.
+/// Replaces ad-hoc `reqwest::Client::new()` calls that could hang for minutes
+/// against an unreachable or filtered endpoint.
+pub fn bili_http_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("failed to build bilibili http client")
+        })
+        .clone()
 }
 
 pub fn make_headers(sessdata: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
-    headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"));
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static(BILI_USER_AGENT),
+    );
     headers.insert(
         REFERER,
         HeaderValue::from_static("https://www.bilibili.com"),
@@ -34,7 +52,7 @@ pub fn make_headers(sessdata: &str) -> HeaderMap {
 
 #[tauri::command]
 pub async fn bili_check_login(sessdata: String) -> Result<bool, String> {
-    let client = reqwest::Client::new();
+    let client = bili_http_client();
     let res = client
         .get("https://api.bilibili.com/x/space/myinfo")
         .headers(make_headers(&sessdata))
@@ -54,7 +72,7 @@ pub async fn bili_check_login(sessdata: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn bili_new_qr() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = bili_http_client();
     let res = client
         .get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate")
         .headers(make_headers(""))
@@ -96,7 +114,7 @@ fn build_qr_png_data_url(text: &str) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn bili_get_qr_status(qr_key: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = bili_http_client();
     let url = format!(
         "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={}",
         qr_key
@@ -161,7 +179,7 @@ pub async fn bili_get_video_info(
     bvid: String,
     sessdata: String,
 ) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = bili_http_client();
     // In a full implementation we should do Wbi signing, but Bilibili allows basic /view without wbi for now,
     // or we can just pass the plain url if they changed it recently.
     let url = format!(
@@ -186,7 +204,7 @@ pub async fn bili_get_play_info(
     cid: u64,
     sessdata: String,
 ) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = bili_http_client();
     let url = format!(
         "https://api.bilibili.com/x/player/playurl?bvid={}&cid={}&fnval=4048&fnver=0&fourk=1",
         bvid, cid
@@ -209,7 +227,7 @@ pub async fn bili_get_mp4_play_info(
     cid: u64,
     sessdata: String,
 ) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = bili_http_client();
     let url = format!(
         "https://api.bilibili.com/x/player/playurl?bvid={}&cid={}&platform=html5&high_quality=1",
         bvid, cid

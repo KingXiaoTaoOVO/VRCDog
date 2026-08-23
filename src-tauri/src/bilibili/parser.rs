@@ -40,7 +40,7 @@ async fn parse_video_view(
     fallback_bvid: &str,
     sessdata: &str,
 ) -> Result<ParserResult, String> {
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::bili_http_client();
     let res = client
         .get(&api_url)
         .headers(make_headers(sessdata))
@@ -132,7 +132,7 @@ pub async fn parse_bangumi(
     media_id: Option<&str>,
     sessdata: &str,
 ) -> Result<ParserResult, String> {
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::bili_http_client();
     let mut url = String::from("https://api.bilibili.com/pgc/view/web/season?");
     if let Some(ep) = ep_id {
         url.push_str(&format!("ep_id={}", ep));
@@ -196,7 +196,7 @@ pub async fn parse_bangumi(
 
 // 收藏夹解析 (Favlist)
 pub async fn parse_favlist(media_id: &str, sessdata: &str) -> Result<ParserResult, String> {
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::bili_http_client();
     let mut items = Vec::new();
     let mut page = 1;
     let mut collection_title = String::from("收藏夹");
@@ -274,7 +274,7 @@ pub async fn parse_collection(
     season_id: &str,
     sessdata: &str,
 ) -> Result<ParserResult, String> {
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::bili_http_client();
     let mut items = Vec::new();
     let mut page = 1;
     let mut collection_title = String::from("视频合集");

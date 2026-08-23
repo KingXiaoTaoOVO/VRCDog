@@ -72,6 +72,17 @@ fn existing_file(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBu
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
+/// Locate the bundled ASR correction dictionaries directory that ships next to
+/// the audio worker script (``<script_dir>/dictionaries``).
+fn resolve_dict_dir(script: &std::path::Path) -> Option<String> {
+    let candidate = script.parent()?.join("dictionaries");
+    if candidate.is_dir() {
+        candidate.to_str().map(|value| value.to_string())
+    } else {
+        None
+    }
+}
+
 fn resolve_worker_paths(app: &tauri::AppHandle) -> AppResult<(PathBuf, PathBuf)> {
     let mut runtime_candidates = Vec::new();
     let mut script_candidates = Vec::new();
@@ -210,12 +221,24 @@ pub fn vrct_start_audio_capture(
     dynamic_energy_threshold: Option<bool>,
     phrase_time_limit: Option<f32>,
     whisper_model: Option<String>,
+    vad_type: Option<String>,
+    vad_aggressiveness: Option<u32>,
+    denoise_strength: Option<f32>,
+    correction_enabled: Option<bool>,
+    min_segment_s: Option<f32>,
+    max_segment_s: Option<f32>,
+    partial_interval: Option<f32>,
+    capture_mode: Option<String>,
+    target_process: Option<String>,
+    self_suppress_seconds: Option<f32>,
 ) -> AppResult<()> {
     if !matches!(source.as_str(), "mic" | "speaker") {
         return Err(AppError::from("Audio source must be `mic` or `speaker`"));
     }
-    if !matches!(engine.as_str(), "cloud" | "local") {
-        return Err(AppError::from("STT engine must be `cloud` or `local`"));
+    if !matches!(engine.as_str(), "cloud" | "local" | "whisper" | "sensevoice") {
+        return Err(AppError::from(
+            "STT engine must be `cloud`, `local`, `whisper` or `sensevoice`",
+        ));
     }
 
     let mut processes = state
@@ -232,7 +255,7 @@ pub fn vrct_start_audio_capture(
     let (runtime, script) = resolve_worker_paths(&app)?;
     let mut command = Command::new(runtime);
     command
-        .arg(script)
+        .arg(&script)
         .arg("--source")
         .arg(&source)
         .arg("--source-lang")
@@ -255,6 +278,31 @@ pub fn vrct_start_audio_capture(
         )
         .arg("--whisper-model")
         .arg(whisper_model.unwrap_or_else(|| "tiny".into()))
+        .arg("--vad-type")
+        .arg(vad_type.clone().unwrap_or_else(|| "webrtc".into()))
+        .arg("--vad-aggressiveness")
+        .arg(vad_aggressiveness.unwrap_or(2).to_string())
+        .arg("--denoise-strength")
+        .arg(denoise_strength.unwrap_or(0.0).to_string())
+        .arg("--min-segment-s")
+        .arg(min_segment_s.unwrap_or(0.45).to_string())
+        .arg("--max-segment-s")
+        .arg(max_segment_s.unwrap_or(8.0).to_string())
+        .arg("--partial-interval")
+        .arg(partial_interval.unwrap_or(1.2).to_string())
+        .arg("--capture-mode")
+        .arg(capture_mode.clone().unwrap_or_else(|| "loopback".into()))
+        .arg("--target-process")
+        .arg(target_process.clone().unwrap_or_else(|| "VRChat.exe".into()))
+        .arg("--self-suppress-seconds")
+        .arg(self_suppress_seconds.unwrap_or(0.0).to_string());
+    if correction_enabled.unwrap_or(false) {
+        command.arg("--correction-enabled");
+        if let Some(dict_dir) = resolve_dict_dir(&script) {
+            command.arg("--correction-dict-dir").arg(dict_dir);
+        }
+    }
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

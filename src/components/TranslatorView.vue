@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Send,
   Settings,
+  SlidersHorizontal,
   Square,
   Volume2,
 } from 'lucide-vue-next';
@@ -122,6 +123,17 @@ const speakerDeviceId = useStorage('vrc_translator_speaker_device', '');
 const micEnergyThreshold = useStorage('vrc_translator_mic_energy_threshold', 0);
 const speakerEnergyThreshold = useStorage('vrc_translator_speaker_energy_threshold', 0);
 const phraseTimeLimit = useStorage('vrc_translator_phrase_time_limit', 10);
+const vadType = useStorage('vrc_translator_vad_type', 'webrtc');
+const vadAggressiveness = useStorage('vrc_translator_vad_aggressiveness', 2);
+const denoiseStrength = useStorage('vrc_translator_denoise_strength', 0);
+const correctionEnabled = useStorage('vrc_translator_correction_enabled', false);
+const minSegmentS = useStorage('vrc_translator_min_segment_s', 0.45);
+const maxSegmentS = useStorage('vrc_translator_max_segment_s', 8.0);
+const partialInterval = useStorage('vrc_translator_partial_interval', 1.2);
+const captureMode = useStorage('vrc_translator_capture_mode', 'loopback');
+const targetProcess = useStorage('vrc_translator_target_process', 'VRChat.exe');
+const selfSuppress = useStorage('vrc_translator_self_suppress', false);
+const selfSuppressSeconds = useStorage('vrc_translator_self_suppress_seconds', 0.8);
 
 const manualText = ref('');
 const recognizedText = ref('');
@@ -154,6 +166,11 @@ const errorMsg = ref('');
 const statusMsg = ref('');
 const audioDevices = ref<AudioDevice[]>([]);
 const audioDeviceError = ref('');
+
+// 自声抑制（self-suppress）：自己用麦克风说话时，暂停"听别人"捕获，
+// 避免把泄漏到自己游戏音频里的声音再次转写。由前端用已有的暂停/恢复接口协调。
+let speakerSuppressedBySelf = false;
+let selfSuppressTimer: ReturnType<typeof setTimeout> | null = null;
 
 let overlayWebview: WebviewWindow | null = null;
 let unlistenAudio: UnlistenFn | null = null;
@@ -400,12 +417,22 @@ const startCapture = async (source: AudioSource) => {
     await SysApi.startAudioCapture({
       source,
       sourceLang: isMic ? sourceLang.value : otherSourceLang.value,
-      engine: (isMic ? micEngine.value : otherEngine.value) as 'cloud' | 'local',
+      engine: (isMic ? micEngine.value : otherEngine.value) as 'cloud' | 'local' | 'whisper' | 'sensevoice',
       deviceIndex: selectedDeviceIndex(source),
       energyThreshold: isMic ? Number(micEnergyThreshold.value) : Number(speakerEnergyThreshold.value),
       dynamicEnergyThreshold: true,
       phraseTimeLimit: Number(phraseTimeLimit.value),
       whisperModel: whisperModel.value,
+      vadType: vadType.value,
+      vadAggressiveness: Number(vadAggressiveness.value),
+      denoiseStrength: Number(denoiseStrength.value),
+      correctionEnabled: Boolean(correctionEnabled.value),
+      minSegmentS: Number(minSegmentS.value),
+      maxSegmentS: Number(maxSegmentS.value),
+      partialInterval: Number(partialInterval.value),
+      captureMode: captureMode.value,
+      targetProcess: targetProcess.value,
+      selfSuppressSeconds: Number(selfSuppressSeconds.value),
     });
     setStatus(l('音频识别服务启动中', 'Starting audio recognition service'));
   } catch (error) {
@@ -426,6 +453,11 @@ const stopCapture = async (source: AudioSource) => {
   } else {
     isOtherRecording.value = false;
     isSpeakerStarting.value = false;
+    speakerSuppressedBySelf = false;
+    if (selfSuppressTimer) {
+      clearTimeout(selfSuppressTimer);
+      selfSuppressTimer = null;
+    }
   }
 };
 
@@ -592,6 +624,33 @@ onMounted(async () => {
             errorMsg.value = l('音频识别服务异常退出', 'Audio recognition service stopped unexpectedly');
           }
         }
+
+        // 自声抑制：自己用麦克风说话时暂停"听别人"捕获，避免回声重复转写
+        if (source === 'mic' && selfSuppress.value && isOtherRecording.value) {
+          if (payload.message === 'recording' && !speakerSuppressedBySelf) {
+            speakerSuppressedBySelf = true;
+            if (selfSuppressTimer) {
+              clearTimeout(selfSuppressTimer);
+              selfSuppressTimer = null;
+            }
+            await SysApi.setAudioCapturePaused({ source: 'speaker', paused: true }).catch(() => undefined);
+          } else if (payload.message === 'listening' && speakerSuppressedBySelf) {
+            if (selfSuppressTimer) clearTimeout(selfSuppressTimer);
+            const tail = Math.max(0, Number(selfSuppressSeconds.value) || 0) * 1000;
+            selfSuppressTimer = setTimeout(() => {
+              speakerSuppressedBySelf = false;
+              selfSuppressTimer = null;
+              if (isOtherRecording.value && !isSpeakerStarting.value) {
+                SysApi.setAudioCapturePaused({ source: 'speaker', paused: false }).catch(() => undefined);
+              }
+            }, tail);
+          }
+        }
+        return;
+      }
+      if (payload.type === 'partial' && payload.text?.trim()) {
+        // 实时预览识别中的文本（不触发翻译，最终结果覆盖并触发翻译）
+        recognizedText.value = payload.text.trim();
         return;
       }
       if (payload.type === 'result' && payload.text?.trim()) {
@@ -920,6 +979,14 @@ onUnmounted(async () => {
               </div>
 
               <div class="grid grid-cols-2 gap-3">
+                <div class="min-w-0">
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('捕获模式', 'Capture mode') }}</label>
+                  <CustomSelect v-model="captureMode" :options="[{ label: l('整个扬声器(内录)', 'Whole speaker (loopback)'), value: 'loopback' }, { label: l('仅 VRChat 进程', 'VRChat process only'), value: 'process' }]" />
+                </div>
+                <label class="min-w-0">
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('目标进程', 'Target process') }}</span>
+                  <input v-model="targetProcess" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="VRChat.exe">
+                </label>
                 <label class="min-w-0">
                   <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('能量阈值', 'Energy threshold') }}</span>
                   <input v-model.number="speakerEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
@@ -928,6 +995,26 @@ onUnmounted(async () => {
                   <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最长分段', 'Phrase limit') }}</span>
                   <input v-model.number="phraseTimeLimit" type="number" min="2" max="30" step="1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
                 </label>
+              </div>
+
+              <div class="flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
+                <div class="min-w-0">
+                  <span class="text-sm font-bold text-text block">{{ l('自声抑制', 'Self-suppress') }}</span>
+                  <span class="text-[11px] text-text-muted">{{ l('自己说话时暂停监听，避免回声', 'Pause listen while you speak to avoid echo') }}</span>
+                </div>
+                <button
+                  type="button"
+                  :class="selfSuppress ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
+                  class="relative w-11 h-6 rounded-full transition-colors shrink-0"
+                  @click="selfSuppress = !selfSuppress"
+                >
+                  <span :class="selfSuppress ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
+                </button>
+              </div>
+
+              <div v-if="selfSuppress" class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('抑制尾延', 'Suppress tail') }} (s)</label>
+                <input v-model.number="selfSuppressSeconds" type="number" min="0" max="5" step="0.1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
               </div>
 
               <div v-if="otherEngine === 'local'" class="min-w-0">
@@ -944,6 +1031,66 @@ onUnmounted(async () => {
                 </p>
               </div>
             </div>
+          </section>
+
+          <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
+                <SlidersHorizontal class="text-primary" :size="20" />
+                {{ tt('translator.advanced_recognition', '高级语音识别') }}
+              </h3>
+              <span class="text-[11px] font-extrabold text-text-muted bg-surface-hover px-2 py-1 rounded-lg">
+                {{ l('麦克风与游戏语音共用', 'Shared by mic & game audio') }}
+              </span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div class="min-w-0">
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('语音活动检测', 'Voice activity') }}</label>
+                <CustomSelect v-model="vadType" :options="[{ label: 'WebRTC VAD', value: 'webrtc' }, { label: 'RMS 能量', value: 'rms' }]" />
+              </div>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('VAD 灵敏度', 'VAD aggressiveness') }} · {{ vadAggressiveness }}</span>
+                <input v-model.number="vadAggressiveness" type="range" min="0" max="3" step="1" class="w-full accent-emerald-500">
+              </label>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('降噪强度', 'Denoise') }} · {{ denoiseStrength }}</span>
+                <input v-model.number="denoiseStrength" type="range" min="0" max="1" step="0.05" class="w-full accent-emerald-500">
+              </label>
+
+              <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
+                <span class="text-sm font-bold text-text">{{ l('识别纠错词库', 'ASR correction') }}</span>
+                <button
+                  type="button"
+                  :class="correctionEnabled ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
+                  class="relative w-11 h-6 rounded-full transition-colors shrink-0"
+                  @click="correctionEnabled = !correctionEnabled"
+                >
+                  <span :class="correctionEnabled ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
+                </button>
+              </div>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最短分段', 'Min segment') }} (s)</span>
+                <input v-model.number="minSegmentS" type="number" min="0.1" max="5" step="0.05" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+              </label>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最长分段', 'Max segment') }} (s)</span>
+                <input v-model.number="maxSegmentS" type="number" min="1" max="30" step="0.5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+              </label>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('实时预览间隔', 'Partial interval') }} (s)</span>
+                <input v-model.number="partialInterval" type="number" min="0" max="5" step="0.2" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+              </label>
+            </div>
+
+            <p class="mt-3 text-[11px] text-text-muted leading-relaxed">
+              {{ l('纠错词库已内置 VRChat 术语/用户名修正（来自 MioVRC 词典），可显著改善识别准确率。', 'Built-in ASR correction dictionaries (ported from MioVRC) improve recognition accuracy for VRChat terms & names.') }}
+            </p>
           </section>
 
           <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">

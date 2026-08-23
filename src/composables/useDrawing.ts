@@ -86,6 +86,7 @@ export function useDrawing() {
   const needsPrepare = ref(false);
   let unlistenStatus: UnlistenFn | null = null;
   let configTimer: number | null = null;
+  let resizeTimer: number | null = null;
 
   const sourceUrl = computed(() => sourcePath.value && isTauri() ? convertFileSrc(sourcePath.value) : '');
   const progressPercent = computed(() => Math.round(Math.max(0, Math.min(1, status.value.progress)) * 100));
@@ -124,17 +125,25 @@ export function useDrawing() {
     const offsetX = (cssWidth - drawing.width * scale) / 2;
     const offsetY = (cssHeight - drawing.height * scale) / 2;
     context.strokeStyle = '#54240f';
-    context.lineWidth = Math.max(1, Math.min(2.2, scale));
     context.lineCap = 'round';
     context.lineJoin = 'round';
     for (const stroke of drawing.strokes) {
       if (stroke.points.length < 2) continue;
       context.beginPath();
       context.moveTo(offsetX + stroke.points[0].x * scale, offsetY + stroke.points[0].y * scale);
-      for (const point of stroke.points.slice(1)) {
-        context.lineTo(offsetX + point.x * scale, offsetY + point.y * scale);
+      for (let i = 1; i < stroke.points.length; i++) {
+        const prev = stroke.points[i - 1];
+        const curr = stroke.points[i];
+        const dx = (curr.x - prev.x) * scale;
+        const dy = (curr.y - prev.y) * scale;
+        const speed = Math.sqrt(dx * dx + dy * dy);
+        const pressure = Math.max(0.4, Math.min(1.0, 1.0 - speed / 40.0));
+        context.lineWidth = Math.max(1, Math.min(2.2, scale * pressure));
+        context.lineTo(offsetX + curr.x * scale, offsetY + curr.y * scale);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(offsetX + curr.x * scale, offsetY + curr.y * scale);
       }
-      context.stroke();
     }
   };
 
@@ -212,7 +221,13 @@ export function useDrawing() {
     }, 250);
   }, { deep: true });
 
-  const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderPlan);
+  const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+    if (resizeTimer !== null) return;
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = null;
+      renderPlan();
+    }, 120);
+  });
 
   onMounted(async () => {
     if (canvasEl.value) resizeObserver?.observe(canvasEl.value);
@@ -230,6 +245,7 @@ export function useDrawing() {
   onUnmounted(() => {
     resizeObserver?.disconnect();
     if (configTimer !== null) window.clearTimeout(configTimer);
+    if (resizeTimer !== null) window.clearTimeout(resizeTimer);
     unlistenStatus?.();
   });
 

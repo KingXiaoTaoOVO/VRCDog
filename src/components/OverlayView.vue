@@ -9,8 +9,9 @@ import { VrctApi } from '../api';
 const { t } = useI18n();
 
 const startDrag = async (e: MouseEvent) => {
+  const target = e.target as HTMLElement | null;
   // 防止点击气泡里的文字时意外拖动
-  if ((e.target as HTMLElement).tagName !== 'P') {
+  if (target && !target.closest('p, [data-no-drag]')) {
     try {
       await getCurrentWindow().startDragging();
     } catch (err) {
@@ -51,7 +52,10 @@ onMounted(async () => {
     addLog(payload);
     
     setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 100;
+      if (nearBottom) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     }, 50);
   });
 
