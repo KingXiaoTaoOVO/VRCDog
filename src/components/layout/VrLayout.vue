@@ -15,6 +15,7 @@ import {
   Radio,
   Languages,
   Paintbrush,
+  Music,
 } from 'lucide-vue-next';
 import DebugConsole from '../DebugConsole.vue';
 import DirectOpenModal from '../DirectOpenModal.vue';
@@ -72,6 +73,7 @@ const SettingsView = lazyView('SettingsView', () => import('../SettingsView.vue'
 const RemoteAssistView = lazyView('RemoteAssistView', () => import('../RemoteAssistView.vue'));
 const DanmakuView = lazyView('DanmakuView', () => import('../DanmakuView.vue'));
 const DrawingView = lazyView('DrawingView', () => import('../DrawingView.vue'));
+const VrpianoView = lazyView('VrpianoView', () => import('../VrpianoView.vue'));
 
 const appVersion = ref('');
 onMounted(async () => {
@@ -134,6 +136,7 @@ const vrTabs = computed(() => [
   { key: 'drawing', icon: Paintbrush, label: t('sidebar.drawing') },
   { key: 'remote', icon: Monitor, label: t('remote_assist.title') },
   { key: 'social', icon: Users, label: t('layout.social_lobby') },
+  { key: 'vrpiano', icon: Music, label: t('sidebar.vrpiano') || 'VR Piano' },
   { key: 'settings', icon: Settings, label: t('layout.settings') },
 ]);
 </script>
@@ -308,13 +311,12 @@ const vrTabs = computed(() => [
 
     <!-- VR 主内容区 -->
     <main class="flex-1 relative z-10 overflow-y-auto">
-      <div v-show="activeTab === 'translator'" class="p-6 h-full overflow-hidden">
+      <div v-if="activeTab === 'translator'" class="p-6 h-full overflow-hidden">
         <TranslatorView />
       </div>
-      <div v-if="activeTab === 'ovr'" class="p-6 h-full overflow-y-auto">
+      <div v-else-if="activeTab === 'ovr'" class="p-6 h-full overflow-y-auto">
         <OvrTranslatorView />
       </div>
-      <div v-else-if="activeTab === 'translator'" />
       <div v-else-if="activeTab === 'danmaku'" class="p-6 h-full overflow-hidden">
         <DanmakuView />
       </div>
@@ -323,6 +325,9 @@ const vrTabs = computed(() => [
       </div>
       <div v-else-if="activeTab === 'social'" class="p-6 h-full overflow-hidden">
         <FriendsListView />
+      </div>
+      <div v-else-if="activeTab === 'vrpiano'" class="h-full overflow-hidden">
+        <VrpianoView />
       </div>
       <div v-else-if="activeTab === 'remote'" class="p-6 h-full overflow-hidden">
         <RemoteAssistView />

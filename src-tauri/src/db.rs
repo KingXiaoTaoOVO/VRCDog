@@ -640,6 +640,26 @@ pub fn db_save_setting(
     Ok(())
 }
 
+/// Batch-save many settings in a single transaction. Replaces the previous
+/// per-key `db_save_setting` loop that issued 100+ separate IPC calls.
+#[tauri::command]
+pub fn db_save_settings(
+    state: State<'_, DbState>,
+    settings: Vec<(String, String)>,
+) -> Result<(), String> {
+    let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for (key, value) in &settings {
+        tx.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, datetime('now','localtime'))",
+            params![key, value],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn db_get_setting(state: State<'_, DbState>, key: String) -> Result<Option<String>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;

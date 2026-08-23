@@ -789,6 +789,7 @@ export const DbApi = {
   addFriendLog: (params: any) => safeInvoke<void>('db_add_friend_log', params),
   getFriendLogs: (params: any) => safeInvoke<any[]>('db_get_friend_logs', params),
   saveSetting: (params: { key: string; value: string }) => safeInvoke<void>('db_save_setting', params),
+  saveSettings: (params: { settings: Array<[string, string]> }) => safeInvoke<void>('db_save_settings', params),
   getSetting: (params: { key: string }) => safeInvoke<string | null>('db_get_setting', params),
   getAllSettings: () => safeInvoke<any>('db_get_all_settings'),
   saveFriend: (params: any) => safeInvoke<void>('db_save_friend', params),
@@ -839,12 +840,22 @@ export interface AudioDevice {
 export interface AudioCaptureConfig {
   source: AudioSource;
   sourceLang: string;
-  engine: 'cloud' | 'local';
+  engine: 'cloud' | 'local' | 'whisper' | 'sensevoice';
   deviceIndex?: number;
   energyThreshold?: number;
   dynamicEnergyThreshold?: boolean;
   phraseTimeLimit?: number;
   whisperModel?: string;
+  vadType?: string;
+  vadAggressiveness?: number;
+  denoiseStrength?: number;
+  correctionEnabled?: boolean;
+  minSegmentS?: number;
+  maxSegmentS?: number;
+  partialInterval?: number;
+  captureMode?: string;
+  targetProcess?: string;
+  selfSuppressSeconds?: number;
 }
 
 export interface AudioCaptureStatus {

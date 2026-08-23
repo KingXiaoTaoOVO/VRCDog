@@ -403,7 +403,7 @@ pub async fn danmaku_start(
     emit_log(&app, "Danmaku service starting");
 
     let runtime = state.runtime(app.clone());
-    let (tx, rx) = mpsc::unbounded_channel::<DanmakuMessage>();
+    let (tx, rx) = mpsc::channel::<DanmakuMessage>(2048);
 
     let agg_runtime = runtime.clone();
     let aggregator = tokio::spawn(async move {
@@ -691,7 +691,7 @@ async fn stop_state(state: &DanmakuState) {
 
 async fn aggregate_messages(
     runtime: DanmakuRuntime,
-    mut rx: mpsc::UnboundedReceiver<DanmakuMessage>,
+    mut rx: mpsc::Receiver<DanmakuMessage>,
 ) {
     let mut last_chatbox_sent = Instant::now()
         .checked_sub(Duration::from_millis(default_chatbox_interval_ms()))
@@ -798,7 +798,7 @@ fn parse_gift_text(text: &str) -> Option<(String, u32)> {
     Some((name.to_string(), count))
 }
 
-async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<DanmakuMessage>) {
+async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::Sender<DanmakuMessage>) {
     let mut reconnect_count = 0u32;
     let mut last_logged_error = String::new();
     let mut repeated_error_count = 0u32;
@@ -818,7 +818,9 @@ async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<
                 if runtime.stop.load(Ordering::Acquire) {
                     break;
                 }
-                let delay = Duration::from_secs((3 * reconnect_count.min(10)) as u64);
+                let exp = reconnect_count.min(8);
+                let base = 2u64.saturating_pow(exp as u32).min(300);
+                let delay = Duration::from_secs(base);
                 tokio::time::sleep(delay).await;
             }
             Err(err) => {
@@ -839,7 +841,9 @@ async fn run_bilibili_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<
                     repeated_error_count = 0;
                     emit_log(&runtime.app, "Bilibili 连接未完成，正在自动重试。");
                 }
-                let delay = Duration::from_secs((3 * reconnect_count.min(10)) as u64);
+                let exp = reconnect_count.min(8);
+                let base = 2u64.saturating_pow(exp as u32).min(300);
+                let delay = Duration::from_secs(base);
                 tokio::time::sleep(delay).await;
             }
         }
@@ -873,7 +877,7 @@ fn friendly_bili_ws_error(err: &str) -> String {
 
 async fn run_bilibili_once(
     runtime: DanmakuRuntime,
-    tx: mpsc::UnboundedSender<DanmakuMessage>,
+    tx: mpsc::Sender<DanmakuMessage>,
 ) -> Result<(), String> {
     let cfg = runtime
         .config
@@ -885,7 +889,7 @@ async fn run_bilibili_once(
         return Ok(());
     }
 
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::bili_http_client();
     let room_info = resolve_bili_room_id(&client, cfg.room_id, &cfg.bili_sessdata).await?;
     let real_room_id = room_info.room_id;
     if room_info.live_status == 0 {
@@ -927,9 +931,13 @@ async fn run_bilibili_once(
         &runtime.app,
         &format!("Connecting Bilibili live room {real_room_id} via {host}:{port}"),
     );
-    let (stream, _) = tokio_tungstenite::connect_async(request)
-        .await
-        .map_err(|e| friendly_bili_ws_error(&e.to_string()))?;
+    let (stream, _) = tokio::time::timeout(
+        Duration::from_secs(15),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .map_err(|_| friendly_bili_ws_error("连接 Bilibili 弹幕服务器超时（15秒），正在重试…"))?
+    .map_err(|e| friendly_bili_ws_error(&e.to_string()))?;
     let (mut writer, mut reader) = stream.split();
 
     let auth_body = serde_json::json!({
@@ -950,7 +958,7 @@ async fn run_bilibili_once(
         .send(Message::Binary(encode_bili_packet(
             BILI_OP_HEARTBEAT,
             1,
-            b"[object Object]",
+            b"{}",
         )))
         .await
         .map_err(|e| e.to_string())?;
@@ -964,33 +972,41 @@ async fn run_bilibili_once(
     emit_status(&runtime.app, &runtime.status);
 
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+    let mut last_frame_at = Instant::now();
     loop {
         if runtime.stop.load(Ordering::Acquire) {
             break;
+        }
+        if last_frame_at.elapsed() > Duration::from_secs(90) {
+            return Err(friendly_bili_ws_error(
+                "90 秒内未收到任何弹幕数据，连接已失效，正在重连…",
+            ));
         }
 
         tokio::select! {
             _ = heartbeat.tick() => {
                 writer
-                    .send(Message::Binary(encode_bili_packet(BILI_OP_HEARTBEAT, 1, b"[object Object]")))
+                    .send(Message::Binary(encode_bili_packet(BILI_OP_HEARTBEAT, 1, b"{}")))
                     .await
                     .map_err(|e| e.to_string())?;
             }
             next = reader.next() => {
                 match next {
                     Some(Ok(Message::Binary(bytes))) => {
+                        last_frame_at = Instant::now();
                         let frames = collect_bili_frames(&bytes);
                         for frame in frames {
                             handle_bili_frame(&runtime, &tx, frame).await?;
                         }
                     }
                     Some(Ok(Message::Text(text))) => {
+                        last_frame_at = Instant::now();
                         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
                             handle_bili_value(&runtime, &tx, value).await;
                         }
                     }
                     Some(Ok(Message::Close(_))) => return Err(friendly_bili_ws_error("bilibili websocket closed")),
-                    Some(Ok(_)) => {}
+                    Some(Ok(_)) => { last_frame_at = Instant::now(); }
                     Some(Err(err)) => return Err(friendly_bili_ws_error(&err.to_string())),
                     None => return Err(friendly_bili_ws_error("bilibili websocket ended")),
                 }
@@ -1359,7 +1375,7 @@ fn collect_bili_frames_inner(bytes: &[u8], frames: &mut Vec<BiliFrame>) {
 
 async fn handle_bili_frame(
     runtime: &DanmakuRuntime,
-    tx: &mpsc::UnboundedSender<DanmakuMessage>,
+    tx: &mpsc::Sender<DanmakuMessage>,
     frame: BiliFrame,
 ) -> Result<(), String> {
     match frame.op {
@@ -1421,7 +1437,7 @@ fn parse_bili_auth_reply(body: &[u8]) -> Result<(), String> {
 
 async fn handle_bili_value(
     runtime: &DanmakuRuntime,
-    tx: &mpsc::UnboundedSender<DanmakuMessage>,
+    tx: &mpsc::Sender<DanmakuMessage>,
     value: serde_json::Value,
 ) {
     let cmd = value["cmd"]
@@ -1434,22 +1450,22 @@ async fn handle_bili_value(
     match cmd {
         "DANMU_MSG" => {
             if let Some(msg) = parse_bili_danmaku(runtime, &value) {
-                let _ = tx.send(msg);
+                let _ = tx.try_send(msg);
             }
         }
         "SEND_GIFT" => {
             if let Some(msg) = parse_bili_gift(runtime, &value) {
-                let _ = tx.send(msg);
+                let _ = tx.try_send(msg);
             }
         }
         "SUPER_CHAT_MESSAGE" | "SUPER_CHAT_MESSAGE_NEW" => {
             if let Some(msg) = parse_bili_super_chat(runtime, &value) {
-                let _ = tx.send(msg);
+                let _ = tx.try_send(msg);
             }
         }
         "INTERACT_WORD" | "INTERACT_WORD_V2" => {
             if let Some(msg) = parse_bili_interact(runtime, &value) {
-                let _ = tx.send(msg);
+                let _ = tx.try_send(msg);
             }
         }
         "ENTRY_EFFECT" => {
@@ -1459,7 +1475,7 @@ async fn handle_bili_value(
                 .replace("<%", "")
                 .replace("%>", "");
             if !text.trim().is_empty() {
-                let _ = tx.send(make_message(runtime, "bilibili", "vip_enter", &text, ""));
+                let _ = tx.try_send(make_message(runtime, "bilibili", "vip_enter", &text, ""));
             }
         }
         "WARNING" | "CUT_OFF" | "ROOM_LOCK" => {
@@ -1476,7 +1492,7 @@ async fn handle_bili_value(
                 "ROOM_LOCK" => "RoomLock",
                 _ => "Warning",
             };
-            let _ = tx.send(make_message(runtime, "bilibili", "warning", user, text));
+            let _ = tx.try_send(make_message(runtime, "bilibili", "warning", user, text));
         }
         "GUARD_BUY" => {
             let data = &value["data"]["data"];
@@ -1496,7 +1512,7 @@ async fn handle_bili_value(
                 &format!("opened {guard}"),
             );
             msg.guard_level = Some(guard_level as u32);
-            let _ = tx.send(msg);
+            let _ = tx.try_send(msg);
         }
         "ONLINE_RANK_COUNT" => {
             if let Some(count) = value["data"]["data"]["count"].as_u64() {
@@ -1530,7 +1546,7 @@ async fn handle_bili_value(
                 .as_str()
                 .or_else(|| value["data"]["lot_name"].as_str())
                 .unwrap_or("Red pocket started");
-            let _ = tx.send(make_message(
+            let _ = tx.try_send(make_message(
                 runtime,
                 "bilibili",
                 "warning",
@@ -1635,7 +1651,7 @@ fn parse_bili_interact(
     }
 }
 
-async fn run_osc_input_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender<DanmakuMessage>) {
+async fn run_osc_input_source(runtime: DanmakuRuntime, tx: mpsc::Sender<DanmakuMessage>) {
     let cfg = runtime
         .config
         .lock()
@@ -1672,7 +1688,7 @@ async fn run_osc_input_source(runtime: DanmakuRuntime, tx: mpsc::UnboundedSender
                         .map(|cfg| cfg.clone())
                         .unwrap_or_default();
                     for msg in osc_packet_to_messages(&runtime, &cfg, packet) {
-                        let _ = tx.send(msg);
+                        let _ = tx.try_send(msg);
                     }
                 }
             }
@@ -2078,6 +2094,24 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
         }
     };
     let raw_overlay = load_raw_openvr_overlay();
+    if let Some(raw) = raw_overlay {
+        unsafe {
+            if let Some(set_input) = raw.SetOverlayInputMethod {
+                set_input(handle.0, vr_sys::VROverlayInputMethod_Mouse);
+            }
+            if let Some(set_flag) = raw.SetOverlayFlag {
+                set_flag(handle.0, vr_sys::VROverlayFlags_MakeOverlaysInteractiveIfVisible, true);
+            }
+            if let Some(menu_handle) = menu_handle {
+                if let Some(set_input) = raw.SetOverlayInputMethod {
+                    set_input(menu_handle.0, vr_sys::VROverlayInputMethod_Mouse);
+                }
+                if let Some(set_flag) = raw.SetOverlayFlag {
+                    set_flag(menu_handle.0, vr_sys::VROverlayFlags_MakeOverlaysInteractiveIfVisible, true);
+                }
+            }
+        }
+    }
 
     set_status(&runtime, |status| {
         status.vr_initialized = true;
@@ -2091,6 +2125,9 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
     let mut last_config_emit = Instant::now()
         .checked_sub(Duration::from_secs(1))
         .unwrap_or_else(Instant::now);
+    let mut last_panel_sig: u64 = 0;
+    let mut last_menu_sig: u64 = 0;
+    let mut frame: u64 = 0;
     while !runtime.stop.load(Ordering::Acquire) {
         let cfg = runtime
             .config
@@ -2134,14 +2171,31 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             .map(|cfg| cfg.overlay_visible || cfg.toggle_hand == "always_on")
             .unwrap_or(true);
 
-        let pixels = render_live_panel_overlay_clean(&font, &messages, &cfg, &status_snapshot);
-        let _ = overlay.set_raw_data(
-            handle,
-            &pixels,
-            DANMAKU_OVERLAY_WIDTH as usize,
-            DANMAKU_OVERLAY_HEIGHT as usize,
-            4,
-        );
+        frame = frame.wrapping_add(1);
+        let panel_sig = {
+            let mut s: u64 = messages.len() as u64;
+            if let Some(last) = messages.last() {
+                s = s.wrapping_mul(31).wrapping_add(last.id as u64);
+            }
+            s = s.wrapping_mul(31).wrapping_add((cfg.bg_alpha * 1000.0) as u64);
+            s = s.wrapping_mul(31).wrapping_add((cfg.font_size * 100.0) as u64);
+            s = s.wrapping_mul(31).wrapping_add(fnv1a(&cfg.text_color));
+            s = s.wrapping_mul(31).wrapping_add(fnv1a(&status_snapshot.last_event));
+            s = s.wrapping_mul(31).wrapping_add(status_snapshot.bili_connected as u64);
+            s
+        };
+        if panel_sig != last_panel_sig || frame % 12 == 0 {
+            let pixels =
+                render_live_panel_overlay_clean(&font, &messages, &cfg, &status_snapshot);
+            let _ = overlay.set_raw_data(
+                handle,
+                &pixels,
+                DANMAKU_OVERLAY_WIDTH as usize,
+                DANMAKU_OVERLAY_HEIGHT as usize,
+                4,
+            );
+            last_panel_sig = panel_sig;
+        }
         let _ = overlay.set_visibility(handle, visible);
         if let Some(menu_handle) = menu_handle {
             let menu_visible = runtime
@@ -2154,9 +2208,20 @@ fn run_vr_overlay_thread(runtime: DanmakuRuntime) {
             let _ = overlay.set_width(menu_handle, 0.52);
             let _ = overlay.set_opacity(menu_handle, 0.96);
             let _ = overlay.set_sort_order(menu_handle, 60);
-            apply_menu_transform(&mut overlay, menu_handle);
-            let pixels = render_danmaku_menu_overlay(&font, &cfg, &status_snapshot);
-            let _ = overlay.set_raw_data(menu_handle, &pixels, 640, 520, 4);
+            apply_menu_transform(&mut overlay, menu_handle, &cfg);
+            let menu_sig = {
+                let mut s: u64 = fnv1a(&cfg.text_color);
+                s = s.wrapping_mul(31).wrapping_add((cfg.bg_alpha * 1000.0) as u64);
+                s = s.wrapping_mul(31).wrapping_add((cfg.font_size * 100.0) as u64);
+                s = s.wrapping_mul(31).wrapping_add(fnv1a(&status_snapshot.last_event));
+                s = s.wrapping_mul(31).wrapping_add(status_snapshot.bili_connected as u64);
+                s
+            };
+            if menu_sig != last_menu_sig || frame % 12 == 0 {
+                let pixels = render_danmaku_menu_overlay(&font, &cfg, &status_snapshot);
+                let _ = overlay.set_raw_data(menu_handle, &pixels, 640, 520, 4);
+                last_menu_sig = menu_sig;
+            }
             let _ = overlay.set_visibility(menu_handle, menu_visible);
             set_status(&runtime, |status| {
                 status.vr_menu_visible = menu_visible;
@@ -2467,8 +2532,8 @@ fn apply_overlay_transform(
     );
 }
 
-fn apply_menu_transform(overlay: &mut openvr::Overlay, handle: openvr::overlay::OverlayHandle) {
-    let transform = euler_transform(0.0, -0.28, -0.72, -12.0, 0.0, 0.0);
+fn apply_menu_transform(overlay: &mut openvr::Overlay, handle: openvr::overlay::OverlayHandle, cfg: &DanmakuConfig) {
+    let transform = euler_transform(cfg.x, cfg.y, cfg.z, cfg.pitch, cfg.yaw, cfg.roll);
     let _ = overlay.set_transform_tracked_device_relative(
         handle,
         openvr::TrackedDeviceIndex(0),
@@ -2521,6 +2586,17 @@ fn load_danmaku_font() -> Option<FontVec> {
         }
     }
     None
+}
+
+/// FNV-1a 64-bit hash, used for cheap dirty-signature comparisons in the VR
+/// overlay render loop so we can skip re-compositing when nothing changed.
+fn fnv1a(s: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn render_live_panel_overlay_clean(

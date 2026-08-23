@@ -86,8 +86,10 @@ async function prepare() {
     'pyaudiowpatch==0.2.12.8',
     'SpeechRecognition==3.17.0',
     'faster-whisper==1.2.1',
+    'webrtcvad-wheels==2.0.14',
+    'pycaw==20251023',
   ], { env: isolatedEnv });
-  await run(python, ['-I', '-c', 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
+  await run(python, ['-I', '-c', 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, webrtcvad, pycaw, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
 
   await writeFile(path.join(stagedRuntime, 'vrcdog-runtime.json'), JSON.stringify({
     pythonVersion: PYTHON_VERSION,
@@ -104,6 +106,8 @@ async function prepare() {
       'pyaudiowpatch==0.2.12.8',
       'SpeechRecognition==3.17.0',
       'faster-whisper==1.2.1',
+      'webrtcvad-wheels==2.0.14',
+      'pycaw==20251023',
     ],
     source: PYTHON_URL,
     archiveSha256: PYTHON_SHA256,

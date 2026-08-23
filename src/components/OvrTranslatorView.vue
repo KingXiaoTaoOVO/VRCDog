@@ -703,18 +703,19 @@ const toggleNativeVrMenu = async () => {
   }
 };
 
-// Auto-sync configuration to backend with debounce
+// Auto-sync configuration to backend with debounce.
+// Watch a serialized snapshot instead of deep-watching the whole config object,
+// which avoids deep proxy traversal on every nested mutation.
 let configSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 let desktopScanSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 let ovrasSyncChecked = false;
 let ovrasSyncAvailable = true;
-
-watch(config, () => {
+watch(() => JSON.stringify(config.value), () => {
   if (configSyncTimeout) clearTimeout(configSyncTimeout);
   configSyncTimeout = setTimeout(() => {
     syncConfigToBackend();
   }, 500);
-}, { deep: true });
+});
 
 // ========== OVR Backend Integration ==========
 const ovrConnected = ref(false);
@@ -960,10 +961,10 @@ const loadSettings = async () => {
 const saveSettings = async () => {
   isSaving.value = true;
   try {
-    const entries = Object.entries(config.value);
-    for (const [key, val] of entries) {
-      await DbApi.saveSetting({ key, value: JSON.stringify(val) });
-    }
+    const settings = Object.entries(config.value).map(
+      ([key, val]) => [key, JSON.stringify(val)] as [string, string],
+    );
+    await DbApi.saveSettings({ settings });
     saved.value = true;
     saveTimeout = setTimeout(() => { saved.value = false; }, 2000);
     // Sync to OVR backend
@@ -2259,7 +2260,7 @@ const getKeyDisplay = (val: string) => {
           <div
             class="vr-dashboard glass-panel"
             :class="{ 'vr-dashboard-collapsed': !vrDashboardOpen }"
-            :style="{ background: `rgba(255, 255, 255, ${config.general.overlayBgOpacity * 0.8 + 0.1})` }"
+            :style="{ background: overlayBgStyle }"
             @click.stop
           >
             <!-- Dashboard header -->
@@ -2408,14 +2409,14 @@ const getKeyDisplay = (val: string) => {
                     <span>{{ t('ovr.trans_source') }}</span>
                     <span
                       class="vr-dash-value"
-                      @click="config.general.transSourceLang = config.general.transSourceLang === 'auto' ? 'en-US' : (config.general.transSourceLang === 'en-US' ? 'ja-JP' : 'auto')"
+                       @click="config.general.transSourceLang = config.general.transSourceLang === 'auto' ? 'en' : (config.general.transSourceLang === 'en' ? 'ja' : (config.general.transSourceLang === 'ja' ? 'ko' : 'auto'))"
                     >{{ config.general.transSourceLang === 'auto' ? t('ovr.dash_auto') : config.general.transSourceLang.toUpperCase() }}</span>
                   </div>
                   <div class="vr-dash-row">
                     <span>{{ t('ovr.trans_target') }}</span>
                     <span
                       class="vr-dash-value"
-                      @click="config.general.transTargetLang = config.general.transTargetLang === 'zh-CN' ? 'en-US' : (config.general.transTargetLang === 'en-US' ? 'ja-JP' : 'zh-CN')"
+                       @click="config.general.transTargetLang = config.general.transTargetLang === 'zh' ? 'en' : 'zh'"
                     >{{ config.general.transTargetLang.toUpperCase() }}</span>
                   </div>
                   <div class="vr-dash-row">
@@ -2584,7 +2585,12 @@ const getKeyDisplay = (val: string) => {
           <div
             class="vr-overlay-panel"
             :class="{ 'vr-lock-head': config.general.overlayLockMode === 'head', 'vr-lock-world': config.general.overlayLockMode === 'world' }"
-            :style="{ background: overlayBgStyle, color: config.general.overlayTextColor, transform: `translate(${overlayPos.x}px, ${overlayPos.y}px)` }"
+            :style="{
+              background: overlayBgStyle,
+              color: config.general.overlayTextColor,
+              maxWidth: (config.general.transPanelMaxWidth ?? 380) + 'px',
+              transform: `translate(-50%, -50%) translate(${overlayPos.x}px, ${overlayPos.y}px)`
+            }"
           >
             <!-- Drag handle -->
             <div
@@ -2597,6 +2603,7 @@ const getKeyDisplay = (val: string) => {
             <!-- Translation content -->
             <div
               class="vr-panel-content"
+              :style="{ fontSize: (config.general.overlayFontSize ?? 14) + 'px' }"
               @click.stop="toggleOriginal"
             >
               <div
@@ -2604,18 +2611,18 @@ const getKeyDisplay = (val: string) => {
                 class="vr-original-text"
               >
                 <span
-                  v-for="(line, idx) in currentSample.original.split('\\n')"
+                   v-for="(line, idx) in currentSample.original.split('\n')"
                   :key="idx"
                 >
-                  {{ line }}<br v-if="idx < currentSample.original.split('\\n').length - 1">
+                   {{ line }}<br v-if="idx < currentSample.original.split('\n').length - 1">
                 </span>
               </div>
               <div class="vr-translated-text">
                 <span
-                  v-for="(line, idx) in (vrShowOriginal && config.general.dualDisplay ? currentSample.original : currentSample.translated).split('\\n')"
+                   v-for="(line, idx) in (vrShowOriginal && config.general.dualDisplay ? currentSample.original : currentSample.translated).split('\n')"
                   :key="idx"
                 >
-                  {{ line }}<br v-if="idx < currentSample.translated.split('\\n').length - 1">
+                   {{ line }}<br v-if="idx < currentSample.translated.split('\n').length - 1">
                 </span>
               </div>
             </div>
@@ -2644,7 +2651,7 @@ const getKeyDisplay = (val: string) => {
               <Watch class="w-3 h-3" /> {{ t('ovr.basic_wrist') }}
             </div>
             <div class="vr-wrist-content">
-              {{ currentSample.translated.split('\\n')[0] }}...
+               {{ currentSample.translated.split('\n')[0] }}...
             </div>
           </div>
 
@@ -2802,8 +2809,6 @@ const getKeyDisplay = (val: string) => {
   position: absolute;
   top: 50%;
   left: 50%;
-  margin-left: -160px;
-  margin-top: -50px;
   min-width: 280px;
   max-width: 380px;
   border-radius: 8px;
@@ -2813,6 +2818,7 @@ const getKeyDisplay = (val: string) => {
   transition: box-shadow 0.3s;
   display: flex;
   align-items: stretch;
+  transform: translate(-50%, -50%);
 }
 .vr-overlay-panel:hover {
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.2);
@@ -2820,8 +2826,8 @@ const getKeyDisplay = (val: string) => {
 .vr-lock-world { animation: vrFloatWorld 6s ease-in-out infinite; }
 .vr-lock-head { animation: none; /* No float for head-lock */ }
 @keyframes vrFloatWorld {
-  0%, 100% { margin-top: -50px; }
-  50% { margin-top: -55px; }
+  0%, 100% { top: 50%; }
+  50% { top: calc(50% - 5px); }
 }
 
 .vr-panel-drag {
