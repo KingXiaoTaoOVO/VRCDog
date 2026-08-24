@@ -285,8 +285,15 @@ pub fn osc_send_chatbox(
     text: String,
     send: bool,
     notify: bool,
+    delay_secs: Option<f64>,
 ) -> AppResult<()> {
     let endpoint = validate_endpoint(&host, port)?;
+    if let Some(delay) = delay_secs {
+        if delay > 0.0 {
+            let ms = (delay * 1000.0).round().max(1.0) as u64;
+            std::thread::sleep(Duration::from_millis(ms));
+        }
+    }
     let packet = OscPacket::Message(OscMessage {
         addr: "/chatbox/input".to_string(),
         args: vec![

@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::net::UdpSocket;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use sysinfo::System;
 
 static DISCORD_CLIENT: OnceLock<Mutex<DiscordIpcClient>> = OnceLock::new();
@@ -137,7 +138,13 @@ pub fn sys_send_osc_param(address: String, value: f32) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn sys_send_osc_chatbox(text: String, complete: bool) -> AppResult<()> {
+pub fn sys_send_osc_chatbox(text: String, complete: bool, delay_secs: Option<f64>) -> AppResult<()> {
+    if let Some(delay) = delay_secs {
+        if delay > 0.0 {
+            let ms = (delay * 1000.0).round().max(1.0) as u64;
+            std::thread::sleep(Duration::from_millis(ms));
+        }
+    }
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
 
     let msg = OscMessage {

@@ -58,3 +58,6 @@ docs/agents/
 .atomcode/
 /src-tauri/resources/python-runtime*/
 /src-tauri/scripts/.ffmpeg-download/
+
+MioVRC_Translator/
+vrcosc-magicchatbox/
