@@ -26,6 +26,10 @@ const chatboxEmojiShuffle = ref(false);
 const chatboxLiveTyping = ref(false);
 const chatboxLiveTypingRate = ref(3);
 const chatboxLiveTypingFinalize = ref(6);
+const chatboxPrefix = ref('');
+const chatboxSuffix = ref('');
+const chatboxSeparator = ref(' | ');
+const chatboxSeparateWithEnters = ref(false);
 const chatboxAutocomplete = ref(false);
 const chatboxAutocompleteIndex = ref(-1);
 const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
@@ -196,8 +200,11 @@ const sendChatboxMessage = async () => {
   if (chatboxTypingTimer) { clearTimeout(chatboxTypingTimer); chatboxTypingTimer = null; }
   await SysApi.sendOscTyping({ typing: false }).catch(() => {});
   try {
-    const prefix = chatboxEmojiShuffle.value ? `${getRandomEmoji()} ` : '';
-    const fullText = prefix + text;
+    const prefix = chatboxEmojiShuffle.value ? `${getRandomEmoji()} ` : chatboxPrefix.value;
+    const suffix = chatboxSuffix.value;
+    const sep = chatboxSeparateWithEnters.value ? '\n' : chatboxSeparator.value;
+    const parts = [prefix, text, suffix].filter(Boolean);
+    const fullText = parts.join(sep);
     if (chatboxLiveTyping.value) {
       await sendLiveTyping(fullText);
     } else {
@@ -693,6 +700,20 @@ onUnmounted(() => {
             <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('自动完成', 'Auto finalize') }}</label>
             <input v-model.number="chatboxLiveTypingFinalize" type="number" min="1" max="30" step="1" class="w-14 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
             <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('前缀', 'Prefix') }}</label>
+            <input v-model="chatboxPrefix" type="text" class="w-20 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('后缀', 'Suffix') }}</label>
+            <input v-model="chatboxSuffix" type="text" class="w-20 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input v-model="chatboxSeparateWithEnters" type="checkbox" class="accent-primary">
+              <span class="text-[10px] font-bold text-text-muted">{{ l('换行分隔', 'Enter sep') }}</span>
+            </label>
+          </div>
+          <div v-if="!chatboxSeparateWithEnters" class="flex items-center gap-2">
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('分隔符', 'Separator') }}</label>
+            <input v-model="chatboxSeparator" type="text" class="w-24 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
           </div>
           <button
             :disabled="chatboxStatus.loading || !chatboxText.trim()"
