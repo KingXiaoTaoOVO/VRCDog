@@ -3,7 +3,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { SysApi, VrcApi } from "../api";
-import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin, Clock3, RotateCcw, Bell, BellOff } from 'lucide-vue-next';
+import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin, Clock3, RotateCcw, Bell, BellOff, Sparkles, XCircle } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import OscWorkbench from './OscWorkbench.vue';
@@ -22,9 +22,14 @@ const chatboxStatus = ref({ loading: false, message: '', type: '' });
 const chatboxSendDelay = ref(0);
 const chatboxKeepalive = ref(false);
 const chatboxNotification = ref(false);
-const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
+const chatboxEmojiShuffle = ref(false);
 const chatboxAutocomplete = ref(false);
 const chatboxAutocompleteIndex = ref(-1);
+const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
+const statusMessages = ref<string[]>(['Using VrcDog', 'Chilling in VRChat', 'AFK']);
+const statusCycleEnabled = ref(false);
+const statusCycleInterval = ref(30);
+let statusCycleTimer: ReturnType<typeof setInterval> | null = null;
 const instanceTarget = ref('');
 const instanceStatus = ref({ loading: false, message: '', type: '' });
 
@@ -182,8 +187,10 @@ const sendChatboxMessage = async () => {
   if (chatboxTypingTimer) { clearTimeout(chatboxTypingTimer); chatboxTypingTimer = null; }
   await SysApi.sendOscTyping({ typing: false }).catch(() => {});
   try {
-    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
-    chatHistory.value.unshift({ text, sentAt: new Date().toISOString() });
+    const prefix = chatboxEmojiShuffle.value ? `${getRandomEmoji()} ` : '';
+    const fullText = prefix + text;
+    await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
+    chatHistory.value.unshift({ text: fullText, sentAt: new Date().toISOString() });
     if (chatHistory.value.length > 50) chatHistory.value = chatHistory.value.slice(0, 50);
     chatboxText.value = '';
     chatboxAutocompleteIndex.value = -1;
@@ -258,6 +265,50 @@ const toggleKeepalive = async () => {
   }
 };
 
+const clearChatbox = async () => {
+  chatboxStatus.value = { loading: true, message: '', type: '' };
+  try {
+    await SysApi.sendOscChatbox({ text: '', complete: true, notification: chatboxNotification.value || undefined });
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_clear_success'), type: 'success' };
+  } catch (err: any) {
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
+  }
+};
+
+const emojis = ['👋', '✨', '🎮', '🌟', '🔥', '💫', '🚀', '⭐', '💖', '🎉', '🌈', '🎵', '🤖', '👾', '🎲', '🧩'];
+const getRandomEmoji = () => emojis[Math.floor(Math.random() * emojis.length)];
+
+const addStatusMessage = () => {
+  const text = prompt(t('tools.status_add_prompt'));
+  if (text && text.trim()) {
+    statusMessages.value.push(text.trim());
+  }
+};
+
+const removeStatusMessage = (index: number) => {
+  statusMessages.value.splice(index, 1);
+};
+
+const toggleStatusCycle = () => {
+  statusCycleEnabled.value = !statusCycleEnabled.value;
+  if (statusCycleEnabled.value) {
+    cycleStatus();
+    statusCycleTimer = setInterval(cycleStatus, statusCycleInterval.value * 1000);
+  } else {
+    if (statusCycleTimer) clearInterval(statusCycleTimer);
+    statusCycleTimer = null;
+  }
+};
+
+const cycleStatus = async () => {
+  if (!statusMessages.value.length) return;
+  const current = rpcForm.value.state;
+  let idx = statusMessages.value.indexOf(current);
+  if (idx < 0) idx = 0; else idx = (idx + 1) % statusMessages.value.length;
+  rpcForm.value.state = statusMessages.value[idx];
+  await setRpc();
+};
+
 const launchInstance = async () => {
   const value = instanceTarget.value.trim();
   if (!value) return;
@@ -310,6 +361,7 @@ onUnmounted(() => {
   if (chatboxKeepalive.value) {
     SysApi.stopChatboxKeepalive().catch(() => {});
   }
+  if (statusCycleTimer) clearInterval(statusCycleTimer);
   vrcStatusTimer = null;
   if (launchCheckTimeout) clearTimeout(launchCheckTimeout);
   launchCheckTimeout = null;
@@ -518,6 +570,34 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Status cycling -->
+      <div class="bg-surface rounded-lg p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
+        <h3 class="font-extrabold text-text mb-2 flex items-center gap-2 text-lg">
+          <RotateCcw class="text-primary" :size="20" /> {{ t('tools.status_title') }}
+        </h3>
+        <p class="text-sm text-text-muted font-medium mb-4">{{ t('tools.status_desc') }}</p>
+        <div class="mt-auto space-y-2">
+          <div class="flex items-center gap-2">
+            <input v-model="rpcForm.state" type="text" class="flex-1 px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm text-text outline-none focus:border-primary" :placeholder="t('tools.status_placeholder')">
+            <button class="text-[10px] font-bold px-2 py-1 bg-primary text-white rounded" @click="addStatusMessage">{{ l('添加', 'Add') }}</button>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <span v-for="(msg, idx) in statusMessages" :key="idx" class="inline-flex items-center gap-1 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text">
+              {{ msg }}
+              <button class="hover:text-red-500" @click="removeStatusMessage(idx)"><XCircle :size="10" /></button>
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('间隔', 'Interval') }}</label>
+            <input v-model.number="statusCycleInterval" type="number" min="5" max="300" step="5" class="w-16 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
+            <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft" :class="statusCycleEnabled ? 'bg-emerald-500 text-white' : 'bg-surface-hover text-text-muted'" @click="toggleStatusCycle">
+              {{ statusCycleEnabled ? l('循环中', 'Cycling') : l('开始循环', 'Start cycle') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Chatbox quick send -->
       <div class="bg-surface rounded-lg p-5 border-border-soft shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow flex flex-col">
         <h3 class="font-extrabold text-text mb-2 flex items-center gap-2 text-lg">
@@ -553,6 +633,16 @@ onUnmounted(() => {
               <Bell :size="12" />
               <span class="text-[10px] font-bold text-text-muted">{{ l('提示音', 'Notification') }}</span>
             </label>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input v-model="chatboxEmojiShuffle" type="checkbox" class="accent-primary">
+              <Sparkles :size="12" />
+              <span class="text-[10px] font-bold text-text-muted">{{ l('随机表情', 'Emoji shuffle') }}</span>
+            </label>
+            <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft bg-surface-hover text-text-muted hover:text-red-500" @click="clearChatbox" :disabled="chatboxStatus.loading">
+              <XCircle :size="12" class="inline mr-1" /> {{ l('清空聊天框', 'Clear chatbox') }}
+            </button>
           </div>
           <button
             :disabled="chatboxStatus.loading || !chatboxText.trim()"
