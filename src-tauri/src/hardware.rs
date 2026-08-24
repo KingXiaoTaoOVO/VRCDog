@@ -4,9 +4,11 @@ use rosc::{OscMessage, OscPacket, OscType};
 use serde::Deserialize;
 use std::net::UdpSocket;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use sysinfo::System;
+use tauri::{AppHandle, Emitter};
 
 static DISCORD_CLIENT: OnceLock<Mutex<DiscordIpcClient>> = OnceLock::new();
 static OSC_AUTOMATION: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>> =
@@ -145,27 +147,65 @@ pub fn sys_send_osc_chatbox(text: String, complete: bool, delay_secs: Option<f64
             std::thread::sleep(Duration::from_millis(ms));
         }
     }
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
+    send_osc_chatbox_raw(text, complete, false)
+}
 
+#[tauri::command]
+pub fn sys_send_osc_typing(text: String, typing: bool) -> AppResult<()> {
+    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
+    let msg = OscMessage {
+        addr: "/chatbox/typing".to_string(),
+        args: vec![OscType::Bool(typing)],
+    };
+    let packet = OscPacket::Message(msg);
+    let buf = rosc::encoder::encode(&packet).map_err(|e| crate::AppError::from(e.to_string()))?;
+    socket.send_to(&buf, "127.0.0.1:9000").map_err(|e| crate::AppError::from(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sys_chatbox_keepalive_start(app: AppHandle) -> AppResult<()> {
+    if CHATBOX_KEEPALIVE_RUNNING.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let handle = app.clone();
+    let _ = tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(8));
+        loop {
+            interval.tick().await;
+            if !CHATBOX_KEEPALIVE_RUNNING.load(Ordering::SeqCst) {
+                break;
+            }
+            let _ = send_osc_chatbox_raw(String::new(), true, false);
+            let _ = handle.emit("chatbox-keepalive-tick", ());
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sys_chatbox_keepalive_stop() -> AppResult<()> {
+    CHATBOX_KEEPALIVE_RUNNING.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+fn send_osc_chatbox_raw(text: String, complete: bool, notification: bool) -> AppResult<()> {
+    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
     let msg = OscMessage {
         addr: "/chatbox/input".to_string(),
         args: vec![
             OscType::String(text),
             OscType::Bool(complete),
-            OscType::Bool(false), // typing indicator
+            OscType::Bool(notification),
         ],
     };
-
     let packet = OscPacket::Message(msg);
-    let msg_buf =
-        rosc::encoder::encode(&packet).map_err(|e| crate::AppError::from(e.to_string()))?;
-
-    socket
-        .send_to(&msg_buf, "127.0.0.1:9000")
-        .map_err(|e| crate::AppError::from(e.to_string()))?;
-
+    let buf = rosc::encoder::encode(&packet).map_err(|e| crate::AppError::from(e.to_string()))?;
+    socket.send_to(&buf, "127.0.0.1:9000").map_err(|e| crate::AppError::from(e.to_string()))?;
     Ok(())
 }
+
+static CHATBOX_KEEPALIVE_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

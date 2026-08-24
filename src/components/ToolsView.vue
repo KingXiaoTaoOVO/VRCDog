@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { isTauri } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { SysApi, VrcApi } from "../api";
-import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin } from 'lucide-vue-next';
+import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin, Clock3, RotateCcw } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import OscWorkbench from './OscWorkbench.vue';
@@ -18,6 +20,8 @@ const rpcStatus = ref({ loading: false, message: '', type: '' });
 const chatboxText = ref('');
 const chatboxStatus = ref({ loading: false, message: '', type: '' });
 const chatboxSendDelay = ref(0);
+const chatboxKeepalive = ref(false);
+const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
 const instanceTarget = ref('');
 const instanceStatus = ref({ loading: false, message: '', type: '' });
 
@@ -25,6 +29,8 @@ const dirStatus = ref({ message: '', type: '' });
 let vrcStatusTimer: ReturnType<typeof setInterval> | null = null;
 let launchCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 let dirStatusTimeout: ReturnType<typeof setTimeout> | null = null;
+let chatboxTypingTimer: ReturnType<typeof setTimeout> | null = null;
+let unlistenKeepalive: UnlistenFn | null = null;
 
 type InviteMessageType = 'message' | 'request' | 'response' | 'requestResponse';
 type InviteTemplateSlot = {
@@ -170,12 +176,52 @@ const sendChatboxMessage = async () => {
   const text = chatboxText.value.trim();
   if (!text) return;
   chatboxStatus.value = { loading: true, message: '', type: '' };
+  if (chatboxTypingTimer) { clearTimeout(chatboxTypingTimer); chatboxTypingTimer = null; }
+  await SysApi.sendOscTyping({ typing: false }).catch(() => {});
   try {
     await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined });
+    chatHistory.value.unshift({ text, sentAt: new Date().toISOString() });
+    if (chatHistory.value.length > 50) chatHistory.value = chatHistory.value.slice(0, 50);
     chatboxText.value = '';
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
   } catch (err: any) {
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
+  }
+};
+
+const onChatboxInput = () => {
+  if (chatboxTypingTimer) clearTimeout(chatboxTypingTimer);
+  if (!chatboxText.value.trim()) {
+    SysApi.sendOscTyping({ typing: false }).catch(() => {});
+    return;
+  }
+  SysApi.sendOscTyping({ typing: true }).catch(() => {});
+  chatboxTypingTimer = setTimeout(() => {
+    SysApi.sendOscTyping({ typing: false }).catch(() => {});
+    chatboxTypingTimer = null;
+  }, 3000);
+};
+
+const resendChatbox = async (text: string) => {
+  chatboxStatus.value = { loading: true, message: '', type: '' };
+  try {
+    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined });
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
+  } catch (err: any) {
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
+  }
+};
+
+const clearChatHistory = () => {
+  chatHistory.value = [];
+};
+
+const toggleKeepalive = async () => {
+  chatboxKeepalive.value = !chatboxKeepalive.value;
+  if (chatboxKeepalive.value) {
+    await SysApi.startChatboxKeepalive();
+  } else {
+    await SysApi.stopChatboxKeepalive();
   }
 };
 
@@ -212,14 +258,25 @@ const openDirectory = async (target: string) => {
   dirStatusTimeout = setTimeout(() => { dirStatus.value = { message: '', type: '' }; }, 3000);
 };
 
-onMounted(() => {
+onMounted(async () => {
   checkVrc();
   loadInviteTemplates();
   vrcStatusTimer = setInterval(checkVrc, 10000);
+  if (isTauri()) {
+    unlistenKeepalive = await listen<{ tick: boolean }>('chatbox-keepalive-tick', () => {
+      if (!chatboxKeepalive.value) return;
+      SysApi.sendOscTyping({ typing: true }).catch(() => {});
+    });
+  }
 });
 
 onUnmounted(() => {
   if (vrcStatusTimer) clearInterval(vrcStatusTimer);
+  if (chatboxTypingTimer) clearTimeout(chatboxTypingTimer);
+  if (unlistenKeepalive) unlistenKeepalive();
+  if (chatboxKeepalive.value) {
+    SysApi.stopChatboxKeepalive().catch(() => {});
+  }
   vrcStatusTimer = null;
   if (launchCheckTimeout) clearTimeout(launchCheckTimeout);
   launchCheckTimeout = null;
@@ -440,6 +497,7 @@ onUnmounted(() => {
             class="w-full min-h-20 px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm text-text outline-none resize-none focus:border-primary"
             :placeholder="t('tools.chatbox_placeholder')"
             maxlength="144"
+            @input="onChatboxInput"
             @keydown.ctrl.enter.prevent="sendChatboxMessage"
           />
           <div class="flex items-center justify-between text-[10px] text-text-muted font-bold">
@@ -462,6 +520,26 @@ onUnmounted(() => {
             {{ t('tools.chatbox_send') }}
           </button>
         </div>
+        <div class="flex items-center gap-2 mt-2">
+          <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft" :class="chatboxKeepalive ? 'bg-emerald-500 text-white' : 'bg-surface-hover text-text-muted'" @click="toggleKeepalive">
+            <Clock3 :size="12" class="inline mr-1" /> {{ chatboxKeepalive ? l('保活中', 'Keepalive ON') : l('保活', 'Keepalive') }}
+          </button>
+          <span class="text-[10px] text-text-muted font-bold">{{ l('防止chatbox超时', 'Prevent chatbox timeout') }}</span>
+        </div>
+      </div>
+
+      <!-- Chat history -->
+      <div v-if="chatHistory.length" class="bg-surface rounded-lg p-5 border-border-soft shadow-sm">
+        <h3 class="font-extrabold text-text mb-2 flex items-center gap-2 text-lg">
+          <RotateCcw :size="18" class="text-primary" /> {{ l('发送历史', 'Chat history') }}
+        </h3>
+        <div class="space-y-1 max-h-60 overflow-y-auto">
+          <div v-for="(item, index) in chatHistory.slice(0, 20)" :key="index" class="flex items-center justify-between gap-2 py-1 border-b border-border-soft last:border-0">
+            <span class="text-xs text-text truncate flex-1">{{ item.text }}</span>
+            <button class="text-[10px] font-bold px-2 py-1 bg-primary text-white rounded" @click="resendChatbox(item.text)">{{ l('重发', 'Resend') }}</button>
+          </div>
+        </div>
+        <button class="mt-2 text-[10px] font-bold text-red-500 hover:text-red-700" @click="clearChatHistory">{{ l('清空历史', 'Clear history') }}</button>
       </div>
 
       <!-- Instance launcher -->
