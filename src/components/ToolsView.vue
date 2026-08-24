@@ -3,7 +3,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { SysApi, VrcApi } from "../api";
-import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin, Clock3, RotateCcw } from 'lucide-vue-next';
+import { Wrench, Trash2, MessageSquare, Play, CheckCircle2, AlertCircle, Loader2, FolderOpen, Image, FileText, Bug, Database, Send, ExternalLink, MapPin, Clock3, RotateCcw, Bell, BellOff } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import OscWorkbench from './OscWorkbench.vue';
@@ -21,7 +21,10 @@ const chatboxText = ref('');
 const chatboxStatus = ref({ loading: false, message: '', type: '' });
 const chatboxSendDelay = ref(0);
 const chatboxKeepalive = ref(false);
+const chatboxNotification = ref(false);
 const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
+const chatboxAutocomplete = ref(false);
+const chatboxAutocompleteIndex = ref(-1);
 const instanceTarget = ref('');
 const instanceStatus = ref({ loading: false, message: '', type: '' });
 
@@ -179,20 +182,34 @@ const sendChatboxMessage = async () => {
   if (chatboxTypingTimer) { clearTimeout(chatboxTypingTimer); chatboxTypingTimer = null; }
   await SysApi.sendOscTyping({ typing: false }).catch(() => {});
   try {
-    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined });
+    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
     chatHistory.value.unshift({ text, sentAt: new Date().toISOString() });
     if (chatHistory.value.length > 50) chatHistory.value = chatHistory.value.slice(0, 50);
     chatboxText.value = '';
+    chatboxAutocompleteIndex.value = -1;
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
   } catch (err: any) {
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
   }
 };
 
+const autocompleteSuggestions = computed(() => {
+  if (!chatboxAutocomplete.value || !chatboxText.value.trim()) return [];
+  const query = chatboxText.value.trim().toLowerCase();
+  const unique = Array.from(new Set(chatHistory.value.map(h => h.text)));
+  return unique.filter(t => t.toLowerCase().startsWith(query) && t.toLowerCase() !== query).slice(0, 5);
+});
+
+const applyAutocomplete = (text: string) => {
+  chatboxText.value = text;
+  chatboxAutocompleteIndex.value = -1;
+};
+
 const onChatboxInput = () => {
   if (chatboxTypingTimer) clearTimeout(chatboxTypingTimer);
   if (!chatboxText.value.trim()) {
     SysApi.sendOscTyping({ typing: false }).catch(() => {});
+    chatboxAutocompleteIndex.value = -1;
     return;
   }
   SysApi.sendOscTyping({ typing: true }).catch(() => {});
@@ -202,10 +219,26 @@ const onChatboxInput = () => {
   }, 3000);
 };
 
+const onChatboxKeydown = (e: KeyboardEvent) => {
+  if (!chatboxAutocomplete.value || !autocompleteSuggestions.value.length) return;
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const suggestions = autocompleteSuggestions.value;
+    if (chatboxAutocompleteIndex.value < 0) {
+      chatboxAutocompleteIndex.value = 0;
+    } else {
+      chatboxAutocompleteIndex.value = (chatboxAutocompleteIndex.value + 1) % suggestions.length;
+    }
+    applyAutocomplete(suggestions[chatboxAutocompleteIndex.value]);
+  } else if (e.key === 'Escape') {
+    chatboxAutocompleteIndex.value = -1;
+  }
+};
+
 const resendChatbox = async (text: string) => {
   chatboxStatus.value = { loading: true, message: '', type: '' };
   try {
-    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined });
+    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
   } catch (err: any) {
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
@@ -498,8 +531,14 @@ onUnmounted(() => {
             :placeholder="t('tools.chatbox_placeholder')"
             maxlength="144"
             @input="onChatboxInput"
+            @keydown.tab.prevent="onChatboxKeydown"
             @keydown.ctrl.enter.prevent="sendChatboxMessage"
           />
+          <div v-if="chatboxAutocomplete && autocompleteSuggestions.length" class="flex flex-wrap gap-1">
+            <button v-for="(suggestion, idx) in autocompleteSuggestions" :key="idx" class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft bg-surface-hover" :class="chatboxAutocompleteIndex === idx ? 'border-primary text-primary' : 'text-text-muted'" @click="applyAutocomplete(suggestion)">
+              {{ suggestion }}
+            </button>
+          </div>
           <div class="flex items-center justify-between text-[10px] text-text-muted font-bold">
             <span v-if="chatboxStatus.message" :class="chatboxStatus.type === 'success' ? 'text-emerald-600' : 'text-red-600'">{{ chatboxStatus.message }}</span>
             <span v-else>{{ t('tools.chatbox_hint') }}</span>
@@ -509,6 +548,11 @@ onUnmounted(() => {
             <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('发送延迟', 'Send delay') }}</label>
             <input v-model.number="chatboxSendDelay" type="number" min="0" max="5" step="0.1" class="w-16 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
             <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
+            <label class="flex items-center gap-1 cursor-pointer ml-auto">
+              <input v-model="chatboxNotification" type="checkbox" class="accent-primary">
+              <Bell :size="12" />
+              <span class="text-[10px] font-bold text-text-muted">{{ l('提示音', 'Notification') }}</span>
+            </label>
           </div>
           <button
             :disabled="chatboxStatus.loading || !chatboxText.trim()"

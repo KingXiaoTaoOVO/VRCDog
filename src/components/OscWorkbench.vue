@@ -7,6 +7,7 @@ import {
   Activity,
   Check,
   Clock3,
+  Copy,
   Cpu,
   Gauge,
   HardDrive,
@@ -97,6 +98,7 @@ const sending = ref(false);
 const monitorRunning = ref(false);
 const monitorPaused = ref(false);
 const monitorFilter = ref('');
+const monitorSourceFilter = ref('');
 const monitorEvents = ref<OscMonitorEvent[]>([]);
 const monitorError = ref('');
 
@@ -230,12 +232,16 @@ const sourceOptions = computed(() => [
 
 const filteredMonitorEvents = computed(() => {
   const query = monitorFilter.value.trim().toLowerCase();
-  if (!query) return monitorEvents.value;
-  return monitorEvents.value.filter((event) =>
-    event.address.toLowerCase().includes(query)
-    || event.sender.toLowerCase().includes(query)
-    || event.args.some((arg) => String(arg.value).toLowerCase().includes(query))
-  );
+  const source = monitorSourceFilter.value.trim().toLowerCase();
+  return monitorEvents.value.filter((event) => {
+    if (query && !(
+      event.address.toLowerCase().includes(query)
+      || event.sender.toLowerCase().includes(query)
+      || event.args.some((arg) => String(arg.value).toLowerCase().includes(query))
+    )) return false;
+    if (source && !event.sender.toLowerCase().includes(source)) return false;
+    return true;
+  });
 });
 
 const formatIdle = (seconds: number) => {
@@ -393,6 +399,18 @@ function useMonitorEvent(event: OscMonitorEvent) {
   sender.value.value = first?.value == null ? '' : String(first.value);
   activeTab.value = 'send';
 }
+
+const copyMonitorEvent = async (event: OscMonitorEvent) => {
+  const first = event.args[0];
+  const text = `${event.address} ${first?.valueType === 'string' ? `"${first.value}"` : first?.value ?? ''}`;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    }
+  } catch {
+    // ignore copy errors
+  }
+};
 
 function addRoute() {
   routes.value.push({
@@ -943,6 +961,10 @@ onUnmounted(() => {
             <span>{{ l('过滤', 'Filter') }}</span>
             <input v-model="monitorFilter" placeholder="/avatar/parameters/">
           </label>
+          <label class="filter-field">
+            <span>{{ l('来源', 'Source') }}</span>
+            <input v-model="monitorSourceFilter" placeholder="127.0.0.1">
+          </label>
           <button :class="{ active: monitorPaused }" :title="l('暂停日志显示', 'Pause log display')" @click="monitorPaused = !monitorPaused">
             <Pause :size="15" /> {{ monitorPaused ? l('已暂停', 'Paused') : l('暂停', 'Pause') }}
           </button>
@@ -972,6 +994,9 @@ onUnmounted(() => {
               <code v-if="event.args.length === 0">impulse</code>
             </span>
             <small>{{ event.sender }}</small>
+            <button class="copy-btn" :title="l('复制', 'Copy')" @click.stop="copyMonitorEvent(event)">
+              <Copy :size="12" />
+            </button>
           </button>
           <div v-if="filteredMonitorEvents.length === 0" class="monitor-empty">
             <Radio :size="30" />
@@ -1666,7 +1691,7 @@ code {
   width: 100%;
   min-height: 34px;
   display: grid;
-  grid-template-columns: 86px minmax(220px, 1.2fr) minmax(180px, 1fr) 150px;
+  grid-template-columns: 86px minmax(220px, 1.2fr) minmax(180px, 1fr) 150px 36px;
   align-items: center;
   gap: 10px;
   border: 0;
@@ -1713,6 +1738,24 @@ code {
   border-radius: 4px;
   color: var(--theme-primary);
   background: var(--theme-active-bg);
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theme-text-muted);
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  color: var(--theme-primary);
+  border-color: var(--theme-primary);
 }
 
 .monitor-empty,
