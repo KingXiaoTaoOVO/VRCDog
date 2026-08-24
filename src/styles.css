@@ -253,3 +253,18 @@ label.cursor-pointer.hover\:bg-primary\/10:hover * {
   background: var(--theme-border-strong);
   border-radius: 10px;
 }
+
+.chatbox-send-fx {
+  animation: chatboxSendFlash 0.4s ease-out;
+}
+
+@keyframes chatboxSendFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(245, 158, 11, 0);
+    transform: scale(1);
+  }
+}

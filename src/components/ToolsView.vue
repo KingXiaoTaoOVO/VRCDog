@@ -45,6 +45,15 @@ const oscSecondaryEnabled = ref(false);
 const oscTertiaryHost = ref('');
 const oscTertiaryPort = ref(9000);
 const oscTertiaryEnabled = ref(false);
+const chatFxEnabled = ref(true);
+let sendFxTimer: ReturnType<typeof setTimeout> | null = null;
+const chatTemplates = computed(() => [
+  { label: 'Hello', text: 'Hello everyone!' },
+  { label: 'AFK', text: 'AFK for a moment' },
+  { label: 'Thanks', text: 'Thanks!' },
+  { label: 'LOL', text: 'lol' },
+  { label: 'GG', text: 'GG!' },
+]);
 
 const dirStatus = ref({ message: '', type: '' });
 let vrcStatusTimer: ReturnType<typeof setInterval> | null = null;
@@ -228,9 +237,25 @@ const sendChatboxMessage = async () => {
     chatboxText.value = '';
     chatboxAutocompleteIndex.value = -1;
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
+    if (chatFxEnabled.value) {
+      triggerSendFx();
+    }
   } catch (err: any) {
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
   }
+};
+
+const triggerSendFx = () => {
+  const btn = document.querySelector('.chatbox-send-btn');
+  if (btn) {
+    btn.classList.add('chatbox-send-fx');
+    if (sendFxTimer) clearTimeout(sendFxTimer);
+    sendFxTimer = setTimeout(() => btn.classList.remove('chatbox-send-fx'), 400);
+  }
+};
+
+const applyTemplate = (text: string) => {
+  chatboxText.value = text;
 };
 
 const sendLiveTyping = async (fullText: string) => {
@@ -650,6 +675,11 @@ onUnmounted(() => {
         </h3>
         <p class="text-sm text-text-muted font-medium mb-4">{{ t('tools.chatbox_desc') }}</p>
         <div class="mt-auto space-y-2">
+          <div class="flex flex-wrap gap-1">
+            <button v-for="tmpl in chatTemplates" :key="tmpl.label" class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft bg-surface-hover text-text-muted hover:text-primary" @click="applyTemplate(tmpl.text)">
+              {{ tmpl.label }}
+            </button>
+          </div>
           <textarea
             v-model="chatboxText"
             class="w-full min-h-20 px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm text-text outline-none resize-none focus:border-primary"
@@ -717,13 +747,17 @@ onUnmounted(() => {
           </div>
           <button
             :disabled="chatboxStatus.loading || !chatboxText.trim()"
-            class="w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-colors"
+            class="chatbox-send-btn w-full py-2.5 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-colors"
             @click="sendChatboxMessage"
           >
             <Loader2 v-if="chatboxStatus.loading" class="animate-spin" :size="16" />
             <Send v-else :size="16" />
             {{ t('tools.chatbox_send') }}
           </button>
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input v-model="chatFxEnabled" type="checkbox" class="accent-primary">
+            <span class="text-[10px] font-bold text-text-muted">{{ l('发送特效', 'Send FX') }}</span>
+          </label>
         </div>
         <div class="flex items-center gap-2 mt-2">
           <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft" :class="chatboxKeepalive ? 'bg-emerald-500 text-white' : 'bg-surface-hover text-text-muted'" @click="toggleKeepalive">

@@ -1376,6 +1376,7 @@
 		"suffix": "后缀",
 		"separator": "分隔符",
 		"enter_separator": "换行分隔",
+		"send_fx": "发送特效",
 		"copy": "复制",
 		"status_title": "状态循环",
 		"status_desc": "自动轮播状态消息",
