@@ -35,6 +35,12 @@ const statusCycleInterval = ref(30);
 let statusCycleTimer: ReturnType<typeof setInterval> | null = null;
 const instanceTarget = ref('');
 const instanceStatus = ref({ loading: false, message: '', type: '' });
+const oscSecondaryHost = ref('');
+const oscSecondaryPort = ref(9000);
+const oscSecondaryEnabled = ref(false);
+const oscTertiaryHost = ref('');
+const oscTertiaryPort = ref(9000);
+const oscTertiaryEnabled = ref(false);
 
 const dirStatus = ref({ message: '', type: '' });
 let vrcStatusTimer: ReturnType<typeof setInterval> | null = null;
@@ -195,7 +201,20 @@ const sendChatboxMessage = async () => {
     if (chatboxLiveTyping.value) {
       await sendLiveTyping(fullText);
     } else {
-      await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
+      const hasSecondary = oscSecondaryEnabled.value && oscSecondaryHost.value.trim();
+      const hasTertiary = oscTertiaryEnabled.value && oscTertiaryHost.value.trim();
+      if (hasSecondary || hasTertiary) {
+        await SysApi.sendOscChatboxMulti({
+          text: fullText,
+          complete: true,
+          delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined,
+          notification: chatboxNotification.value || undefined,
+          secondary: hasSecondary ? { host: oscSecondaryHost.value, port: oscSecondaryPort.value, enabled: oscSecondaryEnabled.value } : undefined,
+          tertiary: hasTertiary ? { host: oscTertiaryHost.value, port: oscTertiaryPort.value, enabled: oscTertiaryEnabled.value } : undefined,
+        });
+      } else {
+        await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
+      }
     }
     chatHistory.value.unshift({ text: fullText, sentAt: new Date().toISOString() });
     if (chatHistory.value.length > 50) chatHistory.value = chatHistory.value.slice(0, 50);
@@ -690,6 +709,19 @@ onUnmounted(() => {
             <Clock3 :size="12" class="inline mr-1" /> {{ chatboxKeepalive ? l('保活中', 'Keepalive ON') : l('保活', 'Keepalive') }}
           </button>
           <span class="text-[10px] text-text-muted font-bold">{{ l('防止chatbox超时', 'Prevent chatbox timeout') }}</span>
+        </div>
+        <div class="mt-2 space-y-1">
+          <div class="text-[10px] font-bold text-text-muted">{{ l('多目标发送', 'Multi-target send') }}</div>
+          <div class="flex items-center gap-1">
+            <input v-model="oscSecondaryEnabled" type="checkbox" class="accent-primary">
+            <input v-model="oscSecondaryHost" type="text" placeholder="secondary host" class="w-24 px-1 py-0.5 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <input v-model.number="oscSecondaryPort" type="number" class="w-12 px-1 py-0.5 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+          </div>
+          <div class="flex items-center gap-1">
+            <input v-model="oscTertiaryEnabled" type="checkbox" class="accent-primary">
+            <input v-model="oscTertiaryHost" type="text" placeholder="tertiary host" class="w-24 px-1 py-0.5 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <input v-model.number="oscTertiaryPort" type="number" class="w-12 px-1 py-0.5 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+          </div>
         </div>
       </div>
 

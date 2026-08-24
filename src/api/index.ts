@@ -885,6 +885,7 @@ export const SysApi = {
   killVrc: () => safeInvoke<void>('sys_kill_vrchat'),
   sendOscParam: (params: { address: string; value: number }) => safeInvoke<void>('sys_send_osc_param', params),
   sendOscChatbox: (params: { text: string; complete: boolean; delaySecs?: number; notification?: boolean }) => safeInvoke<void>('sys_send_osc_chatbox', params),
+  sendOscChatboxMulti: (params: { text: string; complete: boolean; delaySecs?: number; notification?: boolean; secondary?: { host: string; port: number; enabled: boolean }; tertiary?: { host: string; port: number; enabled: boolean } }) => safeInvoke<void>('sys_send_osc_chatbox_multi', params),
   sendOscTyping: (params: { typing: boolean }) => safeInvoke<void>('sys_send_osc_typing', params),
   startChatboxKeepalive: () => safeInvoke<void>('sys_chatbox_keepalive_start', {}),
   stopChatboxKeepalive: () => safeInvoke<void>('sys_chatbox_keepalive_stop', {}),

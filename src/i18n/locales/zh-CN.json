@@ -1371,6 +1371,7 @@
 		"chatbox_live_typing_cps": "字/秒",
 		"chatbox_live_typing_finalize": "自动完成",
 		"chatbox_live_typing_finalize_sec": "秒",
+		"multi_target_send": "多目标发送",
 		"copy": "复制",
 		"status_title": "状态循环",
 		"status_desc": "自动轮播状态消息",

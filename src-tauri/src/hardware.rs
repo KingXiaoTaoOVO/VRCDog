@@ -151,6 +151,53 @@ pub fn sys_send_osc_chatbox(text: String, complete: bool, delay_secs: Option<f64
 }
 
 #[tauri::command]
+pub fn sys_send_osc_chatbox_multi(
+    text: String,
+    complete: bool,
+    delay_secs: Option<f64>,
+    notification: Option<bool>,
+    secondary: Option<(String, u16, bool)>,
+    tertiary: Option<(String, u16, bool)>,
+) -> AppResult<()> {
+    if let Some(delay) = delay_secs {
+        if delay > 0.0 {
+            let ms = (delay * 1000.0).round().max(1.0) as u64;
+            std::thread::sleep(Duration::from_millis(ms));
+        }
+    }
+    let notif = notification.unwrap_or(false);
+    send_osc_chatbox_raw(text.clone(), complete, notif)?;
+    if let Some((host, port, enabled)) = secondary {
+        if enabled {
+            send_osc_chatbox_to(&text, complete, notif, &host, port)?;
+        }
+    }
+    if let Some((host, port, enabled)) = tertiary {
+        if enabled {
+            send_osc_chatbox_to(&text, complete, notif, &host, port)?;
+        }
+    }
+    Ok(())
+}
+
+fn send_osc_chatbox_to(text: &str, complete: bool, notification: bool, host: &str, port: u16) -> AppResult<()> {
+    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
+    let msg = OscMessage {
+        addr: "/chatbox/input".to_string(),
+        args: vec![
+            OscType::String(text.to_string()),
+            OscType::Bool(complete),
+            OscType::Bool(notification),
+        ],
+    };
+    let packet = OscPacket::Message(msg);
+    let buf = rosc::encoder::encode(&packet).map_err(|e| crate::AppError::from(e.to_string()))?;
+    let endpoint = format!("{}:{}", host, port);
+    socket.send_to(&buf, endpoint).map_err(|e| crate::AppError::from(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn sys_send_osc_typing(text: String, typing: bool) -> AppResult<()> {
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
     let msg = OscMessage {
