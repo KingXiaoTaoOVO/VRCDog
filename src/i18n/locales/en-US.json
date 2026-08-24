@@ -1371,6 +1371,7 @@
     "chatbox_live_typing_cps": "cps",
     "chatbox_live_typing_finalize": "Auto finalize",
     "chatbox_live_typing_finalize_sec": "sec",
+    "multi_target_send": "Multi-target send",
     "copy": "Copy",
     "status_title": "Status cycling",
     "status_desc": "Auto-rotate status messages",

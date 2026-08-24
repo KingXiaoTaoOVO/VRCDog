@@ -376,6 +376,7 @@ pub fn run() {
             hardware::sys_kill_vrchat,
             hardware::sys_send_osc_param,
             hardware::sys_send_osc_chatbox,
+            hardware::sys_send_osc_chatbox_multi,
             hardware::sys_send_osc_typing,
             hardware::sys_chatbox_keepalive_start,
             hardware::sys_chatbox_keepalive_stop,
