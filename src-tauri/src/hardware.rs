@@ -140,14 +140,14 @@ pub fn sys_send_osc_param(address: String, value: f32) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn sys_send_osc_chatbox(text: String, complete: bool, delay_secs: Option<f64>) -> AppResult<()> {
+pub fn sys_send_osc_chatbox(text: String, complete: bool, delay_secs: Option<f64>, notification: Option<bool>) -> AppResult<()> {
     if let Some(delay) = delay_secs {
         if delay > 0.0 {
             let ms = (delay * 1000.0).round().max(1.0) as u64;
             std::thread::sleep(Duration::from_millis(ms));
         }
     }
-    send_osc_chatbox_raw(text, complete, false)
+    send_osc_chatbox_raw(text, complete, notification.unwrap_or(false))
 }
 
 #[tauri::command]
