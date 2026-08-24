@@ -1376,6 +1376,7 @@
     "suffix": "Suffix",
     "separator": "Separator",
     "enter_separator": "Enter sep",
+    "send_fx": "Send FX",
     "copy": "Copy",
     "status_title": "Status cycling",
     "status_desc": "Auto-rotate status messages",
