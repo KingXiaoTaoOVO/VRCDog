@@ -23,6 +23,9 @@ const chatboxSendDelay = ref(0);
 const chatboxKeepalive = ref(false);
 const chatboxNotification = ref(false);
 const chatboxEmojiShuffle = ref(false);
+const chatboxLiveTyping = ref(false);
+const chatboxLiveTypingRate = ref(3);
+const chatboxLiveTypingFinalize = ref(6);
 const chatboxAutocomplete = ref(false);
 const chatboxAutocompleteIndex = ref(-1);
 const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
@@ -189,7 +192,11 @@ const sendChatboxMessage = async () => {
   try {
     const prefix = chatboxEmojiShuffle.value ? `${getRandomEmoji()} ` : '';
     const fullText = prefix + text;
-    await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
+    if (chatboxLiveTyping.value) {
+      await sendLiveTyping(fullText);
+    } else {
+      await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
+    }
     chatHistory.value.unshift({ text: fullText, sentAt: new Date().toISOString() });
     if (chatHistory.value.length > 50) chatHistory.value = chatHistory.value.slice(0, 50);
     chatboxText.value = '';
@@ -198,6 +205,18 @@ const sendChatboxMessage = async () => {
   } catch (err: any) {
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
   }
+};
+
+const sendLiveTyping = async (fullText: string) => {
+  const charsPerSecond = Math.max(1, chatboxLiveTypingRate.value);
+  const delayMs = Math.max(50, Math.round(1000 / charsPerSecond));
+  const finalizeMs = Math.max(1000, chatboxLiveTypingFinalize.value * 1000);
+  for (let i = 1; i <= fullText.length; i++) {
+    const partial = fullText.slice(0, i);
+    await SysApi.sendOscChatbox({ text: partial, complete: false, delaySecs: 0, notification: false });
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+  await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
 };
 
 const autocompleteSuggestions = computed(() => {
@@ -643,6 +662,18 @@ onUnmounted(() => {
             <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft bg-surface-hover text-text-muted hover:text-red-500" @click="clearChatbox" :disabled="chatboxStatus.loading">
               <XCircle :size="12" class="inline mr-1" /> {{ l('清空聊天框', 'Clear chatbox') }}
             </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input v-model="chatboxLiveTyping" type="checkbox" class="accent-primary">
+              <span class="text-[10px] font-bold text-text-muted">{{ l('逐字发送', 'Live typing') }}</span>
+            </label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('速度', 'Rate') }}</label>
+            <input v-model.number="chatboxLiveTypingRate" type="number" min="1" max="20" step="1" class="w-14 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <span class="text-[10px] text-text-muted font-bold">{{ l('字/秒', 'cps') }}</span>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('自动完成', 'Auto finalize') }}</label>
+            <input v-model.number="chatboxLiveTypingFinalize" type="number" min="1" max="30" step="1" class="w-14 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
           </div>
           <button
             :disabled="chatboxStatus.loading || !chatboxText.trim()"
