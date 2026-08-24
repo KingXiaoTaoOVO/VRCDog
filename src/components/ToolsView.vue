@@ -7,6 +7,8 @@ import { useAuthStore } from '../stores/authStore';
 import OscWorkbench from './OscWorkbench.vue';
 
 const { t } = useI18n();
+const { locale } = useI18n();
+const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const authStore = useAuthStore();
 
 const isVrcRunning = ref(false);
@@ -15,6 +17,7 @@ const rpcForm = ref({ details: 'Using VrcDog', state: 'Chilling in VRChat' });
 const rpcStatus = ref({ loading: false, message: '', type: '' });
 const chatboxText = ref('');
 const chatboxStatus = ref({ loading: false, message: '', type: '' });
+const chatboxSendDelay = ref(0);
 const instanceTarget = ref('');
 const instanceStatus = ref({ loading: false, message: '', type: '' });
 
@@ -168,7 +171,7 @@ const sendChatboxMessage = async () => {
   if (!text) return;
   chatboxStatus.value = { loading: true, message: '', type: '' };
   try {
-    await SysApi.sendOscChatbox({ text, complete: true });
+    await SysApi.sendOscChatbox({ text, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined });
     chatboxText.value = '';
     chatboxStatus.value = { loading: false, message: t('tools.chatbox_success'), type: 'success' };
   } catch (err: any) {
@@ -443,6 +446,11 @@ onUnmounted(() => {
             <span v-if="chatboxStatus.message" :class="chatboxStatus.type === 'success' ? 'text-emerald-600' : 'text-red-600'">{{ chatboxStatus.message }}</span>
             <span v-else>{{ t('tools.chatbox_hint') }}</span>
             <span>{{ chatboxText.length }}/144</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('发送延迟', 'Send delay') }}</label>
+            <input v-model.number="chatboxSendDelay" type="number" min="0" max="5" step="0.1" class="w-16 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
+            <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
           </div>
           <button
             :disabled="chatboxStatus.loading || !chatboxText.trim()"

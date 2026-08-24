@@ -884,7 +884,7 @@ export const SysApi = {
   launchVrc: (params?: { launchArgs?: string }) => safeInvoke<void>('sys_launch_vrchat', params),
   killVrc: () => safeInvoke<void>('sys_kill_vrchat'),
   sendOscParam: (params: { address: string; value: number }) => safeInvoke<void>('sys_send_osc_param', params),
-  sendOscChatbox: (params: { text: string; complete: boolean }) => safeInvoke<void>('sys_send_osc_chatbox', params),
+  sendOscChatbox: (params: { text: string; complete: boolean; delaySecs?: number }) => safeInvoke<void>('sys_send_osc_chatbox', params),
   setDiscordRpc: (params: { details: string; state: string; showWorldThumbnail?: boolean; showJoinButton?: boolean }) => safeInvoke<void>('sys_set_discord_rpc', params),
   saveTextFile: (params: { path: string; content: string }) => safeInvoke<void>('sys_save_text_file', params),
   saveBinaryFile: (params: { path: string; content: number[] }) => safeInvoke<void>('sys_save_binary_file', params),
@@ -988,7 +988,7 @@ export interface OscRouteRule {
 export const OscApi = {
   sendMessage: (params: { host: string; port: number; address: string; valueType: OscValueType; value: unknown }) =>
     safeInvoke<void>('osc_send_message', params),
-  sendChatbox: (params: { host: string; port: number; text: string; send: boolean; notify: boolean }) =>
+  sendChatbox: (params: { host: string; port: number; text: string; send: boolean; notify: boolean; delaySecs?: number }) =>
     safeInvoke<void>('osc_send_chatbox', params),
   startMonitor: (params: { host: string; port: number; routes?: OscRouteRule[] }) =>
     safeInvoke<void>('osc_start_monitor', params),

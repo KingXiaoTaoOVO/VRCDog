@@ -142,6 +142,7 @@ const autoChatInterval = ref(8);
 const autoChatRunning = ref(false);
 const chatQueue = ref<string[]>([]);
 const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
+const chatSendDelay = ref(0);
 let autoChatTimer: number | null = null;
 let typingTimer: number | null = null;
 
@@ -512,6 +513,7 @@ async function sendChatText(text: string) {
     text: trimmed,
     send: true,
     notify: chatNotify.value,
+    delaySecs: chatSendDelay.value > 0 ? chatSendDelay.value : undefined,
   });
   await setTyping(false);
   chatHistory.value.unshift({ text: trimmed, sentAt: new Date().toISOString() });
@@ -1068,6 +1070,14 @@ onUnmounted(() => {
                 <Play v-else :size="15" />
                 {{ autoChatRunning ? l('停止', 'Stop') : l('开始定时', 'Start timer') }}
               </button>
+            </div>
+            <div class="auto-chat-controls">
+              <label class="delay-control">
+                <span>{{ l('发送前延迟', 'Send delay') }}</span>
+                <input v-model.number="chatSendDelay" type="number" min="0" max="5" step="0.1">
+                {{ l('秒', 'sec') }}
+              </label>
+              <span v-if="chatSendDelay > 0" class="hint">{{ l('防止VRChat丢消息', 'Prevents VRChat from dropping the message') }}</span>
             </div>
 
             <div class="queue-head">
