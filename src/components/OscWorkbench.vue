@@ -143,6 +143,7 @@ const autoChatRunning = ref(false);
 const chatQueue = ref<string[]>([]);
 const chatHistory = ref<{ text: string; sentAt: string }[]>([]);
 const chatSendDelay = ref(0);
+const keepaliveActive = ref(false);
 let autoChatTimer: number | null = null;
 let typingTimer: number | null = null;
 
@@ -759,6 +760,9 @@ onMounted(async () => {
     unlisteners.push(await listen<OscSystemSnapshot>('osc-system-snapshot', ({ payload }) => {
       snapshot.value = payload;
     }));
+    unlisteners.push(await listen('chatbox-keepalive-tick', () => {
+      keepaliveActive.value = true;
+    }));
   }
 });
 
@@ -1027,6 +1031,11 @@ onUnmounted(() => {
             <div class="toggle-row">
               <label><input v-model="typingEnabled" type="checkbox"> {{ l('输入时同步 typing 状态', 'Sync typing state while editing') }}</label>
               <label><input v-model="chatNotify" type="checkbox"> {{ l('Chatbox 提示音', 'Chatbox notification sound') }}</label>
+            </div>
+            <div class="toggle-row">
+              <label>
+                <span class="text-[10px] font-bold" :class="keepaliveActive ? 'text-emerald-500' : 'text-text-muted'">{{ keepaliveActive ? l('保活中', 'Keepalive active') : l('保活未启动', 'Keepalive idle') }}</span>
+              </label>
             </div>
 
             <div class="primary-actions">
