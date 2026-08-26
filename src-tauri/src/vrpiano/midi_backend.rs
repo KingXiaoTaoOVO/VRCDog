@@ -1,16 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use midir::{MidiOutput, MidiOutputConnection};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BleMidiDevice {
-    pub id: String,
-    pub name: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MidiDevice {
@@ -52,27 +43,19 @@ impl Default for MidiOutputState {
 
 pub struct MidiOutputBackend {
     connection: Option<Arc<Mutex<MidiOutputConnection>>>,
-    ble_connection: Option<Arc<Mutex<()>>>,
     state: Arc<Mutex<MidiOutputState>>,
-    stop_flag: Arc<AtomicBool>,
 }
 
 impl MidiOutputBackend {
     pub fn new() -> Self {
         Self {
             connection: None,
-            ble_connection: None,
             state: Arc::new(Mutex::new(MidiOutputState::default())),
-            stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn state(&self) -> Arc<Mutex<MidiOutputState>> {
         self.state.clone()
-    }
-
-    pub fn stop_flag(&self) -> Arc<AtomicBool> {
-        self.stop_flag.clone()
     }
 
     pub fn list_usb_devices() -> Vec<MidiDevice> {
@@ -89,14 +72,6 @@ impl MidiOutputBackend {
             }
         }
         devices
-    }
-
-    pub fn list_ble_devices() -> Vec<MidiDevice> {
-        #[cfg(target_os = "windows")]
-        {
-            let _ = btleplug::platform::Manager::new();
-        }
-        Vec::new()
     }
 
     pub fn connect_usb(&mut self, device_id: &str) -> Result<(), String> {
@@ -118,7 +93,6 @@ impl MidiOutputBackend {
             .connect(port, "vrpiano-output")
             .map_err(|e| format!("Failed to connect to MIDI device: {e}"))?;
 
-        // Send MIDI active sensing / reset to verify connection
         connection.send(&[0xFE]).ok();
 
         let conn = Arc::new(Mutex::new(connection));
@@ -135,14 +109,7 @@ impl MidiOutputBackend {
         Ok(())
     }
 
-    pub fn connect_ble(&mut self, device_id: &str) -> Result<(), String> {
-        self.disconnect();
-        let _ = device_id;
-        Err("BLE MIDI output is not yet implemented. Please use USB MIDI.".to_string())
-    }
-
     pub fn disconnect(&mut self) {
-        self.stop_flag.store(true, Ordering::SeqCst);
         self.connection = None;
 
         let mut state = self.state.lock().unwrap();
@@ -151,8 +118,6 @@ impl MidiOutputBackend {
         state.device_name = None;
         state.kind = None;
         state.last_error = None;
-
-        self.stop_flag.store(false, Ordering::SeqCst);
     }
 
     pub fn send_note_on(&self, note: u8, velocity: u8, channel: u8) -> Result<(), String> {
@@ -200,29 +165,18 @@ impl MidiOutputBackend {
     }
 
     pub fn send_all_sound_off(&self, channel: u8) -> Result<(), String> {
-        self.send_control_change(channel, 120, 0)
+        self.send_control_change(channel, 123, 0)
     }
 
-    pub fn send_panic(&self) -> Result<(), String> {
-        for ch in 0..16u8 {
-            let _ = self.send_all_notes_off(ch);
-            let _ = self.send_reset_all_controllers(ch);
-            let _ = self.send_all_sound_off(ch);
+    pub fn send_panic(&self) {
+        for channel in 0..16u8 {
+            let _ = self.send_all_notes_off(channel);
+            let _ = self.send_reset_all_controllers(channel);
+            let _ = self.send_all_sound_off(channel);
         }
-        // Send explicit note offs for common notes
         for note in 0..128u8 {
             let _ = self.send_note_off(note, 0);
         }
-        Ok(())
-    }
-
-    pub fn send_program_change(&self, channel: u8, program: u8) -> Result<(), String> {
-        let conn = self.connection.as_ref().ok_or_else(|| "No MIDI connection".to_string())?;
-        let mut conn = conn.lock().unwrap();
-        let status: u8 = 0xC0 | (channel & 0x0F);
-        conn.send(&[status, program & 0x7F])
-            .map_err(|e| format!("Failed to send program change: {e}"))?;
-        Ok(())
     }
 }
 
@@ -230,36 +184,4 @@ impl Default for MidiOutputBackend {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Precise sleep that can be interrupted by a stop flag.
-/// This is inspired by aps-notecast's sleep_unscaled_interruptible.
-pub fn sleep_precise_interruptible(duration: Duration, stop: &AtomicBool, paused: &AtomicBool) {
-    let start = Instant::now();
-    while start.elapsed() < duration {
-        if stop.load(Ordering::SeqCst) {
-            return;
-        }
-        while paused.load(Ordering::SeqCst) {
-            thread::sleep(Duration::from_millis(10));
-            if stop.load(Ordering::SeqCst) {
-                return;
-            }
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-}
-
-/// Sleep with playback speed scaling.
-pub fn sleep_scaled_interruptible(
-    base_ms: u64,
-    stop: &AtomicBool,
-    paused: &AtomicBool,
-    speed: f64,
-) {
-    if speed <= 0.0 {
-        return;
-    }
-    let scaled = Duration::from_millis((base_ms as f64 / speed) as u64);
-    sleep_precise_interruptible(scaled, stop, paused);
 }

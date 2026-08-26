@@ -1,7 +1,7 @@
 use base64::Engine;
 use qrcode::QrCode;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER, USER_AGENT};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::io::Cursor;
 use std::time::Duration;
 

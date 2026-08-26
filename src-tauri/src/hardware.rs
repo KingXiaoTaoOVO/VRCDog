@@ -198,7 +198,7 @@ fn send_osc_chatbox_to(text: &str, complete: bool, notification: bool, host: &st
 }
 
 #[tauri::command]
-pub fn sys_send_osc_typing(text: String, typing: bool) -> AppResult<()> {
+pub fn sys_send_osc_typing(_text: String, typing: bool) -> AppResult<()> {
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| crate::AppError::from(e.to_string()))?;
     let msg = OscMessage {
         addr: "/chatbox/typing".to_string(),

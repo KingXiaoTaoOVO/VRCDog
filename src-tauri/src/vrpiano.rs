@@ -3,7 +3,7 @@ use midly::{MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
@@ -2052,7 +2052,7 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
 
     for track in &smf.tracks {
         let mut tick = 0_u64;
-        let mut channel = 0u8;
+        let channel = 0u8;
         for event in track {
             tick = tick.saturating_add(u64::from(event.delta.as_int()));
             if let TrackEventKind::Midi { message, .. } = event.kind {
@@ -4574,7 +4574,7 @@ fn run_python_bridge(app: &tauri::AppHandle, script: &str, args: &[&str]) -> Res
 
 #[tauri::command]
 pub async fn vrpiano_start_voice_listening(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, VrpianoState>,
 ) -> Result<String, String> {
     update_status(&state, |status| {
