@@ -110,6 +110,30 @@ const fixFloor = async () => {
   }
 };
 
+const setSnapTurnAngle = async (angle: number) => {
+  try {
+    await invoke('ovr_set_snap_turn_angle', { angle });
+  } catch (e) {
+    console.warn('[OvrAdvPanels] Snap turn angle error:', e);
+  }
+};
+
+const setLockAxis = async (axis: string, enabled: boolean) => {
+  try {
+    await invoke('ovr_set_lock_axis', { axis, enabled });
+  } catch (e) {
+    console.warn('[OvrAdvPanels] Lock axis error:', e);
+  }
+};
+
+const captureScreenshot = async () => {
+  try {
+    await invoke('ovr_capture_screenshot');
+  } catch (e) {
+    console.warn('[OvrAdvPanels] Screenshot error:', e);
+  }
+};
+
 // Auto-apply offset when slider changes
 watch(() => [props.config.playspace.offsetX, props.config.playspace.offsetY, props.config.playspace.offsetZ], () => {
   applyPlayspaceOffset();
@@ -117,6 +141,62 @@ watch(() => [props.config.playspace.offsetX, props.config.playspace.offsetY, pro
 
 watch(() => props.config.playspace.rotation, () => {
   applyPlayspaceRotation();
+});
+
+watch(() => props.config.general.snapTurnEnabled, (val) => {
+  invoke('ovr_set_snap_turn_enabled', { enabled: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.rotationSnapTurnAngle, (val) => {
+  setSnapTurnAngle(val);
+});
+
+watch(() => props.config.general.smoothTurnEnabled, (val) => {
+  invoke('ovr_set_smooth_turn_enabled', { enabled: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.rotationSmoothTurnRate, (val) => {
+  invoke('ovr_set_smooth_turn_rate', { rate: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.lockXEnabled, (val) => {
+  setLockAxis('x', val);
+});
+
+watch(() => props.config.general.lockYEnabled, (val) => {
+  setLockAxis('y', val);
+});
+
+watch(() => props.config.general.lockZEnabled, (val) => {
+  setLockAxis('z', val);
+});
+
+watch(() => props.config.general.motionGravityOn, (val) => {
+  invoke('ovr_set_gravity_enabled', { enabled: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.motionGravityStrength, (val) => {
+  invoke('ovr_set_gravity_strength', { strength: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.motionFlingStrength, (val) => {
+  invoke('ovr_set_fling_strength', { strength: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.motionDragMultiplier, (val) => {
+  invoke('ovr_set_drag_multiplier', { multiplier: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.comfortTurnEnabled, (val) => {
+  invoke('ovr_set_comfort_turn_enabled', { enabled: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.captureMode, (val) => {
+  invoke('ovr_set_capture_mode', { mode: val }).catch(console.warn);
+});
+
+watch(() => props.config.general.captureAutoSave, (val) => {
+  invoke('ovr_set_capture_auto_save', { enabled: val }).catch(console.warn);
 });
 
 // Listen for performance stats from VR thread
@@ -627,6 +707,96 @@ onUnmounted(() => {
             class="rounded text-primary"
           >
         </label>
+
+        <!-- OpenVR-AdvancedSettings: Snap Turn -->
+        <h3 class="font-bold text-primary mt-4">
+          {{ t('ovr.ovras_snap_turn') }}
+        </h3>
+        <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
+          <label class="flex items-center justify-between">
+            <span class="text-sm font-bold text-primary">{{ t('ovr.ovras_snap_turn_enable') }}</span>
+            <input
+              v-model="config.general.snapTurnEnabled"
+              type="checkbox"
+              class="rounded text-primary"
+            >
+          </label>
+          <div>
+            <label class="block text-xs font-bold text-primary mb-1">{{ t('ovr.ovras_snap_turn_angle', { val: config.general.rotationSnapTurnAngle || 30 }) }}°</label>
+            <input
+              v-model.number="config.general.rotationSnapTurnAngle"
+              type="range"
+              min="15"
+              max="90"
+              step="15"
+              class="w-full h-2 bg-primary/10 rounded appearance-none cursor-pointer"
+              :disabled="!config.general.snapTurnEnabled"
+            >
+          </div>
+        </div>
+
+        <!-- OpenVR-AdvancedSettings: Axis Locks -->
+        <h3 class="font-bold text-primary mt-4">
+          {{ t('ovr.ovras_axis_locks') }}
+        </h3>
+        <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-3">
+          <label class="flex items-center justify-between">
+            <span class="text-sm font-bold text-primary">X {{ t('ovr.ovras_lock') }}</span>
+            <input
+              v-model="config.general.lockXEnabled"
+              type="checkbox"
+              class="rounded text-primary"
+            >
+          </label>
+          <label class="flex items-center justify-between">
+            <span class="text-sm font-bold text-primary">Y {{ t('ovr.ovras_lock') }}</span>
+            <input
+              v-model="config.general.lockYEnabled"
+              type="checkbox"
+              class="rounded text-primary"
+            >
+          </label>
+          <label class="flex items-center justify-between">
+            <span class="text-sm font-bold text-primary">Z {{ t('ovr.ovras_lock') }}</span>
+            <input
+              v-model="config.general.lockZEnabled"
+              type="checkbox"
+              class="rounded text-primary"
+            >
+          </label>
+        </div>
+
+        <!-- OpenVR-AdvancedSettings: Screenshot/Capture -->
+        <h3 class="font-bold text-primary mt-4">
+          {{ t('ovr.ovras_capture') }}
+        </h3>
+        <div class="p-4 bg-surface rounded-2xl border-primary shadow-sm space-y-4">
+          <label class="flex items-center justify-between">
+            <span class="text-sm font-bold text-primary">{{ t('ovr.ovras_capture_mode') }}</span>
+            <select
+              v-model="config.general.captureMode"
+              class="bg-surface-hover border border-border-strong rounded px-2 py-1 text-sm"
+            >
+              <option value="static">{{ t('ovr.ovras_capture_static') }}</option>
+              <option value="dynamic">{{ t('ovr.ovras_capture_dynamic') }}</option>
+              <option value="follow">{{ t('ovr.ovras_capture_follow') }}</option>
+            </select>
+          </label>
+          <label class="flex items-center justify-between">
+            <span class="text-sm font-bold text-primary">{{ t('ovr.ovras_capture_auto_save') }}</span>
+            <input
+              v-model="config.general.captureAutoSave"
+              type="checkbox"
+              class="rounded text-primary"
+            >
+          </label>
+          <button
+            class="w-full p-3 bg-primary text-white hover:bg-primary-hover rounded-xl font-bold text-sm"
+            @click="captureScreenshot"
+          >
+            {{ t('ovr.ovras_capture_now') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

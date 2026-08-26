@@ -1,4 +1,4 @@
-use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
+﻿use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 
 /// Structured menu item for the native VR menu (replaces raw display strings so we
 /// can render labels, optional value pills and back/info affordances cleanly).
@@ -1198,14 +1198,16 @@ fn build_vr_menu_items(
             ]
         }
         _ => match page {
-            0 => vec![
-                mid("基础设置", "翻译、OCR、叠加层等核心开关"),
-                mid("好友与社交", "VRChat 好友与通知中心"),
-                mid("语音与媒体", "麦克风翻译、VRPiano、弹幕"),
-                mid("日志追踪", "VRCLS 游戏内日志面板"),
-                mid("空间控制", "OVRAS 高度、重置、修复地板"),
-                mid("操作说明", "必看：手势、扳机、握把速查"),
-            ],
+             0 => vec![
+                 mid("翻译设置", "主功能、双栏显示、手腕模式"),
+                 mid("空间控制", "OVRAS 风格移动、旋转、重力"),
+                 mid("截图捕捉", "动态截图与保存设置"),
+                 mid("好友与社交", "VRChat 好友与通知中心"),
+                 mid("语音与媒体", "麦克风翻译、VRPiano、弹幕"),
+                 mid("日志追踪", "VRCLS 游戏内日志面板"),
+                 mid("空间控制", "OVRAS 高度、重置、修复地板"),
+                 mid("操作说明", "必看：手势、扳机、握把速查"),
+             ],
             1 => vec![
                 miv("主功能启用", (if translation_enabled { "开" } else { "关" }).to_string()),
                 miv("原文 / 译文切换", (if config.dual_display { "开" } else { "关" }).to_string()),
@@ -1245,6 +1247,23 @@ fn build_vr_menu_items(
                 mii("双击 右手B键: 开关主菜单"),
                 mii("双击按住 右手扳机: 拖拽框选翻译"),
                 mii("握住 右手Grip+摇杆: 缩放推拉菜单"),
+                mib("返回主菜单"),
+            ],
+            14 => vec![
+                miv("瞬转角度", format!("{}°", config.snap_turn_angle)),
+                miv("重力牵引", (if config.gravity_enabled { "开" } else { "关" }).to_string()),
+                miv("轴锁定", format!("{}{}{}",
+                    if config.lock_x_enabled { "X" } else { "" },
+                    if config.lock_y_enabled { "Y" } else { "" },
+                    if config.lock_z_enabled { "Z" } else { "" }
+                )),
+                mib("返回主菜单"),
+            ],
+            15 => vec![
+                miv("捕捉模式", config.capture_mode.clone()),
+                miv("自动保存", (if config.capture_auto_save { "开" } else { "关" }).to_string()),
+                miv("图片格式", config.capture_format.clone()),
+                mi("立即截图"),
                 mib("返回主菜单"),
             ],
             _ => vec![mib("返回主菜单")],

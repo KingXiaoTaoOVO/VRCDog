@@ -1,4 +1,4 @@
-{
+﻿{
 	"app": {
 		"title": "VrcDog",
 		"subtitle": "社交管家",
@@ -362,8 +362,15 @@
 		"update_info_desc": "保持您的 VrcDog 客户端处于最新状态，获取最新的功能体验与性能修复",
 		"checking_update": "正在检查...",
 		"auto_check_update": "自动检查更新",
-		"auto_check_update_desc": "每次打开软件时自动在后台检查是否有新版本发布",
-		"vrc_launch_args": "VRChat 启动参数 (Launch Args)",
+	"auto_check_update_desc": "每次打开软件时自动在后台检查是否有新版本发布",
+	"web_update_source": "Web 更新源",
+	"web_update_source_desc": "Web 端自动更新的检查地址，留空则使用默认官方源",
+	"web_update_source_default": "恢复默认更新源",
+	"web_update_checking": "正在检查 Web 更新...",
+	"web_update_available": "发现新版本 {version}，点击刷新页面更新",
+	"web_update_latest": "Web 端已是最新版本",
+	"web_update_failed": "Web 更新检查失败: {error}",
+	"vrc_launch_args": "VRChat 启动参数 (Launch Args)",
 		"vrc_launch_args_desc": "当您通过 VrcDog 启动 VRChat 或加入实例时，将附加这些命令行参数。",
 		"vrc_cache_clear": "VRChat 存档与缓存清理",
 		"vrc_cache_clear_desc": "清理 VRChat 下载的图片、世界和头像缓存，释放磁盘空间",
@@ -2761,5 +2768,21 @@
 		"remote_screen": "远程画面",
 		"waiting_for_screen": "等待远端画面",
 		"connection_failed": "远程连接失败"
-	}
-}
+	},
+	"ovr": {
+		"ovras_snap_turn": "瞬转控制",
+		"ovras_snap_turn_enable": "启用瞬转",
+		"ovras_snap_turn_angle": "瞬转角度: {val}°",
+		"ovras_axis_locks": "轴锁定",
+		"ovras_lock": "锁定",
+		"ovras_capture": "截图捕捉",
+		"ovras_capture_mode": "捕捉模式",
+		"ovras_capture_static": "静态",
+		"ovras_capture_dynamic": "动态",
+		"ovras_capture_follow": "跟随",
+		"ovras_capture_auto_save": "自动保存",
+		"ovras_capture_now": "立即截图",
+		"ovras_gravity_toggle": "重力牵引",
+		"ovras_gravity_strength": "重力强度",
+		"ovras_fling_strength": "投掷力度"
+	}}

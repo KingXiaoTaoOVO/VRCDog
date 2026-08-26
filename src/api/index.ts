@@ -24,6 +24,7 @@ import { isDebugLogEnabled } from './debugConfig';
 import { toCleanBase64 } from './utils';
 import { normalizeTwoFactorMethod } from './twoFactor';
 import type { SurveyAnswerAttachment } from '../types/survey';
+import { ServerApi } from './serverClient';
 
 const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|bili_jct|csrf|csrf_token|buvid3|stream_key|token|access[_-]?token|refresh[_-]?token|secret)$/i;
 
@@ -45,6 +46,9 @@ const createBrowserVrpianoStatus = () => ({
   hotkeys_available: true,
   last_hotkey: '',
   last_hotkey_at_ms: 0,
+  recording: false,
+  recorded_midi_path: null,
+  channels: Array.from({ length: 16 }, () => ({ muted: false, solo: false, volume: 127 })),
 });
 
 let browserVrpianoStatus = createBrowserVrpianoStatus();
@@ -769,7 +773,7 @@ export const VrcApi = {
   }
 };
 
-export const DbApi = {
+export let DbApi = {
   getAuth: () => safeInvoke<string | null>('db_get_auth'),
   saveAuth: (params: any) => safeInvoke<void>('db_save_auth', params),
   clearAuth: () => safeInvoke<void>('db_clear_auth'),
@@ -863,7 +867,7 @@ export interface AudioCaptureStatus {
   running: boolean;
 }
 
-export const SysApi = {
+export let SysApi = {
   checkSystemStatus: () => safeInvoke<any>('check_system_status'),
   checkSteamVR: () => safeInvoke<boolean>('sys_check_steamvr'),
   synthesizeGptSovits: (params: {
@@ -1166,6 +1170,31 @@ export interface VrpianoStatus {
   hotkeys_available: boolean;
   last_hotkey: string;
   last_hotkey_at_ms: number;
+  midi_connected: boolean;
+  midi_device_name: string | null;
+  recording: boolean;
+  recorded_midi_path: string | null;
+  channels: Array<{ muted: boolean; solo: boolean; volume: number }>;
+  voice_listening: boolean;
+  tts_enabled: boolean;
+  last_transcription: string;
+}
+
+export interface VrpianoRecordingStatus {
+  recording: boolean;
+  recorded_midi_path: string | null;
+}
+
+export interface VrpianoTranscriptionResult {
+  text: string;
+  language: string;
+  confidence: number;
+}
+
+export interface VrpianoSynthesisResult {
+  output_path: string;
+  voice: string;
+  text: string;
 }
 
 export interface VrpianoOnlineSong {
@@ -1263,6 +1292,23 @@ export const VrpianoApi = {
       speed: params.speed,
     },
   }),
+  listMidiDevices: () => safeInvoke<Array<{ id: string; name: string; kind: string }>>('vrpiano_list_midi_devices'),
+  connectMidiDevice: (params: { deviceId: string }) => safeInvoke<{ connected: boolean; device_id?: string; device_name?: string; kind?: string; messages_sent: number; last_error?: string }>('vrpiano_connect_midi_device', { deviceId: params.deviceId }),
+  disconnectMidiDevice: () => safeInvoke<{ connected: boolean }>('vrpiano_disconnect_midi_device'),
+  getMidiOutputState: () => safeInvoke<{ connected: boolean; device_id?: string; device_name?: string; kind?: string; messages_sent: number; last_error?: string }>('vrpiano_get_midi_output_state'),
+  startRecording: () => safeInvoke<string>('vrpiano_start_recording'),
+  stopRecording: () => safeInvoke<string | null>('vrpiano_stop_recording'),
+  getRecordingStatus: () => safeInvoke<VrpianoRecordingStatus>('vrpiano_get_recording_status'),
+  getChannelStates: () => safeInvoke<Array<{ muted: boolean; solo: boolean; volume: number }>>('vrpiano_get_channel_states'),
+  setChannelMute: (params: { channel: number; muted: boolean }) => safeInvoke<void>('vrpiano_set_channel_mute', params),
+  setChannelSolo: (params: { channel: number; solo: boolean }) => safeInvoke<void>('vrpiano_set_channel_solo', params),
+  setChannelVolume: (params: { channel: number; volume: number }) => safeInvoke<void>('vrpiano_set_channel_volume', params),
+  setVoiceControlEnabled: (params: { enabled: boolean }) => safeInvoke<void>('vrpiano_set_voice_control_enabled', params),
+  setTtsEnabled: (params: { enabled: boolean }) => safeInvoke<void>('vrpiano_set_tts_enabled', params),
+  startVoiceListening: () => safeInvoke<string>('vrpiano_start_voice_listening'),
+  stopVoiceListening: () => safeInvoke<string>('vrpiano_stop_voice_listening'),
+  transcribeAudio: (params: { audioPath: string }) => safeInvoke<VrpianoTranscriptionResult>('vrpiano_transcribe_audio', params),
+  synthesizeSpeech: (params: { text: string; voice?: string; rate?: number; volume?: number }) => safeInvoke<VrpianoSynthesisResult>('vrpiano_synthesize_speech', params),
 };
 
 export interface DrawingPoint {
@@ -1392,4 +1438,111 @@ export {
   MiscApi,
   VrcPlusIconApi,
   VrcPlusImageApi,
+  ServerApi,
 };
+
+// ==================== Web Mode Fallbacks ====================
+// When running in a browser (static deployment), provide localStorage-based
+// fallbacks for DB operations and no-op/empty responses for desktop-only
+// system commands. VRChat API requests are proxied through request.ts.
+
+const isBrowser = typeof window !== 'undefined' && !isTauri();
+
+if (isBrowser) {
+  const localStorageDb = {
+    getAuth: async (): Promise<string | null> => localStorage.getItem('vrcdog_auth'),
+    saveAuth: async ({ cookie }: { cookie: string }) => { localStorage.setItem('vrcdog_auth', cookie); },
+    clearAuth: async () => { localStorage.removeItem('vrcdog_auth'); },
+    clearGameLogs: async () => { localStorage.removeItem('vrcdog_gamelogs'); },
+    clearFriendLogs: async () => { localStorage.removeItem('vrcdog_friendlogs'); },
+    getHeatmap: async () => JSON.parse(localStorage.getItem('vrcdog_heatmap') || '[]'),
+    getHeatmapDetails: async () => JSON.parse(localStorage.getItem('vrcdog_heatmap_details') || '[]'),
+    getNotes: async () => JSON.parse(localStorage.getItem('vrcdog_notes') || '[]'),
+    getNote: async ({ key }: { key: string }) => { const notes = JSON.parse(localStorage.getItem('vrcdog_notes') || '[]'); return notes.find((n: any) => n.key === key); },
+    saveNote: async (params: any) => { const notes = JSON.parse(localStorage.getItem('vrcdog_notes') || '[]'); notes.push(params); localStorage.setItem('vrcdog_notes', JSON.stringify(notes)); },
+    getPresets: async () => JSON.parse(localStorage.getItem('vrcdog_status_presets') || '[]'),
+    savePreset: async (params: any) => { const presets = JSON.parse(localStorage.getItem('vrcdog_status_presets') || '[]'); presets.push(params); localStorage.setItem('vrcdog_status_presets', JSON.stringify(presets)); },
+    deletePreset: async ({ key }: { key: string }) => { const presets = JSON.parse(localStorage.getItem('vrcdog_status_presets') || '[]').filter((p: any) => p.key !== key); localStorage.setItem('vrcdog_status_presets', JSON.stringify(presets)); },
+    exportAll: async () => ({}),
+    recordActivity: async () => {},
+    batchRecordFriends: async () => 0,
+    addFriendLog: async () => {},
+    getFriendLogs: async () => JSON.parse(localStorage.getItem('vrcdog_friendlogs') || '[]'),
+    saveSetting: async ({ key, value }: { key: string; value: string }) => { localStorage.setItem(`vrcdog_setting_${key}`, value); },
+    saveSettings: async ({ settings }: { settings: Array<[string, string]> }) => { for (const [key, value] of settings) localStorage.setItem(`vrcdog_setting_${key}`, value); },
+    getSetting: async ({ key }: { key: string }) => localStorage.getItem(`vrcdog_setting_${key}`),
+    getAllSettings: async () => { const all: Record<string, string> = {}; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key?.startsWith('vrcdog_setting_')) all[key.replace('vrcdog_setting_', '')] = localStorage.getItem(key) || ''; } return all; },
+    saveFriend: async () => 0,
+    batchSaveFriends: async () => 0,
+    getCachedFriends: async () => JSON.parse(localStorage.getItem('vrcdog_friends') || '[]'),
+    getCachedCurrentUser: async (): Promise<any | null> => { try { const raw = localStorage.getItem('vrcdog_cached_vrc_user'); if (!raw) return null; const parsed = JSON.parse(raw); if (parsed && parsed.expiresAt && Date.now() < parsed.expiresAt) return parsed.user || null; } catch {} return null; },
+    removeFriend: async () => {},
+    saveGameLogs: async ({ logsJson }: { logsJson: string }) => { localStorage.setItem('vrcdog_gamelogs', logsJson); return logsJson.split('\n').length; },
+    getGameLogs: async ({ limit = 100, offset = 0 }: { limit?: number; offset?: number } = {}) => { const logs = (localStorage.getItem('vrcdog_gamelogs') || '').split('\n').slice(offset, offset + limit); return logs; },
+    saveNotification: async ({ notificationJson }: { notificationJson: string }) => {},
+    batchSaveNotifications: async () => 0,
+    getNotifications: async () => JSON.parse(localStorage.getItem('vrcdog_notifications') || '[]'),
+    deleteNotification: async () => {},
+    addFavoriteWorld: async () => {},
+    getFavoriteWorlds: async () => JSON.parse(localStorage.getItem('vrcdog_favorite_worlds') || '[]'),
+    removeFavoriteWorld: async () => {},
+    addFavoriteAvatar: async () => {},
+    getFavoriteAvatars: async () => JSON.parse(localStorage.getItem('vrcdog_favorite_avatars') || '[]'),
+    removeFavoriteAvatar: async () => {},
+    getApiCache: async ({ key }: { key: string }) => localStorage.getItem(`vrcdog_api_cache_${key}`),
+    saveApiCache: async ({ key, data }: { key: string, data: string }) => localStorage.setItem(`vrcdog_api_cache_${key}`, data),
+  };
+
+  (DbApi as any) = { ...(DbApi as any), ...localStorageDb };
+
+  (SysApi as any) = {
+    checkSystemStatus: async () => ({}),
+    checkSteamVR: async () => false,
+    synthesizeGptSovits: async () => '',
+    installSoftware: async () => {},
+    uninstallSoftware: async () => {},
+    launchSoftware: async () => {},
+    clearVrcCache: async () => 0,
+    isVrcRunning: async () => false,
+    launchVrc: async () => {},
+    killVrc: async () => {},
+    sendOscParam: async () => {},
+    sendOscChatbox: async () => {},
+    sendOscChatboxMulti: async () => {},
+    sendOscTyping: async () => {},
+    startChatboxKeepalive: async () => {},
+    stopChatboxKeepalive: async () => {},
+    setDiscordRpc: async () => {},
+    saveTextFile: async () => {},
+    saveBinaryFile: async () => {},
+    getAudioDevices: async () => [],
+    startAudioCapture: async () => {},
+    stopAudioCapture: async () => {},
+    setAudioCapturePaused: async () => {},
+    getAudioCaptureStatus: async () => [],
+    startOscAutomation: async () => {},
+    stopOscAutomation: async () => {},
+    startAutoLaunchApps: async () => {},
+    killAutoLaunchApps: async () => {},
+    showInExplorer: async () => {},
+    verifyServerPassword: async () => {},
+    startServer: async () => {},
+    stopServer: async () => {},
+    isServerRunning: async () => false,
+    pingServer: async () => 'Web mode: server is external',
+    openNewClient: async () => {},
+    setAutostart: async () => {},
+    registerUrlScheme: async () => {},
+    getLaunchArgs: async () => [],
+    getClientServerConfig: async () => ({ server_url: '', config_path: '' }),
+    saveClientServerConfig: async () => ({ server_url: '', config_path: '' }),
+    openDir: async () => {},
+    openUrl: async () => {},
+    getVrcScreenshotDir: async () => '',
+    setVrcScreenshotDir: async () => {},
+    getVrcConfig: async () => '',
+    saveVrcConfig: async () => {},
+    backupDatabase: async () => 0,
+    restoreDatabase: async () => {},
+  };
+}

@@ -21,6 +21,7 @@ const shouldIgnoreWatchPath = (value: string) => {
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   root: projectRoot,
+  base: '/web/',
   plugins: [vue(), tailwindcss()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

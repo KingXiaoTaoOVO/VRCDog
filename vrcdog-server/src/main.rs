@@ -8,6 +8,9 @@ use axum::{
     Json, Router,
 };
 use chrono::{Duration, Local, NaiveDateTime};
+use hex;
+use rand;
+use reqwest::{Client as ReqwestClient, ClientBuilder, Method};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -193,6 +196,8 @@ struct AppState {
     remote_assist: remote_assist_hub::RemoteAssistHub,
     persist_dirty: Arc<AtomicBool>,
     persist_notify: Arc<Notify>,
+    admin_sessions: Arc<RwLock<HashMap<String, AdminSession>>>,
+    http_client: Arc<ReqwestClient>,
 }
 
 #[derive(Deserialize)]
@@ -292,6 +297,12 @@ struct DeleteSubmissionRequest {
 #[derive(Deserialize)]
 struct AdminAuthRequest {
     password: String,
+}
+
+#[derive(Clone)]
+struct AdminSession {
+    token: String,
+    created_at: String,
 }
 
 const DEFAULT_SERVER_PASSWORD_BCRYPT: &str =
@@ -510,6 +521,25 @@ async fn status_page() -> Html<String> {
         .replace("{{VERSION}}", env!("CARGO_PKG_VERSION"))
         .replace("{{NOW}}", &now_string());
     Html(html)
+}
+
+#[derive(Serialize)]
+struct VersionInfo {
+    version: &'static str,
+    name: &'static str,
+    published_at: String,
+    body: &'static str,
+    html_url: &'static str,
+}
+
+async fn api_version() -> Json<VersionInfo> {
+    Json(VersionInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        name: "VRCDog Server",
+        published_at: now_string(),
+        body: "VRCDog standalone server",
+        html_url: "https://github.com/KingXiaoTaoOVO/vrcdog-releases",
+    })
 }
 
 async fn remote_assist_ws(
@@ -1145,9 +1175,18 @@ async fn client_delete_submission(
     }))
 }
 
-async fn admin_auth(Json(request): Json<AdminAuthRequest>) -> impl axum::response::IntoResponse {
+async fn admin_auth(State(state): State<AppState>, Json(request): Json<AdminAuthRequest>) -> impl axum::response::IntoResponse {
     if verify_server_password(&request.password) {
-        (StatusCode::OK, Json(json!({ "success": true })))
+        let token = hex::encode(rand::random::<[u8; 32]>());
+        let session = AdminSession {
+            token: token.clone(),
+            created_at: now_string(),
+        };
+        state.admin_sessions.write().await.insert(token.clone(), session);
+        (
+            StatusCode::OK,
+            Json(json!({ "success": true, "token": token })),
+        )
     } else {
         (
             StatusCode::UNAUTHORIZED,
@@ -1172,6 +1211,69 @@ async fn require_admin_password(
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(next.run(request).await)
+}
+
+#[derive(Deserialize)]
+struct VrchatProxyQuery {
+    path: String,
+}
+
+async fn require_admin_session(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let token = request
+        .headers()
+        .get("x-vrcdog-admin-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let state = request
+        .extensions()
+        .get::<AppState>()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let sessions = state.admin_sessions.read().await;
+    if !sessions.contains_key(token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    drop(sessions);
+    Ok(next.run(request).await)
+}
+
+async fn vrchat_api_proxy(
+    State(state): State<AppState>,
+    Query(params): Query<VrchatProxyQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let target = format!("https://api.vrchat.cloud/api/1/{}", params.path.trim_start_matches('/'));
+    let method = Method::from_bytes(b"GET").unwrap_or(Method::GET);
+    let mut builder = state.http_client.request(method, &target);
+    for (key, value) in headers.iter() {
+        if key == "x-vrcdog-admin-token" || key == "host" || key == "connection" {
+            continue;
+        }
+        if let Ok(v) = value.to_str() {
+            builder = builder.header(key.as_str(), v);
+        }
+    }
+    match builder.send().await {
+        Ok(resp) => {
+            let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut response_builder = Response::builder().status(status);
+            for (key, value) in resp.headers().iter() {
+                if key == "content-encoding" || key == "content-length" {
+                    continue;
+                }
+                response_builder = response_builder.header(key.as_str(), value.to_str().unwrap_or(""));
+            }
+            match resp.bytes().await {
+                Ok(body) => response_builder.body(Body::from(body)).unwrap_or_else(|_| {
+                    (StatusCode::BAD_GATEWAY, "failed to build response").into_response()
+                }),
+                Err(_) => (StatusCode::BAD_GATEWAY, "failed to read upstream response").into_response(),
+            }
+        }
+        Err(_) => (StatusCode::BAD_GATEWAY, "failed to reach upstream").into_response(),
+    }
 }
 
 async fn admin_clients(State(state): State<AppState>) -> Json<Value> {
@@ -1638,12 +1740,14 @@ fn router(state: AppState) -> Router {
             post(admin_delete_submission),
         )
         .route("/api/admin/survey-clicks", get(admin_survey_clicks))
-        .route_layer(middleware::from_fn(require_admin_password));
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_admin_session));
 
     Router::new()
         .route("/", get(status_page))
         .route("/ping", get(ping))
+        .route("/api/version", get(api_version))
         .route("/api/admin/auth", post(admin_auth))
+        .route("/api/vrchat-proxy", get(vrchat_api_proxy))
         .route("/api/client/register", post(register))
         .route("/api/client/heartbeat", post(heartbeat))
         .route("/api/client/disconnect", post(disconnect))
@@ -1703,6 +1807,19 @@ async fn cleanup_stale_clients(state: AppState) {
     }
 }
 
+async fn cleanup_expired_sessions(state: AppState) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        let cutoff = Local::now().naive_local() - Duration::hours(24);
+        let mut sessions = state.admin_sessions.write().await;
+        sessions.retain(|_, session| {
+            NaiveDateTime::parse_from_str(&session.created_at, "%Y-%m-%d %H:%M:%S")
+                .map(|created| created > cutoff)
+                .unwrap_or(false)
+        });
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
@@ -1722,6 +1839,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         env::var("VRCDOG_DATA_FILE").unwrap_or_else(|_| "./data/server-state.json".to_string()),
     );
     let data = load_data(&data_file).await;
+    let http_client = Arc::new(
+        ClientBuilder::new()
+            .cookie_store(true)
+            .user_agent("VRCDog/5.1.3 (https://vrcdog.pcb.im; vrcdog@pcb.im)")
+            .build()?,
+    );
     let state = AppState {
         clients: Arc::new(RwLock::new(HashMap::new())),
         data: Arc::new(RwLock::new(data)),
@@ -1729,12 +1852,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         remote_assist: remote_assist_hub::RemoteAssistHub::default(),
         persist_dirty: Arc::new(AtomicBool::new(false)),
         persist_notify: Arc::new(Notify::new()),
+        admin_sessions: Arc::new(RwLock::new(HashMap::new())),
+        http_client,
     };
     if let Err(error) = persist_inner(&state).await {
         return Err(format!("initial persist failed: {error}").into());
     }
     tokio::spawn(persist_worker(state.clone()));
     tokio::spawn(cleanup_stale_clients(state.clone()));
+    tokio::spawn(cleanup_expired_sessions(state.clone()));
 
     let address: SocketAddr = format!("{host}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;

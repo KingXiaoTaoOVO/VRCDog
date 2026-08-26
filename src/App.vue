@@ -5,6 +5,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import i18n from './i18n';
+import { useToast } from './composables/useToast';
 
 // Stores
 import { useAuthStore } from './stores/authStore';
@@ -15,6 +16,7 @@ import { storeToRefs } from 'pinia';
 import { currentTheme } from './theme';
 import { DbApi, OvrApi, SysApi, VrcApi } from './api';
 import { initGamelogWatcher } from './api/gamelogWatcher';
+import { useWebUpdate } from './composables/useWebUpdate';
 
 // Layouts and components
 import ToastContainer from './components/ToastContainer.vue';
@@ -104,9 +106,11 @@ const VrpianoOverlayView = lazyView('VrpianoOverlayView', () => import('./compon
 
 const { t, locale } = useI18n({ useScope: 'global' });
 
+const toast = useToast();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 const envStore = useEnvStore();
+const webUpdate = useWebUpdate();
 
 const { appRole, isLoggedIn, autoLoginLoading, banMessage, serverConnected, reconnectCountdown, clientServerUrl, currentUser, pendingSurveyCount, surveyRequired } = storeToRefs(authStore);
 const { appMode, activeTab } = storeToRefs(uiStore);
@@ -227,6 +231,12 @@ window.addEventListener('open-survey-center', openSurveyCenter as EventListener)
 watch(clientServerUrl, (value) => {
   disconnectedServerUrl.value = value;
 }, { immediate: true });
+
+watch(() => webUpdate.updateAvailable, (available) => {
+  if (available && webUpdate.updateInfo.value) {
+    toast.info(`New version ${webUpdate.updateInfo.value.version} available. Reload to update.`);
+  }
+});
 
 // Inject dynamic theme variables into the document
 watchEffect(() => {

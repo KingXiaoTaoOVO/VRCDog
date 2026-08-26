@@ -104,6 +104,40 @@ pub struct OvrConfig {
     pub height_toggle_enabled: bool, // Whether height toggle is active
     #[serde(default = "default_height_offset")]
     pub height_toggle_offset: f32, // Height toggle offset in meters (positive = down)
+    // ===== OpenVR-AdvancedSettings Space Translation =====
+    #[serde(default)]
+    pub gravity_enabled: bool, // Gravity/slingshot feature
+    #[serde(default = "default_gravity_strength")]
+    pub gravity_strength: f32, // Gravity strength (0.0-1.0)
+    #[serde(default = "default_fling_strength")]
+    pub fling_strength: f32, // Fling momentum strength
+    #[serde(default = "default_snap_turn_angle")]
+    pub snap_turn_angle: i32, // Snap turn angle in degrees (15, 30, 45, 60)
+    #[serde(default)]
+    pub snap_turn_enabled: bool, // Enable snap turning
+    #[serde(default = "default_smooth_turn_rate")]
+    pub smooth_turn_rate: i32, // Smooth turn rate in degrees/sec
+    #[serde(default)]
+    pub smooth_turn_enabled: bool, // Enable smooth turning
+    #[serde(default)]
+    pub lock_x_enabled: bool, // Lock X axis (prevent left/right movement)
+    #[serde(default)]
+    pub lock_y_enabled: bool, // Lock Y axis (prevent up/down movement)
+    #[serde(default)]
+    pub lock_z_enabled: bool, // Lock Z axis (prevent forward/backward movement)
+    #[serde(default = "default_drag_multiplier")]
+    pub drag_multiplier: f32, // Space drag speed multiplier
+    #[serde(default)]
+    pub comfort_turn_enabled: bool, // Comfort mode for turning (fade to black)
+    // ===== Dynamic Screenshot/Capture System =====
+    #[serde(default)]
+    pub capture_mode: String, // "static" | "dynamic" | "follow"
+    #[serde(default = "default_capture_quality")]
+    pub capture_quality: String, // "fast" | "balanced" | "high"
+    #[serde(default)]
+    pub capture_auto_save: bool, // Auto-save captures to disk
+    #[serde(default = "default_capture_format")]
+    pub capture_format: String, // "png" | "jpg" | "webp"
     // ===== VR Overlay Layout (runtime-adjustable inside VR) =====
     #[serde(default = "default_menu_width_m")]
     pub menu_width_m: f32,
@@ -197,6 +231,28 @@ fn default_scan_frame_distance_m() -> f32 {
     0.72
 }
 
+fn default_gravity_strength() -> f32 {
+    0.5
+}
+fn default_fling_strength() -> f32 {
+    0.7
+}
+fn default_snap_turn_angle() -> i32 {
+    30
+}
+fn default_smooth_turn_rate() -> i32 {
+    90
+}
+fn default_drag_multiplier() -> f32 {
+    1.0
+}
+fn default_capture_quality() -> String {
+    "balanced".into()
+}
+fn default_capture_format() -> String {
+    "png".into()
+}
+
 fn default_vr_menu_accent() -> String {
     "#d97706".into()
 }
@@ -281,6 +337,24 @@ impl Default for OvrConfig {
             ocr_merge_tolerance_x: 0.2,
             ocr_merge_tolerance_y: 0.3,
             auto_start_steamvr: false,
+            // OpenVR-AdvancedSettings space translation
+            gravity_enabled: false,
+            gravity_strength: 0.5,
+            fling_strength: 0.7,
+            snap_turn_angle: 30,
+            snap_turn_enabled: true,
+            smooth_turn_rate: 90,
+            smooth_turn_enabled: false,
+            lock_x_enabled: false,
+            lock_y_enabled: false,
+            lock_z_enabled: false,
+            drag_multiplier: 1.0,
+            comfort_turn_enabled: false,
+            // Dynamic screenshot/capture
+            capture_mode: "dynamic".into(),
+            capture_quality: "balanced".into(),
+            capture_auto_save: false,
+            capture_format: "png".into(),
         }
     }
 }
@@ -320,6 +394,23 @@ enum OvrCommand {
     ToggleHeight,              // Toggle height offset on/off
     ResetPlayspace,            // Reset all offsets to zero
     FixFloor,                  // Fix floor height using controller position
+    // ===== OpenVR-AdvancedSettings Space Translation =====
+    SetGravityEnabled(bool),
+    SetGravityStrength(f32),
+    SetFlingStrength(f32),
+    SetSnapTurnAngle(i32),
+    SetSmoothTurnRate(i32),
+    SetSmoothTurnEnabled(bool),
+    SetLockXEnabled(bool),
+    SetLockYEnabled(bool),
+    SetLockZEnabled(bool),
+    SetDragMultiplier(f32),
+    SetComfortTurnEnabled(bool),
+    // ===== Dynamic Screenshot/Capture =====
+    SetCaptureMode(String),
+    SetCaptureQuality(String),
+    SetCaptureAutoSave(bool),
+    SetCaptureFormat(String),
     SetSurveyGate { status: String, pending: u32 }, // Backend survey gate status (drives VR menu visibility)
 }
 
@@ -426,6 +517,11 @@ fn normalize_overlay_layout(config: &mut OvrConfig) {
     config.result_offset_z = config.result_offset_z.clamp(-2.80, -0.30);
     config.scan_frame_width_m = config.scan_frame_width_m.clamp(0.12, 1.60);
     config.scan_frame_distance_m = config.scan_frame_distance_m.clamp(0.30, 2.00);
+    config.gravity_strength = config.gravity_strength.clamp(0.0, 1.0);
+    config.fling_strength = config.fling_strength.clamp(0.0, 1.0);
+    config.snap_turn_angle = config.snap_turn_angle.clamp(15, 90);
+    config.smooth_turn_rate = config.smooth_turn_rate.clamp(30, 180);
+    config.drag_multiplier = config.drag_multiplier.clamp(0.1, 3.0);
 }
 
 fn hmd_relative_transform(x: f32, y: f32, z: f32) -> openvr::pose::Matrix3x4 {
@@ -446,6 +542,16 @@ fn world_overlay_transform(x: f32, y: f32, z: f32) -> openvr::pose::Matrix3x4 {
         [0.0, 1.0, 0.0, 1.45 + y],
         [0.0, 0.0, 1.0, z],
     ])
+}
+
+fn trigger_haptic_pulse(
+    system: &openvr::System,
+    device_index: openvr::TrackedDeviceIndex,
+    duration_secs: f32,
+    _amplitude: f32,
+) {
+    let microseconds = (duration_secs * 1_000_000.0).clamp(0.0, 4000.0) as u16;
+    system.trigger_haptic_pulse(device_index, 0, microseconds);
 }
 
 #[derive(Clone, Copy)]
@@ -818,6 +924,11 @@ fn vr_thread_main(
     // ===== Space Drag State =====
     let mut is_space_dragging = false;
     let mut drag_last_pos: Option<[f32; 3]> = None;
+
+    // ===== OpenVR-AdvancedSettings Space Translation State =====
+    let mut last_turn_time: u64 = 0;
+    let mut smooth_turn_active = false;
+    let mut smooth_turn_direction: f32 = 0.0;
 
     // ===== Wrist and Headset Proximity State =====
     let mut wrist_left_handle: Option<openvr::overlay::OverlayHandle> = None;
@@ -1274,7 +1385,6 @@ fn vr_thread_main(
                                 let controller_y = mat[1][3];
                                 if let Ok(ref mut ps) = playspace {
                                     ps.set_base_floor_to(controller_y);
-                                    // Also clear local UI offset tracking since base is changed
                                     ps_offset_x = 0.0;
                                     ps_offset_y = 0.0;
                                     ps_offset_z = 0.0;
@@ -1298,6 +1408,51 @@ fn vr_thread_main(
                             let _ = app_handle.emit("ovr_log", "[OVR] ⚠ 未检测到右手柄");
                         }
                     }
+                }
+                // ===== OpenVR-AdvancedSettings Space Translation =====
+                OvrCommand::SetGravityEnabled(enabled) => {
+                    current_config.gravity_enabled = enabled;
+                    let _ = app_handle.emit("ovr_log", format!("[OVR] 重力: {}", if enabled { "开" } else { "关" }));
+                }
+                OvrCommand::SetGravityStrength(strength) => {
+                    current_config.gravity_strength = strength.clamp(0.0, 1.0);
+                    let _ = app_handle.emit("ovr_log", format!("[OVR] 重力强度: {:.0}%", current_config.gravity_strength * 100.0));
+                }
+                OvrCommand::SetFlingStrength(strength) => {
+                    current_config.fling_strength = strength.clamp(0.0, 1.0);
+                }
+                OvrCommand::SetSnapTurnAngle(angle) => {
+                    current_config.snap_turn_angle = angle.clamp(15, 90);
+                    let _ = app_handle.emit("ovr_log", format!("[OVR] 瞬转角度: {}°", current_config.snap_turn_angle));
+                }
+                OvrCommand::SetSmoothTurnRate(rate) => {
+                    current_config.smooth_turn_rate = rate.clamp(30, 180);
+                }
+                OvrCommand::SetSmoothTurnEnabled(enabled) => {
+                    current_config.smooth_turn_enabled = enabled;
+                    if enabled { current_config.snap_turn_enabled = false; }
+                }
+                OvrCommand::SetLockXEnabled(enabled) => { current_config.lock_x_enabled = enabled; }
+                OvrCommand::SetLockYEnabled(enabled) => { current_config.lock_y_enabled = enabled; }
+                OvrCommand::SetLockZEnabled(enabled) => { current_config.lock_z_enabled = enabled; }
+                OvrCommand::SetDragMultiplier(mult) => {
+                    current_config.drag_multiplier = mult.clamp(0.1, 3.0);
+                }
+                OvrCommand::SetComfortTurnEnabled(enabled) => {
+                    current_config.comfort_turn_enabled = enabled;
+                }
+                // ===== Dynamic Screenshot/Capture =====
+                OvrCommand::SetCaptureMode(mode) => {
+                    current_config.capture_mode = mode;
+                }
+                OvrCommand::SetCaptureQuality(quality) => {
+                    current_config.capture_quality = quality;
+                }
+                OvrCommand::SetCaptureAutoSave(enabled) => {
+                    current_config.capture_auto_save = enabled;
+                }
+                OvrCommand::SetCaptureFormat(format) => {
+                    current_config.capture_format = format;
                 }
             }
         }
@@ -1628,6 +1783,14 @@ fn vr_thread_main(
                         }
                     ),
                 );
+                if let Ok(sys) = context.system() {
+                    if let Some(idx) = left_idx {
+                        trigger_haptic_pulse(&sys, idx, 0.05, 0.3);
+                    }
+                    if let Some(idx) = right_idx {
+                        trigger_haptic_pulse(&sys, idx, 0.05, 0.3);
+                    }
+                }
             }
 
             // Decrement joystick navigation cooldown
@@ -1635,15 +1798,14 @@ fn vr_thread_main(
 
             // --- Menu interaction (only when menu visible) ---
             if overlay_menu_visible {
-                let max_items = match menu_page {
-                    0 => 6usize, // 0:基础,1:桌面,2:OCR,3:翻译,4:更多,5:说明
-                    1 | 2 | 3 | 6 => 4,
-                    4 | 5 => 3,
-                    7 => 5,
-                    8 | 10 | 11 => 4,
-                    9 => 6,
-                    12 | 13 => 5,
-                    _ => 4,
+                 let max_items = match menu_page {
+                      0 => 8usize, // 0:主菜单有8项
+                      1 | 2 | 3 | 4 | 6 | 7 | 14 => 4,
+                      5 => 3,
+                      8 | 10 | 11 => 4,
+                      9 => 6,
+                      12 | 13 | 15 => 5,
+                      _ => 4,
                 };
 
                 // Joystick axes for navigation
@@ -1657,27 +1819,41 @@ fn vr_thread_main(
 
                 // Use joystick X to switch pages (with cooldown to prevent rapid switching)
                 if joystick_nav_cooldown == 0 && !right_grip_held {
-                    if joy_x > 0.7 && menu_page < 13 {
+                    let mut page_changed = false;
+                    if joy_x > 0.7 && menu_page < 15 {
                         menu_page += 1;
                         menu_selection = 0;
+                        page_changed = true;
                         joystick_nav_cooldown = 18; // ~200ms cooldown at 90Hz
                     } else if joy_x < -0.7 && menu_page > 0 {
                         menu_page -= 1;
                         menu_selection = 0;
+                        page_changed = true;
                         joystick_nav_cooldown = 18;
                     }
 
                     // Use joystick Y for up/down selection (natural, consistent)
+                    let mut sel_changed = false;
                     if joy_y > 0.6 {
                         menu_selection = if menu_selection == 0 {
                             max_items - 1
                         } else {
                             menu_selection - 1
                         };
+                        sel_changed = true;
                         joystick_nav_cooldown = 18;
                     } else if joy_y < -0.6 {
                         menu_selection = (menu_selection + 1) % max_items;
+                        sel_changed = true;
                         joystick_nav_cooldown = 18;
+                    }
+
+                    if page_changed || sel_changed {
+                        if let Ok(sys) = context.system() {
+                            if let Some(idx) = right_idx {
+                                trigger_haptic_pulse(&sys, idx, 0.02, 0.15);
+                            }
+                        }
                     }
                 }
 
@@ -1726,7 +1902,7 @@ fn vr_thread_main(
                 {
                     let back_idx = max_items - 1;
                     if menu_selection == back_idx && menu_page > 0 {
-                        menu_page = if menu_page == 12 || menu_page == 13 { 9 } else { 0 };
+                        menu_page = if menu_page == 12 || menu_page == 13 { 9 } else if menu_page == 14 || menu_page == 15 { 0 } else { 0 };
                         menu_selection = 0;
                     } else {
                         match menu_page {
@@ -1736,26 +1912,34 @@ fn vr_thread_main(
                                     menu_selection = 0;
                                 }
                                 1 => {
-                                    menu_page = 8;
+                                    menu_page = 14;
                                     menu_selection = 0;
                                 }
                                 2 => {
-                                    menu_page = 9;
+                                    menu_page = 15;
                                     menu_selection = 0;
                                 }
                                 3 => {
-                                    menu_page = 10;
+                                    menu_page = 8;
                                     menu_selection = 0;
                                 }
                                 4 => {
-                                    menu_page = 11;
+                                    menu_page = 9;
                                     menu_selection = 0;
                                 }
-                                5 => {
-                                    menu_page = 7;
-                                    menu_selection = 0;
-                                }
-                                _ => {}
+                                 5 => {
+                                     menu_page = 10;
+                                     menu_selection = 0;
+                                 }
+                                 6 => {
+                                     menu_page = 11;
+                                     menu_selection = 0;
+                                 }
+                                 7 => {
+                                     menu_page = 7;
+                                     menu_selection = 0;
+                                 }
+                                 _ => {}
                             },
                             1 => match menu_selection {
                                 0 => {
@@ -1980,14 +2164,94 @@ fn vr_thread_main(
                                 3 => { let _ = app_handle.emit("vrpiano_vr_action", "next"); }
                                 _ => {}
                             },
-                            13 => match menu_selection {
-                                0 => { let _ = crate::vrdrawing::handle_vr_action("start"); }
-                                1 => { let _ = crate::vrdrawing::handle_vr_action("toggle_pause"); }
-                                2 => { let _ = crate::vrdrawing::handle_vr_action("stop"); }
-                                3 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"})); }
-                                _ => {}
-                            },
-                            _ => {}
+                             13 => match menu_selection {
+                                 0 => { let _ = crate::vrdrawing::handle_vr_action("start"); }
+                                 1 => { let _ = crate::vrdrawing::handle_vr_action("toggle_pause"); }
+                                 2 => { let _ = crate::vrdrawing::handle_vr_action("stop"); }
+                                 3 => { let _ = app_handle.emit("ovr_menu_navigate", serde_json::json!({"tab":"drawing"})); }
+                                 _ => {}
+                             },
+                             14 => match menu_selection {
+                                 0 => {
+                                     current_config.snap_turn_enabled = !current_config.snap_turn_enabled;
+                                     if current_config.snap_turn_enabled {
+                                         current_config.smooth_turn_enabled = false;
+                                     }
+                                 }
+                                 1 => {
+                                     current_config.snap_turn_angle = match current_config.snap_turn_angle {
+                                         15 => 30,
+                                         30 => 45,
+                                         45 => 60,
+                                         _ => 15,
+                                     };
+                                 }
+                                 2 => {
+                                     current_config.gravity_enabled = !current_config.gravity_enabled;
+                                 }
+                                 3 => {
+                                     current_config.lock_x_enabled = !current_config.lock_x_enabled;
+                                     current_config.lock_y_enabled = !current_config.lock_y_enabled;
+                                     current_config.lock_z_enabled = !current_config.lock_z_enabled;
+                                 }
+                                 _ => {}
+                             },
+                             15 => match menu_selection {
+                                 0 => {
+                                     current_config.capture_mode = match current_config.capture_mode.as_str() {
+                                         "static" => "dynamic".to_string(),
+                                         "dynamic" => "follow".to_string(),
+                                         _ => "static".to_string(),
+                                     };
+                                 }
+                                 1 => {
+                                     current_config.capture_auto_save = !current_config.capture_auto_save;
+                                 }
+                                 2 => {
+                                      current_config.capture_format = match current_config.capture_format.as_str() {
+                                          "png" => "jpg".to_string(),
+                                          "jpg" => "webp".to_string(),
+                                          _ => "png".to_string(),
+                                      };
+                                 }
+                                 3 => {
+                                      let _ = app_handle.emit("ovr_log", "[OVR] 📸 正在截图...");
+                                      if let Ok(mut ovr) = context.overlay() {
+                                          if let Some(sh) = scan_handle {
+                                              let _ = ovr.set_visibility(sh, true);
+                                          }
+                                      }
+                                      let _cfg = current_config.clone();
+                                      let app_h = app_handle.clone();
+                                      std::thread::spawn(move || {
+                                          let rt = tokio::runtime::Runtime::new().unwrap();
+                                          rt.block_on(async move {
+                                              match crate::ocr::OcrEngine::capture_primary_screen_to_file(
+                                                  &std::env::temp_dir().join(format!("vrcdog_capture_{}.png", chrono::Utc::now().timestamp()))
+                                              ).await {
+                                                  Ok(_) => {
+                                                      let _ = app_h.emit("ovr_log", "[OVR] ✅ 截图已保存");
+                                                      let _ = app_h.emit("ovr_screenshot_ready", "");
+                                                  }
+                                                  Err(e) => {
+                                                      let _ = app_h.emit("ovr_log", format!("[OVR] ❌ 截图失败: {}", e));
+                                                  }
+                                              }
+                                          });
+                                      });
+                                  }
+                                 _ => {}
+                             },
+                             _ => {}
+                        }
+                        // Haptic feedback for menu confirmation
+                        if let Ok(sys) = context.system() {
+                            if let Some(idx) = right_idx {
+                                trigger_haptic_pulse(&sys, idx, 0.03, 0.2);
+                            }
+                            if let Some(idx) = left_idx {
+                                trigger_haptic_pulse(&sys, idx, 0.03, 0.2);
+                            }
                         }
                         // Persist VR-side changes and immediately apply transforms. This keeps
                         // controller edits and the desktop settings panel in sync.
@@ -2121,10 +2385,16 @@ fn vr_thread_main(
 
                 if trigger_down && scan_active {
                     if let Some(origin) = scan_drag_origin {
-                        let drag_distance = ((right_pos[0] - origin[0]).powi(2)
-                            + (right_pos[1] - origin[1]).powi(2)
-                            + (right_pos[2] - origin[2]).powi(2))
-                        .sqrt();
+                        let mut dx = right_pos[0] - origin[0];
+                        let mut dy = right_pos[1] - origin[1];
+                        let mut dz = right_pos[2] - origin[2];
+
+                        // Apply axis locks
+                        if current_config.lock_x_enabled { dx = 0.0; }
+                        if current_config.lock_y_enabled { dy = 0.0; }
+                        if current_config.lock_z_enabled { dz = 0.0; }
+
+                        let drag_distance = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
                         current_config.scan_frame_width_m =
                             (scan_drag_origin_width + drag_distance * 1.55).clamp(0.12, 1.60);
                     }
@@ -2148,6 +2418,63 @@ fn vr_thread_main(
                                 "scan_frame_distance_m": current_config.scan_frame_distance_m,
                             }),
                         );
+                    }
+                }
+
+                // ===== OpenVR-AdvancedSettings Space Translation =====
+                // Snap turn (when menu is hidden and snap turn is enabled)
+                if !overlay_menu_visible && current_config.snap_turn_enabled {
+                    let snap_threshold = 0.6;
+                    let now = tick;
+                    if now - last_turn_time > 30 { // Cooldown
+                        if right_joy_x > snap_threshold {
+                            if let Ok(ref mut ps) = playspace {
+                                ps.apply_offset(ps_offset_x, ps_offset_y, ps_offset_z, ps_rotation_deg + current_config.snap_turn_angle as f32);
+                                ps_rotation_deg += current_config.snap_turn_angle as f32;
+                                last_turn_time = now;
+                                let _ = app_handle.emit("ovr_playspace_changed", serde_json::json!({"offset_x":ps_offset_x,"offset_y":ps_offset_y,"offset_z":ps_offset_z,"rotation":ps_rotation_deg}));
+                            }
+                        } else if right_joy_x < -snap_threshold {
+                            if let Ok(ref mut ps) = playspace {
+                                ps.apply_offset(ps_offset_x, ps_offset_y, ps_offset_z, ps_rotation_deg - current_config.snap_turn_angle as f32);
+                                ps_rotation_deg -= current_config.snap_turn_angle as f32;
+                                last_turn_time = now;
+                                let _ = app_handle.emit("ovr_playspace_changed", serde_json::json!({"offset_x":ps_offset_x,"offset_y":ps_offset_y,"offset_z":ps_offset_z,"rotation":ps_rotation_deg}));
+                            }
+                        }
+                    }
+                }
+
+                // Smooth turn
+                if !overlay_menu_visible && current_config.smooth_turn_enabled {
+                    if right_joy_x.abs() > 0.3 {
+                        smooth_turn_active = true;
+                        smooth_turn_direction = right_joy_x.signum();
+                    } else {
+                        smooth_turn_active = false;
+                    }
+                    if smooth_turn_active && tick % 2 == 0 {
+                        let turn_amount = smooth_turn_direction * current_config.smooth_turn_rate as f32 * 0.005;
+                        ps_rotation_deg += turn_amount;
+                        if let Ok(ref mut ps) = playspace {
+                            ps.apply_offset(ps_offset_x, ps_offset_y, ps_offset_z, ps_rotation_deg);
+                        }
+                        if tick % 10 == 0 {
+                            let _ = app_handle.emit("ovr_playspace_changed", serde_json::json!({"offset_x":ps_offset_x,"offset_y":ps_offset_y,"offset_z":ps_offset_z,"rotation":ps_rotation_deg}));
+                        }
+                    }
+                }
+
+                // Gravity application (continuous when enabled)
+                if current_config.gravity_enabled && !overlay_menu_visible {
+                    // Apply gentle gravity pull downward when not grounded
+                    // This is a simplified version - real implementation would check floor height
+                    if tick % 60 == 0 && ps_offset_y > -0.5 {
+                        let gravity_pull = current_config.gravity_strength * 0.01;
+                        ps_offset_y -= gravity_pull;
+                        if let Ok(ref mut ps) = playspace {
+                            ps.apply_offset(ps_offset_x, ps_offset_y, ps_offset_z, ps_rotation_deg);
+                        }
                     }
                 }
 
@@ -2872,6 +3199,186 @@ pub async fn ovr_fix_floor(
         let _ = sender.send(OvrCommand::FixFloor);
     } else {
         let _ = app_handle.emit("ovr_log", "[OVR] ⚠ VR 未运行，无法修复地板");
+    }
+    Ok(())
+}
+
+// ===== OpenVR-AdvancedSettings Space Translation Commands =====
+
+#[tauri::command]
+pub async fn ovr_set_gravity_enabled(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    enabled: bool,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetGravityEnabled(enabled));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_gravity_strength(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    strength: f32,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetGravityStrength(strength));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_snap_turn_angle(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    angle: i32,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetSnapTurnAngle(angle));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_lock_axis(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    axis: String,
+    enabled: bool,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let cmd = match axis.as_str() {
+            "x" => OvrCommand::SetLockXEnabled(enabled),
+            "y" => OvrCommand::SetLockYEnabled(enabled),
+            "z" => OvrCommand::SetLockZEnabled(enabled),
+            _ => return Ok(()),
+        };
+        let _ = sender.send(cmd);
+    }
+    Ok(())
+}
+
+// ===== Dynamic Screenshot/Capture Commands =====
+
+#[tauri::command]
+pub async fn ovr_set_capture_mode(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    mode: String,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetCaptureMode(mode));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_capture_auto_save(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    enabled: bool,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetCaptureAutoSave(enabled));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_capture_format(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    format: String,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetCaptureFormat(format));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_fling_strength(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    strength: f32,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetFlingStrength(strength));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_smooth_turn_rate(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    rate: i32,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetSmoothTurnRate(rate));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_smooth_turn_enabled(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    enabled: bool,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetSmoothTurnEnabled(enabled));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_drag_multiplier(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    mult: f32,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetDragMultiplier(mult));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_comfort_turn_enabled(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    enabled: bool,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetComfortTurnEnabled(enabled));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ovr_set_capture_quality(
+    _app_handle: AppHandle,
+    state: tauri::State<'_, OvrState>,
+    quality: String,
+) -> crate::AppResult<()> {
+    let tx = state.cmd_tx.lock().await;
+    if let Some(ref sender) = *tx {
+        let _ = sender.send(OvrCommand::SetCaptureQuality(quality));
     }
     Ok(())
 }

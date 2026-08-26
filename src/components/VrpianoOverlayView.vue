@@ -51,6 +51,14 @@ const emptyStatus = (): VrpianoStatus => ({
   hotkeys_available: true,
   last_hotkey: '',
   last_hotkey_at_ms: 0,
+  midi_connected: false,
+  midi_device_name: null,
+  recording: false,
+  recorded_midi_path: null,
+  channels: Array.from({ length: 16 }, () => ({ muted: false, solo: false, volume: 127 })),
+  voice_listening: false,
+  tts_enabled: false,
+  last_transcription: '',
 });
 
 const status = ref<VrpianoStatus>(emptyStatus());

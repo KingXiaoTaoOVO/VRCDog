@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { mergeCookiesAndSave, normalizeAuthCookieJson } from './cookies';
 import { isDebugLogEnabled } from './debugConfig';
+import { ServerApi } from './serverClient';
 
 const VRCHAT_API_ORIGIN = 'https://api.vrchat.cloud';
 const VRCHAT_API_BASE = `${VRCHAT_API_ORIGIN}/api/1`;
@@ -187,49 +188,70 @@ function getRateLimitDelay(): number {
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    console.warn(`[Browser Mock] API Command: ${cmd}`, args);
+    console.warn(`[Browser Mode] API Command: ${cmd}`, args);
+
     if (cmd === 'vrc_execute') {
       const requestUrl = String((args?.options as any)?.url || '');
-      if (requestUrl.includes('/auth/user')) {
+      const method = String((args?.options as any)?.method || 'GET').toUpperCase();
+      const headers = (args?.options as any)?.headers || {};
+      const body = (args?.options as any)?.body;
+      const authCookie = (args?.options as any)?.auth_cookie;
+
+      const vrchatBase = 'https://api.vrchat.cloud/api/1';
+      let apiPath = requestUrl;
+      if (apiPath.startsWith(vrchatBase)) {
+        apiPath = apiPath.slice(vrchatBase.length);
+      }
+      apiPath = apiPath.replace(/^\/+/, '');
+
+      if (!apiPath || apiPath === '') {
+        return Promise.resolve({ status: 200, data: '{}' } as T);
+      }
+
+      try {
+        const proxyHeaders: Record<string, string> = {};
+        if (typeof headers === 'object') {
+          for (const [key, value] of Object.entries(headers)) {
+            if (value !== undefined && value !== null) {
+              proxyHeaders[key] = String(value);
+            }
+          }
+        }
+        if (authCookie && !proxyHeaders['Authorization']) {
+          proxyHeaders['Cookie'] = String(authCookie);
+        }
+
+        const data = await ServerApi.proxyVrchatApi(apiPath, method, proxyHeaders, body);
+        return { status: 200, data: JSON.stringify(data) } as T;
+      } catch (err: any) {
+        const message = err?.message || 'Proxy request failed';
         return Promise.resolve({
-          status: 200,
-          data: JSON.stringify({
-            id: 'usr_browser_preview',
-            username: 'preview-user',
-            displayName: 'VrcDog Preview',
-            status: 'active',
-            statusDescription: 'Browser UI preview',
-            currentAvatarThumbnailImageUrl: '',
-            tags: [],
-          }),
-          auth_cookie: 'auth=browser_preview',
+          status: err?.status || 500,
+          data: JSON.stringify({ error: { message } }),
         }) as T;
       }
-      if (requestUrl.includes('/config')) {
-        return Promise.resolve({
-          status: 200,
-          data: JSON.stringify({
-            apiUrl: 'https://api.vrchat.cloud/api/1',
-            websocketUrl: 'wss://pipeline.vrchat.cloud',
-          }),
-        }) as T;
-      }
-      if (
-        requestUrl.includes('/api/client/register')
-        || requestUrl.includes('/api/client/heartbeat')
-        || requestUrl.includes('/api/client/check-status/')
-      ) {
-        return Promise.resolve({
-          status: 200,
-          data: JSON.stringify({ status: 'ok', allowed: true, features: [] }),
-        }) as T;
-      }
-      if (requestUrl.includes('/api/client/features/')) {
-        return Promise.resolve({ status: 200, data: JSON.stringify({ features: [] }) }) as T;
-      }
-      return Promise.resolve({ status: 200, data: '{}' }) as T;
     }
+
     if (cmd === 'db_get_auth') return Promise.resolve(null) as T;
+    if (cmd === 'db_get_setting') return Promise.resolve(null) as T;
+    if (cmd === 'db_get_all_settings') return Promise.resolve({}) as T;
+    if (cmd === 'db_get_auth') return Promise.resolve(null) as T;
+
+    if (cmd.startsWith('sys_')) {
+      return Promise.resolve({} as T);
+    }
+
+    if (cmd.startsWith('vrpiano_')) {
+      if (cmd === 'vrpiano_midishow_login') {
+        const account = String((args as any)?.request?.account || 'preview');
+        return Promise.resolve({ state: 'signed_in', message: 'Browser mode', username: account }) as T;
+      }
+      if (cmd === 'vrpiano_midishow_login_status') {
+        return Promise.resolve({ state: 'signed_in', message: 'Browser mode', username: 'preview' }) as T;
+      }
+      return Promise.resolve({} as T);
+    }
+
     return Promise.resolve({} as T);
   }
   const startTime = performance.now();

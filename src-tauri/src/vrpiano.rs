@@ -3,8 +3,9 @@ use midly::{MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -13,6 +14,9 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
+
+mod midi_backend;
+use midi_backend::{MidiDevice, MidiOutputBackend, MidiOutputState};
 
 const NOTE_HOLD_MS: u64 = 28;
 const SPEED_STEP: f64 = 0.1;
@@ -195,6 +199,8 @@ fn init_tid_mutex() -> std::sync::Mutex<Option<u32>> {
 struct GlobalHotkeyContext {
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -261,6 +267,31 @@ pub struct VrpianoStatus {
     hotkeys_available: bool,
     last_hotkey: String,
     last_hotkey_at_ms: u64,
+    midi_connected: bool,
+    midi_device_name: Option<String>,
+    recording: bool,
+    recorded_midi_path: Option<String>,
+    channels: [ChannelState; 16],
+    voice_listening: bool,
+    tts_enabled: bool,
+    last_transcription: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Copy)]
+pub struct ChannelState {
+    pub muted: bool,
+    pub solo: bool,
+    pub volume: u8,
+}
+
+impl Default for ChannelState {
+    fn default() -> Self {
+        Self {
+            muted: false,
+            solo: false,
+            volume: 127,
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -268,6 +299,7 @@ pub struct VrpianoStartRequest {
     song_path: String,
     delay_secs: u64,
     speed: f64,
+    midi_output_device: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -333,6 +365,8 @@ fn midishow_login_runtime() -> &'static Mutex<MidishowLoginRuntime> {
 #[derive(Clone)]
 pub struct VrpianoState {
     inner: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
 }
 
 struct VrpianoRuntime {
@@ -345,11 +379,177 @@ struct VrpianoRuntime {
     status: VrpianoStatus,
 }
 
+struct MidiRecorder {
+    recording: bool,
+    events: Vec<MidiRecordEvent>,
+    start_time_ms: u64,
+    output_path: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct MidiRecordEvent {
+    at_ms: u64,
+    #[serde(rename = "type")]
+    event_type: String,
+    channel: u8,
+    data: Vec<u8>,
+}
+
+const MIDI_PPQ: u16 = 480;
+const MIDI_TEMPO_US: u32 = 500_000;
+
+impl MidiRecorder {
+    fn new() -> Self {
+        Self {
+            recording: false,
+            events: Vec::new(),
+            start_time_ms: 0,
+            output_path: None,
+        }
+    }
+
+    fn start(&mut self, output_path: String) {
+        self.recording = true;
+        self.events.clear();
+        self.start_time_ms = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.output_path = Some(output_path);
+    }
+
+    fn stop(&mut self) -> Option<String> {
+        self.recording = false;
+        let output_path = self.output_path.clone()?;
+        let events = std::mem::take(&mut self.events);
+        if events.is_empty() {
+            return Some(output_path);
+        }
+        if let Err(e) = write_midi_recording(Path::new(&output_path), &events) {
+            eprintln!("Failed to write MIDI recording: {e}");
+        }
+        Some(output_path)
+    }
+
+    fn record(&mut self, at_ms: u64, event_type: &str, channel: u8, data: &[u8]) {
+        if self.recording {
+            self.events.push(MidiRecordEvent {
+                at_ms: at_ms - self.start_time_ms,
+                event_type: event_type.to_string(),
+                channel,
+                data: data.to_vec(),
+            });
+        }
+    }
+
+    fn is_recording(&self) -> bool {
+        self.recording
+    }
+}
+
+fn write_midi_recording(path: &Path, events: &[MidiRecordEvent]) -> Result<(), String> {
+    let mut file = fs::File::create(path).map_err(|e| format!("Failed to create MIDI file: {e}"))?;
+
+    let mut sorted: Vec<_> = events.iter().collect();
+    sorted.sort_by_key(|e| e.at_ms);
+
+    let mut track_bytes: Vec<u8> = Vec::new();
+    let mut last_tick: u64 = 0;
+
+    for event in sorted {
+        let time_us = event.at_ms.saturating_mul(1000);
+        let tick = ((time_us as u128 * MIDI_PPQ as u128) / MIDI_TEMPO_US as u128) as u64;
+        let delta = tick.saturating_sub(last_tick);
+        last_tick = tick;
+
+        write_variable_length(&mut track_bytes, delta);
+
+        match event.event_type.as_str() {
+            "note_on" => {
+                if event.data.len() >= 2 {
+                    track_bytes.push(0x90 | (event.channel & 0x0F));
+                    track_bytes.push(event.data[0] & 0x7F);
+                    track_bytes.push(event.data[1] & 0x7F);
+                }
+            }
+            "note_off" => {
+                if event.data.len() >= 2 {
+                    track_bytes.push(0x80 | (event.channel & 0x0F));
+                    track_bytes.push(event.data[0] & 0x7F);
+                    track_bytes.push(event.data[1] & 0x7F);
+                }
+            }
+            "program_change" => {
+                if event.data.len() >= 1 {
+                    track_bytes.push(0xC0 | (event.channel & 0x0F));
+                    track_bytes.push(event.data[0] & 0x7F);
+                }
+            }
+            "control_change" => {
+                if event.data.len() >= 2 {
+                    track_bytes.push(0xB0 | (event.channel & 0x0F));
+                    track_bytes.push(event.data[0] & 0x7F);
+                    track_bytes.push(event.data[1] & 0x7F);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    write_variable_length(&mut track_bytes, 0);
+    track_bytes.push(0xFF);
+    track_bytes.push(0x2F);
+    track_bytes.push(0x00);
+
+    let header = build_smf_header(1, MIDI_PPQ);
+    file.write_all(&header).map_err(|e| format!("Failed to write MIDI header: {e}"))?;
+    write_chunk(&mut file, b"MTrk", &track_bytes)
+        .map_err(|e| format!("Failed to write MIDI track: {e}"))?;
+    Ok(())
+}
+
+fn build_smf_header(ntrks: u16, division: u16) -> Vec<u8> {
+    let mut header = Vec::with_capacity(14);
+    header.extend_from_slice(b"MThd");
+    header.extend_from_slice(&6u32.to_be_bytes());
+    header.extend_from_slice(&0u16.to_be_bytes());
+    header.extend_from_slice(&ntrks.to_be_bytes());
+    header.extend_from_slice(&division.to_be_bytes());
+    header
+}
+
+fn write_chunk(file: &mut fs::File, tag: &[u8; 4], data: &[u8]) -> Result<(), String> {
+    file.write_all(tag).map_err(|e| e.to_string())?;
+    file.write_all(&(data.len() as u32).to_be_bytes())
+        .map_err(|e| e.to_string())?;
+    file.write_all(data).map_err(|e| e.to_string())
+}
+
+fn write_variable_length(buffer: &mut Vec<u8>, mut value: u64) {
+    let mut bytes = Vec::new();
+    bytes.push((value & 0x7F) as u8);
+    value >>= 7;
+    while value > 0 {
+        bytes.push(((value & 0x7F) | 0x80) as u8);
+        value >>= 7;
+    }
+    buffer.extend(bytes.into_iter().rev());
+}
+
 #[derive(Clone)]
 struct PlayEvent {
     at_ms: u64,
     note: u8,
     vk: u16,
+}
+
+#[derive(Clone)]
+struct MidiPlayEvent {
+    at_ms: u64,
+    note: u8,
+    velocity: u8,
+    channel: u8,
+    is_note_on: bool,
 }
 
 impl Default for VrpianoState {
@@ -361,7 +561,7 @@ impl Default for VrpianoState {
                 speed: Arc::new(Mutex::new(1.0)),
                 hotkeys_enabled: false,
                 hotkey_song_path: String::new(),
-                hotkey_delay_secs: 5,
+                hotkey_delay_secs: 0,
                 status: VrpianoStatus {
                     running: false,
                     paused: false,
@@ -372,16 +572,26 @@ impl Default for VrpianoState {
                     total_notes: 0,
                     duration_ms: 0,
                     elapsed_ms: 0,
-                    last_event: "VRPiano ready".to_string(),
+                    last_event: String::new(),
                     last_error: String::new(),
                     songs_dir: String::new(),
                     speed: 1.0,
                     hotkeys_enabled: false,
-                    hotkeys_available: cfg!(target_os = "windows"),
+                    hotkeys_available: false,
                     last_hotkey: String::new(),
                     last_hotkey_at_ms: 0,
+                    midi_connected: false,
+                    midi_device_name: None,
+                    recording: false,
+                    recorded_midi_path: None,
+                    channels: [ChannelState::default(); 16],
+                    voice_listening: false,
+                    tts_enabled: false,
+                    last_transcription: String::new(),
                 },
             })),
+            midi_backend: Arc::new(Mutex::new(MidiOutputBackend::new())),
+            recorder: Arc::new(Mutex::new(MidiRecorder::new())),
         }
     }
 }
@@ -969,7 +1179,7 @@ pub async fn vrpiano_start(
 
     #[cfg(target_os = "windows")]
     {
-        start_playback(app, state.inner.clone(), request)
+        start_playback(app, state.inner.clone(), state.midi_backend.clone(), state.recorder.clone(), request)
     }
 }
 
@@ -999,17 +1209,54 @@ pub async fn vrpiano_set_speed(
 }
 
 #[tauri::command]
+pub async fn vrpiano_list_midi_devices() -> Result<Vec<MidiDevice>, String> {
+    Ok(MidiOutputBackend::list_usb_devices())
+}
+
+#[tauri::command]
+pub async fn vrpiano_connect_midi_device(
+    _app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    device_id: String,
+) -> Result<MidiOutputState, String> {
+    let mut backend = state.midi_backend.lock().unwrap();
+    backend.connect_usb(&device_id)?;
+    drop(backend);
+    let backend = state.midi_backend.lock().unwrap();
+    Ok(backend.state().lock().unwrap().clone())
+}
+
+#[tauri::command]
+pub async fn vrpiano_disconnect_midi_device(
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<MidiOutputState, String> {
+    let mut backend = state.midi_backend.lock().unwrap();
+    backend.disconnect();
+    Ok(backend.state().lock().unwrap().clone())
+}
+
+#[tauri::command]
+pub async fn vrpiano_get_midi_output_state(
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<MidiOutputState, String> {
+    let backend = state.midi_backend.lock().unwrap();
+    Ok(backend.state().lock().unwrap().clone())
+}
+
+#[tauri::command]
 pub async fn vrpiano_set_hotkeys(
     app: tauri::AppHandle,
     state: tauri::State<'_, VrpianoState>,
     config: VrpianoHotkeyConfig,
 ) -> Result<VrpianoStatus, String> {
-    set_hotkeys(app, state.inner.clone(), config)
+    set_hotkeys(app, state.inner.clone(), state.midi_backend.clone(), state.recorder.clone(), config)
 }
 
 fn start_playback(
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
     request: VrpianoStartRequest,
 ) -> Result<VrpianoStatus, String> {
     #[cfg(not(target_os = "windows"))]
@@ -1072,12 +1319,44 @@ fn start_playback(
                 hotkeys_available: cfg!(target_os = "windows"),
                 last_hotkey: runtime.status.last_hotkey.clone(),
                 last_hotkey_at_ms: runtime.status.last_hotkey_at_ms,
+                midi_connected: runtime.status.midi_connected,
+                midi_device_name: runtime.status.midi_device_name.clone(),
+                recording: false,
+                recorded_midi_path: None,
+                channels: [ChannelState::default(); 16],
+                voice_listening: false,
+                tts_enabled: false,
+                last_transcription: String::new(),
             };
         }
 
         emit_status(&app, &state);
         let app_handle = app.clone();
         let state_inner = state.clone();
+        let midi_backend = midi_backend.clone();
+
+        if let Some(device_id) = request.midi_output_device {
+            if !device_id.is_empty() {
+                let (midi_events, _) = parse_midi_for_output(&song_path)?;
+                let recorder = recorder.clone();
+                thread::spawn(move || {
+                    run_midi_playback(
+                        app_handle,
+                        state_inner,
+                        midi_backend,
+                        recorder,
+                        stop_flag,
+                        pause_flag,
+                        song_name,
+                        midi_events,
+                        duration_ms,
+                        request.delay_secs,
+                    );
+                });
+                return status_snapshot(&app, &state);
+            }
+        }
+
         thread::spawn(move || {
             run_playback(
                 app_handle,
@@ -1165,11 +1444,13 @@ fn set_playback_speed(
 fn set_hotkeys(
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
     config: VrpianoHotkeyConfig,
 ) -> Result<VrpianoStatus, String> {
     #[cfg(target_os = "windows")]
     if config.enabled {
-        start_global_hotkey_hook(app.clone(), state.clone())?;
+        start_global_hotkey_hook(app.clone(), state.clone(), midi_backend.clone(), recorder.clone())?;
     } else {
         stop_global_hotkey_hook();
     }
@@ -1207,8 +1488,10 @@ fn set_hotkeys(
 fn start_global_hotkey_hook(
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
 ) -> Result<(), String> {
-    let _ = HOTKEY_CONTEXT.set(GlobalHotkeyContext { app, state });
+    let _ = HOTKEY_CONTEXT.set(GlobalHotkeyContext { app, state, midi_backend, recorder });
 
     if HOTKEY_HOOK_STARTED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -1362,8 +1645,9 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                         song_path,
                         delay_secs,
                         speed: current_speed(&context.state),
+                        midi_output_device: None,
                     };
-                    let _ = start_playback(context.app.clone(), context.state.clone(), request);
+                    let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
                 }
             }
             113 => {
@@ -1401,8 +1685,9 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                             song_path,
                             delay_secs,
                             speed: current_speed(&context.state),
+                            midi_output_device: None,
                         };
-                        let _ = start_playback(context.app.clone(), context.state.clone(), request);
+                        let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
                     }
                 }
             }
@@ -1535,6 +1820,148 @@ fn run_playback(
 }
 
 #[cfg(target_os = "windows")]
+fn run_midi_playback(
+    app: tauri::AppHandle,
+    state: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    song_name: String,
+    events: Vec<MidiPlayEvent>,
+    duration_ms: u64,
+    delay_secs: u64,
+) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        for remaining in (1..=delay_secs).rev() {
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            update_runtime(&state, |status| {
+                status.last_event = format!("MIDI Starting in {remaining}s");
+            });
+            emit_status_with_midi(&app, &state, &midi_backend);
+            sleep_unscaled_interruptible(1_000, &stop, &paused);
+        }
+
+        let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
+        let mut last_at = 0_u64;
+        let mut played = 0_usize;
+        let mut index = 0_usize;
+
+        while index < events.len() {
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let at_ms = events[index].at_ms;
+            let wait_ms = at_ms.saturating_sub(last_at);
+            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state);
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let backend = midi_backend.lock().unwrap();
+            if !backend.state().lock().unwrap().connected {
+                drop(backend);
+                update_runtime(&state, |status| {
+                    status.last_error = "MIDI device disconnected".to_string();
+                    status.running = false;
+                });
+                emit_status_with_midi(&app, &state, &midi_backend);
+                return;
+            }
+
+            let mut notes_to_send = Vec::new();
+            while index < events.len() && events[index].at_ms == at_ms {
+                let ev = &events[index];
+                let channel_state = get_channel_state(&state, ev.channel);
+                if ev.is_note_on {
+                    let solo_active = is_solo_active(&state);
+                    let should_play = !channel_state.muted && (!solo_active || channel_state.solo);
+                    if should_play {
+                        notes_to_send.push((ev.note, ev.velocity, ev.channel));
+                    }
+                    active_notes.insert((ev.note, ev.channel));
+                } else {
+                    active_notes.remove(&(ev.note, ev.channel));
+                }
+                if recorder.lock().unwrap().is_recording() {
+                    let mut rec = recorder.lock().unwrap();
+                    rec.record(at_ms, if ev.is_note_on { "note_on" } else { "note_off" }, ev.channel, &[ev.note, ev.velocity]);
+                }
+                played += 1;
+                index += 1;
+            }
+
+            for (note, velocity, channel) in notes_to_send {
+                let adjusted_velocity = adjust_velocity(velocity, get_channel_state(&state, channel).volume);
+                if let Err(e) = backend.send_note_on(note, adjusted_velocity, channel) {
+                    drop(backend);
+                    update_runtime(&state, |status| {
+                        status.last_error = format!("MIDI error: {e}");
+                        status.running = false;
+                    });
+                    emit_status_with_midi(&app, &state, &midi_backend);
+                    return;
+                }
+            }
+
+            thread::sleep(Duration::from_millis(30));
+            let backend = midi_backend.lock().unwrap();
+            for (note, channel) in &active_notes {
+                let _ = backend.send_note_off(*note, *channel);
+            }
+            active_notes.clear();
+
+            let playback_speed = current_speed(&state);
+            update_runtime(&state, |status| {
+                status.elapsed_ms = at_ms;
+                status.played_notes = played;
+                status.progress = if duration_ms == 0 {
+                    1.0
+                } else {
+                    (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                };
+                status.speed = playback_speed;
+                status.last_event = format!("MIDI Playing {} at {:.2}x", song_name, status.speed);
+            });
+            emit_status_with_midi(&app, &state, &midi_backend);
+            last_at = at_ms;
+        }
+
+        let backend = midi_backend.lock().unwrap();
+        let _ = backend.send_panic();
+    }));
+
+    if result.is_err() {
+        update_runtime(&state, |status| {
+            status.last_error = "MIDI playback crashed unexpectedly".to_string();
+        });
+    }
+
+    update_runtime(&state, |status| {
+        status.running = false;
+        status.paused = false;
+        status.progress = if stop.load(Ordering::SeqCst) {
+            status.progress
+        } else {
+            1.0
+        };
+        status.last_event = if stop.load(Ordering::SeqCst) {
+            "MIDI Playback stopped".to_string()
+        } else {
+            "MIDI Playback finished".to_string()
+        };
+    });
+    if let Ok(mut runtime) = state.lock() {
+        runtime.paused.store(false, Ordering::SeqCst);
+        runtime.stop = None;
+    }
+    emit_status(&app, &state);
+}
+
+#[cfg(target_os = "windows")]
 fn send_key(vk: u16, key_up: bool) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
@@ -1596,6 +2023,102 @@ fn parse_midi_events(path: &Path) -> Result<(Vec<PlayEvent>, u64), String> {
                         .entry(at_ms)
                         .or_default()
                         .push(PlayEvent { at_ms, note, vk });
+                }
+            }
+        }
+    }
+
+    let mut events = Vec::new();
+    for (_at, mut group) in grouped {
+        group.sort_by_key(|event| event.note);
+        events.extend(group);
+    }
+    let duration_ms = events.last().map(|event| event.at_ms).unwrap_or(0);
+    Ok((events, duration_ms))
+}
+
+fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), String> {
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read MIDI: {e}"))?;
+    let smf = Smf::parse(&bytes).map_err(|e| format!("Invalid MIDI file: {e}"))?;
+    let ticks_per_beat = match smf.header.timing {
+        Timing::Metrical(ticks) => u64::from(ticks.as_int()),
+        Timing::Timecode(_, _) => {
+            return Err("SMPTE timecode MIDI files are not supported yet".to_string())
+        }
+    };
+
+    let tempo_map = collect_tempo_map(&smf);
+    let mut grouped: BTreeMap<u64, Vec<MidiPlayEvent>> = BTreeMap::new();
+
+    for track in &smf.tracks {
+        let mut tick = 0_u64;
+        let mut channel = 0u8;
+        for event in track {
+            tick = tick.saturating_add(u64::from(event.delta.as_int()));
+            if let TrackEventKind::Midi { message, .. } = event.kind {
+                match message {
+                    MidiMessage::NoteOn { key, vel } => {
+                        if vel.as_int() == 0 {
+                            continue;
+                        }
+                        let note = key.as_int();
+                        let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
+                        let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
+                        grouped
+                            .entry(at_ms)
+                            .or_default()
+                            .push(MidiPlayEvent {
+                                at_ms,
+                                note,
+                                velocity: vel.as_int(),
+                                channel,
+                                is_note_on: true,
+                            });
+                    }
+                    MidiMessage::NoteOff { key, .. } => {
+                        let note = key.as_int();
+                        let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
+                        let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
+                        grouped
+                            .entry(at_ms)
+                            .or_default()
+                            .push(MidiPlayEvent {
+                                at_ms,
+                                note,
+                                velocity: 0,
+                                channel,
+                                is_note_on: false,
+                            });
+                    }
+                    MidiMessage::ProgramChange { program, .. } => {
+                        let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
+                        let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
+                        grouped
+                            .entry(at_ms)
+                            .or_default()
+                            .push(MidiPlayEvent {
+                                at_ms,
+                                note: program.as_int(),
+                                velocity: 0,
+                                channel,
+                                is_note_on: false,
+                            });
+                    }
+                    MidiMessage::Controller { controller, value } => {
+                        let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
+                        let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
+                        grouped
+                            .entry(at_ms)
+                            .or_default()
+                            .push(MidiPlayEvent {
+                                at_ms,
+                                note: controller.as_int(),
+                                velocity: value.as_int(),
+                                channel,
+                                is_note_on: false,
+                            });
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1832,6 +2355,27 @@ fn current_speed(state: &Arc<Mutex<VrpianoRuntime>>) -> f64 {
         .unwrap_or(1.0)
 }
 
+fn get_channel_state(state: &Arc<Mutex<VrpianoRuntime>>, channel: u8) -> ChannelState {
+    state
+        .lock()
+        .ok()
+        .map(|runtime| runtime.status.channels[channel as usize].clone())
+        .unwrap_or_default()
+}
+
+fn is_solo_active(state: &Arc<Mutex<VrpianoRuntime>>) -> bool {
+    state
+        .lock()
+        .ok()
+        .map(|runtime| runtime.status.channels.iter().any(|c| c.solo))
+        .unwrap_or(false)
+}
+
+fn adjust_velocity(velocity: u8, channel_volume: u8) -> u8 {
+    let scaled = (velocity as u16 * channel_volume as u16) / 127;
+    scaled.min(127).max(0) as u8
+}
+
 #[cfg(target_os = "windows")]
 fn release_all(keys: &HashSet<u16>) {
     for &vk in keys {
@@ -1856,6 +2400,31 @@ fn emit_status(app: &tauri::AppHandle, state: &Arc<Mutex<VrpianoRuntime>>) {
         status.hotkeys_enabled = runtime.hotkeys_enabled;
         status.hotkeys_available = cfg!(target_os = "windows");
         status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+        let _ = app.emit("vrpiano_status", status);
+    }
+}
+
+fn emit_status_with_midi(
+    app: &tauri::AppHandle,
+    state: &Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: &Arc<Mutex<MidiOutputBackend>>,
+) {
+    if let Ok(runtime) = state.lock() {
+        let mut status = runtime.status.clone();
+        status.speed = runtime
+            .speed
+            .lock()
+            .map(|speed| *speed)
+            .unwrap_or(status.speed);
+        status.hotkeys_enabled = runtime.hotkeys_enabled;
+        status.hotkeys_available = cfg!(target_os = "windows");
+        status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+        if let Ok(backend) = midi_backend.lock() {
+            let state_arc = backend.state();
+            let midi_state = state_arc.lock().unwrap();
+            status.midi_connected = midi_state.connected;
+            status.midi_device_name = midi_state.device_name.clone();
+        }
         let _ = app.emit("vrpiano_status", status);
     }
 }
@@ -1898,6 +2467,14 @@ fn status_with_dir(app: &tauri::AppHandle, event: &str) -> Result<VrpianoStatus,
         hotkeys_available: cfg!(target_os = "windows"),
         last_hotkey: String::new(),
         last_hotkey_at_ms: 0,
+        midi_connected: false,
+        midi_device_name: None,
+        recording: false,
+        recorded_midi_path: None,
+        channels: [ChannelState::default(); 16],
+        voice_listening: false,
+        tts_enabled: false,
+        last_transcription: String::new(),
     })
 }
 
@@ -3732,6 +4309,380 @@ fn unique_path(path: &Path) -> PathBuf {
         }
     }
     parent.join(format!("{stem}_copy.{ext}"))
+}
+
+// ==================== Recording Commands ====================
+
+#[tauri::command]
+pub async fn vrpiano_start_recording(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<String, String> {
+    let songs_dir = ensure_songs_dir(&app)?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let filename = format!("recording_{}.mid", timestamp);
+    let output_path = songs_dir.join(&filename);
+    let recorder = state.recorder.lock().unwrap();
+    let mut recorder = recorder;
+    recorder.start(output_path.to_string_lossy().to_string());
+    drop(recorder);
+    update_status(&state, |status| {
+        status.recording = true;
+        status.recorded_midi_path = Some(output_path.to_string_lossy().to_string());
+    });
+    Ok(output_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn vrpiano_stop_recording(
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<Option<String>, String> {
+    let recorder = state.recorder.lock().unwrap();
+    let mut recorder = recorder;
+    let output_path = recorder.stop();
+    drop(recorder);
+    update_status(&state, |status| {
+        status.recording = false;
+    });
+    Ok(output_path)
+}
+
+#[tauri::command]
+pub async fn vrpiano_get_recording_status(
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<VrpianoRecordingStatus, String> {
+    let recorder = state.recorder.lock().unwrap();
+    Ok(VrpianoRecordingStatus {
+        recording: recorder.is_recording(),
+        recorded_midi_path: recorder.output_path.clone(),
+    })
+}
+
+#[derive(Clone, Serialize)]
+pub struct VrpianoRecordingStatus {
+    pub recording: bool,
+    pub recorded_midi_path: Option<String>,
+}
+
+// ==================== Channel Control Commands ====================
+
+#[tauri::command]
+pub async fn vrpiano_get_channel_states(
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<[ChannelState; 16], String> {
+    let runtime = state.inner.lock().unwrap();
+    Ok(runtime.status.channels)
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_channel_mute(
+    state: tauri::State<'_, VrpianoState>,
+    channel: u8,
+    muted: bool,
+) -> Result<(), String> {
+    if channel >= 16 {
+        return Err("Channel must be 0-15".to_string());
+    }
+    update_status(&state, |status| {
+        status.channels[channel as usize].muted = muted;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_channel_solo(
+    state: tauri::State<'_, VrpianoState>,
+    channel: u8,
+    solo: bool,
+) -> Result<(), String> {
+    if channel >= 16 {
+        return Err("Channel must be 0-15".to_string());
+    }
+    update_status(&state, |status| {
+        status.channels[channel as usize].solo = solo;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_channel_volume(
+    state: tauri::State<'_, VrpianoState>,
+    channel: u8,
+    volume: u8,
+) -> Result<(), String> {
+    if channel >= 16 {
+        return Err("Channel must be 0-15".to_string());
+    }
+    update_status(&state, |status| {
+        status.channels[channel as usize].volume = volume.min(127);
+    });
+    Ok(())
+}
+
+// ==================== Voice Control Commands ====================
+
+#[tauri::command]
+pub async fn vrpiano_set_voice_control_enabled(
+    state: tauri::State<'_, VrpianoState>,
+    enabled: bool,
+) -> Result<(), String> {
+    update_status(&state, |status| {
+        status.voice_listening = enabled;
+        status.last_event = if enabled {
+            format!("Voice control enabled")
+        } else {
+            format!("Voice control disabled")
+        };
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_tts_enabled(
+    state: tauri::State<'_, VrpianoState>,
+    enabled: bool,
+) -> Result<(), String> {
+    update_status(&state, |status| {
+        status.tts_enabled = enabled;
+        status.last_event = if enabled {
+            format!("TTS singing enabled")
+        } else {
+            format!("TTS singing disabled")
+        };
+    });
+    Ok(())
+}
+
+// ==================== Helper ====================
+
+fn update_status<F>(state: &tauri::State<'_, VrpianoState>, f: F)
+where
+    F: FnOnce(&mut VrpianoStatus),
+{
+    if let Ok(mut runtime) = state.inner.lock() {
+        f(&mut runtime.status);
+    }
+}
+
+// ==================== Python Runtime Bridge ====================
+
+fn resolve_python_runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+
+    if let Ok(path) = std::env::var("VRCDOG_PYTHON_RUNTIME") {
+        candidates.push(PathBuf::from(path).join("python.exe"));
+    }
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.extend([
+            resource_dir.join("python-runtime").join("python.exe"),
+            resource_dir.join("resources").join("python-runtime").join("python.exe"),
+        ]);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.extend([
+            cwd.join("src-tauri").join("resources").join("python-runtime").join("python.exe"),
+            cwd.join("resources").join("python-runtime").join("python.exe"),
+        ]);
+    }
+
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(exe_dir) = executable.parent() {
+            candidates.extend([
+                exe_dir.join("python-runtime").join("python.exe"),
+                exe_dir.join("resources").join("python-runtime").join("python.exe"),
+            ]);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| "Embedded Python runtime not found. Run `node scripts/prepare-python-runtime.mjs` before packaging.".to_string())
+}
+
+fn resolve_bridge_script(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.extend([
+            resource_dir.join("_up_").join("src-python").join(name),
+            resource_dir.join("src-python").join(name),
+            resource_dir.join(name),
+        ]);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.extend([
+            cwd.join("src-tauri").join("src-python").join(name),
+            cwd.join("src-python").join(name),
+        ]);
+    }
+
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(exe_dir) = executable.parent() {
+            candidates.extend([
+                exe_dir.join("src-python").join(name),
+                exe_dir.join("_up_").join("src-python").join(name),
+            ]);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| format!("Bridge script not found: {name}"))
+}
+
+fn run_python_bridge(app: &tauri::AppHandle, script: &str, args: &[&str]) -> Result<String, String> {
+    let python = resolve_python_runtime(app)?;
+    let script_path = resolve_bridge_script(app, script)?;
+
+    let mut command = Command::new(&python);
+    command
+        .arg(&script_path)
+        .args(args)
+        .env("PYTHONNOUSERSITE", "1")
+        .env("PYTHONUTF8", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+
+    let output = command
+        .output()
+        .map_err(|e| format!("Failed to run Python bridge: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Python bridge failed: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.trim().to_string())
+}
+
+// ==================== ASR Commands ====================
+
+#[tauri::command]
+pub async fn vrpiano_start_voice_listening(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<String, String> {
+    update_status(&state, |status| {
+        status.last_event = "Voice listening started".to_string();
+    });
+    Ok("Voice listening started".to_string())
+}
+
+#[tauri::command]
+pub async fn vrpiano_stop_voice_listening(
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<String, String> {
+    update_status(&state, |status| {
+        status.last_event = "Voice listening stopped".to_string();
+    });
+    Ok("Voice listening stopped".to_string())
+}
+
+#[tauri::command]
+pub async fn vrpiano_transcribe_audio(
+    app: tauri::AppHandle,
+    audio_path: String,
+) -> Result<VrpianoTranscriptionResult, String> {
+    let output = run_python_bridge(&app, "vrcdog_asr.py", &[&audio_path])?;
+    let parsed: serde_json::Value = serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse ASR result: {e}"))?;
+
+    if let Some(error) = parsed.get("error") {
+        return Err(error.as_str().unwrap_or("ASR error").to_string());
+    }
+
+    let text = parsed.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let language = parsed.get("language").and_then(|v| v.as_str()).unwrap_or("zh").to_string();
+
+    Ok(VrpianoTranscriptionResult {
+        text,
+        language,
+        confidence: 1.0,
+    })
+}
+
+#[derive(Clone, Serialize)]
+pub struct VrpianoTranscriptionResult {
+    pub text: String,
+    pub language: String,
+    pub confidence: f64,
+}
+
+// ==================== TTS Commands ====================
+
+#[tauri::command]
+pub async fn vrpiano_synthesize_speech(
+    app: tauri::AppHandle,
+    text: String,
+    voice: Option<String>,
+    rate: Option<f64>,
+    volume: Option<f64>,
+) -> Result<VrpianoSynthesisResult, String> {
+    let voice = voice.unwrap_or_else(|| "zh-CN-XiaoxiaoNeural".to_string());
+    let rate = rate.unwrap_or(1.0);
+    let volume = volume.unwrap_or(1.0);
+
+    let rate_percent = ((rate - 1.0) * 100.0).round() as i32;
+    let rate_str = format!("{:+}%", rate_percent);
+    let volume_percent = ((volume - 1.0) * 100.0).round() as i32;
+    let volume_str = format!("{:+}%", volume_percent);
+
+    let songs_dir = ensure_songs_dir(&app)?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let output_path = songs_dir.join(format!("tts_{}.mp3", timestamp));
+    let output_path_str = output_path.to_string_lossy().into_owned();
+
+    let args: Vec<&str> = vec![
+        "--text", &text,
+        "--voice", &voice,
+        "--rate", &rate_str,
+        "--volume", &volume_str,
+        "--output", &output_path_str,
+    ];
+
+    let output = run_python_bridge(&app, "vrcdog_tts.py", &args)?;
+    let parsed: serde_json::Value = serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse TTS result: {e}"))?;
+
+    if let Some(error) = parsed.get("error") {
+        return Err(error.as_str().unwrap_or("TTS error").to_string());
+    }
+
+    let output_path_str = parsed.get("output_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&output_path.to_string_lossy().to_string())
+        .to_string();
+
+    Ok(VrpianoSynthesisResult {
+        output_path: output_path_str,
+        voice,
+        text,
+    })
+}
+
+#[derive(Clone, Serialize)]
+pub struct VrpianoSynthesisResult {
+    pub output_path: String,
+    pub voice: String,
+    pub text: String,
 }
 
 #[cfg(test)]

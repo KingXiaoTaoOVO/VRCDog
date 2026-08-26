@@ -32,6 +32,11 @@ import {
   Upload,
   Volume2,
   X,
+  Mic,
+  Square,
+  Radio,
+  Sliders,
+  Disc3,
 } from 'lucide-vue-next';
 import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoMidishowLoginStatus, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
 import { SysApi } from '../api';
@@ -64,7 +69,7 @@ const emptyStatus = (): VrpianoStatus => ({
   total_notes: 0,
   duration_ms: 0,
   elapsed_ms: 0,
-  last_event: l('正在初始化 VRPiano', 'Initializing VRPiano'),
+  last_event: l('濮濓絽婀崚婵嗩潗閸?VRPiano', 'Initializing VRPiano'),
   last_error: '',
   songs_dir: '',
   speed: 1,
@@ -72,6 +77,14 @@ const emptyStatus = (): VrpianoStatus => ({
   hotkeys_available: true,
   last_hotkey: '',
   last_hotkey_at_ms: 0,
+  midi_connected: false,
+  midi_device_name: null,
+  recording: false,
+  recorded_midi_path: null,
+  channels: Array.from({ length: 16 }, () => ({ muted: false, solo: false, volume: 127 })),
+  voice_listening: false,
+  tts_enabled: false,
+  last_transcription: '',
 });
 
 const songs = ref<VrpianoSong[]>([]);
@@ -147,6 +160,13 @@ const playerInstrument = ref('source');
 const sourcePrograms = ref<number[]>([]);
 const sourceHasPercussion = ref(false);
 const overlayOpen = ref(false);
+const recording = ref(false);
+const recordedMidiPath = ref<string | null>(null);
+const channelStates = ref<Array<{ muted: boolean; solo: boolean; volume: number }>>(
+  Array.from({ length: 16 }, () => ({ muted: false, solo: false, volume: 127 })),
+);
+const voiceControlEnabled = ref(false);
+const ttsEnabled = ref(false);
 
 const formatVrpianoError = (e: unknown) => {
   const message = e instanceof Error ? e.message : String(e);
@@ -1120,11 +1140,205 @@ const refreshStatus = async () => {
     status.value = await VrpianoApi.getStatus();
     if (Number.isFinite(status.value.speed)) speed.value = status.value.speed;
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
+    recording.value = Boolean(status.value.recording);
+    recordedMidiPath.value = status.value.recorded_midi_path ?? null;
+    voiceControlEnabled.value = Boolean(status.value.voice_listening);
+    ttsEnabled.value = Boolean(status.value.tts_enabled);
+    if (status.value.channels && status.value.channels.length === 16) {
+      channelStates.value = status.value.channels.map((ch: any) => ({
+        muted: ch.muted ?? false,
+        solo: ch.solo ?? false,
+        volume: ch.volume ?? 127,
+      }));
+    }
     if (status.value.song_path && songs.value.some((song) => song.path === status.value.song_path)) {
       selectedPath.value = status.value.song_path;
     }
   } catch {
     // Backend may be unavailable in browser preview.
+  }
+};
+
+const startRecording = async () => {
+  if (!isTauri()) {
+    addLog('Recording is only available in the desktop app');
+    return;
+  }
+  try {
+    const path = await VrpianoApi.startRecording();
+    recording.value = true;
+    recordedMidiPath.value = path;
+    addLog(l('寮€濮嬶紒鏀跺彴璁?褰?', 'Recording started'));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const stopRecording = async () => {
+  if (!isTauri()) return;
+  try {
+    const path = await VrpianoApi.stopRecording();
+    recording.value = false;
+    if (path) {
+      recordedMidiPath.value = path;
+      addLog(l('璁板綍宸插仠鐢?{path}', `Recording saved: ${path}`));
+    }
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const toggleVoiceControl = async () => {
+  if (!isTauri()) {
+    addLog('Voice control is only available in the desktop app');
+    return;
+  }
+  try {
+    voiceControlEnabled.value = !voiceControlEnabled.value;
+    await VrpianoApi.setVoiceControlEnabled({ enabled: voiceControlEnabled.value });
+    if (voiceControlEnabled.value) {
+      startVoiceRecognition();
+      addLog('Voice control enabled - say: play, pause, stop, faster, slower, reset');
+    } else {
+      stopVoiceRecognition();
+      addLog('Voice control disabled');
+    }
+  } catch (e: any) {
+    error.value = e.message || String(e);
+    voiceControlEnabled.value = !voiceControlEnabled.value;
+  }
+};
+
+let recognition: any = null;
+
+const startVoiceRecognition = () => {
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    addLog('Speech recognition not supported in this browser');
+    return;
+  }
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = 'zh-CN';
+
+  recognition.onresult = (event: any) => {
+    const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
+    addLog(`Voice: "${transcript}"`);
+    processVoiceCommand(transcript);
+  };
+
+  recognition.onerror = (event: any) => {
+    addLog(`Voice error: ${event.error}`);
+    if (voiceControlEnabled.value && event.error !== 'no-speech') {
+      setTimeout(() => {
+        if (voiceControlEnabled.value) {
+          try { recognition.start(); } catch {}
+        }
+      }, 1000);
+    }
+  };
+
+  recognition.onend = () => {
+    if (voiceControlEnabled.value) {
+      try { recognition.start(); } catch {}
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (e) {
+    addLog(`Failed to start voice recognition: ${e}`);
+  }
+};
+
+const stopVoiceRecognition = () => {
+  if (recognition) {
+    try { recognition.stop(); } catch {}
+    recognition = null;
+  }
+};
+
+const processVoiceCommand = async (transcript: string) => {
+  const cmd = transcript.trim();
+  if (cmd.includes('播放') || cmd.includes('play') || cmd.includes('开始')) {
+    if (!status.value.running) start();
+    else togglePlayback();
+  } else if (cmd.includes('暂停') || cmd.includes('pause') || cmd.includes('继续')) {
+    togglePlayback();
+  } else if (cmd.includes('停止') || cmd.includes('stop')) {
+    if (status.value.running) {
+      await VrpianoApi.stop();
+      addLog('Playback stopped');
+    }
+  } else if (cmd.includes('快') || cmd.includes('faster') || cmd.includes('加速')) {
+    adjustSpeed(0.1);
+  } else if (cmd.includes('慢') || cmd.includes('slower') || cmd.includes('减速')) {
+    adjustSpeed(-0.1);
+  } else if (cmd.includes('默认') || cmd.includes('reset') || cmd.includes('恢复')) {
+    resetSpeed();
+  } else if (cmd.includes('重新') || cmd.includes('restart') || cmd.includes('重来')) {
+    restartPlayback();
+  }
+};
+
+const toggleTts = async () => {
+  if (!isTauri()) {
+    addLog('TTS singing is only available in the desktop app');
+    return;
+  }
+  try {
+    ttsEnabled.value = !ttsEnabled.value;
+    await VrpianoApi.setTtsEnabled({ enabled: ttsEnabled.value });
+    addLog(ttsEnabled.value ? 'TTS singing enabled' : 'TTS singing disabled');
+  } catch (e: any) {
+    error.value = e.message || String(e);
+    ttsEnabled.value = !ttsEnabled.value;
+  }
+};
+
+const speakText = async (text: string) => {
+  if (!isTauri() || !ttsEnabled.value) return;
+  try {
+    const result = await VrpianoApi.synthesizeSpeech({
+      text,
+      voice: 'zh-CN-XiaoxiaoNeural',
+      rate: 1.0,
+      volume: 0.9,
+    });
+    addLog(l('TTS 鍙?鏇?', `TTS speaking: ${text}`));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const setChannelMute = async (channel: number, muted: boolean) => {
+  if (!isTauri()) return;
+  try {
+    await VrpianoApi.setChannelMute({ channel, muted });
+    channelStates.value[channel].muted = muted;
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const setChannelSolo = async (channel: number, solo: boolean) => {
+  if (!isTauri()) return;
+  try {
+    await VrpianoApi.setChannelSolo({ channel, solo });
+    channelStates.value[channel].solo = solo;
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const setChannelVolume = async (channel: number, volume: number) => {
+  if (!isTauri()) return;
+  try {
+    await VrpianoApi.setChannelVolume({ channel, volume: Math.round(volume) });
+    channelStates.value[channel].volume = Math.round(volume);
+  } catch (e: any) {
+    error.value = e.message || String(e);
   }
 };
 
@@ -1230,6 +1444,7 @@ onUnmounted(() => {
   onlineSearchRequestId += 1;
   pausePlayer();
   void audioContext?.close();
+  stopVoiceRecognition();
 });
 </script>
 
@@ -1427,6 +1642,50 @@ onUnmounted(() => {
           <button class="toggle-btn" :class="{ enabled: hotkeysEnabled }" :disabled="!status.hotkeys_available" @click="toggleHotkeys">
             {{ hotkeysEnabled ? l('已开启', 'Enabled') : l('已关闭', 'Disabled') }}
           </button>
+        </div>
+
+        <div class="extra-controls">
+          <div class="control-section">
+            <strong>{{ l('MIDI 录音', 'MIDI Recording') }}</strong>
+            <div class="control-row">
+              <button v-if="!recording" class="small-action record-start" :disabled="loading" @click="startRecording">
+                <Disc3 :size="14" /> {{ l('开始录音', 'Start Recording') }}
+              </button>
+              <button v-else class="small-action record-stop" :disabled="loading" @click="stopRecording">
+                <Square :size="14" /> {{ l('停止录音', 'Stop Recording') }}
+              </button>
+              <span v-if="recordedMidiPath" class="recording-path">{{ recordedMidiPath }}</span>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <strong>{{ l('通道控制', 'Channel Controls') }}</strong>
+            <div class="channel-grid">
+              <div v-for="idx in 16" :key="idx - 1" class="channel-row" :class="{ muted: channelStates[idx - 1].muted, solo: channelStates[idx - 1].solo }">
+                <span class="channel-label">CH {{ idx - 1 }}</span>
+                <button class="channel-btn mute" :class="{ active: channelStates[idx - 1].muted }" @click="setChannelMute(idx - 1, !channelStates[idx - 1].muted)">
+                  M
+                </button>
+                <button class="channel-btn solo" :class="{ active: channelStates[idx - 1].solo }" @click="setChannelSolo(idx - 1, !channelStates[idx - 1].solo)">
+                  S
+                </button>
+                <input type="range" min="0" max="127" :value="channelStates[idx - 1].volume" @input="setChannelVolume(idx - 1, Number(($event.target as HTMLInputElement).valueAsNumber))" class="channel-volume">
+                <span class="channel-vol-label">{{ channelStates[idx - 1].volume }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <strong>{{ l('高级功能', 'Advanced Features') }}</strong>
+            <div class="control-row">
+              <button class="small-action" :class="{ enabled: voiceControlEnabled }" :disabled="loading" @click="toggleVoiceControl">
+                <Mic :size="14" /> {{ voiceControlEnabled ? l('关闭语音', 'Disable Voice') : l('开启语音', 'Enable Voice') }}
+              </button>
+              <button class="small-action" :class="{ enabled: ttsEnabled }" :disabled="loading" @click="toggleTts">
+                <Radio :size="14" /> {{ ttsEnabled ? l('关闭 TTS', 'Disable TTS') : l('开启 TTS', 'Enable TTS') }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="action-row">
@@ -2382,6 +2641,143 @@ input {
 .restart-action:hover:not(:disabled) {
   color: var(--vp-primary);
   background: var(--vp-hover);
+}
+
+.extra-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.control-section {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--vp-panel);
+  box-shadow: inset 0 0 0 1px var(--vp-border);
+}
+
+.control-section > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--vp-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.recording-path {
+  color: var(--vp-dim);
+  font-size: 11px;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.record-start {
+  color: #dc2626;
+  background: color-mix(in srgb, #dc2626 12%, var(--vp-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #dc2626 28%, transparent);
+}
+
+.record-start:hover:not(:disabled) {
+  background: color-mix(in srgb, #dc2626 22%, var(--vp-hover));
+}
+
+.record-stop {
+  color: white;
+  background: #dc2626;
+}
+
+.record-stop:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: var(--vp-surface);
+  box-shadow: inset 0 0 0 1px var(--vp-border);
+}
+
+.channel-row.muted {
+  opacity: 0.5;
+}
+
+.channel-row.solo {
+  background: color-mix(in srgb, var(--vp-primary) 18%, var(--vp-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vp-primary) 32%, transparent);
+}
+
+.channel-label {
+  width: 28px;
+  color: var(--vp-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.channel-btn {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--vp-border);
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: var(--vp-muted);
+  background: var(--vp-panel);
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.channel-btn.active {
+  color: white;
+  background: var(--vp-primary);
+  border-color: var(--vp-primary);
+}
+
+.channel-volume {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-text) 12%, transparent);
+}
+
+.channel-volume::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--vp-primary);
+}
+
+.channel-vol-label {
+  width: 22px;
+  color: var(--vp-dim);
+  font-size: 9px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.small-action.enabled {
+  color: white;
+  background: var(--vp-primary);
+  box-shadow: inset 0 0 0 1px var(--vp-primary);
 }
 
 .online-panel {

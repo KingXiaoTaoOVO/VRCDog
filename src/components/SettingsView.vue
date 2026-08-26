@@ -266,7 +266,7 @@ const parsedAutoLaunchApps = computed({
 const loadSettings = async () => {
   try {
     const all = await DbApi.getAllSettings();
-    if (all && typeof all === 'object') {
+    if (all && typeof all === 'object' && Object.keys(all).length > 0) {
       for (const [key, val] of Object.entries(all)) {
         if (key in config.value) {
           const target = config.value as any;
