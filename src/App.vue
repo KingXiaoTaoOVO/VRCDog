@@ -183,6 +183,7 @@ const serverDashboardTarget = ref<{
 const webAdminPassword = ref('');
 const webAdminPasswordError = ref('');
 const webAdminPasswordSubmitted = ref(false);
+let webAutoServerSet = false;
 const disconnectedServerUrl = ref('');
 const reconnectingServer = ref(false);
 const reconnectServerError = ref('');
@@ -204,7 +205,7 @@ watch([pendingSurveyCount, isLoggedIn], ([pending, loggedIn]) => {
 }, { immediate: true });
 
 watch([isLoggedIn, appRole], ([loggedIn, role]) => {
-  if (loggedIn && role === null && !isTauri()) {
+  if (loggedIn && role === null && !isTauri() && !webAutoServerSet) {
     const origin = window.location.origin;
     authStore.appRole = 'server';
     serverDashboardTarget.value = {
@@ -215,6 +216,10 @@ watch([isLoggedIn, appRole], ([loggedIn, role]) => {
     webAdminPassword.value = '';
     webAdminPasswordError.value = '';
     webAdminPasswordSubmitted.value = false;
+    webAutoServerSet = true;
+  }
+  if (role === null) {
+    webAutoServerSet = false;
   }
 });
 
@@ -238,7 +243,7 @@ const submitWebAdminPassword = async () => {
     });
     if (res.success) {
       serverDashboardTarget.value.password = webAdminPassword.value.trim();
-      webAdminPasswordSubmitted.value = false;
+      webAdminPasswordSubmitted.value = true;
     } else {
       webAdminPasswordError.value = res.message || '密码错误';
     }
