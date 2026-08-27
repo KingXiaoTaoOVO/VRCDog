@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed, markRaw } from 'vue';
+import { isTauri } from '@tauri-apps/api/core';
 import { VrcApi, DbApi } from '../api';
 import { translate } from '../i18n';
 import { currentTheme, setTheme, themes, type ThemeId } from '../theme';
@@ -79,6 +80,10 @@ export const useUiStore = defineStore('ui', () => {
        if (Object.keys(serverMenuPerms.value).length > 0) {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
+       if (!isTauri()) {
+          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote'];
+          if (localOnly.includes(tab.key)) return false;
+       }
        return true;
     });
     if (customNavConfig.value.length === 0) return baseTabs;
@@ -99,6 +104,10 @@ export const useUiStore = defineStore('ui', () => {
        if (appMode.value === 'pc' && tab.key === 'ovr') return false;
        if (Object.keys(serverMenuPerms.value).length > 0) {
           if (serverMenuPerms.value[tab.key] === false) return false;
+       }
+       if (!isTauri()) {
+          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote'];
+          if (localOnly.includes(tab.key)) return false;
        }
        return true;
     });

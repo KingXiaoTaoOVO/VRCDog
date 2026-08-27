@@ -2,15 +2,30 @@ use crate::{AppError, AppResult, EnvironmentStatus, ProgressPayload};
 use futures_util::StreamExt;
 use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE};
 use std::fs;
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt, SeekFrom};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{Mutex, Semaphore};
 use winreg::enums::*;
 use winreg::{RegKey, HKEY};
+
+#[cfg(target_os = "windows")]
+fn is_network_drive(drive_letter: char) -> bool {
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
+    use windows::core::PCWSTR;
+    let path = format!(r"\\.\{}:", drive_letter);
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) == 4 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_network_drive(_drive_letter: char) -> bool {
+    false
+}
 
 fn is_registry_key_exists(hkey: HKEY, path: &str) -> bool {
     let hk = RegKey::predef(hkey);
@@ -31,6 +46,10 @@ fn get_registry_string(hkey: HKEY, path: &str, value_name: &str) -> Option<Strin
 fn find_in_drives(relative_paths: &[&str]) -> Option<String> {
     for drive in b'C'..=b'Z' {
         let drive_str = format!("{}:", drive as char);
+        // Skip network drives to avoid timeouts on disconnected mapped drives
+        if is_network_drive(drive as char) {
+            continue;
+        }
         // Only check valid drives to avoid slow network/unmounted drive timeouts
         let drive_path = format!("{}\\", drive_str);
         if !Path::new(&drive_path).exists() {

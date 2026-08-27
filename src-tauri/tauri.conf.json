@@ -55,15 +55,6 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "vrcdog_actions.json",
-      "bindings_index.json",
-      "bindings_vive.json",
-      "bindings_touch.json",
-      "bindings_pico_neo3.json",
-      "bindings_pico4.json",
-      "bindings_wmr.json",
-      "bindings_cosmos.json",
-      "bindings_hpmotion.json",
       "../src-python/*.py",
       "../src-python/midishow-downloader/package.json",
       "../src-python/midishow-downloader/dist/*",
@@ -72,6 +63,9 @@
       "../src-python/songs/*"
     ],
     "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
       "wix": {
         "template": "wix/main.wxs",
         "language": {

@@ -1,4 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue';
+import { isTauri } from '@tauri-apps/api/core';
 import { useToast } from './useToast';
 
 export interface WebUpdateInfo {
@@ -85,6 +86,7 @@ export function useWebUpdate() {
   };
 
   const checkForUpdates = async (silent = false): Promise<void> => {
+    if (!isTauri()) return;
     if (checkingUpdate.value || !currentVersion.value) return;
     checkingUpdate.value = true;
     try {

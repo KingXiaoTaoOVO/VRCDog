@@ -101,19 +101,21 @@ const bootstrap = async () => {
 
 bootstrap().catch((error) => {
   console.error('[Startup] VrcDog failed to boot:', error);
+  const root = document.getElementById('app');
+  if (root) {
+    const message = String((error as any)?.message || error || 'Unknown error');
+    root.innerHTML = `
+      <div style="height:100vh;display:flex;align-items:center;justify-content:center;background:#fffaf0;color:#9a6a38;font-family:system-ui,Segoe UI,sans-serif;">
+        <div style="text-align:center;font-weight:700;max-width:480px;padding:0 16px;">
+          <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+          <div style="font-size:18px;margin-bottom:12px;">VrcDog 启动失败</div>
+          <div style="font-size:13px;color:#92400e;margin-bottom:16px;white-space:pre-wrap;">${message.replace(/</g, '&lt;')}</div>
+          <button onclick="window.location.reload()" style="border:0;border-radius:10px;padding:10px 16px;background:#d97706;color:white;font-weight:700;cursor:pointer;">重新加载</button>
+        </div>
+      </div>`;
+  }
   if (isRecoverableLoadError(error)) {
     document.body.dataset.startupFailed = 'network';
-    const root = document.getElementById('app');
-    if (root) {
-      root.innerHTML = `
-        <div style="height:100vh;display:flex;align-items:center;justify-content:center;background:#fffaf0;color:#9a6a38;font-family:system-ui,Segoe UI,sans-serif;">
-          <div style="text-align:center;font-weight:700;">
-            <div style="margin-bottom:12px;">VrcDog 正在恢复启动连接...</div>
-            <button id="vrcdog-reload" style="border:0;border-radius:10px;padding:10px 16px;background:#e7a94d;color:white;font-weight:700;cursor:pointer;">重新加载</button>
-          </div>
-        </div>`;
-      document.getElementById('vrcdog-reload')?.addEventListener('click', () => window.location.reload());
-    }
     recoverStartupOnce();
   }
 });

@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import i18n from './i18n';
 import { useToast } from './composables/useToast';
+import { checkWebBackend, webBackendChecked, webBackendOk, webBackendError } from './composables/useWebBackend';
 
 // Stores
 import { useAuthStore } from './stores/authStore';
@@ -115,6 +116,8 @@ const webUpdate = useWebUpdate();
 const { appRole, isLoggedIn, autoLoginLoading, banMessage, serverConnected, reconnectCountdown, clientServerUrl, currentUser, pendingSurveyCount, surveyRequired } = storeToRefs(authStore);
 const { appMode, activeTab } = storeToRefs(uiStore);
 
+const webBackendErrorMsg = ref('');
+
 const overlayMode = new URLSearchParams(window.location.search).get('mode');
 const isTranslationOverlayMode = overlayMode === 'overlay';
 const isVrpianoOverlayMode = overlayMode === 'vrpiano-overlay';
@@ -177,6 +180,9 @@ const serverDashboardTarget = ref<{
   url: '',
   password: '',
 });
+const webAdminPassword = ref('');
+const webAdminPasswordError = ref('');
+const webAdminPasswordSubmitted = ref(false);
 const disconnectedServerUrl = ref('');
 const reconnectingServer = ref(false);
 const reconnectServerError = ref('');
@@ -196,6 +202,56 @@ watch([pendingSurveyCount, isLoggedIn], ([pending, loggedIn]) => {
     surveyCenterOpen.value = true;
   }
 }, { immediate: true });
+
+watch([isLoggedIn, appRole], ([loggedIn, role]) => {
+  if (loggedIn && role === null && !isTauri()) {
+    const origin = window.location.origin;
+    authStore.appRole = 'server';
+    serverDashboardTarget.value = {
+      mode: 'remote',
+      url: origin,
+      password: '',
+    };
+    webAdminPassword.value = '';
+    webAdminPasswordError.value = '';
+    webAdminPasswordSubmitted.value = false;
+  }
+});
+
+watch(activeTab, (tab) => {
+  if (!isTauri() && tab) {
+    const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote'];
+    if (localOnly.includes(tab)) {
+      uiStore.activeTab = 'dashboard';
+    }
+  }
+});
+
+const submitWebAdminPassword = async () => {
+  webAdminPasswordError.value = '';
+  webAdminPasswordSubmitted.value = true;
+  if (!webAdminPassword.value.trim()) return;
+  try {
+    const res = await VrcApi.request(`${serverDashboardTarget.value.url}/api/admin/auth`, {
+      method: 'POST',
+      params: { password: webAdminPassword.value.trim() },
+    });
+    if (res.success) {
+      serverDashboardTarget.value.password = webAdminPassword.value.trim();
+      webAdminPasswordSubmitted.value = false;
+    } else {
+      webAdminPasswordError.value = res.message || '密码错误';
+    }
+  } catch (err: any) {
+    webAdminPasswordError.value = err?.message || '验证失败';
+  }
+};
+
+const reloadPage = () => {
+  if (typeof window !== 'undefined') {
+    window.location.reload();
+  }
+};
 
 const handleSurveyResolved = (pending: number, required: boolean) => {
   authStore.resolveSurveyPrompt(pending, required);
@@ -336,7 +392,17 @@ const applyProxyFromSettings = async (settings: any) => {
 onMounted(async () => {
   if (isOverlayMode) return;
   const sysCtx = useSystemContextStore();
-  sysCtx.startPolling();
+  if (isTauri()) {
+    sysCtx.startPolling();
+  }
+
+  if (!isTauri()) {
+    const ok = await checkWebBackend();
+    if (!ok) {
+      webBackendErrorMsg.value = webBackendError.value;
+    }
+  }
+
   await uiStore.loadCustomNavConfig();
   
   if (isTauri()) {
@@ -500,16 +566,55 @@ if (typeof window !== 'undefined') {
   <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
   <DrawingOverlayView v-else-if="isDrawingOverlayMode" />
   
+  <div
+    v-else-if="!isTauri() && appRole === 'server' && !webAdminPasswordSubmitted"
+    class="w-full h-screen flex flex-col items-center justify-center bg-background"
+  >
+    <div class="w-full max-w-sm px-4">
+      <h2 class="text-xl font-bold text-text-strong mb-4 text-center">管理员验证</h2>
+      <p class="text-text-muted text-sm mb-4 text-center">请输入服务器 root 密码以访问管理后台</p>
+      <input
+        v-model="webAdminPassword"
+        type="password"
+        class="theme-field mb-3"
+        :placeholder="'root 密码'"
+        @keydown.enter="submitWebAdminPassword"
+      />
+      <p v-if="webAdminPasswordError" class="text-red-500 text-sm mb-3">{{ webAdminPasswordError }}</p>
+      <button
+        @click="submitWebAdminPassword"
+        class="w-full py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
+      >
+        验证
+      </button>
+    </div>
+  </div>
+
   <ServerDashboardView
-    v-else-if="appRole === 'server'"
+    v-else-if="appRole === 'server' && (isTauri() || webAdminPasswordSubmitted)"
     :initial-mode="serverDashboardTarget.mode"
     :remote-url="serverDashboardTarget.url"
     :admin-password="serverDashboardTarget.password"
     @exit="authStore.appRole = null"
   />
 
+  <div
+    v-else-if="!isTauri() && !webBackendOk && webBackendChecked"
+    class="w-full h-screen flex flex-col items-center justify-center bg-background"
+  >
+    <div class="text-6xl mb-4">⚠️</div>
+    <h2 class="text-xl font-bold text-text-strong mb-2">无法连接服务器</h2>
+    <p class="text-text-muted text-sm mb-4 text-center px-4">{{ webBackendErrorMsg || '请检查网络连接后刷新页面' }}</p>
+    <button
+      @click="reloadPage"
+      class="px-4 py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
+    >
+      重新加载
+    </button>
+  </div>
+
   <RoleSelectView
-    v-else-if="appRole === null"
+    v-else-if="appRole === null && isTauri()"
     @role-selected="handleRoleSelected"
   />
 
@@ -584,15 +689,15 @@ if (typeof window !== 'undefined') {
         v-else-if="activeTab === 'presets'"
         :user-id="currentUser?.id"
       />
-      <BilidownView v-else-if="activeTab === 'bilidown'" />
-      <DanmakuView v-else-if="activeTab === 'danmaku'" />
-      <VrpianoView v-else-if="activeTab === 'vrpiano'" />
-      <DrawingView v-else-if="activeTab === 'drawing'" />
+      <BilidownView v-else-if="activeTab === 'bilidown' && isTauri()" />
+      <DanmakuView v-else-if="activeTab === 'danmaku' && isTauri()" />
+      <VrpianoView v-else-if="activeTab === 'vrpiano' && isTauri()" />
+      <DrawingView v-else-if="activeTab === 'drawing' && isTauri()" />
       <ToolsView v-else-if="activeTab === 'tools'" />
       <TranslatorView v-else-if="activeTab === 'translator'" />
-      <RemoteAssistView v-else-if="activeTab === 'remote'" />
-      <ExportView v-else-if="activeTab === 'export'" />
-      <EnvView v-else-if="activeTab === 'env'" />
+      <RemoteAssistView v-else-if="activeTab === 'remote' && isTauri()" />
+      <ExportView v-else-if="activeTab === 'export' && isTauri()" />
+      <EnvView v-else-if="activeTab === 'env' && isTauri()" />
   </PcLayout>
 
   <!-- Global Modals for PC and VR Modes -->

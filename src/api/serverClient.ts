@@ -82,6 +82,8 @@ async function serverFetch<T = any>(
 }
 
 export const ServerApi = {
+  ping: () => serverFetch<{ status: string; message?: string }>('/ping'),
+
   adminAuth: (password: string) =>
     serverFetch<{ success: boolean; token?: string; message?: string }>('/api/admin/auth', {
       method: 'POST',
