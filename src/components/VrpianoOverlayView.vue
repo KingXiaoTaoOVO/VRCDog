@@ -59,6 +59,11 @@ const emptyStatus = (): VrpianoStatus => ({
   voice_listening: false,
   tts_enabled: false,
   last_transcription: '',
+  vrchat_osc_enabled: false,
+  vrchat_osc_host: '',
+  vrchat_osc_port: 9000,
+  vrchat_osc_running: false,
+  vrchat_osc_last_error: '',
 });
 
 const status = ref<VrpianoStatus>(emptyStatus());

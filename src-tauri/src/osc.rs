@@ -308,6 +308,39 @@ pub fn osc_send_chatbox(
     Ok(())
 }
 
+#[tauri::command]
+pub fn osc_send_message_multi(
+    host: String,
+    port: u16,
+    address: String,
+    args: Vec<OscArgument>,
+) -> AppResult<()> {
+    let endpoint = validate_endpoint(&host, port)?;
+    let address = validate_address(&address)?;
+    let osc_args: Result<Vec<OscType>, _> = args.iter().map(|a| match a.value_type.as_str() {
+        "float" => Ok(OscType::Float(a.value.as_f64().unwrap_or(0.0) as f32)),
+        "double" => Ok(OscType::Double(a.value.as_f64().unwrap_or(0.0))),
+        "int" => Ok(OscType::Int(a.value.as_i64().unwrap_or(0) as i32)),
+        "long" => Ok(OscType::Long(a.value.as_i64().unwrap_or(0))),
+        "bool" => Ok(OscType::Bool(a.value.as_bool().unwrap_or(false))),
+        "string" => Ok(OscType::String(a.value.as_str().unwrap_or("").to_string())),
+        "char" => Ok(OscType::Char(a.value.as_str().unwrap_or("").chars().next().unwrap_or('\0'))),
+        "blob" => Ok(OscType::Blob(a.value.as_str().unwrap_or("").bytes().collect())),
+        "nil" => Ok(OscType::Nil),
+        "inf" => Ok(OscType::Inf),
+        _ => Err(app_error(format!("Unsupported OSC value type: {}", a.value_type))),
+    }).collect();
+    let osc_args = osc_args?;
+    let packet = OscPacket::Message(OscMessage {
+        addr: address,
+        args: osc_args,
+    });
+    let bytes = rosc::encoder::encode(&packet).map_err(app_error)?;
+    let socket = UdpSocket::bind("0.0.0.0:0").map_err(app_error)?;
+    socket.send_to(&bytes, endpoint).map_err(app_error)?;
+    Ok(())
+}
+
 fn osc_argument(arg: OscType) -> OscArgument {
     match arg {
         OscType::Float(value) => OscArgument {

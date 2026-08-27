@@ -37,6 +37,7 @@ import {
   Radio,
   Sliders,
   Disc3,
+  SendHorizontal,
 } from 'lucide-vue-next';
 import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoMidishowLoginStatus, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
 import { SysApi } from '../api';
@@ -85,6 +86,11 @@ const emptyStatus = (): VrpianoStatus => ({
   voice_listening: false,
   tts_enabled: false,
   last_transcription: '',
+  vrchat_osc_enabled: false,
+  vrchat_osc_host: '',
+  vrchat_osc_port: 9000,
+  vrchat_osc_running: false,
+  vrchat_osc_last_error: '',
 });
 
 const songs = ref<VrpianoSong[]>([]);
@@ -104,6 +110,9 @@ const error = ref('');
 const delaySecs = ref(5);
 const speed = ref(1);
 const hotkeysEnabled = ref(false);
+const vrchatOscHost = ref('127.0.0.1');
+const vrchatOscPort = ref(9000);
+const vrchatOscEnabled = ref(false);
 const onlineKeyword = ref('');
 const urlInput = ref('');
 const urlFilename = ref('');
@@ -1069,10 +1078,31 @@ const start = async () => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
     });
-    addLog(l(`准备演奏 ${selectedSong.value.name}`, `Preparing to play ${selectedSong.value.name}`));
+    addLog(l(`鍑嗗婕斿 ${selectedSong.value.name}`, `Preparing to play ${selectedSong.value.name}`));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`启动失败：${error.value}`, `Start failed: ${error.value}`));
+    addLog(l(`鍚姩澶辫触锛?{error.value}`, `Start failed: ${error.value}`));
+  } finally {
+    loading.value = false;
+  }
+};
+
+const startVrchatOsc = async () => {
+  if (!selectedSong.value) return;
+  loading.value = true;
+  error.value = '';
+  try {
+    status.value = await VrpianoApi.startVrchatOsc({
+      songPath: selectedSong.value.path,
+      delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+      speed: clampSpeed(speed.value),
+      host: vrchatOscHost.value,
+      port: vrchatOscPort.value,
+    });
+    addLog(l(`鍑嗗閫氳繃 VRChat OSC 婕斿 ${selectedSong.value.name}`, `Preparing to play ${selectedSong.value.name} via VRChat OSC`));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+    addLog(l(`VRChat OSC 鍚姩澶辫触锛?{error.value}`, `VRChat OSC start failed: ${error.value}`));
   } finally {
     loading.value = false;
   }
@@ -1646,15 +1676,36 @@ onUnmounted(() => {
 
         <div class="extra-controls">
           <div class="control-section">
-            <strong>{{ l('MIDI 录音', 'MIDI Recording') }}</strong>
+            <strong>{{ l('MIDI 褰曢煶', 'MIDI Recording') }}</strong>
             <div class="control-row">
-              <button v-if="!recording" class="small-action record-start" :disabled="loading" @click="startRecording">
-                <Disc3 :size="14" /> {{ l('开始录音', 'Start Recording') }}
-              </button>
+               <button v-if="!recording" class="small-action record-start" :disabled="loading" @click="startRecording">
+                 <Disc3 :size="14" /> Start Recording
+               </button>
               <button v-else class="small-action record-stop" :disabled="loading" @click="stopRecording">
-                <Square :size="14" /> {{ l('停止录音', 'Stop Recording') }}
+                <Square :size="14" /> {{ l('鍋滄褰曢煶', 'Stop Recording') }}
               </button>
               <span v-if="recordedMidiPath" class="recording-path">{{ recordedMidiPath }}</span>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <strong>{{ l('VRChat OSC 宀樹腑鍗?', 'VRChat OSC Piano') }}</strong>
+            <div class="control-row">
+              <label class="osc-config">
+                <span>Host</span>
+                <input v-model="vrchatOscHost" placeholder="127.0.0.1" :disabled="loading">
+              </label>
+              <label class="osc-config">
+                <span>Port</span>
+                <input v-model.number="vrchatOscPort" type="number" min="1" max="65535" :disabled="loading">
+              </label>
+            </div>
+            <div class="control-row" style="margin-top:8px">
+              <button class="small-action" :disabled="loading || !selectedSong" @click="startVrchatOsc">
+                <SendHorizontal :size="14" /> {{ l('閫氳繃 VRChat OSC 鎸ф彈', 'Play via VRChat OSC') }}
+              </button>
+              <span v-if="status.vrchat_osc_running" class="osc-status">{{ l('VRChat OSC 闁秶鏁ゆ稉?', 'VRChat OSC active') }}</span>
+              <span v-else-if="status.vrchat_osc_last_error" class="osc-error">{{ status.vrchat_osc_last_error }}</span>
             </div>
           </div>
 

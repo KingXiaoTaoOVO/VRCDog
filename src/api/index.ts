@@ -46,9 +46,19 @@ const createBrowserVrpianoStatus = () => ({
   hotkeys_available: true,
   last_hotkey: '',
   last_hotkey_at_ms: 0,
+  midi_connected: false,
+  midi_device_name: null,
   recording: false,
   recorded_midi_path: null,
   channels: Array.from({ length: 16 }, () => ({ muted: false, solo: false, volume: 127 })),
+  voice_listening: false,
+  tts_enabled: false,
+  last_transcription: '',
+  vrchat_osc_enabled: false,
+  vrchat_osc_host: '',
+  vrchat_osc_port: 9000,
+  vrchat_osc_running: false,
+  vrchat_osc_last_error: '',
 });
 
 let browserVrpianoStatus = createBrowserVrpianoStatus();
@@ -1178,6 +1188,11 @@ export interface VrpianoStatus {
   voice_listening: boolean;
   tts_enabled: boolean;
   last_transcription: string;
+  vrchat_osc_enabled: boolean;
+  vrchat_osc_host: string;
+  vrchat_osc_port: number;
+  vrchat_osc_running: boolean;
+  vrchat_osc_last_error: string;
 }
 
 export interface VrpianoRecordingStatus {
@@ -1279,6 +1294,15 @@ export const VrpianoApi = {
       song_path: params.songPath,
       delay_secs: params.delaySecs,
       speed: params.speed,
+    }
+  }),
+  startVrchatOsc: (params: { songPath: string; delaySecs: number; speed: number; host: string; port: number }) => safeInvoke<VrpianoStatus>('vrpiano_start_vrchat_osc', {
+    request: {
+      song_path: params.songPath,
+      delay_secs: params.delaySecs,
+      speed: params.speed,
+      host: params.host,
+      port: params.port,
     }
   }),
   stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),

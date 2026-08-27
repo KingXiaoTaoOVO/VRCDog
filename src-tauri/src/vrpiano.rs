@@ -275,6 +275,11 @@ pub struct VrpianoStatus {
     voice_listening: bool,
     tts_enabled: bool,
     last_transcription: String,
+    vrchat_osc_enabled: bool,
+    vrchat_osc_host: String,
+    vrchat_osc_port: u16,
+    vrchat_osc_running: bool,
+    vrchat_osc_last_error: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Copy)]
@@ -300,6 +305,15 @@ pub struct VrpianoStartRequest {
     delay_secs: u64,
     speed: f64,
     midi_output_device: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct VrchatOscStartRequest {
+    song_path: String,
+    delay_secs: u64,
+    speed: f64,
+    host: String,
+    port: u16,
 }
 
 #[derive(Clone, Deserialize)]
@@ -376,6 +390,9 @@ struct VrpianoRuntime {
     hotkeys_enabled: bool,
     hotkey_song_path: String,
     hotkey_delay_secs: u64,
+    vrchat_osc_enabled: bool,
+    vrchat_osc_host: String,
+    vrchat_osc_port: u16,
     status: VrpianoStatus,
 }
 
@@ -562,6 +579,9 @@ impl Default for VrpianoState {
                 hotkeys_enabled: false,
                 hotkey_song_path: String::new(),
                 hotkey_delay_secs: 0,
+                vrchat_osc_enabled: false,
+                vrchat_osc_host: String::new(),
+                vrchat_osc_port: 9000,
                 status: VrpianoStatus {
                     running: false,
                     paused: false,
@@ -588,6 +608,11 @@ impl Default for VrpianoState {
                     voice_listening: false,
                     tts_enabled: false,
                     last_transcription: String::new(),
+                    vrchat_osc_enabled: false,
+                    vrchat_osc_host: String::new(),
+                    vrchat_osc_port: 9000,
+                    vrchat_osc_running: false,
+                    vrchat_osc_last_error: String::new(),
                 },
             })),
             midi_backend: Arc::new(Mutex::new(MidiOutputBackend::new())),
@@ -1192,6 +1217,116 @@ pub async fn vrpiano_stop(
 }
 
 #[tauri::command]
+pub async fn vrpiano_start_vrchat_osc(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    request: VrchatOscStartRequest,
+) -> Result<VrpianoStatus, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = request;
+        let _ = app;
+        let _ = state;
+        return Err("VRPiano playback is currently supported on Windows only".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let song_path = PathBuf::from(request.song_path.trim());
+        if !song_path.exists() || !song_path.is_file() || !is_midi_file(&song_path) {
+            return Err("Please choose a valid MIDI file from the VRPiano library".to_string());
+        }
+
+        let speed = normalize_speed(request.speed);
+        let (events, duration_ms) = parse_midi_for_output(&song_path)?;
+        if events.is_empty() {
+            return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
+        }
+
+        let song_name = song_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Untitled")
+            .to_string();
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let pause_flag;
+        let host = request.host.clone();
+        let port = request.port;
+        {
+            let mut runtime = state
+                .inner
+                .lock()
+                .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+            if runtime.status.running {
+                return Err("VRPiano is already playing".to_string());
+            }
+            runtime.stop = Some(stop_flag.clone());
+            runtime.paused.store(false, Ordering::SeqCst);
+            pause_flag = runtime.paused.clone();
+            if let Ok(mut current) = runtime.speed.lock() {
+                *current = speed;
+            }
+            runtime.vrchat_osc_enabled = true;
+            runtime.vrchat_osc_host = host.clone();
+            runtime.vrchat_osc_port = port;
+            runtime.status = VrpianoStatus {
+                running: true,
+                paused: false,
+                song_name: song_name.clone(),
+                song_path: song_path.to_string_lossy().to_string(),
+                progress: 0.0,
+                played_notes: 0,
+                total_notes: events.len(),
+                duration_ms,
+                elapsed_ms: 0,
+                last_event: format!("VRChat OSC Starting after {}s delay", request.delay_secs),
+                last_error: String::new(),
+                songs_dir: ensure_songs_dir(&app)?.to_string_lossy().to_string(),
+                speed,
+                hotkeys_enabled: runtime.hotkeys_enabled,
+                hotkeys_available: cfg!(target_os = "windows"),
+                last_hotkey: String::new(),
+                last_hotkey_at_ms: 0,
+                midi_connected: false,
+                midi_device_name: None,
+                recording: false,
+                recorded_midi_path: None,
+                channels: [ChannelState::default(); 16],
+                voice_listening: false,
+                tts_enabled: false,
+                last_transcription: String::new(),
+                vrchat_osc_enabled: true,
+                vrchat_osc_host: host.clone(),
+                vrchat_osc_port: port,
+                vrchat_osc_running: true,
+                vrchat_osc_last_error: String::new(),
+            };
+        }
+
+        let app_handle = app.clone();
+        let state_arc = state.inner.clone();
+        std::thread::spawn(move || {
+            run_vrchat_osc_playback(
+                app_handle,
+                state_arc,
+                song_name,
+                events,
+                duration_ms,
+                request.delay_secs,
+                host,
+                port,
+                stop_flag,
+                pause_flag,
+            );
+        });
+
+        let status = status_snapshot(&app, &state.inner)?;
+        Ok(status)
+    }
+}
+
+#[tauri::command]
 pub async fn vrpiano_toggle_pause(
     app: tauri::AppHandle,
     state: tauri::State<'_, VrpianoState>,
@@ -1327,6 +1462,11 @@ fn start_playback(
                 voice_listening: false,
                 tts_enabled: false,
                 last_transcription: String::new(),
+                vrchat_osc_enabled: false,
+                vrchat_osc_host: String::new(),
+                vrchat_osc_port: 9000,
+                vrchat_osc_running: false,
+                vrchat_osc_last_error: String::new(),
             };
         }
 
@@ -1961,6 +2101,136 @@ fn run_midi_playback(
     emit_status(&app, &state);
 }
 
+fn run_vrchat_osc_playback(
+    app: tauri::AppHandle,
+    state: Arc<Mutex<VrpianoRuntime>>,
+    song_name: String,
+    events: Vec<MidiPlayEvent>,
+    duration_ms: u64,
+    delay_secs: u64,
+    host: String,
+    port: u16,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+) {
+    use crate::osc::{osc_send_message_multi, OscArgument};
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        for remaining in (1..=delay_secs).rev() {
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            update_runtime(&state, |status| {
+                status.last_event = format!("VRChat OSC Starting in {remaining}s");
+            });
+            emit_status(&app, &state);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+
+        let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
+        let mut last_at = 0_u64;
+        let mut played = 0_usize;
+        let mut index = 0_usize;
+
+        while index < events.len() {
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let at_ms = events[index].at_ms;
+            let wait_ms = at_ms.saturating_sub(last_at);
+            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state);
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let mut notes_to_send = Vec::new();
+            while index < events.len() && events[index].at_ms == at_ms {
+                let ev = &events[index];
+                if ev.is_note_on {
+                    notes_to_send.push((ev.note, ev.velocity, ev.channel));
+                }
+                active_notes.insert((ev.note, ev.channel));
+                played += 1;
+                index += 1;
+            }
+
+            for (note, velocity, _channel) in notes_to_send {
+                let args = vec![
+                    OscArgument {
+                        value_type: "int".to_string(),
+                        value: serde_json::json!(note as i64),
+                    },
+                    OscArgument {
+                        value_type: "int".to_string(),
+                        value: serde_json::json!(velocity as i64),
+                    },
+                ];
+                if let Err(e) = osc_send_message_multi(host.clone(), port, "/input/MidiNoteOn".to_string(), args) {
+                    update_runtime(&state, |status| {
+                        status.last_error = format!("VRChat OSC error: {}", e.message);
+                        status.running = false;
+                    });
+                    emit_status(&app, &state);
+                    return;
+                }
+            }
+
+            thread::sleep(Duration::from_millis(30));
+            for (note, _channel) in &active_notes {
+                let args = vec![OscArgument {
+                    value_type: "int".to_string(),
+                    value: serde_json::json!(*note as i64),
+                }];
+                let _ = osc_send_message_multi(host.clone(), port, "/input/MidiNoteOff".to_string(), args);
+            }
+            active_notes.clear();
+
+            let playback_speed = current_speed(&state);
+            update_runtime(&state, |status| {
+                status.elapsed_ms = at_ms;
+                status.played_notes = played;
+                status.progress = if duration_ms == 0 {
+                    1.0
+                } else {
+                    (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                };
+                status.speed = playback_speed;
+                status.last_event = format!("VRChat OSC Playing {} at {:.2}x", song_name, status.speed);
+            });
+            emit_status(&app, &state);
+            last_at = at_ms;
+        }
+    }));
+
+    if result.is_err() {
+        update_runtime(&state, |status| {
+            status.last_error = "VRChat OSC playback crashed unexpectedly".to_string();
+        });
+    }
+
+    update_runtime(&state, |status| {
+        status.running = false;
+        status.paused = false;
+        status.vrchat_osc_running = false;
+        status.progress = if stop.load(Ordering::SeqCst) {
+            status.progress
+        } else {
+            1.0
+        };
+        status.last_event = if stop.load(Ordering::SeqCst) {
+            "VRChat OSC Playback stopped".to_string()
+        } else {
+            "VRChat OSC Playback finished".to_string()
+        };
+    });
+    if let Ok(mut runtime) = state.lock() {
+        runtime.paused.store(false, Ordering::SeqCst);
+        runtime.stop = None;
+    }
+    emit_status(&app, &state);
+}
+
 #[cfg(target_os = "windows")]
 fn send_key(vk: u16, key_up: bool) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -2475,6 +2745,11 @@ fn status_with_dir(app: &tauri::AppHandle, event: &str) -> Result<VrpianoStatus,
         voice_listening: false,
         tts_enabled: false,
         last_transcription: String::new(),
+        vrchat_osc_enabled: false,
+        vrchat_osc_host: String::new(),
+        vrchat_osc_port: 9000,
+        vrchat_osc_running: false,
+        vrchat_osc_last_error: String::new(),
     })
 }
 
