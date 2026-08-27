@@ -183,7 +183,6 @@ const serverDashboardTarget = ref<{
 const webAdminPassword = ref('');
 const webAdminPasswordError = ref('');
 const webAdminPasswordSubmitted = ref(false);
-let webAutoServerSet = false;
 const disconnectedServerUrl = ref('');
 const reconnectingServer = ref(false);
 const reconnectServerError = ref('');
@@ -205,21 +204,10 @@ watch([pendingSurveyCount, isLoggedIn], ([pending, loggedIn]) => {
 }, { immediate: true });
 
 watch([isLoggedIn, appRole], ([loggedIn, role]) => {
-  if (loggedIn && role === null && !isTauri() && !webAutoServerSet) {
-    const origin = window.location.origin;
-    authStore.appRole = 'server';
-    serverDashboardTarget.value = {
-      mode: 'remote',
-      url: origin,
-      password: '',
-    };
+  if (role === null) {
     webAdminPassword.value = '';
     webAdminPasswordError.value = '';
     webAdminPasswordSubmitted.value = false;
-    webAutoServerSet = true;
-  }
-  if (role === null) {
-    webAutoServerSet = false;
   }
 });
 
@@ -570,7 +558,27 @@ if (typeof window !== 'undefined') {
   <OverlayView v-if="isTranslationOverlayMode" />
   <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
   <DrawingOverlayView v-else-if="isDrawingOverlayMode" />
-  
+
+  <div
+    v-else-if="!isTauri() && !webBackendOk && webBackendChecked"
+    class="w-full h-screen flex flex-col items-center justify-center bg-background"
+  >
+    <div class="text-6xl mb-4">⚠️</div>
+    <h2 class="text-xl font-bold text-text-strong mb-2">无法连接服务器</h2>
+    <p class="text-text-muted text-sm mb-4 text-center px-4">{{ webBackendErrorMsg || '请检查网络连接后刷新页面' }}</p>
+    <button
+      @click="reloadPage"
+      class="px-4 py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
+    >
+      重新加载
+    </button>
+  </div>
+
+  <RoleSelectView
+    v-else-if="appRole === null"
+    @role-selected="handleRoleSelected"
+  />
+
   <div
     v-else-if="!isTauri() && appRole === 'server' && !webAdminPasswordSubmitted"
     class="w-full h-screen flex flex-col items-center justify-center bg-background"
@@ -603,24 +611,8 @@ if (typeof window !== 'undefined') {
     @exit="authStore.appRole = null"
   />
 
-  <div
-    v-else-if="!isTauri() && !webBackendOk && webBackendChecked"
-    class="w-full h-screen flex flex-col items-center justify-center bg-background"
-  >
-    <div class="text-6xl mb-4">⚠️</div>
-    <h2 class="text-xl font-bold text-text-strong mb-2">无法连接服务器</h2>
-    <p class="text-text-muted text-sm mb-4 text-center px-4">{{ webBackendErrorMsg || '请检查网络连接后刷新页面' }}</p>
-    <button
-      @click="reloadPage"
-      class="px-4 py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
-    >
-      重新加载
-    </button>
-  </div>
-
-  <RoleSelectView
-    v-else-if="appRole === null && isTauri()"
-    @role-selected="handleRoleSelected"
+  <WebClientView
+    v-else-if="appRole === 'client' && !isTauri()"
   />
 
   <div
