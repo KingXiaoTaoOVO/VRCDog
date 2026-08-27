@@ -708,7 +708,7 @@ onUnmounted(() => {
           >
         </label>
 
-        <!-- OpenVR-AdvancedSettings: Snap Turn -->
+        <!-- VRCDog: Snap Turn -->
         <h3 class="font-bold text-primary mt-4">
           {{ t('ovr.ovras_snap_turn') }}
         </h3>
@@ -735,7 +735,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- OpenVR-AdvancedSettings: Axis Locks -->
+        <!-- VRCDog: Axis Locks -->
         <h3 class="font-bold text-primary mt-4">
           {{ t('ovr.ovras_axis_locks') }}
         </h3>
@@ -766,7 +766,7 @@ onUnmounted(() => {
           </label>
         </div>
 
-        <!-- OpenVR-AdvancedSettings: Screenshot/Capture -->
+        <!-- VRCDog: Screenshot/Capture -->
         <h3 class="font-bold text-primary mt-4">
           {{ t('ovr.ovras_capture') }}
         </h3>

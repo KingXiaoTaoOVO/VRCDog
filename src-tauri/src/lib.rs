@@ -447,7 +447,7 @@ pub fn run() {
             ovr::ovr_toggle_height,
             ovr::ovr_reset_playspace,
             ovr::ovr_fix_floor,
-            // OpenVR-AdvancedSettings Space Translation
+            // VRCDog Space Translation
             ovr::ovr_set_gravity_enabled,
             ovr::ovr_set_gravity_strength,
             ovr::ovr_set_snap_turn_angle,
@@ -582,7 +582,7 @@ async fn sys_verify_server_password(password: String) -> Result<(), String> {
 }
 
 const DEFAULT_SERVER_PASSWORD_BCRYPT: &str =
-    "$2b$12$go9qphFk80mBGkPx9AiayObfu.gfsSvKCAL0sBMnTBYreWAGYDBiK";
+    "$2b$12$JuO2yIOMt0BDauP7NA8Bh.SYbnUyimVdT8AGeIJsfV9VNpzEYHVWK";
 
 fn server_password_hash() -> String {
     std::env::var("VRCDOG_SERVER_PASSWORD_BCRYPT")
@@ -625,14 +625,14 @@ mod password_tests {
     #[test]
     fn default_server_password_is_bcrypt_hash() {
         assert!(DEFAULT_SERVER_PASSWORD_BCRYPT.starts_with("$2b$"));
-        assert_ne!(DEFAULT_SERVER_PASSWORD_BCRYPT, "root");
-        assert!(bcrypt::verify("root", DEFAULT_SERVER_PASSWORD_BCRYPT).unwrap());
+        assert_ne!(DEFAULT_SERVER_PASSWORD_BCRYPT, "vrcdog-admin-secure");
+        assert!(bcrypt::verify("vrcdog-admin-secure", DEFAULT_SERVER_PASSWORD_BCRYPT).unwrap());
     }
 
     #[test]
     fn verifies_default_server_password_with_bcrypt() {
         with_server_password_hash_env(None, || {
-            assert!(verify_server_password("root"));
+            assert!(verify_server_password("vrcdog-admin-secure"));
             assert!(!verify_server_password("wrong-password"));
         });
     }
@@ -643,14 +643,14 @@ mod password_tests {
 
         with_server_password_hash_env(Some(&custom_hash), || {
             assert!(verify_server_password("custom-passphrase"));
-            assert!(!verify_server_password("root"));
+            assert!(!verify_server_password("vrcdog-admin-secure"));
         });
     }
 
     #[test]
     fn invalid_bcrypt_hash_fails_closed() {
         with_server_password_hash_env(Some("not-a-bcrypt-hash"), || {
-            assert!(!verify_server_password("root"));
+            assert!(!verify_server_password("vrcdog-admin-secure"));
         });
     }
 }
@@ -727,7 +727,7 @@ fn sys_open_new_client() -> Result<(), String> {
 async fn ovr_sync_ovras_ini(payload: String) -> Result<(), String> {
     // Safety check: Only sync if OVRAS is actually installed by the user
     let ovras_exe =
-        std::path::Path::new(r"C:\Program Files\OpenVR-AdvancedSettings\AdvancedSettings.exe");
+        std::path::Path::new(r"C:\Program Files\VRCDog\VRAdvancedSettings.exe");
     if !ovras_exe.exists() {
         return Err(
             "OVRAS 未安装，无法同步。VrcDog 已内置原生 Playspace 功能，无需 OVRAS。".into(),

@@ -104,7 +104,7 @@ pub struct OvrConfig {
     pub height_toggle_enabled: bool, // Whether height toggle is active
     #[serde(default = "default_height_offset")]
     pub height_toggle_offset: f32, // Height toggle offset in meters (positive = down)
-    // ===== OpenVR-AdvancedSettings Space Translation =====
+    // ===== VRCDog Space Translation =====
     #[serde(default)]
     pub gravity_enabled: bool, // Gravity/slingshot feature
     #[serde(default = "default_gravity_strength")]
@@ -337,7 +337,7 @@ impl Default for OvrConfig {
             ocr_merge_tolerance_x: 0.2,
             ocr_merge_tolerance_y: 0.3,
             auto_start_steamvr: false,
-            // OpenVR-AdvancedSettings space translation
+            // VRCDog space translation
             gravity_enabled: false,
             gravity_strength: 0.5,
             fling_strength: 0.7,
@@ -394,7 +394,7 @@ enum OvrCommand {
     ToggleHeight,              // Toggle height offset on/off
     ResetPlayspace,            // Reset all offsets to zero
     FixFloor,                  // Fix floor height using controller position
-    // ===== OpenVR-AdvancedSettings Space Translation =====
+    // ===== VRCDog Space Translation =====
     SetGravityEnabled(bool),
     SetGravityStrength(f32),
     SetFlingStrength(f32),
@@ -925,7 +925,7 @@ fn vr_thread_main(
     let mut is_space_dragging = false;
     let mut drag_last_pos: Option<[f32; 3]> = None;
 
-    // ===== OpenVR-AdvancedSettings Space Translation State =====
+    // ===== VRCDog Space Translation State =====
     let mut last_turn_time: u64 = 0;
     let mut smooth_turn_active = false;
     let mut smooth_turn_direction: f32 = 0.0;
@@ -1409,7 +1409,7 @@ fn vr_thread_main(
                         }
                     }
                 }
-                // ===== OpenVR-AdvancedSettings Space Translation =====
+                // ===== VRCDog Space Translation =====
                 OvrCommand::SetGravityEnabled(enabled) => {
                     current_config.gravity_enabled = enabled;
                     let _ = app_handle.emit("ovr_log", format!("[OVR] 重力: {}", if enabled { "开" } else { "关" }));
@@ -2421,7 +2421,7 @@ fn vr_thread_main(
                     }
                 }
 
-                // ===== OpenVR-AdvancedSettings Space Translation =====
+                // ===== VRCDog Space Translation =====
                 // Snap turn (when menu is hidden and snap turn is enabled)
                 if !overlay_menu_visible && current_config.snap_turn_enabled {
                     let snap_threshold = 0.6;
@@ -3203,7 +3203,7 @@ pub async fn ovr_fix_floor(
     Ok(())
 }
 
-// ===== OpenVR-AdvancedSettings Space Translation Commands =====
+// ===== VRCDog Space Translation Commands =====
 
 #[tauri::command]
 pub async fn ovr_set_gravity_enabled(

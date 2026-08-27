@@ -4,7 +4,7 @@ The worker writes newline-delimited JSON events to stdout. Stdin accepts
 ``pause``, ``resume`` and ``stop`` so TTS can be excluded from loopback audio
 without unloading the speech model.
 
-Enhanced pipeline (ported/adapted from MioVRC_Translator concepts):
+Enhanced pipeline (VRCDog native audio worker):
 * All audio is resampled to 16 kHz mono before VAD / transcription, which both
   fixes whisper's sample-rate assumption and stabilises voice activity detection.
 * Voice activity is detected with WebRTC VAD (with an RMS energy fallback when
