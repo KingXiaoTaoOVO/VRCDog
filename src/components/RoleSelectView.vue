@@ -178,6 +178,7 @@
         <template v-else>
           <div class="server-mode-switch" role="tablist" :aria-label="t('role.server_target')">
             <button
+              v-if="isTauri()"
               type="button"
               role="tab"
               :aria-selected="serverTargetMode === 'local'"
@@ -269,6 +270,7 @@ import {
 import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import { SysApi, DbApi, VrcApi } from '../api';
+import { isTauri } from '@tauri-apps/api/core';
 import { getLocaleLabel, localeOptions, setAppLocale, type AppLocale } from '../i18n';
 import {
   currentTheme as themeConfig,

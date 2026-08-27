@@ -5,6 +5,7 @@ const toast = useToast();
 import { ref, onMounted, computed } from 'vue';
 import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2 } from 'lucide-vue-next';
 import { GalleryApi, SysApi } from '../api';
+import { isTauri } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import BaseModal from './BaseModal.vue';
 import { useI18n } from 'vue-i18n';
@@ -42,7 +43,7 @@ const fetchImages = async (reset = false) => {
     
     const newImages = res.map((img: GalleryImage) => ({
       ...img,
-      assetUrl: convertFileSrc(img.path),
+      assetUrl: isTauri() ? convertFileSrc(img.path) : img.path,
       dateStr: new Date(img.created_at * 1000).toLocaleString()
     }));
     

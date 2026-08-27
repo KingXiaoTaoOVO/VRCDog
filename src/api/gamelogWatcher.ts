@@ -1,11 +1,13 @@
 import { GamelogApi, DbApi, SysApi } from './index';
 import { refreshCurrentInstance } from '../stores/currentInstance';
+import { isTauri } from '@tauri-apps/api/core';
 
 let watcherTimer: number | null = null;
 let isWatching = false;
 let pollInFlight = false;
 
 export async function initGamelogWatcher() {
+  if (!isTauri()) return;
   if (isWatching) return;
   isWatching = true;
   console.log('[LogWatcher] Started monitoring VRChat output_log.txt');

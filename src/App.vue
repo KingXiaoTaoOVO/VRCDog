@@ -222,7 +222,6 @@ watch(activeTab, (tab) => {
 
 const submitWebAdminPassword = async () => {
   webAdminPasswordError.value = '';
-  webAdminPasswordSubmitted.value = true;
   if (!webAdminPassword.value.trim()) return;
   try {
     const res = await VrcApi.request(`${serverDashboardTarget.value.url}/api/admin/auth`, {
@@ -233,9 +232,11 @@ const submitWebAdminPassword = async () => {
       serverDashboardTarget.value.password = webAdminPassword.value.trim();
       webAdminPasswordSubmitted.value = true;
     } else {
+      webAdminPasswordSubmitted.value = false;
       webAdminPasswordError.value = res.message || '密码错误';
     }
   } catch (err: any) {
+    webAdminPasswordSubmitted.value = false;
     webAdminPasswordError.value = err?.message || '验证失败';
   }
 };
@@ -314,6 +315,7 @@ watchEffect(() => {
 watch(
   () => currentTheme.value.id,
   () => {
+    if (!isTauri()) return;
     const t = currentTheme.value;
     void OvrApi.setVrMenuTheme({
       accent: t.colors.primaryBtnBg,
@@ -439,11 +441,6 @@ onMounted(async () => {
         allowMainWindowClose = true;
         await mainWindow.close();
       }
-    });
-
-    window.addEventListener('settings-updated', (e: Event) => {
-      const customEvent = e as CustomEvent;
-      applyProxyFromSettings(customEvent.detail);
     });
 
     initGamelogWatcher();
@@ -612,7 +609,7 @@ if (typeof window !== 'undefined') {
   />
 
   <WebClientView
-    v-else-if="appRole === 'client' && !isTauri()"
+    v-else-if="appRole === 'client' && isLoggedIn && !isTauri()"
   />
 
   <div

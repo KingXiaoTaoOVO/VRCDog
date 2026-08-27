@@ -252,6 +252,13 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       return Promise.resolve({} as T);
     }
 
+    if (cmd.startsWith('gallery_')) {
+      if (cmd === 'gallery_get_images') {
+        return Promise.resolve([] as T);
+      }
+      return Promise.resolve({} as T);
+    }
+
     return Promise.resolve({} as T);
   }
   const startTime = performance.now();

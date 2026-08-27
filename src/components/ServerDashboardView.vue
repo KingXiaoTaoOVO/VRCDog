@@ -96,7 +96,7 @@
             <Activity class="w-3 h-3" />
             {{ t('role.dashboard_conn_info') }}
           </h2>
-          <div class="grid grid-cols-2 gap-1 p-1 mb-4 bg-surface-hover border border-border-soft rounded-lg">
+          <div v-if="isTauri()" class="grid grid-cols-2 gap-1 p-1 mb-4 bg-surface-hover border border-border-soft rounded-lg">
             <button
               class="min-h-9 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-colors"
               :class="!isRemoteMode ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'"
@@ -145,7 +145,7 @@
             </button>
           </div>
           <div
-            v-else-if="!isRunning"
+            v-else-if="!isRunning && isTauri()"
             class="space-y-3"
           >
             <div>

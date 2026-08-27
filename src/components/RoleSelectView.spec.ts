@@ -135,7 +135,7 @@ describe('RoleSelectView', () => {
 
     expect(mocks.verifyServerPassword).toHaveBeenCalledWith({ password: 'root' });
     expect(wrapper.findAll('[role="tablist"]')).toHaveLength(1);
-    expect(wrapper.findAll('[role="tab"]')).toHaveLength(2);
+    expect(wrapper.findAll('[role="tab"]')).toHaveLength(1);
     expect(wrapper.findAll('input[type="password"]')).toHaveLength(0);
   });
 
@@ -169,7 +169,7 @@ describe('RoleSelectView', () => {
     await wrapper.find('.primary-button').trigger('click');
     await flushPromises();
 
-    await wrapper.findAll('[role="tab"]')[1].trigger('click');
+    await wrapper.findAll('[role="tab"]')[0].trigger('click');
     await wrapper.get('input[type="url"]').setValue('https://admin.example.com/');
     await wrapper.find('.primary-button').trigger('click');
     await flushPromises();

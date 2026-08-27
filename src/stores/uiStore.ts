@@ -81,7 +81,7 @@ export const useUiStore = defineStore('ui', () => {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
        if (!isTauri()) {
-          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote'];
+          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export'];
           if (localOnly.includes(tab.key)) return false;
        }
        return true;
@@ -106,7 +106,7 @@ export const useUiStore = defineStore('ui', () => {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
        if (!isTauri()) {
-          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote'];
+          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export'];
           if (localOnly.includes(tab.key)) return false;
        }
        return true;
