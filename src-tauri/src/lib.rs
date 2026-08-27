@@ -584,7 +584,7 @@ async fn sys_verify_server_password(password: String) -> Result<(), String> {
 }
 
 const DEFAULT_SERVER_PASSWORD_BCRYPT: &str =
-    "$2b$12$JuO2yIOMt0BDauP7NA8Bh.SYbnUyimVdT8AGeIJsfV9VNpzEYHVWK";
+    "$2b$12$RpmZ/EikcFeSjCWdaTES1eETxo7JX.LgaR.mKwCO8XCDkxvCaHBJO";
 
 fn server_password_hash() -> String {
     std::env::var("VRCDOG_SERVER_PASSWORD_BCRYPT")
@@ -627,14 +627,14 @@ mod password_tests {
     #[test]
     fn default_server_password_is_bcrypt_hash() {
         assert!(DEFAULT_SERVER_PASSWORD_BCRYPT.starts_with("$2b$"));
-        assert_ne!(DEFAULT_SERVER_PASSWORD_BCRYPT, "vrcdog-admin-secure");
-        assert!(bcrypt::verify("vrcdog-admin-secure", DEFAULT_SERVER_PASSWORD_BCRYPT).unwrap());
+        assert_ne!(DEFAULT_SERVER_PASSWORD_BCRYPT, "root");
+        assert!(bcrypt::verify("root", DEFAULT_SERVER_PASSWORD_BCRYPT).unwrap());
     }
 
     #[test]
     fn verifies_default_server_password_with_bcrypt() {
         with_server_password_hash_env(None, || {
-            assert!(verify_server_password("vrcdog-admin-secure"));
+            assert!(verify_server_password("root"));
             assert!(!verify_server_password("wrong-password"));
         });
     }
@@ -645,14 +645,14 @@ mod password_tests {
 
         with_server_password_hash_env(Some(&custom_hash), || {
             assert!(verify_server_password("custom-passphrase"));
-            assert!(!verify_server_password("vrcdog-admin-secure"));
+            assert!(!verify_server_password("root"));
         });
     }
 
     #[test]
     fn invalid_bcrypt_hash_fails_closed() {
         with_server_password_hash_env(Some("not-a-bcrypt-hash"), || {
-            assert!(!verify_server_password("vrcdog-admin-secure"));
+            assert!(!verify_server_password("root"));
         });
     }
 }

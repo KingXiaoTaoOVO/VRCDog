@@ -141,11 +141,15 @@ export const useAuthStore = defineStore('auth', () => {
   const registerWithServer = async (user: any) => {
     if (!clientServerUrl.value) return;
     try {
-      const payload = {
+      const payload: any = {
         user_id: user.id || user.displayName,
         display_name: user.displayName || '',
         avatar_url: user.currentAvatarThumbnailImageUrl || ''
       };
+      const savedCookie = await DbApi.getAuth();
+      if (savedCookie) {
+        payload.auth_cookie = savedCookie;
+      }
       const data = await VrcApi.request(`${getBaseUrl()}/api/client/register`, {
         method: 'POST',
         params: payload,

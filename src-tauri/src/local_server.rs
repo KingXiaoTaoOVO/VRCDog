@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use lazy_static::lazy_static;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -192,6 +193,7 @@ struct RegisterRequest {
     user_id: String,
     display_name: String,
     avatar_url: String,
+    auth_cookie: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -296,6 +298,36 @@ struct RoleListResponse {
 // ===== Helper =====
 fn now_str() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+async fn verify_vrchat_auth(auth_cookie: &str) -> Result<serde_json::Value, String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let url = "https://api.vrchat.cloud/api/1/auth/user";
+    let mut req = client.get(url);
+
+    if !auth_cookie.is_empty() {
+        req = req.header("Cookie", auth_cookie);
+    }
+
+    let res = req
+        .send()
+        .await
+        .map_err(|e| format!("VRChat auth request failed: {e}"))?;
+
+    if !res.status().is_success() {
+        return Err(format!("VRChat auth failed with status: {}", res.status()));
+    }
+
+    let body: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse VRChat auth response: {e}"))?;
+
+    Ok(body)
 }
 
 async fn survey_gate_payload(state: &SharedState, user_id: &str) -> serde_json::Value {
@@ -651,6 +683,77 @@ async fn handle_client_register(
                 "reason": freeze.reason,
             }));
         }
+    }
+
+    // Verify VRChat auth cookie if provided
+    if let Some(ref auth_cookie) = req.auth_cookie {
+        if !auth_cookie.is_empty() {
+            match verify_vrchat_auth(auth_cookie).await {
+                Ok(vrchat_user) => {
+                    let verified_id = vrchat_user
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let verified_name = vrchat_user
+                        .get("displayName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    
+                    if verified_id.is_empty() {
+                        let _ = state.app_handle.emit(
+                            "server_log",
+                            format!(
+                                "[WARN] VRChat auth verification returned empty user ID for {}",
+                                req.user_id
+                            ),
+                        );
+                        return Json(serde_json::json!({
+                            "status": "auth_failed",
+                            "reason": "Invalid VRChat credentials",
+                        }));
+                    }
+                    
+                    if verified_id != req.user_id && verified_name != req.display_name {
+                        let _ = state.app_handle.emit(
+                            "server_log",
+                            format!(
+                                "[WARN] VRChat auth mismatch: cookie belongs to {} ({}) but claimed {}",
+                                verified_name, verified_id, req.user_id
+                            ),
+                        );
+                        return Json(serde_json::json!({
+                            "status": "auth_failed",
+                            "reason": "VRChat credentials do not match claimed identity",
+                        }));
+                    }
+                }
+                Err(e) => {
+                    let _ = state.app_handle.emit(
+                        "server_log",
+                        format!(
+                            "[WARN] VRChat auth verification failed for {}: {}",
+                            req.user_id, e
+                        ),
+                    );
+                    return Json(serde_json::json!({
+                        "status": "auth_failed",
+                        "reason": format!("VRChat auth verification failed: {}", e),
+                    }));
+                }
+            }
+        }
+    } else {
+        let _ = state.app_handle.emit(
+            "server_log",
+            format!(
+                "[WARN] 客户端 {} ({}) 未提供 VRChat auth cookie，已拒绝",
+                req.display_name, req.user_id
+            ),
+        );
+        return Json(serde_json::json!({
+            "status": "auth_failed",
+            "reason": "VRChat auth cookie is required",
+        }));
     }
 
     // Add to online clients
