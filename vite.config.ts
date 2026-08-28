@@ -21,7 +21,12 @@ const shouldIgnoreWatchPath = (value: string) => {
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   root: projectRoot,
-  base: './',
+  // Base path for the built frontend.
+  // - Desktop (Tauri) build: leave unset -> defaults to './' so Tauri's asset
+  //   protocol can serve files from the dist root.
+  // - Web deployment under a subpath (e.g. https://vrcdog.pcb.im/web):
+  //   build with VRCDOG_BASE=/web/ so asset URLs become /web/assets/...
+  base: process.env.VRCDOG_BASE ?? './',
   plugins: [vue(), tailwindcss()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
