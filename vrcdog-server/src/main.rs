@@ -4,7 +4,7 @@ use axum::{
     http::{header::{CONTENT_TYPE, HeaderMap, HeaderValue}, StatusCode},
     middleware,
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, on, post, MethodFilter},
     Json, Router,
 };
 use chrono::{Duration, Local, NaiveDateTime};
@@ -1241,19 +1241,23 @@ async fn require_admin_session(
 
 async fn vrchat_api_proxy(
     State(state): State<AppState>,
+    method: Method,
     Query(params): Query<VrchatProxyQuery>,
     headers: HeaderMap,
+    body: Bytes,
 ) -> impl IntoResponse {
     let target = format!("https://api.vrchat.cloud/api/1/{}", params.path.trim_start_matches('/'));
-    let method = Method::from_bytes(b"GET").unwrap_or(Method::GET);
-    let mut builder = state.http_client.request(method, &target);
+    let mut builder = state.http_client.request(method.clone(), &target);
     for (key, value) in headers.iter() {
-        if key == "x-vrcdog-admin-token" || key == "host" || key == "connection" {
+        if key == "x-vrcdog-admin-token" || key == "host" || key == "connection" || key == "content-length" {
             continue;
         }
         if let Ok(v) = value.to_str() {
             builder = builder.header(key.as_str(), v);
         }
+    }
+    if method != Method::GET && method != Method::HEAD && !body.is_empty() {
+        builder = builder.body(body);
     }
     match builder.send().await {
         Ok(resp) => {
@@ -1747,7 +1751,18 @@ fn router(state: AppState) -> Router {
         .route("/ping", get(ping))
         .route("/api/version", get(api_version))
         .route("/api/admin/auth", post(admin_auth))
-        .route("/api/vrchat-proxy", get(vrchat_api_proxy))
+        .route(
+            "/api/vrchat-proxy",
+            on(
+                MethodFilter::GET
+                    .or(MethodFilter::POST)
+                    .or(MethodFilter::PUT)
+                    .or(MethodFilter::DELETE)
+                    .or(MethodFilter::PATCH)
+                    .or(MethodFilter::OPTIONS),
+                vrchat_api_proxy,
+            ),
+        )
         .route("/api/client/register", post(register))
         .route("/api/client/heartbeat", post(heartbeat))
         .route("/api/client/disconnect", post(disconnect))
