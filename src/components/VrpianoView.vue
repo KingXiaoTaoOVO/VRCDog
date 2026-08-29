@@ -51,7 +51,7 @@ import {
 import { isVrpianoOverlayBlurEnabled, VRPIANO_OVERLAY_BLUR_KEY } from './vrpianoOverlayAppearance';
 import { VRPIANO_PREVIEW_SONG_EVENT, type VrpianoPreviewSongPayload } from './vrpianoEvents';
 
-const { locale } = useI18n();
+const { locale, t } = useI18n();
 const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const instrumentName = (program: number) => locale.value.startsWith('zh')
   ? getGeneralMidiInstrumentName(program)
@@ -70,7 +70,7 @@ const emptyStatus = (): VrpianoStatus => ({
   total_notes: 0,
   duration_ms: 0,
   elapsed_ms: 0,
-  last_event: l('濮濓絽婀崚婵嗩潗閸?VRPiano', 'Initializing VRPiano'),
+  last_event:t('vrpiano.initializing_vrpiano'),
   last_error: '',
   songs_dir: '',
   speed: 1,
@@ -125,7 +125,7 @@ const midishowPassword = ref('');
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   state: 'idle',
-  message: l('等待登录', 'Waiting to sign in'),
+  message:t('vrpiano.waiting_to_sign_in'),
   username: null,
 });
 const accountLoading = ref(false);
@@ -158,7 +158,7 @@ const editDialogMode = ref<'icon' | 'rename' | null>(null);
 const editIconText = ref('');
 const editIconUrl = ref('');
 const editSongName = ref('');
-const playerTitle = ref(l('未加载曲目', 'No song loaded'));
+const playerTitle = ref(t('vrpiano.no_song_loaded'));
 const playerPositionMs = ref(0);
 const playerDurationMs = ref(0);
 const playerVolume = ref(0.9);
@@ -176,16 +176,38 @@ const channelStates = ref<Array<{ muted: boolean; solo: boolean; volume: number 
 );
 const voiceControlEnabled = ref(false);
 const ttsEnabled = ref(false);
+const transpose = ref(0);
+// The Rust backend hard-codes drum-channel (channel index 9) exclusion inside
+// `apply_transpose`, so this checkbox is informational and always reflects that
+// percussion is never transposed. Kept checked + disabled to surface the behaviour.
+const excludeDrums = ref(true);
+const playMode = ref('sequential');
+const playlist = ref<string[]>([]);
+const midiDevices = ref<Array<{ id: string; name: string; kind: string }>>([]);
+const selectedMidiDevice = ref('');
+const midiOutputState = ref<{ connected: boolean; device_id?: string; device_name?: string }>({ connected: false });
+const channelRouted = ref<boolean[]>(Array.from({ length: 16 }, () => true));
+
+const playModeOptions = [
+  { value: 'sequential', label: () => t('vrpiano.play_mode_sequential') },
+  { value: 'random', label: () => t('vrpiano.play_mode_shuffle') },
+  { value: 'one', label: () => t('vrpiano.play_mode_repeat_one') },
+  { value: 'repeat_all', label: () => t('vrpiano.play_mode_repeat_playlist') },
+  { value: 'stop_at_song_end', label: () => t('vrpiano.play_mode_stop_after_current') },
+  { value: 'stop_at_end', label: () => t('vrpiano.play_mode_stop_after_playlist') },
+];
+
+const playlistSongs = computed(() => playlist.value.map((path) => songs.value.find((song) => song.path === path)).filter(Boolean) as VrpianoSong[]);
 
 const formatVrpianoError = (e: unknown) => {
   const message = e instanceof Error ? e.message : String(e);
   if (/403|cloudflare|challenge|cookie|cf_chl|javascript/i.test(message)) {
-    return l('当前操作未完成，请重新登录后再试。', 'This action could not be completed. Sign in again and retry.');
+    return t('vrpiano.this_action_could_not_be_completed_sign_');
   }
   if (/invalid|expired|会话已失效/i.test(message)) {
-    return l('登录状态已失效，请重新登录。', 'Your session expired. Sign in again.');
+    return t('vrpiano.your_session_expired_sign_in_again');
   }
-  return message || l('操作未完成，请稍后重试。', 'The action could not be completed. Try again later.');
+  return message ||t('vrpiano.the_action_could_not_be_completed_try_ag');
 };
 
 let unlistenStatus: (() => void) | null = null;
@@ -224,22 +246,22 @@ const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status
 const canTogglePlayback = computed(() => Boolean(selectedSong.value) && !loading.value);
 const hasStartedPlayback = computed(() => Boolean(status.value.song_path));
 const playbackActionLabel = computed(() => {
-  if (status.value.paused) return l('继续', 'Resume');
-  if (status.value.running) return l('暂停', 'Pause');
-  return l('开始', 'Start');
+  if (status.value.paused) return t('vrpiano.resume');
+  if (status.value.running) return t('vrpiano.pause');
+  return t('vrpiano.start');
 });
 const speedText = computed(() => `${clampSpeed(speed.value).toFixed(2)}x`);
 const defaultMidishowAccount = computed(() => midishowAccounts.value[0] || null);
 const defaultMidishowLoginTypeText = computed(() => (
-  defaultMidishowAccount.value?.login_type ? l('登录会话', 'signed-in session') : ''
+  defaultMidishowAccount.value?.login_type ?t('vrpiano.signed_in_session') : ''
 ));
 const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length || selectedSong.value) && !playerLoading.value);
 const onlineEmptyText = computed(() => {
   // 搜索进行中：显示"正在搜索"，而不是"未找到"——避免请求未完成时就
   // 误把"未找到 XX 相关结果"展示给用户，让用户以为真的搜不到。
-  if (onlineLoading.value) return l('正在搜索…', 'Searching…');
-  if (!hasSearchedOnline.value) return l('输入关键词搜索，或直接粘贴 URL / ID 下载。', 'Search by keyword, or paste a URL or ID to download.');
-  return l(`未找到“${lastOnlineKeyword.value}”相关结果，换个关键词或粘贴 ID/URL 试试。`, `No results for "${lastOnlineKeyword.value}". Try another keyword, ID, or URL.`);
+  if (onlineLoading.value) return t('vrpiano.searching');
+  if (!hasSearchedOnline.value) return t('vrpiano.search_by_keyword_or_paste_a_url_or_id_t');
+  return t('vrpiano.no_results_for_keyword', { keyword: lastOnlineKeyword.value });
 });
 const playerProgressPercent = computed(() => {
   if (!playerDurationMs.value) return 0;
@@ -247,17 +269,19 @@ const playerProgressPercent = computed(() => {
 });
 const sourceInstrumentText = computed(() => {
   const names: string[] = sourcePrograms.value.map(instrumentName);
-  if (sourceHasPercussion.value) names.push(l('标准鼓组', 'Standard drum kit'));
+  if (sourceHasPercussion.value) names.push(t('vrpiano.standard_drum_kit'));
   return names.length ? names.join(locale.value.startsWith('zh') ? '、' : ', ') : instrumentName(0);
 });
 const activeInstrumentText = computed(() => (
   playerInstrument.value === 'source'
-    ? l(`跟随 MIDI：${sourceInstrumentText.value}`, `Follow MIDI: ${sourceInstrumentText.value}`)
-    : l(`手动音色：${getGeneralMidiInstrumentName(Number(playerInstrument.value))}`, `Manual instrument: ${instrumentName(Number(playerInstrument.value))}`)
+      ? t('vrpiano.active_instrument_follow', { instrument: sourceInstrumentText.value })
+      : t('vrpiano.active_instrument_manual', { instrument: locale.value.startsWith('zh')
+        ? getGeneralMidiInstrumentName(Number(playerInstrument.value))
+        : instrumentName(Number(playerInstrument.value)) })
 ));
 const hotkeyStatusText = computed(() => {
-  if (!status.value.hotkeys_available) return l('当前系统不支持', 'Not supported on this system');
-  return hotkeysEnabled.value ? l('全局快捷键已开启', 'Global shortcuts enabled') : l('全局快捷键已关闭', 'Global shortcuts disabled');
+  if (!status.value.hotkeys_available) return t('vrpiano.not_supported_on_this_system');
+  return hotkeysEnabled.value ?t('vrpiano.global_shortcuts_enabled') :t('vrpiano.global_shortcuts_disabled');
 });
 
 const addLog = (message: string) => {
@@ -442,7 +466,7 @@ const applyPlayerInstrument = async () => {
 
 const toggleVrpianoOverlay = async () => {
   if (!isTauri()) {
-    addLog(l('浏览器预览中无法创建桌面悬浮窗', 'Desktop overlay is unavailable in browser preview'));
+    addLog(t('vrpiano.desktop_overlay_is_unavailable_in_browse'));
     return;
   }
 
@@ -464,7 +488,7 @@ const toggleVrpianoOverlay = async () => {
 
   const overlay = new WebviewWindow('vrpiano-overlay', {
     url: '/?mode=vrpiano-overlay',
-    title: l('VRPiano 悬浮控制器', 'VRPiano Overlay Controller'),
+    title:t('vrpiano.vrpiano_overlay_controller'),
     transparent: true,
     decorations: false,
     shadow: false,
@@ -487,11 +511,11 @@ const toggleVrpianoOverlay = async () => {
 
   overlay.once('tauri://created', () => {
     overlayOpen.value = true;
-    addLog(l('VRPiano 悬浮窗已开启', 'VRPiano overlay opened'));
+    addLog(t('vrpiano.vrpiano_overlay_opened'));
   });
   overlay.once('tauri://error', (event) => {
     overlayOpen.value = false;
-    error.value = l(`悬浮窗创建失败：${JSON.stringify(event)}`, `Could not create overlay: ${JSON.stringify(event)}`);
+    error.value = t('vrpiano.overlay_creation_failed', { error: JSON.stringify(event) });
   });
   overlay.onCloseRequested(() => {
     overlayOpen.value = false;
@@ -511,10 +535,10 @@ const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
     playerPositionMs.value = 0;
     playerDurationMs.value = Math.ceil(Math.max(...parsed.notes.map((note) => note.timeMs + note.durationMs)));
     await schedulePlayer(0);
-    addLog(l(`内置播放器开始试听：${midi.name}（${activeInstrumentText.value}）`, `Built-in player preview started: ${midi.name} (${activeInstrumentText.value})`));
+    addLog(t('vrpiano.builtin_player_preview_started', { name: midi.name, instrument: activeInstrumentText.value }));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`播放器加载失败：${error.value}`, `Player load failed: ${error.value}`));
+    addLog(t('vrpiano.player_load_failed', { error: error.value }));
   } finally {
     playerLoading.value = false;
   }
@@ -543,7 +567,7 @@ const saveSongIconEditor = () => {
   const nextText = editIconText.value.trim();
   if (nextUrl) {
     if (!isImageIcon(nextUrl)) {
-      error.value = l('图标 URL 需要以 http://、https:// 或 data:image/ 开头', 'Icon URL must start with http://, https://, or data:image/');
+      error.value =t('vrpiano.icon_url_must_start_with_http_https_or_d');
       return;
     }
     songIcons.value = { ...songIcons.value, [selectedSong.value.path]: nextUrl };
@@ -569,7 +593,7 @@ const handleSongIconFile = (event: Event) => {
   const file = input.files?.[0];
   if (!file || !iconTargetPath.value) return;
   if (!file.type.startsWith('image/')) {
-    error.value = l('请选择图片文件作为曲目图标', 'Choose an image file for the song icon');
+    error.value =t('vrpiano.choose_an_image_file_for_the_song_icon');
     return;
   }
   const reader = new FileReader();
@@ -591,9 +615,9 @@ const copySignupUrl = async () => {
   error.value = '';
   try {
     await navigator.clipboard.writeText(signupUrl);
-    addLog(l('Midishow 注册链接已复制', 'Midishow registration link copied'));
+    addLog(t('vrpiano.midishow_registration_link_copied'));
   } catch (e: any) {
-    error.value = l(`复制注册链接失败：${e.message || String(e)}。请手动复制：${signupUrl}`, `Could not copy registration link: ${e.message || String(e)}. Copy it manually: ${signupUrl}`);
+    error.value = t('vrpiano.copy_registration_link_failed', { error: e.message || String(e), url: signupUrl });
   }
 };
 
@@ -603,9 +627,9 @@ const openMidishowSignup = async () => {
   error.value = '';
   try {
     await SysApi.openUrl({ url: signupUrl });
-    addLog(l('已在默认浏览器打开 Midishow 注册页面', 'Opened the Midishow registration page in your default browser'));
+    addLog(t('vrpiano.opened_the_midishow_registration_page_in'));
   } catch (e: any) {
-    error.value = l(`无法打开默认浏览器：${e.message || String(e)}。请复制注册链接后手动打开。`, `Could not open the default browser: ${e.message || String(e)}. Copy and open the registration link manually.`);
+    error.value = t('vrpiano.cannot_open_default_browser', { error: e.message || String(e) });
   } finally {
     externalLinkLoading.value = false;
   }
@@ -617,7 +641,7 @@ const openMidishowSearch = async () => {
     const keyword = onlineKeyword.value.trim();
     if (keyword) url.searchParams.set('q', keyword);
     await SysApi.openUrl({ url: url.toString() });
-    addLog(l('已在浏览器打开 Midishow 官方搜索', 'Opened official Midishow search in the browser'));
+    addLog(t('vrpiano.opened_official_midishow_search_in_the_b'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -637,7 +661,7 @@ const applyMidishowLoginStatus = async (next: VrpianoMidishowLoginStatus) => {
   if (next.state === 'needs_confirmation') {
     next = {
       ...next,
-      message: l('请在弹出的登录窗口中完成验证（如浏览器人机验证），完成后会自动继续。', 'Complete the verification in the popup login window (e.g. browser human verification); it will continue automatically.'),
+      message:t('vrpiano.complete_the_verification_in_the_popup_l'),
     };
   }
   midishowLoginStatus.value = next;
@@ -654,7 +678,7 @@ const applyMidishowLoginStatus = async (next: VrpianoMidishowLoginStatus) => {
   midishowLoginOpen.value = false;
   accountLoading.value = false;
   if (!alreadySignedIn) {
-    addLog(next.username ? l(`Midishow 登录成功：${next.username}`, `Signed in to Midishow as ${next.username}`) : l('Midishow 登录成功', 'Signed in to Midishow'));
+    addLog(next.username ? t('vrpiano.signed_in_to_midishow_as', { username: next.username }) :t('vrpiano.signed_in_to_midishow'));
   }
 };
 
@@ -693,7 +717,7 @@ const loginMidishow = async () => {
   const account = midishowAccount.value.trim();
   const password = midishowPassword.value;
   if (!account || !password) {
-    loginError.value = l('请输入 Midishow 账号和密码', 'Enter your Midishow account and password');
+    loginError.value =t('vrpiano.enter_your_midishow_account_and_password');
     return;
   }
   accountLoading.value = true;
@@ -705,13 +729,13 @@ const loginMidishow = async () => {
     await applyMidishowLoginStatus(next);
     if (next.state !== 'signed_in') {
       startMidishowLoginPolling();
-      addLog(l('Midishow 正在自动登录', 'Signing in to Midishow automatically'));
+      addLog(t('vrpiano.signing_in_to_midishow_automatically'));
     }
   } catch (e) {
     midishowPassword.value = '';
     accountLoading.value = false;
     loginError.value = formatVrpianoError(e);
-    addLog(l(`Midishow 登录未完成：${loginError.value}`, `Midishow sign-in was not completed: ${loginError.value}`));
+    addLog(t('vrpiano.midishow_signin_not_completed', { error: loginError.value }));
   }
 };
 
@@ -721,7 +745,7 @@ const logoutMidishow = async () => {
   error.value = '';
   try {
     midishowAccounts.value = await VrpianoApi.midishowRemoveAccount({ username: defaultMidishowAccount.value.username });
-    addLog(l('已退出 Midishow 登录', 'Signed out of Midishow'));
+    addLog(t('vrpiano.signed_out_of_midishow'));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -738,10 +762,10 @@ const refreshSongs = async () => {
     if (selectedPath.value && !songs.value.some((song) => song.path === selectedPath.value)) {
       selectedPath.value = songs.value[0]?.path || '';
     }
-    addLog(l(`曲库已刷新，共 ${songs.value.length} 首`, `Library refreshed: ${songs.value.length} ${songs.value.length === 1 ? 'song' : 'songs'}`));
+    addLog(t('vrpiano.library_refreshed', { count: songs.value.length, unit: songs.value.length === 1 ? 'song' : 'songs' }));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`刷新曲库失败：${error.value}`, `Could not refresh library: ${error.value}`));
+    addLog(t('vrpiano.could_not_refresh_library', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -753,11 +777,11 @@ const init = async () => {
   try {
     status.value = await VrpianoApi.init();
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
-    await Promise.all([refreshSongs(), loadMidishowAccounts()]);
-    addLog(l('VRPiano 模块已就绪', 'VRPiano is ready'));
+    await Promise.all([refreshSongs(), loadMidishowAccounts(), refreshMidiDevices()]);
+    addLog(t('vrpiano.vrpiano_is_ready'));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`初始化失败：${error.value}`, `Initialization failed: ${error.value}`));
+    addLog(t('vrpiano.initialization_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -776,10 +800,10 @@ const importMidi = async () => {
     const song = await VrpianoApi.importSong({ sourcePath: selected });
     await refreshSongs();
     selectedPath.value = song.path;
-    addLog(l(`已导入 ${song.name}`, `Imported ${song.name}`));
+    addLog(t('vrpiano.imported_song', { name: song.name }));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`导入失败：${error.value}`, `Import failed: ${error.value}`));
+    addLog(t('vrpiano.import_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -813,11 +837,11 @@ const submitRenameSong = async () => {
     }
     await refreshSongs();
     selectedPath.value = renamed.path;
-    addLog(l(`已重命名为 ${renamed.name}`, `Renamed to ${renamed.name}`));
+    addLog(t('vrpiano.renamed_to', { name: renamed.name }));
     closeEditDialog();
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`重命名失败：${error.value}`, `Rename failed: ${error.value}`));
+    addLog(t('vrpiano.rename_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -833,7 +857,7 @@ const submitEditDialog = async () => {
 
 const deleteSong = async () => {
   if (!selectedSong.value) return;
-  if (!window.confirm(l(`确定删除「${selectedSong.value.name}」吗？此操作不可撤销。`, `Delete "${selectedSong.value.name}"? This cannot be undone.`))) return;
+  if (!window.confirm(t('vrpiano.confirm_delete_song', { name: selectedSong.value.name }))) return;
   loading.value = true;
   error.value = '';
   try {
@@ -843,12 +867,12 @@ const deleteSong = async () => {
       delete nextIcons[selectedSong.value.path];
       songIcons.value = nextIcons;
     }
-    addLog(l(`已删除 ${selectedSong.value.name}`, `Deleted ${selectedSong.value.name}`));
+    addLog(t('vrpiano.deleted_song', { name: selectedSong.value.name }));
     selectedPath.value = '';
     await refreshSongs();
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`删除失败：${error.value}`, `Delete failed: ${error.value}`));
+    addLog(t('vrpiano.delete_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -910,10 +934,10 @@ const downloadFromUrl = async () => {
     });
     await refreshSongs();
     selectedPath.value = song.path;
-    addLog(l(`URL/ID 下载完成：${song.name}`, `URL/ID download completed: ${song.name}`));
+    addLog(t('vrpiano.url_id_download_completed', { name: song.name }));
   } catch (e: any) {
     error.value = formatVrpianoError(e);
-    addLog(l(`URL/ID 下载失败：${error.value}`, `URL/ID download failed: ${error.value}`));
+    addLog(t('vrpiano.url_id_download_failed', { error: error.value }));
   } finally {
     onlineLoading.value = false;
   }
@@ -938,7 +962,7 @@ const searchOnline = async () => {
       'Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索。',
       'Midishow search timed out. Check your proxy, or use the browser button to open the official search.',
     );
-    addLog(l(`在线搜索失败：${error.value}`, `Online search failed: ${error.value}`));
+    addLog(t('vrpiano.online_search_failed', { error: error.value }));
   }, ONLINE_SEARCH_TIMEOUT_MS);
   try {
     const results = await VrpianoApi.searchMidishow({
@@ -947,11 +971,11 @@ const searchOnline = async () => {
     });
     if (requestId !== onlineSearchRequestId) return;
     onlineResults.value = results;
-    addLog(l(`Midishow 搜索到 ${results.length} 个结果`, `Midishow returned ${results.length} results`));
+    addLog(t('vrpiano.midishow_returned_results', { count: results.length }));
   } catch (e: any) {
     if (requestId !== onlineSearchRequestId) return;
     error.value = formatVrpianoError(e);
-    addLog(l(`在线搜索失败：${error.value}`, `Online search failed: ${error.value}`));
+    addLog(t('vrpiano.online_search_failed', { error: error.value }));
   } finally {
     if (requestId === onlineSearchRequestId) {
       onlineLoading.value = false;
@@ -971,7 +995,7 @@ const previewOnline = async (song: VrpianoOnlineSong) => {
     await loadMidiIntoPlayer(midi);
   } catch (e: any) {
     error.value = formatVrpianoError(e);
-    addLog(l(`试听失败：${error.value}`, `Preview failed: ${error.value}`));
+    addLog(t('vrpiano.preview_failed', { error: error.value }));
   } finally {
     onlineBusyId.value = null;
   }
@@ -989,11 +1013,11 @@ const downloadOnline = async (song: VrpianoOnlineSong) => {
     if (downloaded) {
       await refreshSongs();
       selectedPath.value = downloaded.path;
-      addLog(l(`Midishow 下载完成：${downloaded.name}`, `Midishow download completed: ${downloaded.name}`));
+      addLog(t('vrpiano.midishow_download_completed', { name: downloaded.name }));
     }
   } catch (e: any) {
     error.value = formatVrpianoError(e);
-    addLog(l(`下载失败：${error.value}`, `Download failed: ${error.value}`));
+    addLog(t('vrpiano.download_failed', { error: error.value }));
   } finally {
     onlineBusyId.value = null;
   }
@@ -1012,7 +1036,7 @@ const applySpeed = async (announce = false) => {
   speed.value = nextSpeed;
   try {
     status.value = await VrpianoApi.setSpeed({ speed: nextSpeed });
-    if (announce) addLog(l(`演奏速度 ${nextSpeed.toFixed(2)}x`, `Playback speed ${nextSpeed.toFixed(2)}x`));
+    if (announce) addLog(t('vrpiano.playback_speed', { speed: nextSpeed.toFixed(2) }));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -1047,8 +1071,8 @@ const applyHotkeys = async (announce = false) => {
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     if (Number.isFinite(status.value.speed)) speed.value = status.value.speed;
     if (announce) addLog(hotkeysEnabled.value
-      ? l('全局快捷键已开启，可在 VRChat 内使用', 'Global shortcuts enabled and available inside VRChat')
-      : l('全局快捷键已关闭', 'Global shortcuts disabled'));
+      ?t('vrpiano.global_shortcuts_enabled_and_available_i')
+      :t('vrpiano.global_shortcuts_disabled'));
   } catch (e: any) {
     error.value = e.message || String(e);
     hotkeysEnabled.value = false;
@@ -1078,10 +1102,10 @@ const start = async () => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
     });
-    addLog(l(`鍑嗗婕斿 ${selectedSong.value.name}`, `Preparing to play ${selectedSong.value.name}`));
+    addLog(t('vrpiano.preparing_to_play', { name: selectedSong.value.name }));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`鍚姩澶辫触锛?{error.value}`, `Start failed: ${error.value}`));
+    addLog(t('vrpiano.start_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -1099,10 +1123,10 @@ const startVrchatOsc = async () => {
       host: vrchatOscHost.value,
       port: vrchatOscPort.value,
     });
-    addLog(l(`鍑嗗閫氳繃 VRChat OSC 婕斿 ${selectedSong.value.name}`, `Preparing to play ${selectedSong.value.name} via VRChat OSC`));
+    addLog(t('vrpiano.preparing_to_play_vrchat_osc', { name: selectedSong.value.name }));
   } catch (e: any) {
     error.value = e.message || String(e);
-    addLog(l(`VRChat OSC 鍚姩澶辫触锛?{error.value}`, `VRChat OSC start failed: ${error.value}`));
+    addLog(t('vrpiano.vrchat_osc_start_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -1119,7 +1143,7 @@ const togglePlayback = async () => {
   try {
     const wasPaused = status.value.paused;
     status.value = await VrpianoApi.togglePause();
-    addLog(wasPaused ? l('已继续演奏', 'Playback resumed') : l('已暂停演奏', 'Playback paused'));
+    addLog(wasPaused ?t('vrpiano.playback_resumed') :t('vrpiano.playback_paused'));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -1134,7 +1158,7 @@ const waitUntilPlaybackStops = async () => {
     if (!next.running) return;
     await new Promise((resolve) => window.setTimeout(resolve, 40));
   }
-  throw new Error(l('等待当前曲目停止超时', 'Timed out waiting for the current song to stop'));
+  throw new Error(t('vrpiano.timed_out_waiting_for_the_current_song_t'));
 };
 
 const restartPlayback = async () => {
@@ -1151,7 +1175,7 @@ const restartPlayback = async () => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
     });
-    addLog(l(`已重新开始 ${selectedSong.value.name}`, `Restarted ${selectedSong.value.name}`));
+    addLog(t('vrpiano.restarted_song', { name: selectedSong.value.name }));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -1198,7 +1222,7 @@ const startRecording = async () => {
     const path = await VrpianoApi.startRecording();
     recording.value = true;
     recordedMidiPath.value = path;
-    addLog(l('寮€濮嬶紒鏀跺彴璁?褰?', 'Recording started'));
+    addLog(t('vrpiano.recording_started'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -1211,7 +1235,7 @@ const stopRecording = async () => {
     recording.value = false;
     if (path) {
       recordedMidiPath.value = path;
-      addLog(l('璁板綍宸插仠鐢?{path}', `Recording saved: ${path}`));
+      addLog(t('vrpiano.recording_saved', { path }));
     }
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -1336,7 +1360,7 @@ const speakText = async (text: string) => {
       rate: 1.0,
       volume: 0.9,
     });
-    addLog(l('TTS 鍙?鏇?', `TTS speaking: ${text}`));
+    addLog(t('vrpiano.tts_speaking', { text }));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -1367,6 +1391,127 @@ const setChannelVolume = async (channel: number, volume: number) => {
   try {
     await VrpianoApi.setChannelVolume({ channel, volume: Math.round(volume) });
     channelStates.value[channel].volume = Math.round(volume);
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const clampTranspose = (value: unknown) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(-24, Math.min(24, Math.round(parsed)));
+};
+
+const applyTranspose = async () => {
+  const next = clampTranspose(transpose.value);
+  transpose.value = next;
+  if (!isTauri()) return;
+  try {
+    await VrpianoApi.setTranspose({ transpose: next });
+    addLog(t('vrpiano.transpose', { value: next > 0 ? `+${next}` : next }));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const playModeLabelKey = (value: string) => ({
+  sequential: 'sequential',
+  random: 'shuffle',
+  one: 'repeat_one',
+  repeat_all: 'repeat_playlist',
+  stop_at_song_end: 'stop_after_current',
+  stop_at_end: 'stop_after_playlist',
+}[value] || 'sequential');
+
+const applyPlayMode = async () => {
+  if (!isTauri()) return;
+  try {
+    await VrpianoApi.setPlayMode({ mode: playMode.value });
+    addLog(t('vrpiano.play_mode_changed', { label: t(`vrpiano.play_mode_${playModeLabelKey(playMode.value)}`) }));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const addToPlaylist = () => {
+  if (!selectedSong.value) return;
+  if (!playlist.value.includes(selectedSong.value.path)) {
+    playlist.value = [...playlist.value, selectedSong.value.path];
+    addLog(t('vrpiano.added_to_playlist', { name: selectedSong.value.name }));
+  }
+};
+
+const removeFromPlaylist = (path: string) => {
+  playlist.value = playlist.value.filter((item) => item !== path);
+};
+
+const movePlaylistItem = (index: number, delta: -1 | 1) => {
+  const target = index + delta;
+  if (target < 0 || target >= playlist.value.length) return;
+  const next = [...playlist.value];
+  [next[index], next[target]] = [next[target], next[index]];
+  playlist.value = next;
+};
+
+const clearPlaylist = () => {
+  playlist.value = [];
+};
+
+const applyPlaylist = async () => {
+  if (!isTauri()) return;
+  try {
+    const nextStatus = await VrpianoApi.setPlaylist({ songs: playlist.value });
+    status.value = nextStatus;
+    await VrpianoApi.setPlayMode({ mode: playMode.value });
+    if (playlist.value.length) {
+      await VrpianoApi.start({
+        songPath: playlist.value[0],
+        delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+        speed: clampSpeed(speed.value),
+      });
+      addLog(t('vrpiano.playing_playlist', { count: playlist.value.length, label: t(`vrpiano.play_mode_${playModeLabelKey(playMode.value)}`) }));
+    }
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const refreshMidiDevices = async () => {
+  if (!isTauri()) return;
+  try {
+    midiDevices.value = await VrpianoApi.listMidiDevices();
+    midiOutputState.value = await VrpianoApi.getMidiOutputState();
+    if (midiOutputState.value.device_id) selectedMidiDevice.value = midiOutputState.value.device_id;
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const connectMidiDevice = async () => {
+  if (!isTauri() || !selectedMidiDevice.value) return;
+  try {
+    midiOutputState.value = await VrpianoApi.connectMidiDevice({ deviceId: selectedMidiDevice.value });
+    addLog(t('vrpiano.connected_midi_device', { device: midiOutputState.value.device_name || selectedMidiDevice.value }));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const disconnectMidiDevice = async () => {
+  if (!isTauri()) return;
+  try {
+    midiOutputState.value = await VrpianoApi.disconnectMidiDevice();
+    addLog(t('vrpiano.midi_device_disconnected'));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const setChannelRouted = async (channel: number, routed: boolean) => {
+  if (!isTauri()) return;
+  try {
+    await VrpianoApi.setChannelRouted({ channel, routed });
+    channelRouted.value[channel] = routed;
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -1485,26 +1630,26 @@ onUnmounted(() => {
       <div class="title-block">
         <div class="title-icon"><Music :size="22" /></div>
         <div>
-          <h1>{{ l('VRPiano 自动演奏', 'VRPiano Autoplay') }}</h1>
-          <p>{{ l('本地曲库、在线下载、在线试听、MIDI 映射与全局快捷键控制', 'Local library, online downloads, previews, MIDI mapping, and global shortcuts') }}</p>
+          <h1>{{t('vrpiano.vrpiano_autoplay') }}</h1>
+          <p>{{t('vrpiano.local_library_online_downloads_previews_') }}</p>
         </div>
       </div>
       <div class="header-actions">
         <button class="overlay-toggle" :class="{ active: overlayOpen }" @click="toggleVrpianoOverlay">
           <PictureInPicture2 :size="16" />
-          {{ overlayOpen ? l('关闭悬浮窗', 'Close overlay') : l('开启悬浮窗', 'Open overlay') }}
+          {{ overlayOpen ?t('vrpiano.close_overlay') :t('vrpiano.open_overlay') }}
         </button>
         <div class="status-pill" :class="{ active: status.running && !status.paused }">
           <span class="status-dot" />
-          {{ status.paused ? l('已暂停', 'Paused') : status.running ? l('演奏中', 'Playing') : l('待命', 'Ready') }}
+          {{ status.paused ?t('vrpiano.paused') : status.running ?t('vrpiano.playing') :t('vrpiano.ready') }}
         </div>
       </div>
     </header>
 
     <section class="quick-stats">
-      <div><Music :size="16" /><span>{{ songs.length }} {{ l('首曲目', songs.length === 1 ? 'song' : 'songs') }}</span></div>
+        <div><Music :size="16" /><span>{{ songs.length }} {{ t('vrpiano.songs_unit', { count: songs.length }) }}</span></div>
       <div><Clock3 :size="16" /><span>{{ formatTime(status.elapsed_ms) }} / {{ formatTime(status.duration_ms) }}</span></div>
-      <div><Gauge :size="16" /><span>{{ speedText }} {{ l('速度', 'speed') }}</span></div>
+      <div><Gauge :size="16" /><span>{{ speedText }} {{t('vrpiano.speed') }}</span></div>
       <div><ShieldCheck :size="16" /><span>{{ hotkeyStatusText }}</span></div>
     </section>
 
@@ -1516,35 +1661,35 @@ onUnmounted(() => {
     <main class="vrpiano-main">
       <section class="library-pane">
         <div class="pane-toolbar">
-          <strong>{{ l('本地曲库', 'Local library') }}</strong>
+          <strong>{{t('vrpiano.local_library') }}</strong>
           <div class="library-search">
             <Search :size="15" />
             <input
               v-model="localSongQuery"
-              :placeholder="l('搜索本地曲库', 'Search local library')"
+              :placeholder="t('vrpiano.search_local_library')"
               @keydown.enter.prevent="selectFirstFilteredSong"
             >
             <button
               v-if="localSongQuery"
               class="clear-search-btn"
               type="button"
-              :title="l('清空搜索', 'Clear search')"
+              :title="t('vrpiano.clear_search')"
               @click="clearLocalSongQuery"
             >
               <X :size="14" />
             </button>
           </div>
           <div class="tool-buttons">
-            <button class="icon-btn" :title="l('导入 MIDI', 'Import MIDI')" :disabled="loading" @click="importMidi"><Upload :size="16" /></button>
-            <button class="icon-btn" :title="l('试听曲目', 'Preview song')" :disabled="!selectedSong" @click="previewLocalSong"><Headphones :size="16" /></button>
-            <button class="icon-btn" :title="l('设置文字图标', 'Set text icon')" :disabled="!selectedSong" @click="setSongEmojiIcon"><Music :size="16" /></button>
-            <button class="icon-btn" :title="l('选择图片图标', 'Choose image icon')" :disabled="!selectedSong" @click="chooseSongImageIcon"><ImagePlus :size="16" /></button>
-            <button class="icon-btn" :title="l('重命名', 'Rename')" :disabled="!selectedSong || loading" @click="renameSong"><Edit3 :size="16" /></button>
-            <button class="icon-btn danger" :title="l('删除', 'Delete')" :disabled="!selectedSong || loading" @click="deleteSong"><Trash2 :size="16" /></button>
-            <button class="icon-btn" :title="l('刷新曲库', 'Refresh library')" :disabled="loading" @click="refreshSongs">
+            <button class="icon-btn" :title="t('vrpiano.import_midi')" :disabled="loading" @click="importMidi"><Upload :size="16" /></button>
+            <button class="icon-btn" :title="t('vrpiano.preview_song')" :disabled="!selectedSong" @click="previewLocalSong"><Headphones :size="16" /></button>
+            <button class="icon-btn" :title="t('vrpiano.set_text_icon')" :disabled="!selectedSong" @click="setSongEmojiIcon"><Music :size="16" /></button>
+            <button class="icon-btn" :title="t('vrpiano.choose_image_icon')" :disabled="!selectedSong" @click="chooseSongImageIcon"><ImagePlus :size="16" /></button>
+            <button class="icon-btn" :title="t('vrpiano.rename')" :disabled="!selectedSong || loading" @click="renameSong"><Edit3 :size="16" /></button>
+            <button class="icon-btn danger" :title="t('vrpiano.delete')" :disabled="!selectedSong || loading" @click="deleteSong"><Trash2 :size="16" /></button>
+            <button class="icon-btn" :title="t('vrpiano.refresh_library')" :disabled="loading" @click="refreshSongs">
               <RefreshCcw :size="16" :class="{ spin: loading }" />
             </button>
-            <button class="icon-btn" :title="l('打开曲库目录', 'Open library folder')" @click="openSongsDir"><FolderOpen :size="16" /></button>
+            <button class="icon-btn" :title="t('vrpiano.open_library_folder')" @click="openSongsDir"><FolderOpen :size="16" /></button>
           </div>
         </div>
 
@@ -1559,7 +1704,7 @@ onUnmounted(() => {
           >
             <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
               <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
-              <img v-else-if="songCover(song)" :src="songCover(song)" :title="l('来自 Midishow 的封面', 'Cover from Midishow')" alt="">
+              <img v-else-if="songCover(song)" :src="songCover(song)" :title="t('vrpiano.cover_from_midishow')" alt="">
               <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
               <Music v-else :size="15" />
             </span>
@@ -1570,40 +1715,40 @@ onUnmounted(() => {
           </button>
           <div v-if="!songs.length" class="empty-state">
             <Music :size="24" />
-            <span>{{ l('暂无 MIDI 曲目，导入、搜索或粘贴链接添加。', 'No MIDI songs yet. Import, search, or paste a link to add one.') }}</span>
+            <span>{{t('vrpiano.no_midi_songs_yet_import_search_or_paste') }}</span>
           </div>
           <div v-else-if="!filteredSongs.length" class="empty-state">
             <Search :size="24" />
-            <span>{{ l(`没有匹配“${localSongQuery.trim()}”的本地曲目。`, `No local songs match "${localSongQuery.trim()}".`) }}</span>
+            <span>{{ t('vrpiano.no_matching_local_songs', { query: localSongQuery.trim() }) }}</span>
           </div>
         </div>
       </section>
 
       <section class="control-pane">
         <div class="now-playing">
-          <span>{{ l('当前曲目', 'Current song') }}</span>
-          <strong :title="selectedSong?.name || l('未选择', 'None selected')">{{ selectedSong?.name || l('未选择', 'None selected') }}</strong>
+          <span>{{t('vrpiano.current_song') }}</span>
+          <strong :title="selectedSong?.name ||t('vrpiano.none_selected')">{{ selectedSong?.name ||t('vrpiano.none_selected') }}</strong>
           <small :title="selectedSong?.path || status.songs_dir">{{ selectedSong?.path || status.songs_dir }}</small>
         </div>
 
         <section class="player-panel">
           <div class="player-head">
             <div>
-              <span>{{ l('内置播放器', 'Built-in player') }}</span>
+              <span>{{t('vrpiano.built_in_player') }}</span>
               <strong>{{ playerTitle }}</strong>
             </div>
             <button class="player-toggle" :disabled="!canTogglePlayer" @click="togglePlayer">
               <Loader2 v-if="playerLoading" :size="16" class="spin" />
               <Pause v-else-if="playerPlaying" :size="16" />
               <Play v-else :size="16" />
-              {{ playerPlaying ? l('暂停', 'Pause') : l('播放', 'Play') }}
+              {{ playerPlaying ?t('vrpiano.pause') :t('vrpiano.play') }}
             </button>
           </div>
           <label class="player-instrument">
             <Music :size="15" />
-            <span>{{ l('播放音色', 'Playback instrument') }}</span>
+            <span>{{t('vrpiano.playback_instrument') }}</span>
             <select v-model="playerInstrument" @change="applyPlayerInstrument">
-              <option value="source">{{ l('跟随 MIDI 源文件（默认）', 'Follow MIDI source (default)') }}</option>
+              <option value="source">{{t('vrpiano.follow_midi_source_default') }}</option>
               <optgroup v-for="(group, groupIndex) in GENERAL_MIDI_GROUPS" :key="group.name" :label="instrumentGroupName(groupIndex, group.name)">
                 <option v-for="instrument in group.instruments" :key="instrument.program" :value="String(instrument.program)">
                   {{ instrument.program + 1 }} · {{ instrumentName(instrument.program) }}
@@ -1635,7 +1780,7 @@ onUnmounted(() => {
 
         <div class="progress-area">
           <div class="progress-head">
-            <span>{{ status.last_event || l('待命', 'Ready') }}</span>
+            <span>{{ status.last_event ||t('vrpiano.ready') }}</span>
             <strong>{{ progressPercent }}%</strong>
           </div>
           <div class="progress-track"><div class="progress-fill" :style="{ width: `${progressPercent}%` }" /></div>
@@ -1647,49 +1792,49 @@ onUnmounted(() => {
 
         <div class="control-grid">
           <label>
-            <span>{{ l('开始延迟', 'Start delay') }}</span>
+            <span>{{t('vrpiano.start_delay') }}</span>
             <input v-model.number="delaySecs" type="number" min="0" max="60">
-            <b>{{ l('秒', 'sec') }}</b>
+            <b>{{t('vrpiano.sec') }}</b>
           </label>
           <label>
-            <span>{{ l('速度倍率', 'Speed multiplier') }}</span>
+            <span>{{t('vrpiano.speed_multiplier') }}</span>
             <input v-model.number="speed" type="range" min="0.25" max="3" step="0.05">
             <b>{{ speedText }}</b>
           </label>
         </div>
 
         <div class="speed-actions">
-          <button class="small-action" @click="adjustSpeed(-0.1)">F4 {{ l('减慢', 'Slower') }}</button>
-          <button class="small-action" @click="resetSpeed">F5 {{ l('默认', 'Default') }}</button>
-          <button class="small-action" @click="adjustSpeed(0.1)">F3 {{ l('加快', 'Faster') }}</button>
+          <button class="small-action" @click="adjustSpeed(-0.1)">F4 {{t('vrpiano.slower') }}</button>
+          <button class="small-action" @click="resetSpeed">F5 {{t('vrpiano.default') }}</button>
+          <button class="small-action" @click="adjustSpeed(0.1)">F3 {{t('vrpiano.faster') }}</button>
         </div>
 
         <div class="hotkey-panel" :class="{ enabled: hotkeysEnabled }">
           <div>
-            <strong>{{ l('全局快捷键', 'Global shortcuts') }}</strong>
-            <span>{{ l('F1 开始、暂停或继续；开始后可用 F2 重新开始。F3/F4 调整速度，F5 恢复默认速度。（系统级全局快捷键，在 VRChat 或任意软件中按下均生效）', 'F1 starts, pauses, or resumes. After playback starts, F2 restarts it. F3/F4 adjust speed and F5 restores the default. (System-wide global shortcuts — they work in VRChat or any other app.)') }}</span>
+            <strong>{{t('vrpiano.global_shortcuts') }}</strong>
+            <span>{{t('vrpiano.f1_starts_pauses_or_resumes_after_playba') }}</span>
           </div>
           <button class="toggle-btn" :class="{ enabled: hotkeysEnabled }" :disabled="!status.hotkeys_available" @click="toggleHotkeys">
-            {{ hotkeysEnabled ? l('已开启', 'Enabled') : l('已关闭', 'Disabled') }}
+            {{ hotkeysEnabled ?t('vrpiano.enabled') :t('vrpiano.disabled') }}
           </button>
         </div>
 
         <div class="extra-controls">
           <div class="control-section">
-            <strong>{{ l('MIDI 褰曢煶', 'MIDI Recording') }}</strong>
+            <strong>{{t('vrpiano.midi_recording') }}</strong>
             <div class="control-row">
                <button v-if="!recording" class="small-action record-start" :disabled="loading" @click="startRecording">
                  <Disc3 :size="14" /> Start Recording
                </button>
               <button v-else class="small-action record-stop" :disabled="loading" @click="stopRecording">
-                <Square :size="14" /> {{ l('鍋滄褰曢煶', 'Stop Recording') }}
+                <Square :size="14" /> {{t('vrpiano.stop_recording') }}
               </button>
               <span v-if="recordedMidiPath" class="recording-path">{{ recordedMidiPath }}</span>
             </div>
           </div>
 
           <div class="control-section">
-            <strong>{{ l('VRChat OSC 宀樹腑鍗?', 'VRChat OSC Piano') }}</strong>
+            <strong>{{t('vrpiano.vrchat_osc_piano') }}</strong>
             <div class="control-row">
               <label class="osc-config">
                 <span>Host</span>
@@ -1702,23 +1847,26 @@ onUnmounted(() => {
             </div>
             <div class="control-row" style="margin-top:8px">
               <button class="small-action" :disabled="loading || !selectedSong" @click="startVrchatOsc">
-                <SendHorizontal :size="14" /> {{ l('閫氳繃 VRChat OSC 鎸ф彈', 'Play via VRChat OSC') }}
+                <SendHorizontal :size="14" /> {{t('vrpiano.play_via_vrchat_osc') }}
               </button>
-              <span v-if="status.vrchat_osc_running" class="osc-status">{{ l('VRChat OSC 闁秶鏁ゆ稉?', 'VRChat OSC active') }}</span>
+              <span v-if="status.vrchat_osc_running" class="osc-status">{{t('vrpiano.vrchat_osc_active') }}</span>
               <span v-else-if="status.vrchat_osc_last_error" class="osc-error">{{ status.vrchat_osc_last_error }}</span>
             </div>
           </div>
 
           <div class="control-section">
-            <strong>{{ l('通道控制', 'Channel Controls') }}</strong>
+            <strong>{{t('vrpiano.channel_controls') }}</strong>
             <div class="channel-grid">
-              <div v-for="idx in 16" :key="idx - 1" class="channel-row" :class="{ muted: channelStates[idx - 1].muted, solo: channelStates[idx - 1].solo }">
+              <div v-for="idx in 16" :key="idx - 1" class="channel-row" :class="{ muted: channelStates[idx - 1].muted, solo: channelStates[idx - 1].solo, routed: channelRouted[idx - 1] }">
                 <span class="channel-label">CH {{ idx - 1 }}</span>
-                <button class="channel-btn mute" :class="{ active: channelStates[idx - 1].muted }" @click="setChannelMute(idx - 1, !channelStates[idx - 1].muted)">
+                <button class="channel-btn mute" :class="{ active: channelStates[idx - 1].muted }" :title="t('vrpiano.mute')" @click="setChannelMute(idx - 1, !channelStates[idx - 1].muted)">
                   M
                 </button>
-                <button class="channel-btn solo" :class="{ active: channelStates[idx - 1].solo }" @click="setChannelSolo(idx - 1, !channelStates[idx - 1].solo)">
+                <button class="channel-btn solo" :class="{ active: channelStates[idx - 1].solo }" :title="t('vrpiano.solo')" @click="setChannelSolo(idx - 1, !channelStates[idx - 1].solo)">
                   S
+                </button>
+                <button class="channel-btn route" :class="{ active: channelRouted[idx - 1] }" :title="t('vrpiano.route_to_piano')" @click="setChannelRouted(idx - 1, !channelRouted[idx - 1])">
+                  R
                 </button>
                 <input type="range" min="0" max="127" :value="channelStates[idx - 1].volume" @input="setChannelVolume(idx - 1, Number(($event.target as HTMLInputElement).valueAsNumber))" class="channel-volume">
                 <span class="channel-vol-label">{{ channelStates[idx - 1].volume }}</span>
@@ -1727,13 +1875,87 @@ onUnmounted(() => {
           </div>
 
           <div class="control-section">
-            <strong>{{ l('高级功能', 'Advanced Features') }}</strong>
+            <strong>{{t('vrpiano.transpose') }}</strong>
+            <div class="control-row transpose-row">
+              <label class="transpose-field">
+                <span>{{t('vrpiano.transpose') }}</span>
+                <input v-model.number="transpose" type="number" min="-24" max="24" step="1" @change="applyTranspose">
+                <b>{{t('vrpiano.transpose_semitones') }}</b>
+              </label>
+              <input type="range" min="-24" max="24" step="1" :value="transpose" @input="transpose = Number(($event.target as HTMLInputElement).valueAsNumber); applyTranspose()">
+              <div class="transpose-right">
+                <label class="exclude-drums" :title="t('vrpiano.transpose_drums_always_excluded')">
+                  <input v-model="excludeDrums" type="checkbox" disabled>
+                  <span>{{t('vrpiano.transpose_exclude_drums') }}</span>
+                </label>
+                <small class="transpose-hint">{{t('vrpiano.transpose_drums_always_excluded') }}</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <strong>{{t('vrpiano.playlist') }} / {{t('vrpiano.play_mode') }}</strong>
+            <div class="control-row">
+              <label class="playmode-field">
+                <span>{{t('vrpiano.play_mode') }}</span>
+                <select v-model="playMode" @change="applyPlayMode">
+                  <option v-for="opt in playModeOptions" :key="opt.value" :value="opt.value">{{ opt.label() }}</option>
+                </select>
+              </label>
+              <button class="small-action" :disabled="!selectedSong" @click="addToPlaylist">
+                <Music :size="14" /> {{t('vrpiano.add_to_playlist') }}
+              </button>
+              <button class="small-action" @click="applyPlaylist" :disabled="!playlist.length || loading">
+                <Play :size="14" /> {{t('vrpiano.apply_playlist') }}
+              </button>
+              <button class="small-action ghost" :disabled="!playlist.length" @click="clearPlaylist">
+                <Trash2 :size="14" /> {{t('vrpiano.clear_playlist') }}
+              </button>
+            </div>
+            <ul v-if="playlist.length" class="playlist-list">
+              <li v-for="(path, index) in playlist" :key="path" class="playlist-item">
+                <span class="playlist-index">{{ index + 1 }}</span>
+                <span class="playlist-name" :title="path">{{ playlistSongs[index]?.name || path }}</span>
+                <div class="playlist-actions">
+                  <button class="channel-btn" :disabled="index === 0" :title="t('vrpiano.move_up')" @click="movePlaylistItem(index, -1)">↑</button>
+                  <button class="channel-btn" :disabled="index === playlist.length - 1" :title="t('vrpiano.move_down')" @click="movePlaylistItem(index, 1)">↓</button>
+                  <button class="channel-btn" :title="t('vrpiano.remove_from_playlist')" @click="removeFromPlaylist(path)">✕</button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="playlist-empty">{{ l('播放列表为空。选择一首曲目后点击「添加当前曲目」。', 'Playlist is empty. Select a song and click "Add current song".') }}</p>
+          </div>
+
+          <div class="control-section">
+            <strong>{{t('vrpiano.midi_device') }}</strong>
+            <div class="control-row">
+              <select v-model="selectedMidiDevice" class="midi-device-select">
+                <option v-if="!midiDevices.length" value="" disabled>{{t('vrpiano.no_midi_devices') }}</option>
+                <option v-for="device in midiDevices" :key="device.id" :value="device.id">{{ device.name }}</option>
+              </select>
+              <button class="small-action" :disabled="!selectedMidiDevice || midiOutputState.connected" @click="connectMidiDevice">
+                <Link2 :size="14" /> {{t('vrpiano.connect') }}
+              </button>
+              <button class="small-action ghost" :disabled="!midiOutputState.connected" @click="disconnectMidiDevice">
+                <X :size="14" /> {{t('vrpiano.disconnect') }}
+              </button>
+              <button class="small-action ghost" :title="t('vrpiano.refresh_devices')" @click="refreshMidiDevices">
+                <RefreshCcw :size="14" />
+              </button>
+            </div>
+            <p v-if="midiOutputState.connected" class="osc-status">
+              {{ t('vrpiano.connected_device', { device: midiOutputState.device_name || '' }) }}
+            </p>
+          </div>
+
+          <div class="control-section">
+            <strong>{{t('vrpiano.advanced_features') }}</strong>
             <div class="control-row">
               <button class="small-action" :class="{ enabled: voiceControlEnabled }" :disabled="loading" @click="toggleVoiceControl">
-                <Mic :size="14" /> {{ voiceControlEnabled ? l('关闭语音', 'Disable Voice') : l('开启语音', 'Enable Voice') }}
+                <Mic :size="14" /> {{ voiceControlEnabled ?t('vrpiano.disable_voice') :t('vrpiano.enable_voice') }}
               </button>
               <button class="small-action" :class="{ enabled: ttsEnabled }" :disabled="loading" @click="toggleTts">
-                <Radio :size="14" /> {{ ttsEnabled ? l('关闭 TTS', 'Disable TTS') : l('开启 TTS', 'Enable TTS') }}
+                <Radio :size="14" /> {{ ttsEnabled ?t('vrpiano.disable_tts') :t('vrpiano.enable_tts') }}
               </button>
             </div>
           </div>
@@ -1748,32 +1970,32 @@ onUnmounted(() => {
           </button>
           <button v-if="hasStartedPlayback" class="restart-action" :disabled="loading" @click="restartPlayback">
             <RefreshCcw :size="18" />
-            F2 {{ l('重新开始', 'Restart') }}
+            F2 {{t('vrpiano.restart') }}
           </button>
         </div>
 
         <section class="online-panel">
           <div class="online-head">
-            <strong>{{ l('在线曲库', 'Online library') }}</strong>
-            <span>{{ l('Midishow 搜索、ID/URL 下载、在线试听', 'Midishow search, ID/URL downloads, and online previews') }}</span>
+            <strong>{{t('vrpiano.online_library') }}</strong>
+            <span>{{t('vrpiano.midishow_search_id_url_downloads_and_onl') }}</span>
           </div>
 
           <div class="midishow-account">
             <div>
-              <strong>{{ defaultMidishowAccount ? l(`已登录 ${defaultMidishowAccount.username}${defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : ''}`, `Signed in as ${defaultMidishowAccount.username}${defaultMidishowLoginTypeText ? ` (${defaultMidishowLoginTypeText})` : ''}`) : l('Midishow 未登录', 'Midishow signed out') }}</strong>
-              <span>{{ defaultMidishowAccount ? l('下载与试听会优先使用账号权限。', 'Downloads and previews will use your account access.') : l('登录后可访问需要账号权限的 MIDI 下载与试听。', 'Sign in to access MIDI downloads and previews that require an account.') }}</span>
+              <strong>{{ defaultMidishowAccount ? t('vrpiano.signed_in_as', { username: defaultMidishowAccount.username, type: defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : '' }) :t('vrpiano.midishow_signed_out') }}</strong>
+              <span>{{ defaultMidishowAccount ?t('vrpiano.downloads_and_previews_will_use_your_acc') :t('vrpiano.sign_in_to_access_midi_downloads_and_pre') }}</span>
             </div>
             <button v-if="defaultMidishowAccount" class="account-btn ghost" :disabled="accountLoading" @click="logoutMidishow">
-              <LogOut :size="15" /> {{ l('退出', 'Sign out') }}
+              <LogOut :size="15" /> {{t('vrpiano.sign_out') }}
             </button>
             <button v-else class="account-btn" @click="toggleMidishowLogin">
-              <LogIn :size="15" /> {{ midishowLoginOpen ? l('收起', 'Hide') : l('登录', 'Sign in') }}
+              <LogIn :size="15" /> {{ midishowLoginOpen ?t('vrpiano.hide') :t('vrpiano.sign_in') }}
             </button>
           </div>
 
           <form v-if="midishowLoginOpen && !defaultMidishowAccount" :key="midishowLoginOpen ? 'open' : 'closed'" class="login-form" @submit.prevent="loginMidishow">
             <label class="login-field">
-              <span>{{ l('账号', 'Account') }}</span>
+              <span>{{t('vrpiano.account') }}</span>
               <input
                 ref="accountInputRef"
                 v-model="midishowAccount"
@@ -1786,11 +2008,11 @@ onUnmounted(() => {
                 data-lpignore="true"
                 data-1p-ignore="true"
                 data-form-type="other"
-                :placeholder="l('Midishow 用户名或邮箱', 'Midishow username or email')"
+                :placeholder="t('vrpiano.midishow_username_or_email')"
               >
             </label>
             <label class="login-field">
-              <span>{{ l('密码', 'Password') }}</span>
+              <span>{{t('vrpiano.password') }}</span>
               <input
                 ref="passwordInputRef"
                 v-model="midishowPassword"
@@ -1803,14 +2025,14 @@ onUnmounted(() => {
                 data-lpignore="true"
                 data-1p-ignore="true"
                 data-form-type="other"
-                :placeholder="l('Midishow 密码', 'Midishow password')"
+                :placeholder="t('vrpiano.midishow_password')"
               >
             </label>
             <p v-if="loginError" class="login-error" role="alert">
               <AlertTriangle :size="14" />
               <span>{{ loginError }}</span>
             </p>
-            <p class="login-hint">{{ l('点击登录后会自动完成。只有页面需要确认时才会显示登录窗口。', 'Sign-in completes automatically. A login window appears only when confirmation is required.') }}</p>
+            <p class="login-hint">{{t('vrpiano.sign_in_completes_automatically_a_login_') }}</p>
             <p v-if="accountLoading" class="login-status" aria-live="polite">
               <Loader2 :size="15" class="spin" />
               {{ midishowLoginStatus.message }}
@@ -1819,14 +2041,14 @@ onUnmounted(() => {
               <button type="submit" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
                 <Loader2 v-if="accountLoading" :size="16" class="spin" />
                 <LogIn v-else :size="16" />
-                <span>{{ accountLoading ? l('正在登录', 'Signing in') : l('登录', 'Sign in') }}</span>
+                <span>{{ accountLoading ?t('vrpiano.signing_in') :t('vrpiano.sign_in') }}</span>
               </button>
               <button type="button" class="account-btn ghost" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
                 <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
-                <ExternalLink v-else :size="15" /> {{ l('注册', 'Register') }}
+                <ExternalLink v-else :size="15" /> {{t('vrpiano.register') }}
               </button>
-              <button type="button" class="account-btn ghost" :title="l('复制注册链接', 'Copy registration link')" :disabled="accountLoading" @click="copySignupUrl">
-                {{ l('复制链接', 'Copy link') }}
+              <button type="button" class="account-btn ghost" :title="t('vrpiano.copy_registration_link')" :disabled="accountLoading" @click="copySignupUrl">
+                {{t('vrpiano.copy_link') }}
               </button>
             </div>
           </form>
@@ -1834,21 +2056,21 @@ onUnmounted(() => {
           <div class="online-form">
             <div class="input-row">
               <Search :size="16" />
-              <input v-model="onlineKeyword" :placeholder="l('搜索歌名、作者或关键词', 'Search by title, artist, or keyword')" @keydown.enter="searchOnline">
+              <input v-model="onlineKeyword" :placeholder="t('vrpiano.search_by_title_artist_or_keyword')" @keydown.enter="searchOnline">
               <div class="online-search-actions">
                 <button :disabled="onlineLoading || !onlineKeyword.trim()" @click="searchOnline">
                   <Loader2 v-if="onlineLoading" :size="16" class="spin" />
-                  <span v-else>{{ l('搜索', 'Search') }}</span>
+                  <span v-else>{{t('vrpiano.search') }}</span>
                 </button>
-                <button type="button" :title="l('在浏览器打开 Midishow 官方搜索', 'Open Midishow search in browser')" :disabled="onlineLoading" @click="openMidishowSearch">
+                <button type="button" :title="t('vrpiano.open_midishow_search_in_browser')" :disabled="onlineLoading" @click="openMidishowSearch">
                   <ExternalLink :size="16" />
                 </button>
               </div>
             </div>
             <div class="input-row download-row">
               <Link2 :size="16" />
-              <input v-model="urlInput" :placeholder="l('粘贴 MIDI 直链、Midishow 链接或 ID', 'Paste a direct MIDI URL, Midishow link, or ID')" @keydown.enter="downloadFromUrl">
-              <input v-model="urlFilename" class="name-input" :placeholder="l('保存名', 'Save as')">
+              <input v-model="urlInput" :placeholder="t('vrpiano.paste_a_direct_midi_url_midishow_link_or')" @keydown.enter="downloadFromUrl">
+              <input v-model="urlFilename" class="name-input" :placeholder="t('vrpiano.save_as')">
               <button :disabled="onlineLoading || !urlInput.trim()" @click="downloadFromUrl">
                 <Download :size="16" />
               </button>
@@ -1859,17 +2081,17 @@ onUnmounted(() => {
             <div v-for="item in onlineResults" :key="item.id" class="online-row">
               <div class="online-meta">
                 <strong>{{ item.title }}</strong>
-                <small>{{ item.artist || l('未知作者', 'Unknown artist') }} · ID {{ item.id }}</small>
+                <small>{{ item.artist ||t('vrpiano.unknown_artist') }} · ID {{ item.id }}</small>
               </div>
               <div class="online-actions">
-                <button :title="l('在线试听', 'Preview online')" :disabled="onlineBusyId === item.id" @click="previewOnline(item)">
+                <button :title="t('vrpiano.preview_online')" :disabled="onlineBusyId === item.id" @click="previewOnline(item)">
                   <Loader2 v-if="onlineBusyId === item.id" :size="15" class="spin" />
                   <Headphones v-else :size="15" />
                 </button>
-                <button :title="l('下载到曲库', 'Download to library')" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
+                <button :title="t('vrpiano.download_to_library')" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
                   <Download :size="15" />
                 </button>
-                <button :title="l('打开网页', 'Open webpage')" @click="openOnlinePage(item)">
+                <button :title="t('vrpiano.open_webpage')" @click="openOnlinePage(item)">
                   <ExternalLink :size="15" />
                 </button>
               </div>
@@ -1891,7 +2113,7 @@ onUnmounted(() => {
       <form class="edit-dialog" @submit.prevent="submitEditDialog">
         <div class="edit-dialog-head">
           <div>
-            <strong>{{ editDialogMode === 'icon' ? l('编辑曲目图标', 'Edit song icon') : l('重命名曲目', 'Rename song') }}</strong>
+            <strong>{{ editDialogMode === 'icon' ?t('vrpiano.edit_song_icon') :t('vrpiano.rename_song') }}</strong>
             <span>{{ selectedSong?.name }}</span>
           </div>
           <button class="dialog-close" type="button" :disabled="loading" @click="closeEditDialog">×</button>
@@ -1899,12 +2121,12 @@ onUnmounted(() => {
 
         <div v-if="editDialogMode === 'icon'" class="edit-dialog-body">
           <label class="theme-field">
-            <span>{{ l('文字 / Emoji', 'Text / Emoji') }}</span>
-            <input v-model="editIconText" maxlength="4" :placeholder="l('例如 ♪、钢琴、A1', 'For example: ♪, Piano, A1')">
+            <span>{{t('vrpiano.text_emoji') }}</span>
+            <input v-model="editIconText" maxlength="4" :placeholder="t('vrpiano.for_example_piano_a1')">
           </label>
           <label class="theme-field">
-            <span>{{ l('图片 URL', 'Image URL') }}</span>
-            <input v-model="editIconUrl" :placeholder="l('https://... 或 data:image/...', 'https://... or data:image/...')">
+            <span>{{t('vrpiano.image_url') }}</span>
+            <input v-model="editIconUrl" :placeholder="t('vrpiano.https_or_data_image')">
           </label>
           <div class="icon-preview">
             <span class="song-note custom">
@@ -1912,22 +2134,22 @@ onUnmounted(() => {
               <span v-else-if="editIconText.trim()">{{ editIconText.trim().slice(0, 4) }}</span>
               <Music v-else :size="15" />
             </span>
-            <small>{{ l('图片 URL 优先；两个输入框都留空会恢复默认图标。', 'Image URL takes priority. Leave both fields empty to restore the default icon.') }}</small>
+            <small>{{t('vrpiano.image_url_takes_priority_leave_both_fiel') }}</small>
           </div>
         </div>
 
         <div v-else class="edit-dialog-body">
           <label class="theme-field">
-            <span>{{ l('新的曲目名称', 'New song name') }}</span>
-            <input v-model="editSongName" autofocus :placeholder="l('输入新的 MIDI 文件名', 'Enter a new MIDI filename')">
+            <span>{{t('vrpiano.new_song_name') }}</span>
+            <input v-model="editSongName" autofocus :placeholder="t('vrpiano.enter_a_new_midi_filename')">
           </label>
         </div>
 
         <div class="edit-dialog-actions">
-          <button class="dialog-secondary" type="button" :disabled="loading" @click="closeEditDialog">{{ l('取消', 'Cancel') }}</button>
+          <button class="dialog-secondary" type="button" :disabled="loading" @click="closeEditDialog">{{t('vrpiano.cancel') }}</button>
           <button class="dialog-primary" type="submit" :disabled="loading">
             <Loader2 v-if="loading" :size="16" class="spin" />
-            <span v-else>{{ l('保存', 'Save') }}</span>
+            <span v-else>{{t('vrpiano.save') }}</span>
           </button>
         </div>
       </form>
@@ -2798,6 +3020,138 @@ input {
   color: white;
   background: var(--vp-primary);
   border-color: var(--vp-primary);
+}
+
+.channel-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.transpose-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.transpose-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transpose-field span {
+  color: var(--vp-dim);
+  font-size: 12px;
+}
+
+.transpose-field input {
+  width: 64px;
+}
+
+.transpose-field b {
+  color: var(--vp-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.transpose-right {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+}
+
+.exclude-drums {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--vp-muted);
+}
+
+.exclude-drums input {
+  width: 14px;
+  height: 14px;
+}
+
+.transpose-hint {
+  color: var(--vp-dim);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.playmode-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playmode-field span {
+  color: var(--vp-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.playmode-field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.playlist-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--vp-text) 6%, transparent);
+}
+
+.playlist-index {
+  width: 18px;
+  color: var(--vp-dim);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.playlist-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--vp-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playlist-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.playlist-empty {
+  margin: 8px 0 0;
+  color: var(--vp-dim);
+  font-size: 12px;
+}
+
+.midi-device-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.small-action.ghost {
+  background: transparent;
 }
 
 .channel-volume {

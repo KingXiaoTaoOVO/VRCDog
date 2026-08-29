@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { isTauri } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Effect, EffectState, getCurrentWindow } from '@tauri-apps/api/window';
@@ -32,6 +33,8 @@ import {
 } from './vrpianoOverlayAppearance';
 import { VRPIANO_PREVIEW_SONG_EVENT } from './vrpianoEvents';
 import { songIcon, songCover, isImageIcon } from '../composables/useVrpianoIcons';
+
+const { t } = useI18n();
 
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
@@ -140,22 +143,22 @@ const currentIndex = computed(() => {
 const currentSong = computed(() => songs.value[currentIndex.value] || songs.value[0] || null);
 const hasStartedPlayback = computed(() => Boolean(status.value.song_path));
 const primaryPlaybackLabel = computed(() => {
-  if (status.value.paused) return '继续';
-  if (status.value.running) return '暂停';
-  return '开始';
+  if (status.value.paused) return t('vrpiano_overlay.resume');
+  if (status.value.running) return t('vrpiano_overlay.pause');
+  return t('vrpiano_overlay.start');
 });
 const playbackLabel = computed(() => {
-  if (status.value.paused) return '已暂停';
-  if (status.value.running) return '演奏中';
-  return '待命';
+  if (status.value.paused) return t('vrpiano_overlay.paused');
+  if (status.value.running) return t('vrpiano_overlay.playing');
+  return t('vrpiano_overlay.idle');
 });
 const progressStyle = computed(() => ({ width: `${Math.round(progress.value * 10000) / 100}%` }));
 const hotkeys = computed(() => [
   { key: 'F1', label: primaryPlaybackLabel.value },
-  ...(hasStartedPlayback.value ? [{ key: 'F2', label: '重新开始' }] : []),
-  { key: 'F3', label: '加速' },
-  { key: 'F4', label: '减速' },
-  { key: 'F5', label: '默认' },
+  ...(hasStartedPlayback.value ? [{ key: 'F2', label: t('vrpiano_overlay.restart') }] : []),
+  { key: 'F3', label: t('vrpiano_overlay.speed_up') },
+  { key: 'F4', label: t('vrpiano_overlay.speed_down') },
+  { key: 'F5', label: t('vrpiano_overlay.default') },
 ]);
 
 const formatTime = (ms: number) => {
@@ -197,7 +200,7 @@ const waitUntilStopped = async () => {
     if (!next.running) return;
     await new Promise((resolve) => window.setTimeout(resolve, 40));
   }
-  throw new Error('等待当前曲目停止超时');
+  throw new Error(t('vrpiano_overlay.wait_stop_timeout'));
 };
 
 const playSong = async (song: VrpianoSong) => {
@@ -368,20 +371,20 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="window-actions" data-no-drag>
-        <button :title="positionLocked ? '解锁悬浮窗位置' : '锁定悬浮窗位置'" @click="togglePositionLock">
+        <button :title="positionLocked ? t('vrpiano_overlay.unlock_position') : t('vrpiano_overlay.lock_position')" @click="togglePositionLock">
           <Pin v-if="positionLocked" :size="15" />
           <PinOff v-else :size="15" />
         </button>
-        <button title="外观设置" :class="{ active: settingsOpen }" @click="settingsOpen = !settingsOpen">
+        <button :title="t('vrpiano_overlay.appearance')" :class="{ active: settingsOpen }" @click="settingsOpen = !settingsOpen">
           <Settings2 :size="15" />
         </button>
-        <button title="关闭悬浮窗" @click="closeOverlay"><X :size="15" /></button>
+        <button :title="t('vrpiano_overlay.close_overlay')" @click="closeOverlay"><X :size="15" /></button>
       </div>
     </header>
 
     <section v-if="settingsOpen" class="appearance-settings" data-no-drag @mousedown.stop @pointerdown.stop @click.stop>
       <label>
-        <span>背景透明度</span>
+        <span>{{ t('vrpiano_overlay.opacity_label') }}</span>
         <input
           v-model.number="overlayOpacity"
           type="range"
@@ -398,7 +401,7 @@ onUnmounted(() => {
         <b>{{ Math.round(overlayOpacity * 100) }}%</b>
       </label>
       <label>
-        <span>背景模糊</span>
+        <span>{{ t('vrpiano_overlay.blur_label') }}</span>
         <input
           v-model="blurEnabled"
           type="checkbox"
@@ -408,14 +411,14 @@ onUnmounted(() => {
           @pointerdown.stop
           @click.stop
         >
-        <b>{{ blurEnabled ? '已开启' : '已关闭' }}</b>
+        <b>{{ blurEnabled ? t('vrpiano_overlay.on') : t('vrpiano_overlay.off') }}</b>
       </label>
     </section>
 
     <section class="now-playing">
       <div class="song-copy">
-        <small>当前曲目</small>
-        <strong :title="status.song_name || currentSong?.name">{{ status.song_name || currentSong?.name || '未选择曲目' }}</strong>
+        <small>{{ t('vrpiano_overlay.current_song') }}</small>
+        <strong :title="status.song_name || currentSong?.name">{{ status.song_name || currentSong?.name || t('vrpiano_overlay.no_song_selected') }}</strong>
       </div>
       <span class="speed">{{ Number(status.speed || 1).toFixed(2) }}x</span>
     </section>
@@ -429,25 +432,25 @@ onUnmounted(() => {
       <div class="progress-track"><div class="progress-fill" :style="progressStyle" /></div>
     </section>
 
-    <nav class="transport" data-no-drag aria-label="播放控制">
-      <button title="上一首" :disabled="busy || !songs.length" @click="moveSong(-1)"><ChevronLeft :size="21" /></button>
+    <nav class="transport" data-no-drag :aria-label="t('vrpiano_overlay.playback_controls')">
+      <button :title="t('vrpiano_overlay.prev')" :disabled="busy || !songs.length" @click="moveSong(-1)"><ChevronLeft :size="21" /></button>
       <button class="play-button" :title="primaryPlaybackLabel" :disabled="busy || !songs.length" @click="togglePlayback">
         <Pause v-if="status.running && !status.paused" :size="23" />
         <Play v-else :size="23" />
         <span>{{ primaryPlaybackLabel }}</span>
       </button>
-      <button v-if="hasStartedPlayback" class="restart-button" title="重新开始" :disabled="busy || !currentSong" @click="restartSong">
+      <button v-if="hasStartedPlayback" class="restart-button" :title="t('vrpiano_overlay.restart')" :disabled="busy || !currentSong" @click="restartSong">
         <RotateCcw :size="18" />
-        <span>重新开始</span>
+        <span>{{ t('vrpiano_overlay.restart') }}</span>
       </button>
-      <button title="下一首" :disabled="busy || !songs.length" @click="moveSong(1)"><ChevronRight :size="21" /></button>
+      <button :title="t('vrpiano_overlay.next')" :disabled="busy || !songs.length" @click="moveSong(1)"><ChevronRight :size="21" /></button>
     </nav>
 
     <section class="hotkey-panel" :class="{ enabled: status.hotkeys_enabled }">
       <div class="hotkey-title">
         <Keyboard :size="14" />
-        <strong>全局快捷键</strong>
-        <span>{{ status.hotkeys_enabled ? '已开启' : '已关闭' }}</span>
+        <strong>{{ t('vrpiano_overlay.global_hotkeys') }}</strong>
+        <span>{{ status.hotkeys_enabled ? t('vrpiano_overlay.on') : t('vrpiano_overlay.off') }}</span>
       </div>
       <div class="hotkey-list">
         <span
@@ -464,7 +467,7 @@ onUnmounted(() => {
     <section class="playlist">
       <div class="playlist-title">
         <ListMusic :size="15" />
-        <strong>歌单</strong>
+        <strong>{{ t('vrpiano_overlay.playlist') }}</strong>
         <button
           class="preview-toggle"
           :class="{ enabled: previewEnabled }"
@@ -472,13 +475,13 @@ onUnmounted(() => {
           role="switch"
           :aria-checked="previewEnabled"
           data-testid="preview-toggle"
-          :title="previewEnabled ? '关闭双击试听' : '开启双击试听'"
+          :title="previewEnabled ? t('vrpiano_overlay.disable_preview') : t('vrpiano_overlay.enable_preview')"
           @click="previewEnabled = !previewEnabled"
         >
           <Headphones :size="13" />
-          <span>{{ previewEnabled ? '双击试听' : '试听关闭' }}</span>
+          <span>{{ previewEnabled ? t('vrpiano_overlay.preview_on') : t('vrpiano_overlay.preview_off') }}</span>
         </button>
-        <span>{{ songs.length }} 首</span>
+        <span>{{ songs.length }} {{ t('vrpiano_overlay.songs_unit') }}</span>
       </div>
       <div class="playlist-scroll" data-no-drag>
         <button
@@ -496,7 +499,7 @@ onUnmounted(() => {
             <b v-else class="song-index">{{ index + 1 }}</b>
           </span>
           <strong :title="song.name">{{ song.name }}</strong>
-          <small v-if="index === currentIndex">{{ status.paused ? '暂停' : status.running ? '播放中' : '当前' }}</small>
+           <small v-if="index === currentIndex">{{ status.paused ? t('vrpiano_overlay.pause') : status.running ? t('vrpiano_overlay.playing') : t('vrpiano_overlay.current') }}</small>
         </button>
       </div>
     </section>

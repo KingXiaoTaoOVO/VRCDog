@@ -14,9 +14,11 @@ import {
   XCircle,
 } from 'lucide-vue-next';
 import { uploadSurveyFile, VrcApi } from '../api';
+import { useI18n } from 'vue-i18n';
 import type { Survey, SurveyAnswerAttachment, SurveyClickEvent, SurveySubmission } from '../types/survey';
 import { useUiStore } from '../stores/uiStore';
 const uiStore = useUiStore();
+const { t } = useI18n();
 
 const props = withDefaults(defineProps<{
   serverUrl: string;
@@ -88,7 +90,7 @@ const load = async () => {
       activeTab.value = 'history';
     }
   } catch (loadError: any) {
-    error.value = `问卷加载失败：${loadError?.message || loadError}`;
+    error.value = t('survey_center.load_failed', { error: loadError?.message || loadError });
   } finally {
     loading.value = false;
   }
@@ -180,7 +182,7 @@ const handleFileUpload = async (questionId: string, event: Event) => {
       [questionId]: [...(answerAttachments.value[questionId] || []), ...uploaded],
     };
   } catch (uploadError: any) {
-    error.value = `附件上传失败：${uploadError?.message || uploadError}`;
+    error.value = t('survey_center.upload_failed', { error: uploadError?.message || uploadError });
   } finally {
     uploadingQuestionId.value = null;
     input.value = '';
@@ -226,24 +228,24 @@ const submit = async () => {
         answer_files: answerFiles,
       },
     });
-    if (!data?.success) throw new Error(data?.message || '提交失败');
+    if (!data?.success) throw new Error(data?.message || t('survey_center.submit_failed'));
     failedQuestionIds.value = data.failed_question_ids || [];
     const reward = data.reward as
       | { role_id: string; role_name?: string | null; permanent?: boolean; expires_at?: string | null }
       | undefined;
     if (!data.passed) {
       error.value = currentIsBlocking.value
-        ? '尚未通过要求：请检查标红题目或答案后重新提交，本次无奖励。'
-        : '问卷已记录，但未满足奖励要求，本次无奖励。可修改后重试或跳过。';
+        ? t('survey_center.not_passed_blocking')
+        : t('survey_center.not_passed');
       await fetchHistory();
       return;
     }
     if (reward) {
       const roleName = reward.role_name || reward.role_id;
-      const validity = reward.permanent ? '永久有效' : `有效期至 ${reward.expires_at ?? '未知'}`;
-      message.value = `提交成功，已发放奖励：角色「${roleName}」（${validity}）`;
+      const validity = reward.permanent ? t('survey_center.permanent') : t('survey_center.validity_until', { expiresAt: reward.expires_at ?? t('survey_center.unknown') });
+      message.value = t('survey_center.submit_success_reward', { role: roleName, validity });
     } else {
-      message.value = '提交成功';
+      message.value = t('survey_center.submit_success');
     }
     await Promise.all([fetchPending(), fetchHistory()]);
     if (surveys.value.length === 0) {
@@ -269,7 +271,7 @@ const dismiss = async () => {
         survey_revision: currentSurvey.value.revision,
       },
     });
-    if (!data?.success) throw new Error(data?.message || '跳过失败');
+    if (!data?.success) throw new Error(data?.message || t('survey_center.skip_failed'));
     await Promise.all([fetchPending(), fetchHistory()]);
     if (surveys.value.length === 0) emit('close');
   } catch (dismissError: any) {
@@ -280,13 +282,13 @@ const dismiss = async () => {
 };
 
 const deleteSubmission = async (submissionId: string) => {
-  if (!confirm('删除记录后，如果它对应当前问卷，问卷可能会再次提示。继续吗？')) return;
+  if (!confirm(t('survey_center.delete_confirm'))) return;
   try {
     const data = await VrcApi.request(endpoint('/api/client/survey-history/delete'), {
       method: 'POST',
       params: { user_id: props.userId, submission_id: submissionId },
     });
-    if (!data?.success) throw new Error(data?.message || '删除失败');
+    if (!data?.success) throw new Error(data?.message || t('survey_center.delete_failed'));
     await Promise.all([fetchPending(), fetchHistory()]);
   } catch (deleteError: any) {
     error.value = deleteError?.message || String(deleteError);
@@ -309,9 +311,9 @@ onMounted(load);
           <ClipboardList :size="19" />
         </div>
         <div class="min-w-0">
-          <h1 class="text-base font-black text-text-strong">问卷中心</h1>
+          <h1 class="text-base font-black text-text-strong">{{ t('survey_center.title') }}</h1>
           <p class="text-[11px] text-text-muted truncate">
-            {{ remainingRequired ? '完成并通过必填问卷后方可继续使用' : '查看待填写问卷与历史记录' }}
+            {{ remainingRequired ? t('survey_center.header_blocking') : t('survey_center.header_normal') }}
           </p>
         </div>
       </div>
@@ -321,19 +323,19 @@ onMounted(load);
           :class="activeTab === 'pending' ? 'bg-primary text-white' : 'text-text-muted hover:bg-surface-hover'"
           @click="activeTab = 'pending'"
         >
-          <Clock3 :size="15" /> 待填写 <span v-if="surveys.length">{{ surveys.length }}</span>
+          <Clock3 :size="15" /> {{ t('survey_center.tab_pending') }}<span v-if="surveys.length">{{ surveys.length }}</span>
         </button>
         <button
           class="h-9 px-3 rounded-md text-xs font-bold flex items-center gap-2"
           :class="activeTab === 'history' ? 'bg-primary text-white' : 'text-text-muted hover:bg-surface-hover'"
           @click="activeTab = 'history'"
         >
-          <History :size="15" /> 我的记录
+          <History :size="15" /> {{ t('survey_center.tab_history') }}
         </button>
         <button
           v-if="!forced || !remainingRequired"
           class="w-9 h-9 rounded-md border border-border-soft grid place-items-center text-text-muted hover:text-text"
-          title="关闭"
+          :title="t('survey_center.close')"
           @click="close"
         >
           <X :size="17" />
@@ -347,14 +349,14 @@ onMounted(load);
 
     <main v-else-if="activeTab === 'pending'" class="flex-1 min-h-0 overflow-y-auto">
       <div v-if="currentSurvey" class="max-w-3xl mx-auto px-6 py-8">
-        <button v-if="surveys.length > 1" class="mb-4 text-xs text-text-muted flex items-center gap-1"><ChevronLeft :size="14" /> 当前第 1 份，共 {{ surveys.length }} 份</button>
+        <button v-if="surveys.length > 1" class="mb-4 text-xs text-text-muted flex items-center gap-1"><ChevronLeft :size="14" /> {{ t('survey_center.current_of', { count: surveys.length }) }}</button>
         <div class="flex items-start justify-between gap-6 border-b border-border-soft pb-6">
           <div>
             <div class="flex items-center gap-2 mb-2">
               <span class="px-2 py-1 rounded text-[10px] font-bold" :class="currentSurvey.required_for_access ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'">
-                {{ currentSurvey.required_for_access ? '使用门禁' : '可选问卷' }}
+                {{ currentSurvey.required_for_access ? t('survey_center.gate') : t('survey_center.optional') }}
               </span>
-              <span class="text-[10px] text-text-muted">版本 {{ currentSurvey.revision }}</span>
+              <span class="text-[10px] text-text-muted">{{ t('survey_center.version', { revision: currentSurvey.revision }) }}</span>
             </div>
             <h2 class="text-2xl font-black text-text-strong">{{ currentSurvey.title }}</h2>
             <p v-if="currentSurvey.description" class="mt-3 text-sm leading-6 text-text-muted whitespace-pre-wrap">{{ currentSurvey.description }}</p>
@@ -421,7 +423,7 @@ onMounted(load);
               v-else-if="question.question_type === 'short_text'"
               :value="answers[question.question_id]"
               class="mt-4 w-full h-10 px-3 rounded-md bg-surface border border-border-soft text-sm text-text outline-none focus:border-primary"
-              placeholder="请输入答案"
+              :placeholder="t('survey_center.answer_placeholder')"
               @input="answers[question.question_id] = ($event.target as HTMLInputElement).value; reportTextInput(question, ($event.target as HTMLInputElement).value)"
             >
 
@@ -430,17 +432,17 @@ onMounted(load);
               :value="answers[question.question_id]"
               rows="5"
               class="mt-4 w-full px-3 py-2 rounded-md bg-surface border border-border-soft text-sm text-text outline-none resize-y focus:border-primary"
-              placeholder="请输入你的意见"
+              :placeholder="t('survey_center.opinion_placeholder')"
               @input="answers[question.question_id] = ($event.target as HTMLTextAreaElement).value; reportTextInput(question, ($event.target as HTMLTextAreaElement).value)"
             />
 
             <div v-if="question.question_type === 'short_text' || question.question_type === 'long_text'" class="mt-3">
               <label class="inline-flex items-center gap-2 text-xs text-text-muted cursor-pointer border border-dashed border-border-soft rounded-md px-3 py-2 hover:border-primary/50">
-                <Paperclip :size="14" /> 上传附件（图片或文件，可多选）
+                <Paperclip :size="14" /> {{ t('survey_center.upload_attachment') }}
                 <input type="file" multiple class="hidden" accept="image/*,.pdf,.doc,.docx,.txt" @change="handleFileUpload(question.question_id, $event)">
               </label>
               <p v-if="uiStore.appMode === 'vr'" class="mt-2 text-[11px] text-amber-500">
-                VR 内暂不支持直接选择文件，附件请在电脑端添加；答题文字也请使用电脑端输入。
+                {{ t('survey_center.vr_note') }}
               </p>
               <div v-if="answerAttachments[question.question_id] && answerAttachments[question.question_id].length" class="mt-2 flex flex-wrap gap-2">
                 <a
@@ -453,10 +455,10 @@ onMounted(load);
                 >
                   <img v-if="file.mime_type.startsWith('image/')" :src="endpoint(file.url)" class="h-20 w-20 object-cover rounded border border-border-soft" :alt="file.file_name">
                   <span v-else class="h-20 w-20 rounded border border-border-soft grid place-items-center text-[10px] text-text-muted p-1 text-center break-all">{{ file.file_name }}</span>
-                  <button type="button" class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white grid place-items-center opacity-0 group-hover:opacity-100" title="移除" @click.prevent="removeAttachment(question.question_id, file.file_id)"><X :size="12" /></button>
+                  <button type="button" class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white grid place-items-center opacity-0 group-hover:opacity-100" :title="t('survey_center.remove')" @click.prevent="removeAttachment(question.question_id, file.file_id)"><X :size="12" /></button>
                 </a>
               </div>
-              <p v-if="uploadingQuestionId === question.question_id" class="mt-2 text-[11px] text-primary flex items-center gap-1"><Loader2 :size="12" class="animate-spin" /> 上传中…</p>
+              <p v-if="uploadingQuestionId === question.question_id" class="mt-2 text-[11px] text-primary flex items-center gap-1"><Loader2 :size="12" class="animate-spin" /> {{ t('survey_center.uploading') }}</p>
             </div>
           </section>
 
@@ -471,13 +473,13 @@ onMounted(load);
               :disabled="submitting"
               @click="dismiss"
             >
-              跳过并不再提示
+               {{ t('survey_center.skip') }}
             </button>
-            <span v-else class="text-[11px] text-text-muted">带 * 的题目为必答题</span>
+            <span v-else class="text-[11px] text-text-muted">{{ t('survey_center.required_note') }}</span>
             <button type="submit" class="h-10 px-6 rounded-md bg-primary hover:bg-primary-hover text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60" :disabled="submitting">
               <Loader2 v-if="submitting" :size="16" class="animate-spin" />
               <Send v-else :size="16" />
-              提交问卷
+              {{ t('survey_center.submit') }}
             </button>
           </div>
         </form>
@@ -486,9 +488,9 @@ onMounted(load);
       <div v-else class="h-full grid place-items-center text-center px-6">
         <div>
           <CheckCircle2 :size="48" class="mx-auto text-green-500" />
-          <h2 class="mt-4 text-lg font-black text-text-strong">暂无待填写问卷</h2>
-          <p class="mt-2 text-sm text-text-muted">管理员发布新问卷后会在这里提示。</p>
-          <button class="mt-5 h-9 px-4 rounded-md bg-primary text-white text-xs font-bold" @click="close">继续使用</button>
+          <h2 class="mt-4 text-lg font-black text-text-strong">{{ t('survey_center.no_pending') }}</h2>
+          <p class="mt-2 text-sm text-text-muted">{{ t('survey_center.no_pending_hint') }}</p>
+          <button class="mt-5 h-9 px-4 rounded-md bg-primary text-white text-xs font-bold" @click="close">{{ t('survey_center.continue') }}</button>
         </div>
       </div>
     </main>
@@ -496,8 +498,8 @@ onMounted(load);
     <main v-else class="flex-1 min-h-0 overflow-y-auto">
       <div class="max-w-4xl mx-auto px-6 py-8">
         <div class="mb-5">
-          <h2 class="text-xl font-black text-text-strong">我的问卷记录</h2>
-          <p class="mt-1 text-xs text-text-muted">删除通过记录后，对应的当前版本可能重新出现在待填写列表。</p>
+          <h2 class="text-xl font-black text-text-strong">{{ t('survey_center.my_records') }}</h2>
+          <p class="mt-1 text-xs text-text-muted">{{ t('survey_center.records_note') }}</p>
         </div>
         <div v-if="history.length" class="border border-border-soft rounded-md overflow-hidden">
           <div v-for="submission in history" :key="submission.submission_id" class="min-h-16 px-4 py-3 border-b border-border-soft last:border-0 flex items-center gap-4">
@@ -506,7 +508,7 @@ onMounted(load);
             <Clock3 v-else :size="19" class="text-text-muted shrink-0" />
             <div class="flex-1 min-w-0">
               <div class="text-sm font-bold text-text-strong truncate">{{ submission.survey_title }}</div>
-              <div class="mt-1 text-[11px] text-text-muted">版本 {{ submission.survey_revision }} · {{ submission.submitted_at }} · {{ submission.status === 'passed' ? '已通过' : submission.status === 'failed' ? '未通过' : '已跳过' }}</div>
+              <div class="mt-1 text-[11px] text-text-muted">{{ t('survey_center.version', { revision: submission.survey_revision }) }} · {{ submission.submitted_at }} ·               {{ submission.status === 'passed' ? t('survey_center.passed') : submission.status === 'failed' ? t('survey_center.failed') : t('survey_center.skipped') }}</div>
               <div v-if="submissionFiles(submission).length" class="mt-1.5 flex flex-wrap gap-1.5">
                 <a v-for="file in submissionFiles(submission)" :key="file.file_id" :href="endpoint(file.url)" target="_blank" rel="noopener" class="shrink-0">
                   <img v-if="file.mime_type.startsWith('image/')" :src="endpoint(file.url)" class="h-10 w-10 object-cover rounded border border-border-soft" :alt="file.file_name">
@@ -514,10 +516,10 @@ onMounted(load);
                 </a>
               </div>
             </div>
-            <button class="w-8 h-8 rounded-md grid place-items-center text-text-muted hover:text-red-500 hover:bg-red-500/10" title="删除记录" @click="deleteSubmission(submission.submission_id)"><Trash2 :size="15" /></button>
+            <button class="w-8 h-8 rounded-md grid place-items-center text-text-muted hover:text-red-500 hover:bg-red-500/10" :title="t('survey_center.delete_record')" @click="deleteSubmission(submission.submission_id)"><Trash2 :size="15" /></button>
           </div>
         </div>
-        <div v-else class="py-20 text-center text-sm text-text-muted">暂无问卷记录</div>
+        <div v-else class="py-20 text-center text-sm text-text-muted">{{ t('survey_center.no_records') }}</div>
         <p v-if="error" class="mt-4 p-3 rounded-md bg-red-500/10 text-red-500 text-xs">{{ error }}</p>
       </div>
     </main>

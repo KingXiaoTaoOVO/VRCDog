@@ -54,8 +54,7 @@ interface VrctMessageRecord {
   timestamp: string;
 }
 
-const { t, locale } = useI18n();
-const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
+const { t } = useI18n();
 
 const tt = (key: string, fallback: string) => {
   const value = t(key);
@@ -182,10 +181,10 @@ const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moo
 const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
 const micDeviceOptions = computed<Option[]>(() => audioDevices.value
   .filter(device => device.source === 'mic')
-  .map(device => ({ label: `${device.name}${device.is_default ? ` (${l('默认', 'Default')})` : ''}`, value: device.id })));
+  .map(device => ({ label: `${device.name}${device.is_default ? ` (${t('translator.default')}})` : ''}`, value: device.id })));
 const speakerDeviceOptions = computed<Option[]>(() => audioDevices.value
   .filter(device => device.source === 'speaker')
-  .map(device => ({ label: `${device.name}${device.is_default ? ` (${l('默认', 'Default')})` : ''}`, value: device.id })));
+  .map(device => ({ label: `${device.name}${device.is_default ? ` (${t('translator.default')}})` : ''}`, value: device.id })));
 
 const translationQueue = new SerialTaskQueue((pending) => {
   isTranslating.value = pending > 0;
@@ -302,7 +301,7 @@ const sendToChatbox = async (text: string) => {
   if (!text.trim()) return;
   try {
     await SysApi.sendOscChatbox({ text, complete: true });
-    setStatus(l('已发送到 VRChat Chatbox', 'Sent to VRChat Chatbox'));
+    setStatus(t('translator.sent_to_vrchat_chatbox'));
   } catch (error) {
     errorMsg.value = tt('translator.osc_error', 'Unable to send to VRChat: {err}').replace('{err}', errorText(error));
   }
@@ -434,7 +433,7 @@ const startCapture = async (source: AudioSource) => {
       targetProcess: targetProcess.value,
       selfSuppressSeconds: Number(selfSuppressSeconds.value),
     });
-    setStatus(l('音频识别服务启动中', 'Starting audio recognition service'));
+    setStatus(t('translator.starting_audio_recognition_service'));
   } catch (error) {
     errorMsg.value = tt('translator.capture_error_cloud', 'Audio capture failed: {err}').replace('{err}', errorText(error));
     if (isMic) isRecording.value = false;
@@ -502,7 +501,7 @@ const clearHistory = async () => {
 
 const toggleOverlay = async () => {
   if (!isTauri()) {
-    setStatus(l('浏览器预览中不创建 Tauri 悬浮窗', 'The Tauri overlay is unavailable in browser preview'));
+    setStatus(t('translator.the_tauri_overlay_is_unavailable_in_brow'));
     return;
   }
 
@@ -597,12 +596,12 @@ onMounted(async () => {
         return;
       }
       if (payload.type === 'status') {
-        if (payload.message === 'starting') setStatus(`${l('监听设备', 'Listening device')}: ${payload.device || 'Default'}`);
-        if (payload.message === 'loading_model') setStatus(l('首次加载本地 Whisper 模型', 'Loading local Whisper model'));
+        if (payload.message === 'starting') setStatus(`${t('translator.listening_device')}: ${payload.device || 'Default'}`);
+        if (payload.message === 'loading_model') setStatus(t('translator.loading_local_whisper_model'));
         if (payload.message === 'recognizing') setStatus(source === 'mic'
-          ? l('正在识别麦克风语音', 'Recognizing microphone audio')
-          : l('正在识别游戏语音', 'Recognizing game audio'));
-        if (payload.message === 'backlog_trimmed') setStatus(l('语音过快，已跳过最旧片段', 'Audio backlog trimmed'));
+          ?t('translator.recognizing_microphone_audio')
+          :t('translator.recognizing_game_audio'));
+        if (payload.message === 'backlog_trimmed') setStatus(t('translator.audio_backlog_trimmed'));
         if (payload.message === 'listening') {
           if (source === 'mic') {
             isRecording.value = true;
@@ -621,7 +620,7 @@ onMounted(async () => {
             isSpeakerStarting.value = false;
           }
           if (!payload.expected && payload.exit_code !== 0) {
-            errorMsg.value = l('音频识别服务异常退出', 'Audio recognition service stopped unexpectedly');
+            errorMsg.value = t('translator.audio_recognition_service_stopped_unexpe');
           }
         }
 
@@ -751,13 +750,13 @@ onUnmounted(async () => {
             </label>
             <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
               <input v-model="multiLangEnabled" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
-              <span class="text-sm font-bold text-text-muted truncate">{{ l('多语言同时翻译', 'Translate to multiple languages') }}</span>
+              <span class="text-sm font-bold text-text-muted truncate">{{t('translator.translate_to_multiple_languages') }}</span>
             </label>
           </div>
 
           <!-- Multi-language target selector -->
           <div v-if="multiLangEnabled" class="md:col-span-2 mt-2 p-3 bg-surface-hover rounded-xl border border-border-soft">
-            <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">{{ l('额外目标语言 (多语言 OSC)', 'Additional target languages (multi-language OSC)') }}</label>
+            <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">{{t('translator.additional_target_languages_multi_langua') }}</label>
             <div class="flex flex-wrap gap-2">
               <label
                 v-for="opt in languageOptions.filter(o => o.value !== 'auto' && o.value !== targetLang && o.value !== sourceLang)"
@@ -774,7 +773,7 @@ onUnmounted(async () => {
                 {{ opt.label }}
               </label>
             </div>
-            <p class="text-[10px] text-text-muted mt-2">{{ l('翻译结果将依次发送到 VRChat ChatBox（每条间隔约1.2秒）', 'Translations are sent to VRChat Chatbox in sequence, about 1.2 seconds apart.') }}</p>
+            <p class="text-[10px] text-text-muted mt-2">{{t('translator.translations_are_sent_to_vrchat_chatbox_') }}</p>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -839,7 +838,7 @@ onUnmounted(async () => {
         </div>
         <div v-else-if="audioDeviceError" class="bg-red-50 border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold shadow-sm flex items-center justify-between gap-3">
           <span class="min-w-0 break-words">{{ audioDeviceError }}</span>
-          <button class="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg bg-white/70" :title="l('刷新音频设备', 'Refresh audio devices')" @click="loadAudioDevices">
+          <button class="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg bg-white/70" :title="t('translator.refresh_audio_devices')" @click="loadAudioDevices">
             <RefreshCw :size="14" />
           </button>
         </div>
@@ -869,7 +868,7 @@ onUnmounted(async () => {
             <div class="space-y-4">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('麦克风设备', 'Microphone device') }}</label>
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.microphone_device') }}</label>
                   <CustomSelect v-model="micDeviceId" :options="micDeviceOptions" />
                 </div>
                 <div class="min-w-0">
@@ -879,7 +878,7 @@ onUnmounted(async () => {
               </div>
 
               <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.engine', l('翻译引擎', 'Translation engine')) }}</label>
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.engine',t('translator.translation_engine')) }}</label>
                 <CustomSelect v-model="translateEngine" :options="engineOptions" />
                 <p class="mt-1.5 text-[11px] text-text-muted font-semibold truncate">{{ currentEngine.hint }}</p>
               </div>
@@ -925,7 +924,7 @@ onUnmounted(async () => {
 
               <div class="grid grid-cols-2 gap-3">
                 <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('能量阈值', 'Energy threshold') }}</span>
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.energy_threshold') }}</span>
                   <input v-model.number="micEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
                 </label>
                 <label v-if="micEngine === 'local'" class="min-w-0">
@@ -955,7 +954,7 @@ onUnmounted(async () => {
             <div class="space-y-4">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('输出设备', 'Playback device') }}</label>
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.playback_device') }}</label>
                   <CustomSelect v-model="speakerDeviceId" :options="speakerDeviceOptions" />
                 </div>
                 <div class="min-w-0">
@@ -980,27 +979,27 @@ onUnmounted(async () => {
 
               <div class="grid grid-cols-2 gap-3">
                 <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('捕获模式', 'Capture mode') }}</label>
-                  <CustomSelect v-model="captureMode" :options="[{ label: l('整个扬声器(内录)', 'Whole speaker (loopback)'), value: 'loopback' }, { label: l('仅 VRChat 进程', 'VRChat process only'), value: 'process' }]" />
+                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.capture_mode') }}</label>
+                  <CustomSelect v-model="captureMode" :options="[{ label:t('translator.whole_speaker_loopback'), value: 'loopback' }, { label:t('translator.vrchat_process_only'), value: 'process' }]" />
                 </div>
                 <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('目标进程', 'Target process') }}</span>
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.target_process') }}</span>
                   <input v-model="targetProcess" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="VRChat.exe">
                 </label>
                 <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('能量阈值', 'Energy threshold') }}</span>
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.energy_threshold') }}</span>
                   <input v-model.number="speakerEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
                 </label>
                 <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最长分段', 'Phrase limit') }}</span>
+                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.phrase_limit') }}</span>
                   <input v-model.number="phraseTimeLimit" type="number" min="2" max="30" step="1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
                 </label>
               </div>
 
               <div class="flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
                 <div class="min-w-0">
-                  <span class="text-sm font-bold text-text block">{{ l('自声抑制', 'Self-suppress') }}</span>
-                  <span class="text-[11px] text-text-muted">{{ l('自己说话时暂停监听，避免回声', 'Pause listen while you speak to avoid echo') }}</span>
+                  <span class="text-sm font-bold text-text block">{{t('translator.self_suppress') }}</span>
+                  <span class="text-[11px] text-text-muted">{{t('translator.pause_listen_while_you_speak_to_avoid_ec') }}</span>
                 </div>
                 <button
                   type="button"
@@ -1013,7 +1012,7 @@ onUnmounted(async () => {
               </div>
 
               <div v-if="selfSuppress" class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('抑制尾延', 'Suppress tail') }} (s)</label>
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.suppress_tail') }} (s)</label>
                 <input v-model.number="selfSuppressSeconds" type="number" min="0" max="5" step="0.1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
               </div>
 
@@ -1040,28 +1039,28 @@ onUnmounted(async () => {
                 {{ tt('translator.advanced_recognition', '高级语音识别') }}
               </h3>
               <span class="text-[11px] font-extrabold text-text-muted bg-surface-hover px-2 py-1 rounded-lg">
-                {{ l('麦克风与游戏语音共用', 'Shared by mic & game audio') }}
+                {{t('translator.shared_by_mic_game_audio') }}
               </span>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('语音活动检测', 'Voice activity') }}</label>
+                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.voice_activity') }}</label>
                 <CustomSelect v-model="vadType" :options="[{ label: 'WebRTC VAD', value: 'webrtc' }, { label: 'RMS 能量', value: 'rms' }]" />
               </div>
 
               <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('VAD 灵敏度', 'VAD aggressiveness') }} · {{ vadAggressiveness }}</span>
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.vad_aggressiveness') }} · {{ vadAggressiveness }}</span>
                 <input v-model.number="vadAggressiveness" type="range" min="0" max="3" step="1" class="w-full accent-emerald-500">
               </label>
 
               <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('降噪强度', 'Denoise') }} · {{ denoiseStrength }}</span>
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.denoise') }} · {{ denoiseStrength }}</span>
                 <input v-model.number="denoiseStrength" type="range" min="0" max="1" step="0.05" class="w-full accent-emerald-500">
               </label>
 
               <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
-                <span class="text-sm font-bold text-text">{{ l('识别纠错词库', 'ASR correction') }}</span>
+                <span class="text-sm font-bold text-text">{{t('translator.asr_correction') }}</span>
                 <button
                   type="button"
                   :class="correctionEnabled ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
@@ -1073,23 +1072,23 @@ onUnmounted(async () => {
               </div>
 
               <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最短分段', 'Min segment') }} (s)</span>
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.min_segment') }} (s)</span>
                 <input v-model.number="minSegmentS" type="number" min="0.1" max="5" step="0.05" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
               </label>
 
               <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('最长分段', 'Max segment') }} (s)</span>
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.max_segment') }} (s)</span>
                 <input v-model.number="maxSegmentS" type="number" min="1" max="30" step="0.5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
               </label>
 
               <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ l('实时预览间隔', 'Partial interval') }} (s)</span>
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.partial_interval') }} (s)</span>
                 <input v-model.number="partialInterval" type="number" min="0" max="5" step="0.2" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
               </label>
             </div>
 
             <p class="mt-3 text-[11px] text-text-muted leading-relaxed">
-              {{ l('纠错词库已内置 VRChat 术语/用户名修正（来自 MioVRC 词典），可显著改善识别准确率。', 'Built-in ASR correction dictionaries (ported from MioVRC) improve recognition accuracy for VRChat terms & names.') }}
+              {{t('translator.built_in_asr_correction_dictionaries_por') }}
             </p>
           </section>
 
@@ -1112,7 +1111,7 @@ onUnmounted(async () => {
               v-model="manualText"
               rows="4"
               class="w-full resize-none px-4 py-3 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10"
-              :placeholder="l('输入要翻译到 VRChat 的文字...', 'Enter text to translate for VRChat...')"
+              :placeholder="t('translator.enter_text_to_translate_for_vrchat')"
               @keydown.ctrl.enter.prevent="translateManual"
             />
           </section>
@@ -1167,7 +1166,7 @@ onUnmounted(async () => {
           <div class="flex items-center justify-between gap-3 mb-4">
             <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
               <ClipboardList class="text-primary" :size="20" />
-              {{ l('翻译历史', 'Translation history') }}
+              {{t('translator.translation_history') }}
             </h3>
             <button class="w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-red-500 transition-colors" @click="clearHistory">
               <RotateCcw :size="15" />
@@ -1202,7 +1201,7 @@ onUnmounted(async () => {
               </div>
             </button>
             <p v-if="history.length === 0" class="text-sm text-border-strong font-bold text-center py-10">
-              {{ l('暂无历史记录', 'No translation history yet') }}
+              {{t('translator.no_translation_history_yet') }}
             </p>
           </div>
         </aside>

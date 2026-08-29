@@ -9,8 +9,6 @@ import { useAuthStore } from '../stores/authStore';
 import OscWorkbench from './OscWorkbench.vue';
 
 const { t } = useI18n();
-const { locale } = useI18n();
-const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const authStore = useAuthStore();
 
 const isVrcRunning = ref(false);
@@ -649,7 +647,7 @@ onUnmounted(() => {
         <div class="mt-auto space-y-2">
           <div class="flex items-center gap-2">
             <input v-model="rpcForm.state" type="text" class="flex-1 px-3 py-2 bg-surface-hover border border-border-soft rounded-lg text-sm text-text outline-none focus:border-primary" :placeholder="t('tools.status_placeholder')">
-            <button class="text-[10px] font-bold px-2 py-1 bg-primary text-white rounded" @click="addStatusMessage">{{ l('添加', 'Add') }}</button>
+            <button class="text-[10px] font-bold px-2 py-1 bg-primary text-white rounded" @click="addStatusMessage">{{t('tools.add') }}</button>
           </div>
           <div class="flex flex-wrap gap-1">
             <span v-for="(msg, idx) in statusMessages" :key="idx" class="inline-flex items-center gap-1 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text">
@@ -658,11 +656,11 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('间隔', 'Interval') }}</label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.interval') }}</label>
             <input v-model.number="statusCycleInterval" type="number" min="5" max="300" step="5" class="w-16 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
-            <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
+            <span class="text-[10px] text-text-muted font-bold">{{t('tools.sec') }}</span>
             <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft" :class="statusCycleEnabled ? 'bg-emerald-500 text-white' : 'bg-surface-hover text-text-muted'" @click="toggleStatusCycle">
-              {{ statusCycleEnabled ? l('循环中', 'Cycling') : l('开始循环', 'Start cycle') }}
+              {{ statusCycleEnabled ?t('tools.cycling') :t('tools.start_cycle') }}
             </button>
           </div>
         </div>
@@ -700,49 +698,49 @@ onUnmounted(() => {
             <span>{{ chatboxText.length }}/144</span>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('发送延迟', 'Send delay') }}</label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.send_delay') }}</label>
             <input v-model.number="chatboxSendDelay" type="number" min="0" max="5" step="0.1" class="w-16 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
-            <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
+            <span class="text-[10px] text-text-muted font-bold">{{t('tools.sec') }}</span>
             <label class="flex items-center gap-1 cursor-pointer ml-auto">
               <input v-model="chatboxNotification" type="checkbox" class="accent-primary">
               <Bell :size="12" />
-              <span class="text-[10px] font-bold text-text-muted">{{ l('提示音', 'Notification') }}</span>
+              <span class="text-[10px] font-bold text-text-muted">{{t('tools.notification') }}</span>
             </label>
           </div>
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1 cursor-pointer">
               <input v-model="chatboxEmojiShuffle" type="checkbox" class="accent-primary">
               <Sparkles :size="12" />
-              <span class="text-[10px] font-bold text-text-muted">{{ l('随机表情', 'Emoji shuffle') }}</span>
+              <span class="text-[10px] font-bold text-text-muted">{{t('tools.emoji_shuffle') }}</span>
             </label>
             <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft bg-surface-hover text-text-muted hover:text-red-500" @click="clearChatbox" :disabled="chatboxStatus.loading">
-              <XCircle :size="12" class="inline mr-1" /> {{ l('清空聊天框', 'Clear chatbox') }}
+              <XCircle :size="12" class="inline mr-1" /> {{t('tools.clear_chatbox') }}
             </button>
           </div>
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1 cursor-pointer">
               <input v-model="chatboxLiveTyping" type="checkbox" class="accent-primary">
-              <span class="text-[10px] font-bold text-text-muted">{{ l('逐字发送', 'Live typing') }}</span>
+              <span class="text-[10px] font-bold text-text-muted">{{t('tools.live_typing') }}</span>
             </label>
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('速度', 'Rate') }}</label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.rate') }}</label>
             <input v-model.number="chatboxLiveTypingRate" type="number" min="1" max="20" step="1" class="w-14 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
-            <span class="text-[10px] text-text-muted font-bold">{{ l('字/秒', 'cps') }}</span>
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('自动完成', 'Auto finalize') }}</label>
+            <span class="text-[10px] text-text-muted font-bold">{{t('tools.cps') }}</span>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.auto_finalize') }}</label>
             <input v-model.number="chatboxLiveTypingFinalize" type="number" min="1" max="30" step="1" class="w-14 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
-            <span class="text-[10px] text-text-muted font-bold">{{ l('秒', 'sec') }}</span>
+            <span class="text-[10px] text-text-muted font-bold">{{t('tools.sec') }}</span>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('前缀', 'Prefix') }}</label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.prefix') }}</label>
             <input v-model="chatboxPrefix" type="text" class="w-20 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('后缀', 'Suffix') }}</label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.suffix') }}</label>
             <input v-model="chatboxSuffix" type="text" class="w-20 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
             <label class="flex items-center gap-1 cursor-pointer">
               <input v-model="chatboxSeparateWithEnters" type="checkbox" class="accent-primary">
-              <span class="text-[10px] font-bold text-text-muted">{{ l('换行分隔', 'Enter sep') }}</span>
+              <span class="text-[10px] font-bold text-text-muted">{{t('tools.enter_sep') }}</span>
             </label>
           </div>
           <div v-if="!chatboxSeparateWithEnters" class="flex items-center gap-2">
-            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{ l('分隔符', 'Separator') }}</label>
+            <label class="text-[10px] text-text-muted font-bold whitespace-nowrap">{{t('tools.separator') }}</label>
             <input v-model="chatboxSeparator" type="text" class="w-24 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
           </div>
           <button
@@ -756,17 +754,17 @@ onUnmounted(() => {
           </button>
           <label class="flex items-center gap-1 cursor-pointer">
             <input v-model="chatFxEnabled" type="checkbox" class="accent-primary">
-            <span class="text-[10px] font-bold text-text-muted">{{ l('发送特效', 'Send FX') }}</span>
+            <span class="text-[10px] font-bold text-text-muted">{{t('tools.send_fx') }}</span>
           </label>
         </div>
         <div class="flex items-center gap-2 mt-2">
           <button class="text-[10px] font-bold px-2 py-1 rounded border border-border-soft" :class="chatboxKeepalive ? 'bg-emerald-500 text-white' : 'bg-surface-hover text-text-muted'" @click="toggleKeepalive">
-            <Clock3 :size="12" class="inline mr-1" /> {{ chatboxKeepalive ? l('保活中', 'Keepalive ON') : l('保活', 'Keepalive') }}
+            <Clock3 :size="12" class="inline mr-1" /> {{ chatboxKeepalive ?t('tools.keepalive_on') :t('tools.keepalive') }}
           </button>
-          <span class="text-[10px] text-text-muted font-bold">{{ l('防止chatbox超时', 'Prevent chatbox timeout') }}</span>
+          <span class="text-[10px] text-text-muted font-bold">{{t('tools.prevent_chatbox_timeout') }}</span>
         </div>
         <div class="mt-2 space-y-1">
-          <div class="text-[10px] font-bold text-text-muted">{{ l('多目标发送', 'Multi-target send') }}</div>
+          <div class="text-[10px] font-bold text-text-muted">{{t('tools.multi_target_send') }}</div>
           <div class="flex items-center gap-1">
             <input v-model="oscSecondaryEnabled" type="checkbox" class="accent-primary">
             <input v-model="oscSecondaryHost" type="text" placeholder="secondary host" class="w-24 px-1 py-0.5 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text outline-none">
@@ -783,15 +781,15 @@ onUnmounted(() => {
       <!-- Chat history -->
       <div v-if="chatHistory.length" class="bg-surface rounded-lg p-5 border-border-soft shadow-sm">
         <h3 class="font-extrabold text-text mb-2 flex items-center gap-2 text-lg">
-          <RotateCcw :size="18" class="text-primary" /> {{ l('发送历史', 'Chat history') }}
+          <RotateCcw :size="18" class="text-primary" /> {{t('tools.chat_history') }}
         </h3>
         <div class="space-y-1 max-h-60 overflow-y-auto">
           <div v-for="(item, index) in chatHistory.slice(0, 20)" :key="index" class="flex items-center justify-between gap-2 py-1 border-b border-border-soft last:border-0">
             <span class="text-xs text-text truncate flex-1">{{ item.text }}</span>
-            <button class="text-[10px] font-bold px-2 py-1 bg-primary text-white rounded" @click="resendChatbox(item.text)">{{ l('重发', 'Resend') }}</button>
+            <button class="text-[10px] font-bold px-2 py-1 bg-primary text-white rounded" @click="resendChatbox(item.text)">{{t('tools.resend') }}</button>
           </div>
         </div>
-        <button class="mt-2 text-[10px] font-bold text-red-500 hover:text-red-700" @click="clearChatHistory">{{ l('清空历史', 'Clear history') }}</button>
+        <button class="mt-2 text-[10px] font-bold text-red-500 hover:text-red-700" @click="clearChatHistory">{{t('tools.clear_history') }}</button>
       </div>
 
       <!-- Instance launcher -->

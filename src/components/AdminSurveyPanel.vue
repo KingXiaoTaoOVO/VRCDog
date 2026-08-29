@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-vue-next';
 import { SysApi, VrcApi } from '../api';
+import { useI18n } from 'vue-i18n';
 import { buildSurveyWorkbook, surveyExportFileName } from '../utils/surveyExcel';
 import type {
   Survey,
@@ -33,6 +34,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ log: [message: string] }>();
+const { t } = useI18n();
 const surveys = shallowRef<Survey[]>([]);
 const submissions = shallowRef<SurveySubmission[]>([]);
 const users = shallowRef<Array<{ user_id: string; display_name: string }>>([]);
@@ -124,7 +126,7 @@ const fetchData = async () => {
       if (fresh) selected.value = JSON.parse(JSON.stringify(fresh));
     }
   } catch (error: any) {
-    notify(`问卷数据加载失败：${error?.message || error}`, true);
+    notify(t('survey_admin.load_failed', { error: error?.message || error }), true);
   } finally {
     loading.value = false;
   }
@@ -136,10 +138,10 @@ const saveSettings = async () => {
       method: 'POST',
       params: { enabled: enabled.value },
     });
-    notify(enabled.value ? '客户端问卷提示已开启' : '客户端问卷提示已关闭');
+    notify(enabled.value ? t('survey_admin.enabled_on') : t('survey_admin.enabled_off'));
   } catch (error: any) {
     enabled.value = !enabled.value;
-    notify(`设置保存失败：${error?.message || error}`, true);
+    notify(t('survey_admin.settings_save_failed', { error: error?.message || error }), true);
   }
 };
 
@@ -151,8 +153,8 @@ const saveSurvey = async () => {
       method: 'POST',
       params: selected.value,
     });
-    if (!data?.success) throw new Error(data?.message || '保存失败');
-    notify(selected.value.status === 'published' ? '修改已保存，并作为新版本发送' : '问卷草稿已保存');
+    if (!data?.success) throw new Error(data?.message || t('survey_admin.save_failed'));
+    notify(selected.value.status === 'published' ? t('survey_admin.saved_as_new_version') : t('survey_admin.draft_saved'));
     await fetchData();
     return true;
   } catch (error: any) {
@@ -170,8 +172,8 @@ const publishSurvey = async () => {
       method: 'POST',
       params: { survey_id: selected.value.survey_id },
     });
-    if (!data?.success) throw new Error(data?.message || '发布失败');
-    notify('问卷已发布，客户端将在登录或下一次心跳时收到提示');
+    if (!data?.success) throw new Error(data?.message || t('survey_admin.publish_failed'));
+    notify(t('survey_admin.published'));
     await fetchData();
   } catch (error: any) {
     notify(error?.message || String(error), true);
@@ -179,14 +181,14 @@ const publishSurvey = async () => {
 };
 
 const resendSurvey = async () => {
-  if (!selected.value || !confirm('重新发送会生成新版本，所有用户都需要再次填写。继续吗？')) return;
+  if (!selected.value || !confirm(t('survey_admin.resend_confirm'))) return;
   try {
     const data = await request('/api/admin/surveys/resend', {
       method: 'POST',
       params: { survey_id: selected.value.survey_id },
     });
-    if (!data?.success) throw new Error(data?.message || '重新发送失败');
-    notify(`已重新发送问卷（版本 ${data.revision}）`);
+    if (!data?.success) throw new Error(data?.message || t('survey_admin.resend_failed'));
+    notify(t('survey_admin.resent', { revision: data.revision }));
     await fetchData();
   } catch (error: any) {
     notify(error?.message || String(error), true);
@@ -194,15 +196,15 @@ const resendSurvey = async () => {
 };
 
 const deleteSurvey = async () => {
-  if (!selected.value || !confirm('删除问卷会同时删除该问卷的所有提交记录，且无法恢复。继续吗？')) return;
+  if (!selected.value || !confirm(t('survey_admin.delete_survey_confirm'))) return;
   try {
     const data = await request('/api/admin/surveys/delete', {
       method: 'POST',
       params: { survey_id: selected.value.survey_id },
     });
-    if (!data?.success) throw new Error(data?.message || '删除失败');
+    if (!data?.success) throw new Error(data?.message || t('survey_admin.delete_failed'));
     selected.value = null;
-    notify('问卷及其提交记录已删除');
+    notify(t('survey_admin.survey_deleted'));
     await fetchData();
   } catch (error: any) {
     notify(error?.message || String(error), true);
@@ -211,14 +213,14 @@ const deleteSurvey = async () => {
 
 const deleteSubmission = async (submission: SurveySubmission) => {
   if (!submission) return;
-  if (!confirm(`确定删除 ${userName(submission.user_id)} 的这份答卷吗？此操作不可恢复。`)) return;
+  if (!confirm(t('survey_admin.delete_submission_confirm', { name: userName(submission.user_id) }))) return;
   try {
     const data = await request('/api/admin/survey-submissions/delete', {
       method: 'POST',
       params: { submission_id: submission.submission_id },
     });
-    if (!data?.success) throw new Error(data?.message || '删除失败');
-    notify('答卷已删除');
+    if (!data?.success) throw new Error(data?.message || t('survey_admin.delete_failed'));
+    notify(t('survey_admin.submission_deleted'));
     if (selectedSubmission.value?.submission_id === submission.submission_id) {
       selectedSubmission.value = null;
     }
@@ -380,7 +382,7 @@ const questionTitle = (questionId: string) => {
 };
 
 const formatAnswer = (answer: string | string[] | undefined, questionId?: string) => {
-  if (answer === undefined || answer === null) return '(未作答)';
+  if (answer === undefined || answer === null) return t('survey_admin.not_answered');
   const question = questionId
     ? selected.value?.questions.find((item) => item.question_id === questionId)
     : undefined;
@@ -391,9 +393,9 @@ const formatAnswer = (answer: string | string[] | undefined, questionId?: string
     const option = question?.options.find((option) => option.option_id === text);
     if (option) return option.label || text;
     // 选项已被删除或问卷已改版：展示原始值并注明，避免整题显示为空白
-    return question ? `${text}（原选项已删除）` : text;
+    return question ? t('survey_admin.option_deleted', { text }) : text;
   }).filter(Boolean);
-  if (labels.length === 0) return Array.isArray(answer) ? '(未选择)' : '(空白)';
+  if (labels.length === 0) return Array.isArray(answer) ? t('survey_admin.not_selected') : t('survey_admin.blank');
   return labels.join('、');
 };
 
@@ -406,9 +408,9 @@ const submissionClicks = computed<SurveyClickEvent[]>(() => {
 });
 
 const clickActionLabel = (event: SurveyClickEvent) => {
-  if (event.action === 'input') return event.text_value?.trim() ? `输入：${event.text_value}` : '输入内容（空）';
-  if (event.action === 'deselect') return `取消选择：${event.option_label || event.option_id || '未知选项'}`;
-  return `选择：${event.option_label || event.option_id || '未知选项'}`;
+  if (event.action === 'input') return event.text_value?.trim() ? t('survey_admin.input_label', { value: event.text_value }) : t('survey_admin.input_empty');
+  if (event.action === 'deselect') return t('survey_admin.deselect_label', { option: event.option_label || event.option_id || t('survey_admin.unknown_option') });
+  return t('survey_admin.select_label', { option: event.option_label || event.option_id || t('survey_admin.unknown_option') });
 };
 
 const downloadWorkbookFallback = (content: Uint8Array, fileName: string) => {
@@ -432,22 +434,22 @@ const exportCurrentSurvey = async () => {
     try {
       const { save } = await import('@tauri-apps/plugin-dialog');
       const filePath = await save({
-        filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }],
+        filters: [{ name: t('survey_admin.excel_filter'), extensions: ['xlsx'] }],
         defaultPath: fileName,
       });
       if (!filePath) {
-        notify('已取消导出');
+        notify(t('survey_admin.export_cancelled'));
         return;
       }
       await SysApi.saveBinaryFile({ path: filePath, content: Array.from(content) });
-      notify(`已导出 ${surveySubmissions.value.length} 份答卷`);
+      notify(t('survey_admin.exported', { count: surveySubmissions.value.length }));
     } catch (error) {
       console.warn('Tauri Excel save failed, using browser download fallback:', error);
       downloadWorkbookFallback(content, fileName);
-      notify(`已导出 ${surveySubmissions.value.length} 份答卷`);
+      notify(t('survey_admin.exported', { count: surveySubmissions.value.length }));
     }
   } catch (error: any) {
-    notify(`Excel 导出失败：${error?.message || error}`, true);
+    notify(t('survey_admin.excel_export_failed', { error: error?.message || error }), true);
   } finally {
     exporting.value = false;
   }
@@ -468,19 +470,19 @@ onMounted(fetchData);
           :class="workspaceMode === 'design' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-hover hover:text-text'"
           @click="setWorkspaceMode('design')"
         >
-          <FileQuestion :size="15" /> 问卷设计
+            <FileQuestion :size="15" /> {{ t('survey_admin.tab_design') }}
         </button>
         <button
           class="h-9 px-4 rounded-md text-xs font-black flex items-center gap-2 transition-colors"
           :class="workspaceMode === 'responses' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-hover hover:text-text'"
           @click="setWorkspaceMode('responses')"
         >
-          <ClipboardList :size="15" /> 答卷记录
+            <ClipboardList :size="15" /> {{ t('survey_admin.tab_responses') }}
           <span class="px-1.5 py-0.5 rounded bg-black/10 text-[9px]">{{ submissions.length }}</span>
         </button>
       </div>
       <div class="pr-3 text-[10px] text-text-muted">
-        {{ workspaceMode === 'design' ? '创建、编辑和发布客户端问卷' : '独立查看用户提交内容和答题结果' }}
+        {{ workspaceMode === 'design' ? t('survey_admin.desc_design') : t('survey_admin.desc_responses') }}
       </div>
     </nav>
 
@@ -488,18 +490,18 @@ onMounted(fetchData);
       <aside class="w-64 shrink-0 border border-border-soft rounded-lg bg-surface overflow-hidden flex flex-col">
       <div class="p-3 border-b border-border-soft flex items-center justify-between gap-2">
         <div>
-          <div class="text-xs font-black text-text-strong">问卷列表</div>
-          <div class="text-[10px] text-text-muted mt-1">{{ surveys.length }} 份问卷 · {{ submissions.length }} 次提交</div>
+            <div class="text-xs font-black text-text-strong">{{ t('survey_admin.survey_list') }}</div>
+          <div class="text-[10px] text-text-muted mt-1">{{ t('survey_admin.list_summary', { surveyCount: surveys.length, submissionCount: submissions.length }) }}</div>
         </div>
-        <button class="w-8 h-8 grid place-items-center rounded-md bg-primary text-white" title="新建问卷" @click="createSurvey">
+        <button class="w-8 h-8 grid place-items-center rounded-md bg-primary text-white" :title="t('survey_admin.new_survey')" @click="createSurvey">
           <Plus :size="16" />
         </button>
       </div>
 
       <label class="m-3 p-3 border border-border-soft rounded-md flex items-center justify-between gap-3 cursor-pointer">
         <span>
-          <span class="block text-xs font-bold text-text">客户端问卷</span>
-          <span class="block text-[10px] text-text-muted mt-1">关闭后不提示也不阻断</span>
+            <span class="block text-xs font-bold text-text">{{ t('survey_admin.client_survey') }}</span>
+            <span class="block text-[10px] text-text-muted mt-1">{{ t('survey_admin.client_survey_desc') }}</span>
         </span>
         <input v-model="enabled" type="checkbox" class="w-4 h-4 accent-primary" @change="saveSettings">
       </label>
@@ -516,10 +518,10 @@ onMounted(fetchData);
             <span class="w-2 h-2 rounded-full" :class="survey.status === 'published' ? 'bg-green-500' : 'bg-amber-500'" />
             <span class="text-xs font-bold text-text-strong truncate">{{ survey.title }}</span>
           </span>
-          <span class="block text-[10px] text-text-muted mt-1.5">v{{ survey.revision }} · {{ submissionCounts[survey.survey_id] || 0 }} 次提交</span>
+            <span class="block text-[10px] text-text-muted mt-1.5">{{ t('survey_admin.revision_submissions', { revision: survey.revision, count: submissionCounts[survey.survey_id] || 0 }) }}</span>
         </button>
         <div v-if="!loading && surveys.length === 0" class="py-12 text-center text-xs text-text-muted">
-          暂无问卷
+          {{ t('survey_admin.no_surveys') }}
         </div>
       </div>
     </aside>
@@ -529,24 +531,24 @@ onMounted(fetchData);
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <FileQuestion :size="17" class="text-primary shrink-0" />
-            <h2 class="text-sm font-black text-text-strong truncate">{{ selected.title || '未命名问卷' }}</h2>
+            <h2 class="text-sm font-black text-text-strong truncate">{{ selected.title || t('survey_admin.unnamed_survey') }}</h2>
             <span class="px-2 py-0.5 rounded text-[10px] font-bold" :class="selected.status === 'published' ? 'bg-green-500/15 text-green-500' : 'bg-amber-500/15 text-amber-500'">
-              {{ selected.status === 'published' ? `已发布 v${selected.revision}` : '草稿' }}
+              {{ selected.status === 'published' ? t('survey_admin.published_badge', { revision: selected.revision }) : t('survey_admin.draft_badge') }}
             </span>
           </div>
-          <p v-if="selected.status === 'published'" class="text-[10px] text-amber-500 mt-1">修改已发布问卷并保存时，会自动生成新版本并再次提示用户。</p>
+            <p v-if="selected.status === 'published'" class="text-[10px] text-amber-500 mt-1">{{ t('survey_admin.published_note') }}</p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <button class="h-8 px-3 rounded-md border border-border-soft text-xs font-bold text-text hover:bg-surface-hover flex items-center gap-1.5" :disabled="saving" @click="saveSurvey">
-            <Save :size="14" /> 保存
+            <Save :size="14" /> {{ t('survey_admin.save') }}
           </button>
           <button v-if="selected.status === 'draft'" class="h-8 px-3 rounded-md bg-primary text-white text-xs font-bold flex items-center gap-1.5" @click="publishSurvey">
-            <Send :size="14" /> 发布
+            <Send :size="14" /> {{ t('survey_admin.publish') }}
           </button>
           <button v-else class="h-8 px-3 rounded-md bg-primary text-white text-xs font-bold flex items-center gap-1.5" @click="resendSurvey">
-            <RefreshCcw :size="14" /> 重新发送
+            <RefreshCcw :size="14" /> {{ t('survey_admin.resend') }}
           </button>
-          <button class="w-8 h-8 grid place-items-center rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10" title="删除问卷" @click="deleteSurvey">
+          <button class="w-8 h-8 grid place-items-center rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10" :title="t('survey_admin.delete_survey')" @click="deleteSurvey">
             <Trash2 :size="15" />
           </button>
         </div>
@@ -556,19 +558,19 @@ onMounted(fetchData);
         <section class="grid grid-cols-[1fr_220px] gap-4 border-b border-border-soft pb-5">
           <div class="space-y-3">
             <label class="block">
-              <span class="block text-[11px] font-bold text-text-muted mb-1">问卷标题</span>
-              <input v-model="selected.title" class="w-full h-9 px-3 rounded-md bg-background border border-border-soft text-sm text-text outline-none focus:border-primary" placeholder="例如：产品使用资格确认">
+              <span class="block text-[11px] font-bold text-text-muted mb-1">{{ t('survey_admin.survey_title') }}</span>
+              <input v-model="selected.title" class="w-full h-9 px-3 rounded-md bg-background border border-border-soft text-sm text-text outline-none focus:border-primary" :placeholder="t('survey_admin.title_placeholder')">
             </label>
             <label class="block">
-              <span class="block text-[11px] font-bold text-text-muted mb-1">说明</span>
-              <textarea v-model="selected.description" rows="2" class="w-full px-3 py-2 rounded-md bg-background border border-border-soft text-xs text-text outline-none resize-y focus:border-primary" placeholder="填写目的、隐私说明或注意事项" />
+              <span class="block text-[11px] font-bold text-text-muted mb-1">{{ t('survey_admin.description_label') }}</span>
+              <textarea v-model="selected.description" rows="2" class="w-full px-3 py-2 rounded-md bg-background border border-border-soft text-xs text-text outline-none resize-y focus:border-primary" :placeholder="t('survey_admin.description_placeholder')" />
             </label>
           </div>
           <label class="self-end min-h-20 p-3 rounded-md border border-border-soft flex items-start gap-3 cursor-pointer">
             <input v-model="selected.required_for_access" type="checkbox" class="mt-0.5 w-4 h-4 accent-primary">
             <span>
-              <span class="block text-xs font-bold text-text-strong">作为使用门禁</span>
-              <span class="block text-[10px] leading-4 text-text-muted mt-1">开启后，必答题未完成或门禁题答错时不能进入产品。</span>
+              <span class="block text-xs font-bold text-text-strong">{{ t('survey_admin.access_gate') }}</span>
+              <span class="block text-[10px] leading-4 text-text-muted mt-1">{{ t('survey_admin.access_gate_desc') }}</span>
             </span>
           </label>
         </section>
@@ -576,16 +578,16 @@ onMounted(fetchData);
         <section class="border-b border-border-soft pb-5">
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
-              <div class="text-xs font-black text-text-strong">通过奖励（可选）</div>
-              <p class="text-[10px] text-text-muted mt-1 leading-4">用户提交并通过本问卷后，自动授予下方角色以解锁对应功能；未通过则无奖励。</p>
+              <div class="text-xs font-black text-text-strong">{{ t('survey_admin.reward_optional') }}</div>
+              <p class="text-[10px] text-text-muted mt-1 leading-4">{{ t('survey_admin.reward_desc') }}</p>
             </div>
             <label class="flex items-center gap-2 text-xs text-text cursor-pointer shrink-0">
-              <input v-model="rewardEnabled" type="checkbox" class="w-4 h-4 accent-primary"> 启用奖励
+              <input v-model="rewardEnabled" type="checkbox" class="w-4 h-4 accent-primary"> {{ t('survey_admin.enable_reward') }}
             </label>
           </div>
           <div v-if="rewardEnabled && selected" class="mt-4 grid grid-cols-2 gap-4">
             <label class="block">
-              <span class="block text-[11px] font-bold text-text-muted mb-1">奖励角色</span>
+                <span class="block text-[11px] font-bold text-text-muted mb-1">{{ t('survey_admin.reward_role') }}</span>
               <select
                 :value="selected.reward?.role_id || ''"
                 class="w-full h-9 px-3 rounded-md bg-background border border-border-soft text-sm text-text"
@@ -593,36 +595,36 @@ onMounted(fetchData);
               >
                 <option v-for="role in roles" :key="role.role_id" :value="role.role_id">{{ role.role_name }}</option>
               </select>
-              <span v-if="roles.length === 0" class="block text-[10px] text-amber-500 mt-1">尚未创建任何角色，请先在「角色管理」中添加。</span>
+              <span v-if="roles.length === 0" class="block text-[10px] text-amber-500 mt-1">{{ t('survey_admin.no_roles') }}</span>
             </label>
             <div class="flex items-end gap-3 flex-wrap">
               <label class="flex items-center gap-2 text-xs text-text cursor-pointer pb-2 shrink-0">
-                <input v-model="rewardPermanent" type="checkbox" class="w-4 h-4 accent-primary"> 永久有效
+                <input v-model="rewardPermanent" type="checkbox" class="w-4 h-4 accent-primary"> {{ t('survey_admin.permanent') }}
               </label>
               <template v-if="!rewardPermanent">
                 <label class="block">
-                  <span class="block text-[10px] font-bold text-text-muted mb-1">有效时长</span>
+                  <span class="block text-[10px] font-bold text-text-muted mb-1">{{ t('survey_admin.duration') }}</span>
                   <input
                     :value="selected.reward?.duration_value ?? ''"
                     type="number"
                     min="0"
                     step="1"
                     class="w-24 h-9 px-2 rounded-md bg-background border border-border-soft text-sm text-text"
-                    placeholder="如 7"
+                    :placeholder="t('survey_admin.duration_placeholder')"
                     @input="setRewardDuration"
                   >
                 </label>
                 <label class="block">
-                  <span class="block text-[10px] font-bold text-text-muted mb-1">单位</span>
+                  <span class="block text-[10px] font-bold text-text-muted mb-1">{{ t('survey_admin.unit') }}</span>
                   <select
                     :value="selected.reward?.duration_unit || 'hour'"
                     class="h-9 px-2 rounded-md bg-background border border-border-soft text-sm text-text"
                     @change="setRewardUnit"
                   >
-                    <option value="hour">小时</option>
-                    <option value="day">天</option>
-                    <option value="month">月</option>
-                    <option value="year">年</option>
+                    <option value="hour">{{ t('survey_admin.unit_hour') }}</option>
+                    <option value="day">{{ t('survey_admin.unit_day') }}</option>
+                    <option value="month">{{ t('survey_admin.unit_month') }}</option>
+                    <option value="year">{{ t('survey_admin.unit_year') }}</option>
                   </select>
                 </label>
               </template>
@@ -633,20 +635,20 @@ onMounted(fetchData);
         <section v-for="(question, questionIndex) in selected.questions" :key="question.question_id" class="border border-border-soft rounded-lg overflow-hidden">
           <div class="p-3 bg-surface-hover/60 border-b border-border-soft flex items-center gap-3">
             <span class="w-7 h-7 rounded-md bg-primary/10 text-primary text-xs font-black grid place-items-center shrink-0">{{ questionIndex + 1 }}</span>
-            <input v-model="question.title" class="flex-1 min-w-0 bg-transparent text-sm font-bold text-text-strong outline-none" placeholder="请输入题目">
+            <input v-model="question.title" class="flex-1 min-w-0 bg-transparent text-sm font-bold text-text-strong outline-none" :placeholder="t('survey_admin.question_title_placeholder')">
             <select :value="question.question_type" class="h-8 px-2 rounded-md bg-surface border border-border-soft text-xs text-text" @change="setQuestionType(question, ($event.target as HTMLSelectElement).value as SurveyQuestionType)">
-              <option value="single_choice">单选题</option>
-              <option value="multiple_choice">多选题</option>
-              <option value="short_text">填空题</option>
-              <option value="long_text">意见/长文本</option>
+              <option value="single_choice">{{ t('survey_admin.q_single') }}</option>
+              <option value="multiple_choice">{{ t('survey_admin.q_multiple') }}</option>
+              <option value="short_text">{{ t('survey_admin.q_short_text') }}</option>
+              <option value="long_text">{{ t('survey_admin.q_long_text') }}</option>
             </select>
-            <button class="w-8 h-8 grid place-items-center text-red-500 rounded-md hover:bg-red-500/10" title="删除题目" @click="selected.questions.splice(questionIndex, 1)">
+            <button class="w-8 h-8 grid place-items-center text-red-500 rounded-md hover:bg-red-500/10" :title="t('survey_admin.delete_question')" @click="selected.questions.splice(questionIndex, 1)">
               <Trash2 :size="14" />
             </button>
           </div>
 
           <div class="p-4 space-y-4">
-            <input v-model="question.description" class="w-full h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" placeholder="题目补充说明（可选）">
+            <input v-model="question.description" class="w-full h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="t('survey_admin.question_desc_placeholder')">
 
             <div v-if="question.question_type.includes('choice')" class="space-y-3">
               <div v-for="(option, optionIndex) in question.options" :key="option.option_id" class="space-y-2">
@@ -657,34 +659,34 @@ onMounted(fetchData);
                       question.question_type === 'single_choice' ? 'rounded-full' : 'rounded',
                       question.correct_answers.includes(option.option_id) ? 'bg-green-500 border-green-500 text-white' : 'border-border-strong text-transparent',
                     ]"
-                    :title="question.require_correct ? '设为正确答案' : '开启“答错阻断”后可设置正确答案'"
+                    :title="question.require_correct ? t('survey_admin.set_correct_answer') : t('survey_admin.enable_block_first')"
                     @click="toggleCorrect(question, option.option_id)"
                   >
                     <CheckCircle2 :size="12" />
                   </button>
-                  <input v-model="option.label" class="flex-1 h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="`选项 ${optionIndex + 1}`">
-                  <button class="w-7 h-7 grid place-items-center text-text-muted hover:text-red-500 disabled:opacity-30" :disabled="question.options.length <= 2" title="删除选项" @click="removeOption(question, option.option_id)">
+                  <input v-model="option.label" class="flex-1 h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="t('survey_admin.option_placeholder', { index: optionIndex + 1 })">
+                  <button class="w-7 h-7 grid place-items-center text-text-muted hover:text-red-500 disabled:opacity-30" :disabled="question.options.length <= 2" :title="t('survey_admin.delete_option')" @click="removeOption(question, option.option_id)">
                     <Trash2 :size="13" />
                   </button>
                 </div>
                 <div class="pl-7 flex items-center gap-2 flex-wrap">
-                  <button class="text-[11px] text-text-muted hover:text-primary flex items-center gap-1" @click="addOptionMedia(option)"><Image :size="12" /> 选项图片</button>
+                  <button class="text-[11px] text-text-muted hover:text-primary flex items-center gap-1" @click="addOptionMedia(option)"><Image :size="12" /> {{ t('survey_admin.option_image') }}</button>
                   <div v-if="option.media && option.media.length" class="flex flex-wrap gap-2">
                     <div v-for="(m, mi) in option.media" :key="mi" class="flex items-center gap-1 bg-background border border-border-soft rounded-md px-1.5 py-1">
-                      <span class="text-[10px] text-text-muted truncate max-w-[120px]">{{ m.url || '（未填链接）' }}</span>
-                      <button class="w-4 h-4 grid place-items-center text-red-500" title="删除图片" @click="option.media!.splice(mi, 1)"><X :size="11" /></button>
+                      <span class="text-[10px] text-text-muted truncate max-w-[120px]">{{ m.url || t('survey_admin.link_empty') }}</span>
+                      <button class="w-4 h-4 grid place-items-center text-red-500" :title="t('survey_admin.delete_image')" @click="option.media!.splice(mi, 1)"><X :size="11" /></button>
                     </div>
                   </div>
                 </div>
                 <div v-if="option.media && option.media.length" class="pl-7 space-y-1">
                   <div v-for="(m, mi) in option.media" :key="mi" class="grid grid-cols-[80px_1fr_1fr_28px] gap-1 items-center">
                     <select v-model="m.media_type" class="h-7 px-1 rounded-md bg-background border border-border-soft text-[11px] text-text">
-                      <option value="image">图片</option>
-                      <option value="video">视频</option>
+                      <option value="image">{{ t('survey_admin.media_image') }}</option>
+                      <option value="video">{{ t('survey_admin.media_video') }}</option>
                     </select>
-                    <input v-model="m.url" type="url" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" placeholder="https://...">
-                    <input v-model="m.caption" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" placeholder="说明">
-                    <button class="w-7 h-7 grid place-items-center text-red-500" title="删除图片" @click="option.media!.splice(mi, 1)"><Trash2 :size="12" /></button>
+                    <input v-model="m.url" type="url" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" :placeholder="t('survey_admin.url_placeholder')">
+                     <input v-model="m.caption" class="h-7 px-2 rounded-md bg-background border border-border-soft text-[11px] text-text outline-none" :placeholder="t('survey_admin.caption_placeholder')">
+                    <button class="w-7 h-7 grid place-items-center text-red-500" :title="t('survey_admin.delete_image')" @click="option.media!.splice(mi, 1)"><Trash2 :size="12" /></button>
                   </div>
                   <div v-if="option.media.some((mm) => mm.url)" class="flex flex-wrap gap-2 pt-1">
                     <figure v-for="(pm, previewIndex) in option.media.filter((mm) => mm.url)" :key="'opv' + previewIndex" class="relative">
@@ -695,24 +697,24 @@ onMounted(fetchData);
                   </div>
                 </div>
               </div>
-              <button class="h-8 px-3 rounded-md border border-dashed border-border-strong text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addOption(question)">
-                <Plus :size="13" /> 添加选项
+                <button class="h-8 px-3 rounded-md border border-dashed border-border-strong text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addOption(question)">
+                <Plus :size="13" /> {{ t('survey_admin.add_option') }}
               </button>
             </div>
 
             <label v-else-if="question.require_correct" class="block">
-              <span class="block text-[10px] text-text-muted mb-1">可接受的正确答案（每行一个，不区分大小写）</span>
+              <span class="block text-[10px] text-text-muted mb-1">{{ t('survey_admin.correct_answers_hint') }}</span>
               <textarea :value="question.correct_answers.join('\n')" rows="2" class="w-full px-3 py-2 rounded-md bg-background border border-border-soft text-xs text-text outline-none" @input="setTextAnswers(question, ($event.target as HTMLTextAreaElement).value)" />
             </label>
 
             <div v-for="(media, mediaIndex) in question.media" :key="mediaIndex" class="grid grid-cols-[92px_1fr_1fr_32px] gap-2 items-center">
               <select v-model="media.media_type" class="h-8 px-2 rounded-md bg-background border border-border-soft text-xs text-text">
-                <option value="image">图片</option>
-                <option value="video">视频</option>
+                <option value="image">{{ t('survey_admin.media_image') }}</option>
+                <option value="video">{{ t('survey_admin.media_video') }}</option>
               </select>
-              <input v-model="media.url" type="url" class="h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" placeholder="https://...">
-              <input v-model="media.caption" class="h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" placeholder="媒体说明（可选）">
-              <button class="w-8 h-8 grid place-items-center text-red-500" title="删除媒体" @click="question.media.splice(mediaIndex, 1)"><Trash2 :size="13" /></button>
+              <input v-model="media.url" type="url" class="h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="t('survey_admin.url_placeholder')">
+              <input v-model="media.caption" class="h-8 px-3 rounded-md bg-background border border-border-soft text-xs text-text outline-none" :placeholder="t('survey_admin.media_caption_placeholder')">
+              <button class="w-8 h-8 grid place-items-center text-red-500" :title="t('survey_admin.delete_media')" @click="question.media.splice(mediaIndex, 1)"><Trash2 :size="13" /></button>
             </div>
 
             <div v-if="question.media.some((m) => m.url)" class="flex flex-wrap gap-3 pt-1">
@@ -725,19 +727,19 @@ onMounted(fetchData);
 
             <div class="flex flex-wrap items-center gap-4 pt-1">
               <label class="flex items-center gap-2 text-xs text-text cursor-pointer">
-                <input v-model="question.required" type="checkbox" class="w-4 h-4 accent-primary"> 必答
+                <input v-model="question.required" type="checkbox" class="w-4 h-4 accent-primary"> {{ t('survey_admin.required') }}
               </label>
               <label class="flex items-center gap-2 text-xs text-text cursor-pointer">
-                <input v-model="question.require_correct" type="checkbox" class="w-4 h-4 accent-green-500"> 答错阻断
+                <input v-model="question.require_correct" type="checkbox" class="w-4 h-4 accent-green-500"> {{ t('survey_admin.block_on_wrong') }}
               </label>
-              <button class="text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addMedia(question, 'image')"><Image :size="14" /> 添加图片</button>
-              <button class="text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addMedia(question, 'video')"><Video :size="14" /> 添加视频</button>
+              <button class="text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addMedia(question, 'image')"><Image :size="14" /> {{ t('survey_admin.add_image') }}</button>
+              <button class="text-xs text-text-muted hover:text-primary flex items-center gap-1.5" @click="addMedia(question, 'video')"><Video :size="14" /> {{ t('survey_admin.add_video') }}</button>
             </div>
           </div>
         </section>
 
         <button class="w-full h-10 border border-dashed border-border-strong rounded-lg text-xs font-bold text-text-muted hover:text-primary hover:border-primary flex items-center justify-center gap-2" @click="selected.questions.push(blankQuestion())">
-          <Plus :size="15" /> 添加题目
+          <Plus :size="15" /> {{ t('survey_admin.add_question') }}
         </button>
       </div>
 
@@ -750,8 +752,8 @@ onMounted(fetchData);
     <div v-else class="flex-1 border border-border-soft rounded-lg bg-surface grid place-items-center text-center">
       <div>
         <FileQuestion :size="44" class="mx-auto text-text-muted opacity-40" />
-        <p class="mt-3 text-sm font-bold text-text-strong">选择一份问卷，或新建问卷</p>
-        <p class="mt-1 text-xs text-text-muted">发布后客户端会按问卷版本逐次提示。</p>
+        <p class="mt-3 text-sm font-bold text-text-strong">{{ t('survey_admin.select_or_create') }}</p>
+        <p class="mt-1 text-xs text-text-muted">{{ t('survey_admin.publish_hint') }}</p>
       </div>
     </div>
     </div>
@@ -760,8 +762,8 @@ onMounted(fetchData);
     <div v-else class="flex-1 min-h-0 grid grid-cols-[220px_280px_minmax(0,1fr)] gap-3">
       <aside class="min-h-0 border border-border-soft rounded-lg bg-surface overflow-hidden flex flex-col">
         <header class="p-3 border-b border-border-soft">
-          <div class="text-xs font-black text-text-strong">按问卷筛选</div>
-          <div class="text-[10px] text-text-muted mt-1">{{ surveys.length }} 份问卷 · {{ submissions.length }} 次提交</div>
+          <div class="text-xs font-black text-text-strong">{{ t('survey_admin.filter_by_survey') }}</div>
+          <div class="text-[10px] text-text-muted mt-1">{{ t('survey_admin.list_summary', { surveyCount: surveys.length, submissionCount: submissions.length }) }}</div>
         </header>
         <div class="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
           <button
@@ -772,27 +774,27 @@ onMounted(fetchData);
             @click="selectSurvey(survey)"
           >
             <div class="text-xs font-bold text-text-strong truncate">{{ survey.title }}</div>
-            <div class="text-[10px] text-text-muted mt-1">v{{ survey.revision }} · {{ submissionCounts[survey.survey_id] || 0 }} 份答卷</div>
+            <div class="text-[10px] text-text-muted mt-1">{{ t('survey_admin.revision_answers', { revision: survey.revision, count: submissionCounts[survey.survey_id] || 0 }) }}</div>
           </button>
-          <div v-if="surveys.length === 0" class="py-10 text-center text-xs text-text-muted">暂无问卷</div>
+          <div v-if="surveys.length === 0" class="py-10 text-center text-xs text-text-muted">{{ t('survey_admin.no_surveys') }}</div>
         </div>
       </aside>
 
       <section class="min-h-0 border border-border-soft rounded-lg bg-surface overflow-hidden flex flex-col">
         <header class="p-3 border-b border-border-soft flex items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-xs font-black text-text-strong">提交列表</div>
-            <div class="text-[10px] text-text-muted mt-1 truncate">{{ selected?.title || '请先选择问卷' }} · {{ surveySubmissions.length }} 条</div>
+            <div class="text-xs font-black text-text-strong">{{ t('survey_admin.submission_list') }}</div>
+            <div class="text-[10px] text-text-muted mt-1 truncate">{{ t('survey_admin.list_header', { title: selected?.title || t('survey_admin.please_select_survey'), count: surveySubmissions.length }) }}</div>
           </div>
           <button
             class="h-8 px-3 rounded-md bg-primary text-white text-[10px] font-bold flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="!selected || surveySubmissions.length === 0 || exporting"
-            title="将当前问卷的全部答卷导出为 Excel"
+            :title="t('survey_admin.export_current_tooltip')"
             @click="exportCurrentSurvey"
           >
             <RefreshCcw v-if="exporting" :size="13" class="animate-spin" />
             <Download v-else :size="13" />
-            {{ exporting ? '导出中' : '导出 Excel' }}
+            {{ exporting ? t('survey_admin.exporting') : t('survey_admin.export_excel') }}
           </button>
         </header>
         <div class="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
@@ -809,36 +811,36 @@ onMounted(fetchData);
                 class="px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0"
                 :class="submission.passed ? 'bg-green-500/15 text-green-500' : submission.status === 'dismissed' ? 'bg-gray-500/15 text-gray-500' : 'bg-red-500/15 text-red-500'"
               >
-                {{ submission.passed ? '通过' : submission.status === 'dismissed' ? '已忽略' : '未通过' }}
+                {{ submission.passed ? t('survey_admin.passed') : submission.status === 'dismissed' ? t('survey_admin.dismissed') : t('survey_admin.failed') }}
               </span>
             </div>
             <div v-if="hasUserName(submission.user_id)" class="text-[9px] text-text-muted mt-1 font-mono truncate">{{ submission.user_id }}</div>
             <div class="text-[10px] text-text-muted mt-1">{{ submission.submitted_at }}</div>
-            <div class="text-[10px] text-text-muted mt-0.5">问卷版本 v{{ submission.survey_revision }}</div>
+              <div class="text-[10px] text-text-muted mt-0.5">{{ t('survey_admin.submission_version', { revision: submission.survey_revision }) }}</div>
             <button
               class="absolute right-2 top-2 w-7 h-7 grid place-items-center rounded-md text-text-muted opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-500 transition-colors"
-              :title="'删除此答卷'"
+              :title="t('survey_admin.delete_this_submission')"
               @click.stop="deleteSubmission(submission)"
             >
               <Trash2 :size="14" />
             </button>
           </div>
-          <div v-if="selected && surveySubmissions.length === 0" class="py-10 text-center text-xs text-text-muted">该问卷暂无提交记录</div>
-          <div v-else-if="!selected" class="py-10 text-center text-xs text-text-muted">请从左侧选择问卷</div>
+          <div v-if="selected && surveySubmissions.length === 0" class="py-10 text-center text-xs text-text-muted">{{ t('survey_admin.no_submissions') }}</div>
+          <div v-else-if="!selected" class="py-10 text-center text-xs text-text-muted">{{ t('survey_admin.select_survey_left') }}</div>
         </div>
         <div v-if="surveySubmissions.length > SUBMISSIONS_PAGE_SIZE" class="shrink-0 flex items-center justify-between px-3 py-2 border-t border-border-soft text-[10px] text-text-muted">
-          <span>{{ surveySubmissions.length }} 条 · 第 {{ Math.min(submissionsPage, totalSubmissionPages) }} / {{ totalSubmissionPages }} 页</span>
+          <span>{{ t('survey_admin.page_info', { count: surveySubmissions.length, page: Math.min(submissionsPage, totalSubmissionPages), total: totalSubmissionPages }) }}</span>
           <div class="flex gap-2">
             <button
               class="px-2.5 py-1 rounded border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               :disabled="submissionsPage <= 1"
               @click="submissionsPage--"
-            >上一页</button>
+            >{{ t('survey_admin.prev_page') }}</button>
             <button
               class="px-2.5 py-1 rounded border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               :disabled="submissionsPage >= totalSubmissionPages"
               @click="submissionsPage++"
-            >下一页</button>
+            >{{ t('survey_admin.next_page') }}</button>
           </div>
         </div>
       </section>
@@ -856,7 +858,7 @@ onMounted(fetchData);
               class="px-2 py-1 rounded text-[10px] font-bold shrink-0"
               :class="selectedSubmission.passed ? 'bg-green-500/15 text-green-500' : selectedSubmission.status === 'dismissed' ? 'bg-gray-500/15 text-gray-500' : 'bg-red-500/15 text-red-500'"
             >
-              {{ selectedSubmission.passed ? '已通过' : selectedSubmission.status === 'dismissed' ? '已忽略' : '未通过' }}
+              {{ selectedSubmission.passed ? t('survey_admin.passed') : selectedSubmission.status === 'dismissed' ? t('survey_admin.dismissed') : t('survey_admin.failed') }}
             </span>
           </header>
           <div class="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
@@ -868,7 +870,7 @@ onMounted(fetchData);
             >
               <div class="flex items-start justify-between gap-3 mb-2">
                 <div class="text-xs font-bold text-text-strong">{{ questionTitle(questionId) }}</div>
-                <span v-if="selectedSubmission.failed_question_ids.includes(questionId)" class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-500 shrink-0">答错</span>
+                <span v-if="selectedSubmission.failed_question_ids.includes(questionId)" class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-500 shrink-0">{{ t('survey_admin.wrong') }}</span>
               </div>
               <div class="text-xs text-text leading-relaxed whitespace-pre-wrap break-words">{{ formatAnswer(answer, questionId) }}</div>
               <div v-if="selectedSubmission.answer_files[questionId] && selectedSubmission.answer_files[questionId].length" class="mt-2 flex flex-wrap gap-2">
@@ -885,11 +887,11 @@ onMounted(fetchData);
                 </a>
               </div>
             </div>
-            <div v-if="Object.keys(selectedSubmission.answers).length === 0 && submissionClicks.length === 0" class="py-10 text-center text-xs text-text-muted">该提交没有任何答案记录</div>
+            <div v-if="Object.keys(selectedSubmission.answers).length === 0 && submissionClicks.length === 0" class="py-10 text-center text-xs text-text-muted">{{ t('survey_admin.no_answers') }}</div>
 
             <!-- 答题点击记录：展示用户答题过程中的每次选择/取消/输入 -->
             <div v-if="submissionClicks.length" class="mt-4">
-              <div class="text-xs font-black text-text-strong mb-2">答题点击记录（{{ submissionClicks.length }} 条）</div>
+              <div class="text-xs font-black text-text-strong mb-2">{{ t('survey_admin.click_records', { count: submissionClicks.length }) }}</div>
               <div class="border border-border-soft rounded-md bg-background overflow-hidden">
                 <div
                   v-for="event in submissionClicks"
@@ -900,7 +902,7 @@ onMounted(fetchData);
                     class="shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold"
                     :class="event.action === 'deselect' ? 'bg-gray-500/15 text-gray-500' : event.action === 'input' ? 'bg-blue-500/15 text-blue-500' : 'bg-green-500/15 text-green-500'"
                   >
-                    {{ event.action === 'deselect' ? '取消' : event.action === 'input' ? '输入' : '点击' }}
+                    {{ event.action === 'deselect' ? t('survey_admin.action_deselect') : event.action === 'input' ? t('survey_admin.action_input') : t('survey_admin.action_click') }}
                   </span>
                   <div class="min-w-0 flex-1">
                     <div class="text-[11px] font-bold text-text-strong truncate">{{ event.question_title || event.question_id }}</div>
@@ -912,14 +914,14 @@ onMounted(fetchData);
             </div>
           </div>
           <footer class="px-5 py-3 border-t border-border-soft text-[10px] text-text-muted flex items-center justify-between gap-3 shrink-0">
-            <span class="truncate">提交 ID：{{ selectedSubmission.submission_id }}</span>
+            <span class="truncate">{{ t('survey_admin.submission_id') }}{{ selectedSubmission.submission_id }}</span>
             <div class="flex items-center gap-3 shrink-0">
-              <span v-if="selectedSubmission.failed_question_ids.length > 0" class="text-red-500">{{ selectedSubmission.failed_question_ids.length }} 题答错</span>
+              <span v-if="selectedSubmission.failed_question_ids.length > 0" class="text-red-500">{{ t('survey_admin.questions_wrong', { count: selectedSubmission.failed_question_ids.length }) }}</span>
               <button
                 class="flex items-center gap-1 px-2 py-1 rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
                 @click="deleteSubmission(selectedSubmission)"
               >
-                <Trash2 :size="13" /> 删除此答卷
+                <Trash2 :size="13" /> {{ t('survey_admin.delete_this_submission') }}
               </button>
             </div>
           </footer>
@@ -927,8 +929,8 @@ onMounted(fetchData);
         <div v-else class="h-full grid place-items-center text-center p-6">
           <div>
             <ClipboardList :size="44" class="mx-auto text-text-muted opacity-40" />
-            <p class="mt-3 text-sm font-bold text-text-strong">选择一条提交记录</p>
-            <p class="mt-1 text-xs text-text-muted">这里会显示用户的逐题答案和判定结果。</p>
+            <p class="mt-3 text-sm font-bold text-text-strong">{{ t('survey_admin.select_submission') }}</p>
+            <p class="mt-1 text-xs text-text-muted">{{ t('survey_admin.submission_detail_hint') }}</p>
           </div>
         </div>
       </article>

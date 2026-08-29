@@ -15,12 +15,11 @@ import {
 } from '../api/bilibiliLive';
 
 const STORAGE_KEY = 'danmaku_config_v2';
-const { locale } = useI18n();
-const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
+const { t, locale } = useI18n();
 const liveThemeEnabled = useStorage('danmaku-live-theme', false);
 const liveThemeLabel = computed(() => (liveThemeEnabled.value
-  ? l('直播姬风格', 'Streamer theme')
-  : l('软件主题', 'App theme')));
+  ?t('danmaku.streamer_theme')
+  :t('danmaku.app_theme')));
 
 const toggleLiveTheme = () => {
   liveThemeEnabled.value = !liveThemeEnabled.value;
@@ -126,7 +125,7 @@ const qrCodeUrl = ref('');
 const qrKey = ref('');
 const qrStatusText = ref('');
 const qrLoading = ref(false);
-const previewText = ref(l('这是一条测试弹幕，会同步到 VR 弹幕窗口。', 'This is a test message synchronized to the VR overlay.'));
+const previewText = ref(t('danmaku.this_is_a_test_message_synchronized_to_t'));
 const biliSession = ref<BiliLiveSession>({ sessdata: '', bili_jct: '', buvid3: '' });
 const liveRoom = ref<LiveRoomInfo | null>(null);
 const liveAreas = ref<LiveArea[]>([]);
@@ -190,10 +189,10 @@ const runtimeConfig = (): DanmakuConfig => {
 
 const connectedText = computed(() => {
   if (status.value.bili_connected) return status.value.online
-    ? `${l('在线', 'Online')} ${status.value.online}`
-    : l('已连接', 'Connected');
-  if (status.value.running) return l('连接中', 'Connecting');
-  return l('未连接', 'Disconnected');
+    ? `${t('danmaku.online')} ${status.value.online}`
+    : t('danmaku.connected');
+  if (status.value.running) return t('danmaku.connecting');
+  return t('danmaku.disconnected');
 });
 
 const isConnected = computed(() => status.value.running && (status.value.bili_connected || status.value.osc_input_running));
@@ -220,11 +219,11 @@ const hasLiveSession = computed(() => Boolean(biliSession.value.sessdata && bili
 const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info') => {
   const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   const prefix = level === 'error'
-    ? l('[错误] ', '[Error] ')
+    ?t('danmaku.error')
     : level === 'success'
-      ? l('[成功] ', '[Success] ')
+      ?t('danmaku.success')
       : level === 'warning'
-        ? l('[警告] ', '[Warning] ')
+        ?t('danmaku.warning')
         : '';
   logs.value.push(`${time} ${prefix}${message}`);
   if (logs.value.length > 600) logs.value = logs.value.slice(-500);
@@ -250,28 +249,30 @@ const setAttachMode = (mode: 'hmd' | 'hand') => {
   persistModePosition();
   config.value.attach_mode = mode;
   applyPosition(mode === 'hand' ? modeMemory.hand : modeMemory.hmd);
-  addLog(l(`绑定模式切换为${mode === 'hand' ? '左手' : '头显'}`, `Attachment mode changed to ${mode === 'hand' ? 'left hand' : 'headset'}`));
+  addLog(t('danmaku.attachment_mode_changed', { target: locale.value.startsWith('zh') ? (mode === 'hand' ? '左手' : '头显') : (mode === 'hand' ? 'left hand' : 'headset') }));
 };
 
 const setToggleHand = (hand: 'left' | 'right' | 'always_on') => {
   config.value.toggle_hand = hand;
   addLog(hand === 'always_on'
-    ? l('弹幕窗口已设置为常开', 'The message overlay is now always visible')
-    : l(`Grip 切换手柄改为${hand === 'left' ? '左手柄' : '右手柄'}`, `Grip toggle changed to the ${hand === 'left' ? 'left' : 'right'} controller`));
+    ?t('danmaku.the_message_overlay_is_now_always_visibl')
+    : t('danmaku.grip_handle_changed', { target: locale.value.startsWith('zh') ? (hand === 'left' ? '左手柄' : '右手柄') : (hand === 'left' ? 'left' : 'right') }));
 };
 
 const applyPreset = (name: keyof typeof presets) => {
   if (config.value.attach_mode !== 'hmd') setAttachMode('hmd');
   applyPosition(presets[name]);
-  addLog(l(
-    `已应用预设位置：${name === 'left' ? '左前方' : name === 'center' ? '正前方' : '右前方'}`,
-    `Applied position preset: ${name === 'left' ? 'front left' : name === 'center' ? 'front center' : 'front right'}`,
-  ));
+  const presetLabel = name === 'left'
+    ? (locale.value.startsWith('zh') ? '左前方' : 'front left')
+    : name === 'center'
+      ? (locale.value.startsWith('zh') ? '正前方' : 'front center')
+      : (locale.value.startsWith('zh') ? '右前方' : 'front right');
+  addLog(t('danmaku.preset_position_applied', { position: presetLabel }));
 };
 
 const resetPosition = () => {
   applyPosition(config.value.attach_mode === 'hand' ? handDefault : hmdDefault);
-  addLog(l('已重置当前位置参数', 'Position settings reset'));
+  addLog(t('danmaku.position_settings_reset'));
 };
 
 const saveSettings = async () => {
@@ -313,7 +314,7 @@ const loadSettings = async () => {
     };
     roomInput.value = config.value.room_id ? String(config.value.room_id) : '';
   } catch (e) {
-    addLog(l(`读取配置失败：${String(e)}`, `Could not load settings: ${String(e)}`), 'error');
+    addLog(t('danmaku.load_settings_failed', { error: String(e) }), 'error');
   }
 };
 
@@ -330,7 +331,7 @@ const refreshSnapshot = async () => {
 const start = async () => {
   const room = roomInput.value.trim();
   if (config.value.enable_bilibili && (!room || !/^\d+$/.test(room))) {
-    error.value = l('请输入有效的 Bilibili 直播间房间号。', 'Enter a valid Bilibili live room ID.');
+    error.value =t('danmaku.enter_a_valid_bilibili_live_room_id');
     addLog(error.value, 'error');
     return;
   }
@@ -341,7 +342,10 @@ const start = async () => {
     config.value.room_id = room ? Number(room) : 0;
     await saveSettings();
     status.value = await DanmakuApi.start({ config: runtimeConfig() });
-    addLog(l(`正在连接直播间 ${config.value.room_id || 'OSC 输入'}...`, `Connecting to ${config.value.room_id ? `room ${config.value.room_id}` : 'OSC input'}...`));
+    const connectTarget = config.value.room_id
+      ? (locale.value.startsWith('zh') ? `直播间 ${config.value.room_id}` : `room ${config.value.room_id}`)
+      : (locale.value.startsWith('zh') ? 'OSC 输入' : 'OSC input');
+    addLog(t('danmaku.connecting_to', { target: connectTarget }));
     void recoverOpenVrConflict();
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -356,7 +360,7 @@ const stop = async () => {
   error.value = '';
   try {
     status.value = await DanmakuApi.stop();
-    addLog(l('已断开直播弹幕连接', 'Live message connection closed'));
+    addLog(t('danmaku.live_message_connection_closed'));
   } catch (e: any) {
     error.value = e.message || String(e);
   } finally {
@@ -374,7 +378,7 @@ const toggleOverlay = async () => {
     const visible = !config.value.overlay_visible;
     config.value.overlay_visible = visible;
     status.value = await DanmakuApi.setOverlayVisible({ visible });
-    addLog(visible ? l('VR 弹幕窗口已显示', 'VR message overlay shown') : l('VR 弹幕窗口已隐藏', 'VR message overlay hidden'));
+    addLog(visible ?t('danmaku.vr_message_overlay_shown') :t('danmaku.vr_message_overlay_hidden'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -384,7 +388,7 @@ const toggleVrMenu = async () => {
   try {
     config.value.vr_menu_visible = !config.value.vr_menu_visible;
     status.value = await DanmakuApi.setConfig({ config: runtimeConfig() });
-    addLog(config.value.vr_menu_visible ? l('VR 调整菜单已调出', 'VR adjustment menu shown') : l('VR 调整菜单已隐藏', 'VR adjustment menu hidden'));
+    addLog(config.value.vr_menu_visible ?t('danmaku.vr_adjustment_menu_shown') :t('danmaku.vr_adjustment_menu_hidden'));
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -396,7 +400,7 @@ const sendTest = async (messageType: string) => {
     const msg = await DanmakuApi.sendTest(text ? { messageType, text } : { messageType });
     if (msg.source === 'browser') messages.value.push(msg);
     const label = messageType === 'sc' ? 'SC' : eventLabel({ message_type: messageType } as DanmakuMessage);
-    addLog(l(`已发送测试${label}`, `Test ${label} sent`), 'success');
+    addLog(t('danmaku.test_sent', { label }), 'success');
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -405,7 +409,7 @@ const sendTest = async (messageType: string) => {
 const clearMessages = async () => {
   await DanmakuApi.clearMessages().catch(() => {});
   messages.value = [];
-  addLog(l('已清空弹幕列表', 'Message list cleared'));
+  addLog(t('danmaku.message_list_cleared'));
 };
 
 const scheduleLiveConfigApply = () => {
@@ -429,10 +433,10 @@ const checkBiliLogin = async () => {
   try {
     biliLoggedIn.value = await invoke<boolean>('bili_check_login', { sessdata });
     addLog(biliLoggedIn.value
-      ? l('Bilibili 登录凭证有效', 'Bilibili credentials are valid')
-      : l('Bilibili 登录凭证无效或已过期', 'Bilibili credentials are invalid or expired'), biliLoggedIn.value ? 'success' : 'warning');
+      ?t('danmaku.bilibili_credentials_are_valid')
+      :t('danmaku.bilibili_credentials_are_invalid_or_expi'), biliLoggedIn.value ? 'success' : 'warning');
   } catch (e) {
-    addLog(l(`登录状态检查失败：${String(e)}`, `Could not check login status: ${String(e)}`), 'warning');
+    addLog(t('danmaku.check_login_status_failed', { error: String(e) }), 'warning');
   }
 };
 
@@ -448,16 +452,16 @@ const openBiliLogin = async () => {
   qrModalOpen.value = true;
   qrLoading.value = true;
   qrCodeUrl.value = '';
-  qrStatusText.value = l('正在生成登录二维码...', 'Generating login QR code...');
+  qrStatusText.value =t('danmaku.generating_login_qr_code');
   try {
     const res: any = await invoke('bili_new_qr');
     if (res?.code !== 0 || !res.data?.url || !res.data?.qrcode_key) {
-      throw new Error(res?.message || l('二维码生成失败', 'Could not generate QR code'));
+      throw new Error(res?.message ||t('danmaku.could_not_generate_qr_code'));
     }
     qrCodeUrl.value = res.data.qr_image_data_url || generateQrUrl(res.data.url);
     qrKey.value = res.data.qrcode_key;
-    qrStatusText.value = l('请使用哔哩哔哩 APP 扫码登录', 'Scan with the Bilibili app to sign in');
-    addLog(l('Bilibili 登录二维码已生成', 'Bilibili login QR code generated'));
+    qrStatusText.value =t('danmaku.scan_with_the_bilibili_app_to_sign_in');
+    addLog(t('danmaku.bilibili_login_qr_code_generated'));
 
     let pollFailures = 0;
     qrPollTimer = window.setInterval(async () => {
@@ -469,7 +473,7 @@ const openBiliLogin = async () => {
           stopQrPolling();
           const sessdata = pollRes.sessdata_extracted;
           if (!sessdata) {
-            qrStatusText.value = l('登录成功但未获得 SESSDATA', 'Signed in, but no SESSDATA was returned');
+            qrStatusText.value =t('danmaku.signed_in_but_no_sessdata_was_returned');
             qrLoading.value = false;
             return;
           }
@@ -489,18 +493,18 @@ const openBiliLogin = async () => {
           biliLoggedIn.value = true;
           await refreshLiveRoom();
           void refreshContributionRank();
-          qrStatusText.value = l('登录成功', 'Signed in');
+          qrStatusText.value =t('danmaku.signed_in');
           qrLoading.value = false;
-          addLog(l('Bilibili 扫码登录成功', 'Bilibili QR sign-in succeeded'), 'success');
+          addLog(t('danmaku.bilibili_qr_sign_in_succeeded'), 'success');
           window.setTimeout(() => { qrModalOpen.value = false; }, 900);
         } else if (code === 86090) {
-          qrStatusText.value = l('已扫码，请在手机上确认', 'QR code scanned. Confirm on your phone.');
+          qrStatusText.value =t('danmaku.qr_code_scanned_confirm_on_your_phone');
         } else if (code === 86038) {
           stopQrPolling();
           qrLoading.value = false;
-          qrStatusText.value = l('二维码已过期，请重新生成', 'The QR code expired. Generate a new one.');
+          qrStatusText.value =t('danmaku.the_qr_code_expired_generate_a_new_one');
         } else {
-          qrStatusText.value = l('等待扫码...', 'Waiting for scan...');
+          qrStatusText.value =t('danmaku.waiting_for_scan');
         }
       } catch (pollError) {
         // 轮询单次失败不打断；连续 5 次失败停止并提示，避免 unhandled rejection 刷屏
@@ -508,14 +512,14 @@ const openBiliLogin = async () => {
         if (pollFailures >= 5) {
           stopQrPolling();
           qrLoading.value = false;
-          qrStatusText.value = l(`登录状态查询失败：${String(pollError)}`, `Login status check failed: ${String(pollError)}`);
+          qrStatusText.value = t('danmaku.login_status_check_failed', { error: String(pollError) });
         }
       }
     }, 1600);
   } catch (e) {
     qrLoading.value = false;
     qrStatusText.value = String(e);
-    addLog(l(`扫码登录失败：${String(e)}`, `QR sign-in failed: ${String(e)}`), 'error');
+    addLog(t('danmaku.qr_signin_failed', { error: String(e) }), 'error');
   }
 };
 
@@ -537,7 +541,7 @@ const logoutBili = async () => {
     DbApi.saveSetting({ key: 'bili_jct', value: '' }),
     DbApi.saveSetting({ key: 'bili_buvid3', value: '' }),
   ]);
-  addLog(l('已退出 Bilibili 登录', 'Signed out of Bilibili'));
+  addLog(t('danmaku.signed_out_of_bilibili'));
 };
 
 const refreshLiveRoom = async () => {
@@ -578,7 +582,7 @@ const saveLiveRoomInfo = async () => {
       );
     }
     await refreshLiveRoom();
-    addLog(l('直播间资料已更新', 'Live room details updated'), 'success');
+    addLog(t('danmaku.live_room_details_updated'), 'success');
   } catch (e: any) {
     liveManageError.value = e.message || String(e);
   } finally {
@@ -590,24 +594,24 @@ const toggleLive = async () => {
   if (!liveRoom.value || !hasLiveSession.value || liveActionLoading.value) return;
   const stopping = liveRoom.value.live_status === 1;
   if (!window.confirm(stopping
-    ? l('确认停止 Bilibili 直播？OBS 停止推流不会自动关闭直播间。', 'Stop the Bilibili stream? Stopping OBS does not close the live room automatically.')
-    : l('确认开始 Bilibili 直播并获取推流地址？', 'Start the Bilibili stream and retrieve the streaming endpoint?'))) return;
+    ?t('danmaku.stop_the_bilibili_stream_stopping_obs_do')
+    :t('danmaku.start_the_bilibili_stream_and_retrieve_t'))) return;
   liveActionLoading.value = true;
   liveManageError.value = '';
   try {
     if (stopping) {
       await BilibiliLiveApi.stop(biliSession.value, liveRoom.value.room_id);
       streamEndpoints.value = [];
-      addLog(l('Bilibili 直播已停止', 'Bilibili stream stopped'), 'success');
+      addLog(t('danmaku.bilibili_stream_stopped'), 'success');
     } else {
       const result = await BilibiliLiveApi.start(biliSession.value, liveRoom.value.room_id, liveAreaDraft.value);
       if (result.requires_face_auth) {
         throw new Error(result.face_auth_url
-          ? l(`开播前需要完成实名认证：${result.face_auth_url}`, `Identity verification is required before streaming: ${result.face_auth_url}`)
-          : l('开播前需要完成实名认证', 'Identity verification is required before streaming'));
+          ? t('danmaku.identity_verification_required', { url: result.face_auth_url })
+          :t('danmaku.identity_verification_is_required_before'));
       }
       streamEndpoints.value = result.endpoints;
-      addLog(l('Bilibili 直播已开始，推流信息已安全显示', 'Bilibili stream started; streaming details are now available'), 'success');
+      addLog(t('danmaku.bilibili_stream_started_streaming_detail'), 'success');
     }
     await refreshLiveRoom();
   } catch (e: any) {
@@ -619,7 +623,7 @@ const toggleLive = async () => {
 
 const copyStreamValue = async (value: string, label: string) => {
   await navigator.clipboard.writeText(value);
-  copyFeedback.value = l(`${label}已复制`, `${label} copied`);
+  copyFeedback.value = t('danmaku.copied', { label });
   window.setTimeout(() => { copyFeedback.value = ''; }, 1300);
 };
 
@@ -643,7 +647,7 @@ const sendLiveDanmaku = async () => {
   try {
     await BilibiliLiveApi.sendDanmaku(biliSession.value, liveRoom.value.room_id, message);
     outgoingDanmaku.value = '';
-    addLog(l('弹幕发送成功', 'Message sent'), 'success');
+    addLog(t('danmaku.message_sent'), 'success');
   } catch (e: any) {
     liveManageError.value = e.message || String(e);
   } finally {
@@ -653,12 +657,12 @@ const sendLiveDanmaku = async () => {
 
 const eventLabel = (message: DanmakuMessage) => {
   if (message.message_type === 'sc') return message.price ? `SC ${message.price}` : 'SC';
-  if (message.message_type === 'gift') return l('礼物', 'Gift');
-  if (message.message_type === 'enter') return l('进入', 'Joined');
-  if (message.message_type === 'follow') return l('关注', 'Follow');
-  if (message.message_type === 'guard' || message.message_type === 'vip_enter') return l('舰长', 'Guard');
-  if (message.message_type === 'warning') return l('警告', 'Warning');
-  return l('弹幕', 'Danmaku');
+  if (message.message_type === 'gift') return t('danmaku.gift');
+  if (message.message_type === 'enter') return t('danmaku.joined');
+  if (message.message_type === 'follow') return t('danmaku.follow');
+  if (message.message_type === 'guard' || message.message_type === 'vip_enter') return t('danmaku.guard');
+  if (message.message_type === 'warning') return t('danmaku.warning_1');
+  return t('danmaku.danmaku');
 };
 
 const formatMessageTime = (message: DanmakuMessage) => new Date(message.timestamp_ms).toLocaleTimeString(locale.value.startsWith('zh') ? 'zh-CN' : 'en-US', {
@@ -679,12 +683,12 @@ const recoverOpenVrConflict = async () => {
     status.value = latest;
     if (!latest.last_error) return false;
     if (latest.last_error.toLowerCase().includes('already initialized')) {
-      addLog(l('检测到 OVR 翻译器占用了 OpenVR，正在释放后重启 VR 弹幕。', 'The OVR translator is using OpenVR. Releasing it and restarting the VR message overlay.'), 'warning');
+      addLog(t('danmaku.the_ovr_translator_is_using_openvr_relea'), 'warning');
       await DanmakuApi.stop().catch(() => {});
       await OvrApi.shutdown().catch(() => {});
       await sleep(450);
       status.value = await DanmakuApi.start({ config: runtimeConfig() });
-      addLog(l('已重新启动 VR 弹幕 Overlay。', 'VR message overlay restarted.'), 'success');
+      addLog(t('danmaku.vr_message_overlay_restarted'), 'success');
       return true;
     }
   }
@@ -701,7 +705,7 @@ onMounted(async () => {
     await refreshLiveRoom();
     void refreshContributionRank();
   }
-  addLog(l('VrcDog 界面已加载', 'VrcDog interface loaded'));
+  addLog(t('danmaku.vrcdog_interface_loaded'));
 
   try {
     unlisteners.push(await listen<DanmakuStatus>('danmaku_status', (event) => {
@@ -746,49 +750,49 @@ onUnmounted(() => {
 
       <div class="sidebar-scroll">
         <section class="section">
-          <div class="section-title">{{ l('直播间', 'Live room') }}</div>
+          <div class="section-title">{{t('danmaku.live_room') }}</div>
           <div class="input-row">
             <input
               v-model="roomInput"
               :disabled="status.running"
               class="dark-input"
-              :placeholder="l('输入房间号', 'Enter room ID')"
+              :placeholder="t('danmaku.enter_room_id')"
               inputmode="numeric"
               @keydown.enter="toggleConnect"
             >
             <button class="primary-btn" :disabled="loading" @click="toggleConnect">
-              {{ status.running ? l('断开', 'Disconnect') : l('连接', 'Connect') }}
+              {{ status.running ?t('danmaku.disconnect') :t('danmaku.connect') }}
             </button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('账号', 'Account') }}</div>
+          <div class="section-title">{{t('danmaku.account') }}</div>
           <div class="account-row">
             <i class="status-dot" :class="{ connected: biliLoggedIn }" />
-            <span>{{ biliLoggedIn ? (hasLiveSession ? l('已登录 · 可管理直播', 'Signed in · Stream controls enabled') : l('已登录 · 仅监控', 'Signed in · Monitoring only')) : l('未登录', 'Signed out') }}</span>
-            <button v-if="!biliLoggedIn" class="small-btn" @click="openBiliLogin">{{ l('扫码登录', 'QR sign-in') }}</button>
-            <button v-else class="small-btn" @click="logoutBili">{{ l('退出登录', 'Sign out') }}</button>
+            <span>{{ biliLoggedIn ? (hasLiveSession ?t('danmaku.signed_in_stream_controls_enabled') :t('danmaku.signed_in_monitoring_only')) :t('danmaku.signed_out') }}</span>
+            <button v-if="!biliLoggedIn" class="small-btn" @click="openBiliLogin">{{t('danmaku.qr_sign_in') }}</button>
+            <button v-else class="small-btn" @click="logoutBili">{{t('danmaku.sign_out') }}</button>
           </div>
           <div v-if="biliLoggedIn" class="btn-row account-actions">
-            <button class="small-btn" :disabled="liveActionLoading" @click="refreshLiveRoom">{{ l('刷新直播间', 'Refresh live room') }}</button>
+            <button class="small-btn" :disabled="liveActionLoading" @click="refreshLiveRoom">{{t('danmaku.refresh_live_room') }}</button>
           </div>
         </section>
 
         <section v-if="liveRoom" class="section live-control-card">
           <div class="live-card-title">
             <div>
-              <div class="section-title">{{ l('直播控制', 'Stream controls') }}</div>
-              <strong>{{ liveRoom.live_status === 1 ? l('直播中', 'Live') : l('未开播', 'Offline') }}</strong>
+              <div class="section-title">{{t('danmaku.stream_controls') }}</div>
+              <strong>{{ liveRoom.live_status === 1 ?t('danmaku.live') :t('danmaku.offline') }}</strong>
             </div>
             <i class="status-dot" :class="{ connected: liveRoom.live_status === 1 }" />
           </div>
           <label class="live-field">
-            <span>{{ l('直播标题', 'Stream title') }}</span>
+            <span>{{t('danmaku.stream_title') }}</span>
             <input v-model="liveTitleDraft" class="dark-input full" maxlength="40">
           </label>
           <label class="live-field">
-            <span>{{ l('直播分区', 'Category') }}</span>
+            <span>{{t('danmaku.category') }}</span>
             <select v-model.number="liveAreaDraft" class="dark-input full">
               <optgroup v-for="[parent, areas] in groupedAreas" :key="parent" :label="parent">
                 <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.name }}</option>
@@ -796,27 +800,27 @@ onUnmounted(() => {
             </select>
           </label>
           <label class="live-field">
-            <span>{{ l('主播公告', 'Announcement') }}</span>
+            <span>{{t('danmaku.announcement') }}</span>
             <textarea
               v-model="liveAnnouncementDraft"
               class="dark-input full live-announcement"
               maxlength="200"
               rows="3"
-              :placeholder="l('留空可隐藏主播公告', 'Leave empty to hide the announcement')"
+              :placeholder="t('danmaku.leave_empty_to_hide_the_announcement')"
             />
             <small>{{ liveAnnouncementDraft.length }}/200</small>
           </label>
           <div class="btn-row live-actions">
-            <button class="small-btn" :disabled="liveActionLoading" @click="saveLiveRoomInfo">{{ l('保存资料', 'Save details') }}</button>
+            <button class="small-btn" :disabled="liveActionLoading" @click="saveLiveRoomInfo">{{t('danmaku.save_details') }}</button>
             <button class="primary-btn" :class="{ stop: liveRoom.live_status === 1 }" :disabled="liveActionLoading" @click="toggleLive">
-              {{ liveActionLoading ? l('处理中…', 'Processing...') : liveRoom.live_status === 1 ? l('停止直播', 'Stop stream') : l('开始直播', 'Start stream') }}
+              {{ liveActionLoading ?t('danmaku.processing') : liveRoom.live_status === 1 ?t('danmaku.stop_stream') :t('danmaku.start_stream') }}
             </button>
           </div>
-          <small>{{ l('人气', 'Audience') }} {{ liveRoom.online }} · {{ l('房间', 'Room') }} {{ liveRoom.room_id }}</small>
+          <small>{{t('danmaku.audience') }} {{ liveRoom.online }} · {{t('danmaku.room') }} {{ liveRoom.room_id }}</small>
         </section>
 
         <section v-if="streamEndpoints.length" class="section stream-card">
-          <div class="section-title">{{ l('OBS 推流信息', 'OBS streaming details') }}</div>
+          <div class="section-title">{{t('danmaku.obs_streaming_details') }}</div>
           <div v-for="(endpoint, index) in streamEndpoints" :key="`${endpoint.protocol}-${index}`" class="endpoint-row">
             <div class="endpoint-head">
               <strong>{{ endpoint.protocol }}</strong>
@@ -825,138 +829,138 @@ onUnmounted(() => {
             <code>{{ endpoint.address }}</code>
             <div class="secret-row">
               <code>{{ visibleStreamKeys[index] ? endpoint.stream_key : '••••••••••••••••' }}</code>
-              <button class="small-btn" @click="visibleStreamKeys[index] = !visibleStreamKeys[index]">{{ visibleStreamKeys[index] ? l('隐藏', 'Hide') : l('显示', 'Show') }}</button>
+              <button class="small-btn" @click="visibleStreamKeys[index] = !visibleStreamKeys[index]">{{ visibleStreamKeys[index] ?t('danmaku.hide') :t('danmaku.show') }}</button>
             </div>
             <div class="btn-row">
-              <button class="small-btn" @click="copyStreamValue(endpoint.address, l('地址', 'Address'))">{{ l('复制地址', 'Copy address') }}</button>
-              <button class="small-btn" @click="copyStreamValue(endpoint.stream_key, l('密钥', 'Key'))">{{ l('复制密钥', 'Copy key') }}</button>
+              <button class="small-btn" @click="copyStreamValue(endpoint.address,t('danmaku.address'))">{{t('danmaku.copy_address') }}</button>
+              <button class="small-btn" @click="copyStreamValue(endpoint.stream_key,t('danmaku.key'))">{{t('danmaku.copy_key') }}</button>
             </div>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('绑定模式', 'Attachment mode') }}</div>
+          <div class="section-title">{{t('danmaku.attachment_mode') }}</div>
           <div class="toggle-group">
-            <button :class="{ active: config.attach_mode === 'hmd' }" @click="setAttachMode('hmd')">{{ l('头显', 'Headset') }}</button>
-            <button :class="{ active: config.attach_mode !== 'hmd' }" @click="setAttachMode('hand')">{{ l('左手', 'Left hand') }}</button>
+            <button :class="{ active: config.attach_mode === 'hmd' }" @click="setAttachMode('hmd')">{{t('danmaku.headset') }}</button>
+            <button :class="{ active: config.attach_mode !== 'hmd' }" @click="setAttachMode('hand')">{{t('danmaku.left_hand') }}</button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('显示切换', 'Visibility toggle') }}</div>
+          <div class="section-title">{{t('danmaku.visibility_toggle') }}</div>
           <div class="toggle-group three">
-            <button :class="{ active: config.toggle_hand === 'left' }" @click="setToggleHand('left')">{{ l('左手柄', 'Left controller') }}</button>
-            <button :class="{ active: config.toggle_hand === 'right' }" @click="setToggleHand('right')">{{ l('右手柄', 'Right controller') }}</button>
-            <button :class="{ active: config.toggle_hand === 'always_on' }" @click="setToggleHand('always_on')">{{ l('常开', 'Always on') }}</button>
+            <button :class="{ active: config.toggle_hand === 'left' }" @click="setToggleHand('left')">{{t('danmaku.left_controller') }}</button>
+            <button :class="{ active: config.toggle_hand === 'right' }" @click="setToggleHand('right')">{{t('danmaku.right_controller') }}</button>
+            <button :class="{ active: config.toggle_hand === 'always_on' }" @click="setToggleHand('always_on')">{{t('danmaku.always_on') }}</button>
           </div>
         </section>
 
         <section v-if="config.attach_mode === 'hmd'" class="section">
-          <div class="section-title">{{ l('预设位置', 'Position presets') }}</div>
+          <div class="section-title">{{t('danmaku.position_presets') }}</div>
           <div class="btn-row">
-            <button class="small-btn" @click="applyPreset('left')">{{ l('左前方', 'Front left') }}</button>
-            <button class="small-btn" @click="applyPreset('center')">{{ l('正前方', 'Front center') }}</button>
-            <button class="small-btn" @click="applyPreset('right')">{{ l('右前方', 'Front right') }}</button>
+            <button class="small-btn" @click="applyPreset('left')">{{t('danmaku.front_left') }}</button>
+            <button class="small-btn" @click="applyPreset('center')">{{t('danmaku.front_center') }}</button>
+            <button class="small-btn" @click="applyPreset('right')">{{t('danmaku.front_right') }}</button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ config.attach_mode === 'hmd' ? l('位置', 'Position') : l('位置微调', 'Fine positioning') }}</div>
+          <div class="section-title">{{ config.attach_mode === 'hmd' ?t('danmaku.position') :t('danmaku.fine_positioning') }}</div>
           <div class="slider-row">
-            <span>{{ config.attach_mode === 'hmd' ? l('水平', 'Horizontal') : l('左右', 'Left / right') }}</span>
+            <span>{{ config.attach_mode === 'hmd' ?t('danmaku.horizontal') :t('danmaku.left_right') }}</span>
             <input v-model.number="config.x" type="range" :min="config.attach_mode === 'hmd' ? -1 : -0.1" :max="config.attach_mode === 'hmd' ? 1 : 0.1" :step="config.attach_mode === 'hmd' ? 0.02 : 0.01">
             <b>{{ config.x.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ config.attach_mode === 'hmd' ? l('垂直', 'Vertical') : l('上下', 'Up / down') }}</span>
+            <span>{{ config.attach_mode === 'hmd' ?t('danmaku.vertical') :t('danmaku.up_down') }}</span>
             <input v-model.number="config.y" type="range" :min="config.attach_mode === 'hmd' ? -0.8 : 0" :max="config.attach_mode === 'hmd' ? 0.8 : 0.15" step="0.01">
             <b>{{ config.y.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ config.attach_mode === 'hmd' ? l('距离', 'Distance') : l('前后', 'Forward / back') }}</span>
+            <span>{{ config.attach_mode === 'hmd' ?t('danmaku.distance') :t('danmaku.forward_back') }}</span>
             <input v-model.number="config.z" type="range" :min="config.attach_mode === 'hmd' ? -1.5 : -0.1" :max="config.attach_mode === 'hmd' ? -0.3 : 0.1" step="0.01">
             <b>{{ config.z.toFixed(2) }}</b>
           </div>
         </section>
 
         <section v-if="config.attach_mode === 'hmd'" class="section">
-          <div class="section-title">{{ l('角度', 'Rotation') }}</div>
+          <div class="section-title">{{t('danmaku.rotation') }}</div>
           <div class="slider-row">
-            <span>{{ l('俯仰', 'Pitch') }}</span>
+            <span>{{t('danmaku.pitch') }}</span>
             <input v-model.number="config.pitch" type="range" min="-30" max="30" step="1">
             <b>{{ Math.round(config.pitch) }}°</b>
           </div>
           <div class="slider-row">
-            <span>{{ l('偏航', 'Yaw') }}</span>
+            <span>{{t('danmaku.yaw') }}</span>
             <input v-model.number="config.yaw" type="range" min="-30" max="30" step="1">
             <b>{{ Math.round(config.yaw) }}°</b>
           </div>
           <div class="slider-row">
-            <span>{{ l('翻滚', 'Roll') }}</span>
+            <span>{{t('danmaku.roll') }}</span>
             <input v-model.number="config.roll" type="range" min="-20" max="20" step="1">
             <b>{{ Math.round(config.roll) }}°</b>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('外观', 'Appearance') }}</div>
+          <div class="section-title">{{t('danmaku.appearance') }}</div>
           <div class="slider-row">
-            <span>{{ l('大小', 'Size') }}</span>
+            <span>{{t('danmaku.size') }}</span>
             <input v-model.number="config.overlay_width_m" type="range" min="0.15" max="0.8" step="0.01">
             <b>{{ config.overlay_width_m.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ l('透明', 'Opacity') }}</span>
+            <span>{{t('danmaku.opacity') }}</span>
             <input v-model.number="config.overlay_alpha" type="range" min="0.3" max="1" step="0.02">
             <b>{{ config.overlay_alpha.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ l('背景', 'Background') }}</span>
+            <span>{{t('danmaku.background') }}</span>
             <input v-model.number="config.bg_alpha" type="range" min="0" max="1" step="0.05">
             <b>{{ config.bg_alpha.toFixed(2) }}</b>
           </div>
           <div class="slider-row">
-            <span>{{ l('字号', 'Font size') }}</span>
+            <span>{{t('danmaku.font_size') }}</span>
             <input v-model.number="config.font_size" type="range" min="10" max="20" step="1">
             <b>{{ Math.round(config.font_size) }}</b>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('显示内容', 'Visible events') }}</div>
+          <div class="section-title">{{t('danmaku.visible_events') }}</div>
           <div class="checkbox-grid">
-            <label><input v-model="config.show_danmaku" type="checkbox">{{ l('弹幕', 'Danmaku') }}</label>
-            <label><input v-model="config.show_gift" type="checkbox">{{ l('礼物', 'Gifts') }}</label>
+            <label><input v-model="config.show_danmaku" type="checkbox">{{t('danmaku.danmaku') }}</label>
+            <label><input v-model="config.show_gift" type="checkbox">{{t('danmaku.gifts') }}</label>
             <label><input v-model="config.show_sc" type="checkbox">SC</label>
-            <label><input v-model="config.show_guard" type="checkbox">{{ l('舰长', 'Guards') }}</label>
-            <label><input v-model="config.show_follow" type="checkbox">{{ l('关注', 'Follows') }}</label>
-            <label><input v-model="config.show_enter" type="checkbox">{{ l('进入', 'Joins') }}</label>
+            <label><input v-model="config.show_guard" type="checkbox">{{t('danmaku.guards') }}</label>
+            <label><input v-model="config.show_follow" type="checkbox">{{t('danmaku.follows') }}</label>
+            <label><input v-model="config.show_enter" type="checkbox">{{t('danmaku.joins') }}</label>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('VR 调整', 'VR adjustment') }}</div>
+          <div class="section-title">{{t('danmaku.vr_adjustment') }}</div>
           <div class="hint-box">
-            <p>{{ l('启动后会创建真实 SteamVR 弹幕 Overlay。', 'Starting creates a real SteamVR message overlay.') }}</p>
-            <p>{{ l('在 VR 内按应用菜单键调出调整菜单；摇杆/触控板调位置，按住扳机调距离和大小，Grip 显示/隐藏弹幕窗口。', 'In VR, open the adjustment menu with the application menu button. Use the stick or touchpad to position it, hold the trigger for distance and size, and use Grip to show or hide the overlay.') }}</p>
+            <p>{{t('danmaku.starting_creates_a_real_steamvr_message_') }}</p>
+            <p>{{t('danmaku.in_vr_open_the_adjustment_menu_with_the_') }}</p>
           </div>
           <div class="btn-row">
-            <button class="small-btn" @click="toggleOverlay">{{ config.overlay_visible ? l('隐藏窗口', 'Hide overlay') : l('显示窗口', 'Show overlay') }}</button>
-            <button class="small-btn" @click="toggleVrMenu">{{ config.vr_menu_visible ? l('隐藏 VR 菜单', 'Hide VR menu') : l('调出 VR 菜单', 'Show VR menu') }}</button>
-            <button class="small-btn" @click="resetPosition">{{ l('重置位置', 'Reset position') }}</button>
-            <button class="small-btn" @click="saveSettings">{{ saved ? l('已保存', 'Saved') : l('保存配置', 'Save settings') }}</button>
+            <button class="small-btn" @click="toggleOverlay">{{ config.overlay_visible ?t('danmaku.hide_overlay') :t('danmaku.show_overlay') }}</button>
+            <button class="small-btn" @click="toggleVrMenu">{{ config.vr_menu_visible ?t('danmaku.hide_vr_menu') :t('danmaku.show_vr_menu') }}</button>
+            <button class="small-btn" @click="resetPosition">{{t('danmaku.reset_position') }}</button>
+            <button class="small-btn" @click="saveSettings">{{ saved ?t('danmaku.saved') :t('danmaku.save_settings') }}</button>
           </div>
         </section>
 
         <section class="section">
-          <div class="section-title">{{ l('测试', 'Test') }}</div>
-          <input v-model="previewText" class="dark-input full" :placeholder="l('测试弹幕内容', 'Test message')">
+          <div class="section-title">{{t('danmaku.test') }}</div>
+          <input v-model="previewText" class="dark-input full" :placeholder="t('danmaku.test_message')">
           <div class="btn-row test-row">
-            <button class="small-btn" @click="sendTest('danmaku')">{{ l('弹幕', 'Danmaku') }}</button>
+            <button class="small-btn" @click="sendTest('danmaku')">{{t('danmaku.danmaku') }}</button>
             <button class="small-btn" @click="sendTest('sc')">SC</button>
-            <button class="small-btn" @click="sendTest('gift')">{{ l('礼物', 'Gift') }}</button>
-            <button class="small-btn" @click="sendTest('enter')">{{ l('进入', 'Join') }}</button>
-            <button class="small-btn" @click="sendTest('warning')">{{ l('警告', 'Warning') }}</button>
+            <button class="small-btn" @click="sendTest('gift')">{{t('danmaku.gift') }}</button>
+            <button class="small-btn" @click="sendTest('enter')">{{t('danmaku.join') }}</button>
+            <button class="small-btn" @click="sendTest('warning')">{{t('danmaku.warning_1') }}</button>
           </div>
         </section>
       </div>
@@ -965,15 +969,15 @@ onUnmounted(() => {
     <main class="vrcdog-main">
       <header class="log-header live-header">
         <div>
-          <strong>{{ l('直播互动', 'Live Interaction') }}</strong>
-          <span>{{ l('桌面与 SteamVR 实时同步', 'Real-time desktop and SteamVR sync') }}</span>
+          <strong>{{t('danmaku.live_interaction') }}</strong>
+          <span>{{t('danmaku.real_time_desktop_and_steamvr_sync') }}</span>
         </div>
         <div class="live-summary">
-          <span>{{ l('人气', 'Audience') }} {{ status.online }}</span>
-          <span>{{ l('消息', 'Messages') }} {{ status.message_count }}</span>
-          <button v-if="liveRoom" class="small-btn" :disabled="rankLoading" @click="refreshContributionRank">{{ rankLoading ? l('榜单加载中', 'Loading ranking') : l('刷新榜单', 'Refresh ranking') }}</button>
-          <button class="small-btn" :title="l(`切换到${liveThemeEnabled ? '软件主题' : '直播姬风格'}`, `Switch to ${liveThemeEnabled ? 'app theme' : 'streamer theme'}`)" @click="toggleLiveTheme">{{ liveThemeLabel }}</button>
-          <button class="small-btn" @click="clearMessages">{{ l('清空消息', 'Clear messages') }}</button>
+          <span>{{t('danmaku.audience') }} {{ status.online }}</span>
+          <span>{{t('danmaku.messages') }} {{ status.message_count }}</span>
+          <button v-if="liveRoom" class="small-btn" :disabled="rankLoading" @click="refreshContributionRank">{{ rankLoading ?t('danmaku.loading_ranking') :t('danmaku.refresh_ranking') }}</button>
+          <button class="small-btn" :title="t('danmaku.switch_to_theme', { theme: locale.startsWith('zh') ? (liveThemeEnabled ? '软件主题' : '直播姬风格') : (liveThemeEnabled ? 'app theme' : 'streamer theme') })" @click="toggleLiveTheme">{{ liveThemeLabel }}</button>
+          <button class="small-btn" @click="clearMessages">{{t('danmaku.clear_messages') }}</button>
         </div>
       </header>
 
@@ -981,29 +985,29 @@ onUnmounted(() => {
         {{ error || status.last_error || liveManageError }}
       </div>
 
-      <div class="live-toolbar" :aria-label="l('消息分类', 'Message categories')">
-        <button class="filter-pill" :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">{{ l('全部', 'All') }}</button>
-        <button class="filter-pill" :class="{ active: activeFilter === 'danmaku' }" @click="activeFilter = 'danmaku'">{{ l('弹幕', 'Danmaku') }}</button>
-        <button class="filter-pill" :class="{ active: activeFilter === 'gift' }" @click="activeFilter = 'gift'">{{ l('礼物', 'Gifts') }}</button>
+      <div class="live-toolbar" :aria-label="t('danmaku.message_categories')">
+        <button class="filter-pill" :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">{{t('danmaku.all') }}</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'danmaku' }" @click="activeFilter = 'danmaku'">{{t('danmaku.danmaku') }}</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'gift' }" @click="activeFilter = 'gift'">{{t('danmaku.gifts') }}</button>
         <button class="filter-pill" :class="{ active: activeFilter === 'sc' }" @click="activeFilter = 'sc'">SC</button>
-        <button class="filter-pill" :class="{ active: activeFilter === 'guard' }" @click="activeFilter = 'guard'">{{ l('舰长', 'Guards') }}</button>
+        <button class="filter-pill" :class="{ active: activeFilter === 'guard' }" @click="activeFilter = 'guard'">{{t('danmaku.guards') }}</button>
       </div>
 
       <div v-if="liveRoom && hasLiveSession" class="send-bar">
-        <input v-model="outgoingDanmaku" class="dark-input" maxlength="30" :placeholder="l('发送 Bilibili 弹幕（最多 30 字）', 'Send a Bilibili message (30 characters max)')" @keydown.enter="sendLiveDanmaku">
+        <input v-model="outgoingDanmaku" class="dark-input" maxlength="30" :placeholder="t('danmaku.send_a_bilibili_message_30_characters_ma')" @keydown.enter="sendLiveDanmaku">
         <span>{{ outgoingDanmaku.length }}/30</span>
-        <button class="primary-btn" :disabled="sendDanmakuLoading || !outgoingDanmaku.trim()" @click="sendLiveDanmaku">{{ l('发送', 'Send') }}</button>
+        <button class="primary-btn" :disabled="sendDanmakuLoading || !outgoingDanmaku.trim()" @click="sendLiveDanmaku">{{t('danmaku.send') }}</button>
       </div>
 
       <div v-if="contributionRank.length" class="rank-strip">
-        <strong>{{ l('在线贡献榜', 'Top Contributors') }}</strong>
+        <strong>{{t('danmaku.top_contributors') }}</strong>
         <span v-for="item in contributionRank.slice(0, 5)" :key="item.uid">#{{ item.rank }} {{ item.name }} · {{ item.score }}</span>
       </div>
 
       <div class="live-feed">
         <div v-if="!activeMessages.length" class="live-empty">
-          <strong>{{ status.running ? l('正在等待真实直播消息', 'Waiting for live messages') : l('连接直播间后显示互动消息', 'Connect to a live room to see interactions') }}</strong>
-          <span>{{ l('普通弹幕、礼物、SC、舰长、进入与关注会分层显示，并同步到 VR 面板。', 'Messages, gifts, Super Chats, guards, joins, and follows are grouped and synced to the VR panel.') }}</span>
+          <strong>{{ status.running ?t('danmaku.waiting_for_live_messages') :t('danmaku.connect_to_a_live_room_to_see_interactio') }}</strong>
+          <span>{{t('danmaku.messages_gifts_super_chats_guards_joins_') }}</span>
         </div>
 
         <article
@@ -1015,7 +1019,7 @@ onUnmounted(() => {
           <div class="message-avatar" aria-hidden="true">{{ message.user.trim().charAt(0) || 'B' }}</div>
           <div class="message-content">
             <div class="message-meta">
-              <strong :title="message.user">{{ message.user || l('系统', 'System') }}</strong>
+              <strong :title="message.user">{{ message.user ||t('danmaku.system') }}</strong>
               <span v-if="message.medal_name" class="medal-badge">
                 {{ message.medal_name }} {{ message.medal_level || '' }}
               </span>
@@ -1023,7 +1027,7 @@ onUnmounted(() => {
               <time>{{ formatMessageTime(message) }}</time>
             </div>
             <p v-if="message.text" :title="message.text">{{ message.text }}</p>
-            <p v-else class="message-placeholder">{{ l(`${eventLabel(message)}消息`, `${eventLabel(message)} event`) }}</p>
+            <p v-else class="message-placeholder">{{ t('danmaku.event_message', { label: eventLabel(message) }) }}</p>
             <div v-if="message.price || message.gift_count" class="message-value">
               <span v-if="message.price">¥{{ message.price.toFixed(2) }}</span>
               <span v-if="message.gift_count">× {{ message.gift_count }}</span>
@@ -1033,9 +1037,9 @@ onUnmounted(() => {
       </div>
 
       <details class="runtime-log">
-        <summary>{{ l('运行日志', 'Runtime log') }} <span>{{ logs.length }}</span></summary>
+        <summary>{{t('danmaku.runtime_log') }} <span>{{ logs.length }}</span></summary>
         <div class="runtime-log-actions">
-          <button class="small-btn" @click="clearLog">{{ l('清空日志', 'Clear log') }}</button>
+          <button class="small-btn" @click="clearLog">{{t('danmaku.clear_log') }}</button>
         </div>
         <div class="runtime-log-body">
           <div v-for="line in logs" :key="line" class="log-entry">{{ line }}</div>
@@ -1045,15 +1049,15 @@ onUnmounted(() => {
 
     <div v-if="qrModalOpen" class="modal-mask">
       <div class="qr-modal">
-        <h2>{{ l('Bilibili 扫码登录', 'Bilibili QR sign-in') }}</h2>
+        <h2>{{t('danmaku.bilibili_qr_sign_in') }}</h2>
         <p>{{ qrStatusText }}</p>
         <div class="qr-box">
-          <span v-if="!qrCodeUrl">{{ l('生成中...', 'Generating...') }}</span>
+          <span v-if="!qrCodeUrl">{{t('danmaku.generating') }}</span>
           <img v-else :src="qrCodeUrl" alt="Bilibili login QR code">
         </div>
         <div class="btn-row">
-          <button class="small-btn" @click="closeBiliLogin">{{ l('关闭', 'Close') }}</button>
-          <button class="primary-btn" :disabled="qrLoading" @click="openBiliLogin">{{ l('重新生成', 'Generate again') }}</button>
+          <button class="small-btn" @click="closeBiliLogin">{{t('danmaku.close') }}</button>
+          <button class="primary-btn" :disabled="qrLoading" @click="openBiliLogin">{{t('danmaku.generate_again') }}</button>
         </div>
       </div>
     </div>

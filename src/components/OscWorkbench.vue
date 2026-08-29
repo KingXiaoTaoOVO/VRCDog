@@ -65,8 +65,7 @@ interface SendHistoryItem extends OscPreset {
 }
 
 const authStore = useAuthStore();
-const { locale } = useI18n();
-const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
+const { t } = useI18n();
 const storageKey = 'vrcdog.osc.workbench.v2';
 const legacyStorageKey = 'livehime.osc.workbench.v2';
 const activeTab = ref<OscTab>('send');
@@ -87,9 +86,9 @@ const sender = ref({
 
 const presetName = ref('');
 const presets = ref<OscPreset[]>([
-  { id: 'cpu', name: l('CPU 参数', 'CPU parameter'), address: '/avatar/parameters/SystemCPU', valueType: 'float', value: '0.5' },
-  { id: 'ram', name: l('RAM 参数', 'RAM parameter'), address: '/avatar/parameters/SystemRAM', valueType: 'float', value: '0.5' },
-  { id: 'chat-typing', name: l('Chatbox 输入中', 'Chatbox typing'), address: '/chatbox/typing', valueType: 'bool', value: 'true' },
+  { id: 'cpu', name:t('osc.cpu_parameter'), address: '/avatar/parameters/SystemCPU', valueType: 'float', value: '0.5' },
+  { id: 'ram', name:t('osc.ram_parameter'), address: '/avatar/parameters/SystemRAM', valueType: 'float', value: '0.5' },
+  { id: 'chat-typing', name:t('osc.chatbox_typing'), address: '/chatbox/typing', valueType: 'bool', value: 'true' },
 ]);
 const sendHistory = ref<SendHistoryItem[]>([]);
 const actionStatus = ref({ type: '', message: '' });
@@ -190,11 +189,11 @@ const routeStatus = ref('');
 const avatarProfileStatus = ref('');
 
 const tabs = computed<{ id: OscTab; label: string; icon: any }[]>(() => [
-  { id: 'send', label: l('参数发送', 'Send'), icon: Send },
-  { id: 'monitor', label: l('实时监听', 'Monitor'), icon: Monitor },
+  { id: 'send', label:t('osc.send'), icon: Send },
+  { id: 'monitor', label:t('osc.monitor'), icon: Monitor },
   { id: 'chatbox', label: 'Chatbox', icon: MessageSquare },
-  { id: 'automation', label: l('自动映射', 'Automation'), icon: Gauge },
-  { id: 'router', label: l('路由', 'Router'), icon: Route },
+  { id: 'automation', label:t('osc.automation'), icon: Gauge },
+  { id: 'router', label:t('osc.router'), icon: Route },
 ]);
 
 const valueTypes: { id: OscValueType; label: string }[] = [
@@ -206,28 +205,28 @@ const valueTypes: { id: OscValueType; label: string }[] = [
 ];
 
 const sourceOptions = computed(() => [
-  { value: 'cpu_usage', label: l('CPU 使用率 0-1', 'CPU usage 0-1') },
-  { value: 'ram_usage', label: l('RAM 使用率 0-1', 'RAM usage 0-1') },
-  { value: 'gpu_usage', label: l('GPU 使用率 0-1', 'GPU usage 0-1') },
-  { value: 'memory_used_gb', label: l('已用内存 GB', 'Memory used (GB)') },
-  { value: 'memory_total_gb', label: l('总内存 GB', 'Total memory (GB)') },
-  { value: 'gpu_memory_used_gb', label: l('已用显存 GB', 'VRAM used (GB)') },
-  { value: 'gpu_memory_total_gb', label: l('总显存 GB', 'Total VRAM (GB)') },
-  { value: 'disk_usage', label: l('磁盘使用率 0-1', 'Disk usage 0-1') },
-  { value: 'disk_used_gb', label: l('已用磁盘 GB', 'Disk used (GB)') },
-  { value: 'disk_total_gb', label: l('总磁盘 GB', 'Total disk (GB)') },
-  { value: 'cpu_physical_cores', label: l('CPU 物理核心数', 'CPU physical cores') },
-  { value: 'cpu_logical_cores', label: l('CPU 线程数', 'CPU threads') },
-  { value: 'cpu_frequency_mhz', label: l('CPU 频率 MHz', 'CPU frequency (MHz)') },
-  { value: 'system_uptime_seconds', label: l('系统运行秒数', 'System uptime (seconds)') },
-  { value: 'idle_seconds', label: l('挂机秒数', 'Idle time (seconds)') },
-  { value: 'vrc_running', label: l('VRChat 运行状态', 'VRChat running') },
-  { value: 'local_hour', label: l('本地小时', 'Local hour') },
-  { value: 'local_minute', label: l('本地分钟', 'Local minute') },
-  { value: 'local_second', label: l('本地秒', 'Local second') },
-  { value: 'local_time_of_day', label: l('当天进度 0-1', 'Time of day 0-1') },
-  { value: 'utc_hour', label: l('UTC 小时', 'UTC hour') },
-  { value: 'random', label: l('随机值 0-1', 'Random value 0-1') },
+  { value: 'cpu_usage', label:t('osc.cpu_usage_0_1') },
+  { value: 'ram_usage', label:t('osc.ram_usage_0_1') },
+  { value: 'gpu_usage', label:t('osc.gpu_usage_0_1') },
+  { value: 'memory_used_gb', label:t('osc.memory_used_gb') },
+  { value: 'memory_total_gb', label:t('osc.total_memory_gb') },
+  { value: 'gpu_memory_used_gb', label:t('osc.vram_used_gb') },
+  { value: 'gpu_memory_total_gb', label:t('osc.total_vram_gb') },
+  { value: 'disk_usage', label:t('osc.disk_usage_0_1') },
+  { value: 'disk_used_gb', label:t('osc.disk_used_gb') },
+  { value: 'disk_total_gb', label:t('osc.total_disk_gb') },
+  { value: 'cpu_physical_cores', label:t('osc.cpu_physical_cores') },
+  { value: 'cpu_logical_cores', label:t('osc.cpu_threads') },
+  { value: 'cpu_frequency_mhz', label:t('osc.cpu_frequency_mhz') },
+  { value: 'system_uptime_seconds', label:t('osc.system_uptime_seconds') },
+  { value: 'idle_seconds', label:t('osc.idle_time_seconds') },
+  { value: 'vrc_running', label:t('osc.vrchat_running') },
+  { value: 'local_hour', label:t('osc.local_hour') },
+  { value: 'local_minute', label:t('osc.local_minute') },
+  { value: 'local_second', label:t('osc.local_second') },
+  { value: 'local_time_of_day', label:t('osc.time_of_day_0_1') },
+  { value: 'utc_hour', label:t('osc.utc_hour') },
+  { value: 'random', label:t('osc.random_value_0_1') },
 ]);
 
 const filteredMonitorEvents = computed(() => {
@@ -274,10 +273,10 @@ const renderedChatbox = computed(() => {
     '{os}': snapshot.value.osName,
     '{host}': snapshot.value.hostName,
     '{uptime}': formatDuration(snapshot.value.systemUptimeSeconds),
-    '{idle}': snapshot.value.idleSeconds > 0 ? `[${l('挂机', 'Idle')} ${formatIdle(snapshot.value.idleSeconds)}]` : '',
-    '{window}': snapshot.value.activeWindow ? `[${l('窗口', 'Window')} ${truncateOscText(snapshot.value.activeWindow, 36)}]` : '',
-    '{heart_rate}': heartRate.value > 0 ? `[${l('心率', 'Heart rate')} ${heartRate.value} BPM]` : '',
-    '{music}': musicText.value.trim() ? `[${l('音乐', 'Music')} ${musicText.value.trim()}]` : '',
+    '{idle}': snapshot.value.idleSeconds > 0 ? `[${t('osc.idle')} ${formatIdle(snapshot.value.idleSeconds)}]` : '',
+    '{window}': snapshot.value.activeWindow ? `[${t('osc.window')} ${truncateOscText(snapshot.value.activeWindow, 36)}]` : '',
+    '{heart_rate}': heartRate.value > 0 ? `[${t('osc.heart_rate')} ${heartRate.value} BPM]` : '',
+    '{music}': musicText.value.trim() ? `[${t('osc.music')} ${musicText.value.trim()}]` : '',
   };
   return renderOscTemplate(chatTemplate.value, replacements);
 });
@@ -308,7 +307,7 @@ async function sendCurrentParameter() {
   actionStatus.value = { type: '', message: '' };
   try {
     const value = valueForApi(sender.value.valueType, sender.value.value);
-    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(l('请输入有效数值', 'Enter a valid number'));
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(t('osc.enter_a_valid_number'));
     await OscApi.sendMessage({
       host: endpoint.value.host,
       port: Number(endpoint.value.port),
@@ -325,7 +324,7 @@ async function sendCurrentParameter() {
       sentAt: new Date().toISOString(),
     });
     sendHistory.value = sendHistory.value.slice(0, 30);
-    actionStatus.value = { type: 'success', message: l('OSC 参数已发送', 'OSC parameter sent') };
+    actionStatus.value = { type: 'success', message:t('osc.osc_parameter_sent') };
   } catch (error: any) {
     actionStatus.value = { type: 'error', message: error?.message || String(error) };
   } finally {
@@ -385,8 +384,8 @@ async function applyRoutes() {
       });
     }
     routeStatus.value = monitorRunning.value
-      ? l('路由规则已应用，监听器已重启', 'Routes applied and monitor restarted')
-      : l('路由规则已保存，启动监听后生效', 'Routes saved and will apply when monitoring starts');
+      ?t('osc.routes_applied_and_monitor_restarted')
+      :t('osc.routes_saved_and_will_apply_when_monitor');
   } catch (error: any) {
     routeStatus.value = error?.message || String(error);
   }
@@ -503,7 +502,7 @@ async function refreshSnapshot() {
   try {
     snapshot.value = await OscApi.getSystemSnapshot();
   } catch (error: any) {
-    snapshotError.value = error?.message || l('系统信息检测失败', 'System information check failed');
+    snapshotError.value = error?.message ||t('osc.system_information_check_failed');
   } finally {
     snapshotLoading.value = false;
   }
@@ -544,7 +543,7 @@ async function sendChatbox() {
   try {
     await refreshSnapshot();
     await sendChatText(renderedChatbox.value);
-    chatStatus.value = { type: 'success', message: l('Chatbox 消息已发送', 'Chatbox message sent') };
+    chatStatus.value = { type: 'success', message:t('osc.chatbox_message_sent') };
   } catch (error: any) {
     chatStatus.value = { type: 'error', message: error?.message || String(error) };
   }
@@ -610,23 +609,23 @@ function profilePayload() {
 
 function saveAvatarProfile() {
   if (!currentAvatarId.value) {
-    avatarProfileStatus.value = l('当前用户没有可识别的头像 ID', 'No avatar ID is available for the current user');
+    avatarProfileStatus.value = t('osc.no_avatar_id_is_available_for_the_curren');
     return;
   }
   localStorage.setItem(`vrcdog.osc.avatar.${currentAvatarId.value}`, JSON.stringify(profilePayload()));
-  avatarProfileStatus.value = l('已保存当前头像 OSC 配置', 'Current avatar OSC profile saved');
+  avatarProfileStatus.value = t('osc.current_avatar_osc_profile_saved');
 }
 
 function loadAvatarProfile() {
   if (!currentAvatarId.value) {
-    avatarProfileStatus.value = l('当前用户没有可识别的头像 ID', 'No avatar ID is available for the current user');
+    avatarProfileStatus.value = t('osc.no_avatar_id_is_available_for_the_curren');
     return;
   }
   const profileKey = `vrcdog.osc.avatar.${currentAvatarId.value}`;
   const legacyProfileKey = `livehime.osc.avatar.${currentAvatarId.value}`;
   const raw = localStorage.getItem(profileKey) || localStorage.getItem(legacyProfileKey);
   if (!raw) {
-    avatarProfileStatus.value = l('当前头像还没有保存配置', 'No saved profile exists for the current avatar');
+    avatarProfileStatus.value = t('osc.no_saved_profile_exists_for_the_current_');
     return;
   }
   try {
@@ -637,9 +636,9 @@ function loadAvatarProfile() {
     if (typeof data.chatTemplate === 'string') chatTemplate.value = data.chatTemplate;
     if (Array.isArray(data.mappings)) mappings.value = data.mappings;
     if (Array.isArray(data.routes)) routes.value = data.routes;
-    avatarProfileStatus.value = l('已载入当前头像 OSC 配置', 'Current avatar OSC profile loaded');
+    avatarProfileStatus.value = t('osc.current_avatar_osc_profile_loaded');
   } catch {
-    avatarProfileStatus.value = l('头像配置损坏，无法载入', 'The avatar profile is damaged and could not be loaded');
+    avatarProfileStatus.value = t('osc.the_avatar_profile_is_damaged_and_could_');
   }
 }
 
@@ -799,48 +798,48 @@ onUnmounted(() => {
       <div class="osc-title">
         <span class="title-icon"><Radio :size="20" /></span>
         <div>
-          <h3>{{ l('OSC 工作台', 'OSC Workbench') }}</h3>
-          <p>{{ l('参数、监听、Chatbox、硬件映射与路由集中管理', 'Manage parameters, monitoring, Chatbox, hardware mapping, and routing') }}</p>
+          <h3>{{t('osc.osc_workbench') }}</h3>
+          <p>{{t('osc.manage_parameters_monitoring_chatbox_har') }}</p>
         </div>
       </div>
 
       <div class="runtime-badges">
         <span :class="{ active: monitorRunning }">
-          <Monitor :size="13" /> {{ monitorRunning ? l('监听中', 'Monitoring') : l('未监听', 'Not monitoring') }}
+          <Monitor :size="13" /> {{ monitorRunning ?t('osc.monitoring') :t('osc.not_monitoring') }}
         </span>
         <span :class="{ active: automationRunning }">
-          <Activity :size="13" /> {{ automationRunning ? l('映射中', 'Mapping') : l('未映射', 'Not mapping') }}
+          <Activity :size="13" /> {{ automationRunning ?t('osc.mapping') :t('osc.not_mapping') }}
         </span>
         <span :class="{ active: snapshot.vrcRunning }">
-          <Radio :size="13" /> {{ snapshot.vrcRunning ? l('VRChat 运行中', 'VRChat running') : l('VRChat 未运行', 'VRChat not running') }}
+          <Radio :size="13" /> {{ snapshot.vrcRunning ?t('osc.vrchat_running_1') :t('osc.vrchat_not_running') }}
         </span>
       </div>
     </header>
 
     <div class="endpoint-bar">
       <label>
-        <span>{{ l('目标', 'Target') }}</span>
-        <input v-model.trim="endpoint.host" :aria-label="l('OSC 目标主机', 'OSC target host')">
-        <input v-model.number="endpoint.port" class="port-input" type="number" min="1" max="65535" :aria-label="l('OSC 目标端口', 'OSC target port')">
+        <span>{{t('osc.target') }}</span>
+        <input v-model.trim="endpoint.host" :aria-label="t('osc.osc_target_host')">
+        <input v-model.number="endpoint.port" class="port-input" type="number" min="1" max="65535" :aria-label="t('osc.osc_target_port')">
       </label>
       <label>
-        <span>{{ l('监听', 'Monitor') }}</span>
-        <input v-model.trim="endpoint.monitorHost" :aria-label="l('OSC 监听主机', 'OSC monitor host')">
-        <input v-model.number="endpoint.monitorPort" class="port-input" type="number" min="1" max="65535" :aria-label="l('OSC 监听端口', 'OSC monitor port')">
+        <span>{{t('osc.monitor_1') }}</span>
+        <input v-model.trim="endpoint.monitorHost" :aria-label="t('osc.osc_monitor_host')">
+        <input v-model.number="endpoint.monitorPort" class="port-input" type="number" min="1" max="65535" :aria-label="t('osc.osc_monitor_port')">
       </label>
       <div class="profile-actions">
-        <button :title="l('保存当前头像配置', 'Save current avatar profile')" :disabled="!currentAvatarId" @click="saveAvatarProfile">
-          <Save :size="15" /> {{ l('保存头像配置', 'Save avatar profile') }}
+        <button :title="t('osc.save_current_avatar_profile')" :disabled="!currentAvatarId" @click="saveAvatarProfile">
+          <Save :size="15" /> {{t('osc.save_avatar_profile') }}
         </button>
-        <button :title="l('载入当前头像配置', 'Load current avatar profile')" :disabled="!currentAvatarId" @click="loadAvatarProfile">
-          <RefreshCcw :size="15" /> {{ l('载入', 'Load') }}
+        <button :title="t('osc.load_current_avatar_profile')" :disabled="!currentAvatarId" @click="loadAvatarProfile">
+          <RefreshCcw :size="15" /> {{t('osc.load') }}
         </button>
       </div>
     </div>
 
     <p v-if="avatarProfileStatus" class="inline-status">{{ avatarProfileStatus }}</p>
 
-    <nav class="osc-tabs" :aria-label="l('OSC 功能', 'OSC tools')">
+    <nav class="osc-tabs" :aria-label="t('osc.osc_tools')">
       <button
         v-for="tab in tabs"
         :key="tab.id"
@@ -858,18 +857,18 @@ onUnmounted(() => {
           <div class="editor-pane">
             <div class="section-heading">
               <div>
-                <strong>{{ l('参数编辑器', 'Parameter editor') }}</strong>
-                <span>{{ l('支持 VRChat Avatar 参数与任意 OSC 地址', 'Supports VRChat avatar parameters and any OSC address') }}</span>
+                <strong>{{t('osc.parameter_editor') }}</strong>
+                <span>{{t('osc.supports_vrchat_avatar_parameters_and_an') }}</span>
               </div>
             </div>
 
             <label class="field">
-              <span>{{ l('OSC 地址', 'OSC address') }}</span>
+              <span>{{t('osc.osc_address') }}</span>
               <input v-model.trim="sender.address" placeholder="/avatar/parameters/ParameterName" @keydown.enter="sendCurrentParameter">
             </label>
 
             <div class="field">
-              <span>{{ l('参数类型', 'Value type') }}</span>
+              <span>{{t('osc.value_type') }}</span>
               <div class="segmented">
                 <button
                   v-for="type in valueTypes"
@@ -883,14 +882,14 @@ onUnmounted(() => {
             </div>
 
             <label v-if="sender.valueType === 'bool'" class="field">
-              <span>{{ l('布尔值', 'Boolean value') }}</span>
+              <span>{{t('osc.boolean_value') }}</span>
               <div class="segmented compact">
                 <button :class="{ active: sender.value === 'true' }" @click="sender.value = 'true'">True</button>
                 <button :class="{ active: sender.value === 'false' }" @click="sender.value = 'false'">False</button>
               </div>
             </label>
             <label v-else-if="sender.valueType !== 'impulse'" class="field">
-              <span>{{ l('参数值', 'Value') }}</span>
+              <span>{{t('osc.value') }}</span>
               <input
                 v-model="sender.value"
                 :type="['float', 'double', 'int', 'long'].includes(sender.valueType) ? 'number' : 'text'"
@@ -903,10 +902,10 @@ onUnmounted(() => {
               <button class="primary" :disabled="sending || !sender.address" @click="sendCurrentParameter">
                 <RefreshCcw v-if="sending" class="spin" :size="16" />
                 <Send v-else :size="16" />
-                {{ l('发送参数', 'Send parameter') }}
+                {{t('osc.send_parameter') }}
               </button>
-              <input v-model="presetName" :placeholder="l('预设名称', 'Preset name')">
-              <button :title="l('保存为预设', 'Save as preset')" @click="savePreset"><Save :size="16" /></button>
+              <input v-model="presetName" :placeholder="t('osc.preset_name')">
+              <button :title="t('osc.save_as_preset')" @click="savePreset"><Save :size="16" /></button>
             </div>
 
             <p v-if="actionStatus.message" class="inline-status" :class="actionStatus.type">
@@ -917,7 +916,7 @@ onUnmounted(() => {
           <aside class="side-pane">
             <div class="section-heading">
               <div>
-                <strong>{{ l('快捷预设', 'Quick presets') }}</strong>
+                <strong>{{t('osc.quick_presets') }}</strong>
                 <span>{{ presets.length }}</span>
               </div>
             </div>
@@ -934,17 +933,17 @@ onUnmounted(() => {
 
             <div class="section-heading history-heading">
               <div>
-                <strong>{{ l('发送历史', 'Send history') }}</strong>
-                <span>{{ l('最近', 'Latest') }} {{ sendHistory.length }}</span>
+                <strong>{{t('osc.send_history') }}</strong>
+                <span>{{t('osc.latest') }} {{ sendHistory.length }}</span>
               </div>
-              <button :title="l('清空历史', 'Clear history')" @click="sendHistory = []"><Trash2 :size="14" /></button>
+              <button :title="t('osc.clear_history')" @click="sendHistory = []"><Trash2 :size="14" /></button>
             </div>
             <div class="history-list">
               <button v-for="item in sendHistory.slice(0, 10)" :key="item.id" @click="applyPreset(item)">
                 <span>{{ item.address }}</span>
                 <code>{{ item.value }}</code>
               </button>
-              <p v-if="sendHistory.length === 0" class="empty-text">{{ l('发送后会保留快捷历史', 'Recently sent parameters appear here') }}</p>
+              <p v-if="sendHistory.length === 0" class="empty-text">{{t('osc.recently_sent_parameters_appear_here') }}</p>
             </div>
           </aside>
         </div>
@@ -955,20 +954,20 @@ onUnmounted(() => {
           <button class="primary" :class="{ danger: monitorRunning }" @click="toggleMonitor">
             <Square v-if="monitorRunning" :size="15" />
             <Play v-else :size="15" />
-            {{ monitorRunning ? l('停止监听', 'Stop monitor') : l('开始监听', 'Start monitor') }}
+            {{ monitorRunning ?t('osc.stop_monitor') :t('osc.start_monitor') }}
           </button>
           <label class="filter-field">
-            <span>{{ l('过滤', 'Filter') }}</span>
+            <span>{{t('osc.filter') }}</span>
             <input v-model="monitorFilter" placeholder="/avatar/parameters/">
           </label>
           <label class="filter-field">
-            <span>{{ l('来源', 'Source') }}</span>
+            <span>{{t('osc.source') }}</span>
             <input v-model="monitorSourceFilter" placeholder="127.0.0.1">
           </label>
-          <button :class="{ active: monitorPaused }" :title="l('暂停日志显示', 'Pause log display')" @click="monitorPaused = !monitorPaused">
-            <Pause :size="15" /> {{ monitorPaused ? l('已暂停', 'Paused') : l('暂停', 'Pause') }}
+          <button :class="{ active: monitorPaused }" :title="t('osc.pause_log_display')" @click="monitorPaused = !monitorPaused">
+            <Pause :size="15" /> {{ monitorPaused ?t('osc.paused') :t('osc.pause') }}
           </button>
-          <button :title="l('清空日志', 'Clear log')" @click="monitorEvents = []"><Trash2 :size="15" /></button>
+          <button :title="t('osc.clear_log')" @click="monitorEvents = []"><Trash2 :size="15" /></button>
           <span class="event-count">{{ filteredMonitorEvents.length }}</span>
         </div>
 
@@ -976,10 +975,10 @@ onUnmounted(() => {
 
         <div class="monitor-table">
           <div class="monitor-row monitor-header">
-            <span>{{ l('时间', 'Time') }}</span>
-            <span>{{ l('地址', 'Address') }}</span>
-            <span>{{ l('值', 'Value') }}</span>
-            <span>{{ l('来源', 'Source') }}</span>
+            <span>{{t('osc.time') }}</span>
+            <span>{{t('osc.address') }}</span>
+            <span>{{t('osc.value_1') }}</span>
+            <span>{{t('osc.source') }}</span>
           </div>
           <button
             v-for="(event, index) in filteredMonitorEvents"
@@ -994,27 +993,27 @@ onUnmounted(() => {
               <code v-if="event.args.length === 0">impulse</code>
             </span>
             <small>{{ event.sender }}</small>
-            <button class="copy-btn" :title="l('复制', 'Copy')" @click.stop="copyMonitorEvent(event)">
+            <button class="copy-btn" :title="t('osc.copy')" @click.stop="copyMonitorEvent(event)">
               <Copy :size="12" />
             </button>
           </button>
           <div v-if="filteredMonitorEvents.length === 0" class="monitor-empty">
             <Radio :size="30" />
             <strong>{{ monitorRunning
-              ? l('正在监听，等待数据', 'Listening, waiting for data')
-              : l('等待 OSC 数据', 'Waiting for OSC data') }}</strong>
-            <span v-if="monitorRunning">{{ l('当前监听', 'Currently listening on') }} {{ endpoint.monitorHost }}:{{ endpoint.monitorPort }}</span>
-            <span v-else>{{ l('VRChat 常用回传端口为 9001', 'VRChat commonly sends data on port 9001') }}</span>
+              ?t('osc.listening_waiting_for_data')
+              :t('osc.waiting_for_osc_data') }}</strong>
+            <span v-if="monitorRunning">{{t('osc.currently_listening_on') }} {{ endpoint.monitorHost }}:{{ endpoint.monitorPort }}</span>
+            <span v-else>{{t('osc.vrchat_commonly_sends_data_on_port_9001') }}</span>
           </div>
         </div>
 
         <div class="heart-capture">
           <HeartPulse :size="17" />
           <label>
-            <span>{{ l('心率捕获地址', 'Heart-rate address') }}</span>
+            <span>{{t('osc.heart_rate_address') }}</span>
             <input v-model.trim="heartRateAddress" placeholder="/avatar/parameters/HeartRate">
           </label>
-          <strong>{{ heartRate > 0 ? `${heartRate} BPM` : l('等待数据', 'Waiting for data') }}</strong>
+          <strong>{{ heartRate > 0 ? `${heartRate} BPM` :t('osc.waiting_for_data') }}</strong>
         </div>
       </template>
 
@@ -1023,18 +1022,18 @@ onUnmounted(() => {
           <div class="editor-pane">
             <div class="section-heading">
               <div>
-                <strong>{{ l('Chatbox 模板', 'Chatbox template') }}</strong>
-                <span>{{ l('最终内容自动限制为 144 字符', 'Final output is limited to 144 characters') }}</span>
+                <strong>{{t('osc.chatbox_template') }}</strong>
+                <span>{{t('osc.final_output_is_limited_to_144_character') }}</span>
               </div>
               <span class="char-count" :class="{ warn: renderedChatboxLength >= 136 }">{{ renderedChatboxLength }}/144</span>
             </div>
 
             <label class="field">
-              <span>{{ l('消息正文', 'Message') }}</span>
-              <textarea v-model="chatMessage" rows="3" :placeholder="l('输入消息，或只使用模板变量', 'Enter a message or use template variables')"></textarea>
+              <span>{{t('osc.message') }}</span>
+              <textarea v-model="chatMessage" rows="3" :placeholder="t('osc.enter_a_message_or_use_template_variable')"></textarea>
             </label>
             <label class="field">
-              <span>{{ l('模板', 'Template') }}</span>
+              <span>{{t('osc.template') }}</span>
               <textarea v-model="chatTemplate" rows="4"></textarea>
             </label>
 
@@ -1049,26 +1048,26 @@ onUnmounted(() => {
             </div>
 
             <label class="field">
-              <span>{{ l('音乐信息', 'Music') }}</span>
-              <input v-model="musicText" :placeholder="l('可选：歌曲名 - 艺术家', 'Optional: track - artist')">
+              <span>{{t('osc.music_1') }}</span>
+              <input v-model="musicText" :placeholder="t('osc.optional_track_artist')">
             </label>
 
             <div class="toggle-row">
-              <label><input v-model="typingEnabled" type="checkbox"> {{ l('输入时同步 typing 状态', 'Sync typing state while editing') }}</label>
-              <label><input v-model="chatNotify" type="checkbox"> {{ l('Chatbox 提示音', 'Chatbox notification sound') }}</label>
+              <label><input v-model="typingEnabled" type="checkbox"> {{t('osc.sync_typing_state_while_editing') }}</label>
+              <label><input v-model="chatNotify" type="checkbox"> {{t('osc.chatbox_notification_sound') }}</label>
             </div>
             <div class="toggle-row">
               <label>
-                <span class="text-[10px] font-bold" :class="keepaliveActive ? 'text-emerald-500' : 'text-text-muted'">{{ keepaliveActive ? l('保活中', 'Keepalive active') : l('保活未启动', 'Keepalive idle') }}</span>
+                <span class="text-[10px] font-bold" :class="keepaliveActive ? 'text-emerald-500' : 'text-text-muted'">{{ keepaliveActive ?t('osc.keepalive_active') :t('osc.keepalive_idle') }}</span>
               </label>
             </div>
 
             <div class="primary-actions">
               <button class="primary" :disabled="!renderedChatbox" @click="sendChatbox">
-                <Send :size="16" /> {{ l('立即发送', 'Send now') }}
+                <Send :size="16" /> {{t('osc.send_now') }}
               </button>
               <button :disabled="!renderedChatbox" @click="addChatToQueue">
-                <Plus :size="16" /> {{ l('加入队列', 'Add to queue') }}
+                <Plus :size="16" /> {{t('osc.add_to_queue') }}
               </button>
             </div>
             <p v-if="chatStatus.message" class="inline-status" :class="chatStatus.type">
@@ -1079,51 +1078,51 @@ onUnmounted(() => {
           <aside class="chat-preview">
             <div class="section-heading">
               <div>
-                <strong>{{ l('实时预览', 'Live preview') }}</strong>
+                <strong>{{t('osc.live_preview') }}</strong>
                 <span>{{ snapshot.localTime }}</span>
               </div>
-              <button :title="l('刷新系统信息', 'Refresh system information')" :disabled="snapshotLoading" @click="refreshSnapshot">
+              <button :title="t('osc.refresh_system_information')" :disabled="snapshotLoading" @click="refreshSnapshot">
                 <RefreshCcw :size="14" :class="{ spin: snapshotLoading }" />
               </button>
             </div>
-            <pre>{{ renderedChatbox || l('输入消息或插入模板变量', 'Enter a message or insert template variables') }}</pre>
+            <pre>{{ renderedChatbox ||t('osc.enter_a_message_or_insert_template_varia') }}</pre>
             <p v-if="snapshotError" class="inline-status error">{{ snapshotError }}</p>
 
             <div class="auto-chat-controls">
               <div class="segmented compact">
-                <button :class="{ active: autoChatMode === 'repeat' }" @click="autoChatMode = 'repeat'">{{ l('循环模板', 'Repeat template') }}</button>
-                <button :class="{ active: autoChatMode === 'queue' }" @click="autoChatMode = 'queue'">{{ l('发送队列', 'Send queue') }}</button>
+                <button :class="{ active: autoChatMode === 'repeat' }" @click="autoChatMode = 'repeat'">{{t('osc.repeat_template') }}</button>
+                <button :class="{ active: autoChatMode === 'queue' }" @click="autoChatMode = 'queue'">{{t('osc.send_queue') }}</button>
               </div>
               <label>
                 <Clock3 :size="14" />
                 <input v-model.number="autoChatInterval" type="number" min="3" max="300">
-                {{ l('秒', 'sec') }}
+                {{t('osc.sec') }}
               </label>
               <button class="primary" :class="{ danger: autoChatRunning }" @click="toggleAutoChat">
                 <Square v-if="autoChatRunning" :size="15" />
                 <Play v-else :size="15" />
-                {{ autoChatRunning ? l('停止', 'Stop') : l('开始定时', 'Start timer') }}
+                {{ autoChatRunning ?t('osc.stop') :t('osc.start_timer') }}
               </button>
             </div>
             <div class="auto-chat-controls">
               <label class="delay-control">
-                <span>{{ l('发送前延迟', 'Send delay') }}</span>
+                <span>{{t('osc.send_delay') }}</span>
                 <input v-model.number="chatSendDelay" type="number" min="0" max="5" step="0.1">
-                {{ l('秒', 'sec') }}
+                {{t('osc.sec') }}
               </label>
-              <span v-if="chatSendDelay > 0" class="hint">{{ l('防止VRChat丢消息', 'Prevents VRChat from dropping the message') }}</span>
+              <span v-if="chatSendDelay > 0" class="hint">{{t('osc.prevents_vrchat_from_dropping_the_messag') }}</span>
             </div>
 
             <div class="queue-head">
-              <strong>{{ l('队列', 'Queue') }} {{ chatQueue.length }}</strong>
-              <button v-if="chatQueue.length" @click="chatQueue = []"><Trash2 :size="13" /> {{ l('清空', 'Clear') }}</button>
+              <strong>{{t('osc.queue') }} {{ chatQueue.length }}</strong>
+              <button v-if="chatQueue.length" @click="chatQueue = []"><Trash2 :size="13" /> {{t('osc.clear') }}</button>
             </div>
             <div class="queue-list">
               <div v-for="(item, index) in chatQueue" :key="`${item}-${index}`">
                 <span>{{ item }}</span>
                 <button @click="chatQueue.splice(index, 1)"><X :size="13" /></button>
               </div>
-              <p v-if="chatQueue.length === 0" class="empty-text">{{ l('队列模式会按顺序发送', 'Queue mode sends messages in order') }}</p>
+              <p v-if="chatQueue.length === 0" class="empty-text">{{t('osc.queue_mode_sends_messages_in_order') }}</p>
             </div>
           </aside>
         </div>
@@ -1131,41 +1130,41 @@ onUnmounted(() => {
 
       <template v-else-if="activeTab === 'automation'">
         <div class="metric-strip">
-          <div><Cpu :size="16" /><span>CPU</span><strong>{{ snapshot.cpuUsage.toFixed(0) }}%</strong><small>{{ snapshot.cpuPhysicalCores || '--' }} {{ l('核', 'cores') }} / {{ snapshot.cpuLogicalCores || '--' }} {{ l('线程', 'threads') }}</small></div>
-          <div><Gauge :size="16" /><span>GPU</span><strong>{{ snapshot.gpuUsage == null ? '--' : `${snapshot.gpuUsage.toFixed(0)}%` }}</strong><small>{{ snapshot.gpuUsage == null ? l('负载不可用', 'Load unavailable') : l('实时负载', 'Live load') }}</small></div>
-          <div><MemoryStick :size="16" /><span>{{ l('内存', 'Memory') }}</span><strong>{{ formatGigabytes(snapshot.memoryUsedGb) }} / {{ formatGigabytes(snapshot.memoryTotalGb) }}</strong><small>{{ snapshot.ramUsage.toFixed(0) }}%</small></div>
-          <div><Server :size="16" /><span>{{ l('显存', 'VRAM') }}</span><strong>{{ formatGigabytes(snapshot.gpuMemoryUsedGb) }} / {{ formatGigabytes(snapshot.gpuMemoryTotalGb) }}</strong><small>{{ snapshot.gpuMemoryTotalGb == null ? l('未提供遥测', 'Telemetry unavailable') : l('专用显存', 'Dedicated VRAM') }}</small></div>
-          <div><HardDrive :size="16" /><span>{{ l('磁盘', 'Disk') }}</span><strong>{{ formatGigabytes(snapshot.diskUsedGb, 0) }} / {{ formatGigabytes(snapshot.diskTotalGb, 0) }}</strong><small>{{ snapshot.diskUsage.toFixed(0) }}%</small></div>
-          <div><Clock3 :size="16" /><span>{{ l('运行时间', 'Uptime') }}</span><strong>{{ formatDuration(snapshot.systemUptimeSeconds) }}</strong><small>{{ l('空闲', 'Idle') }} {{ formatDuration(snapshot.idleSeconds) }}</small></div>
+          <div><Cpu :size="16" /><span>CPU</span><strong>{{ snapshot.cpuUsage.toFixed(0) }}%</strong><small>{{ snapshot.cpuPhysicalCores || '--' }} {{t('osc.cores') }} / {{ snapshot.cpuLogicalCores || '--' }} {{t('osc.threads') }}</small></div>
+          <div><Gauge :size="16" /><span>GPU</span><strong>{{ snapshot.gpuUsage == null ? '--' : `${snapshot.gpuUsage.toFixed(0)}%` }}</strong><small>{{ snapshot.gpuUsage == null ?t('osc.load_unavailable') :t('osc.live_load') }}</small></div>
+          <div><MemoryStick :size="16" /><span>{{t('osc.memory') }}</span><strong>{{ formatGigabytes(snapshot.memoryUsedGb) }} / {{ formatGigabytes(snapshot.memoryTotalGb) }}</strong><small>{{ snapshot.ramUsage.toFixed(0) }}%</small></div>
+          <div><Server :size="16" /><span>{{t('osc.vram') }}</span><strong>{{ formatGigabytes(snapshot.gpuMemoryUsedGb) }} / {{ formatGigabytes(snapshot.gpuMemoryTotalGb) }}</strong><small>{{ snapshot.gpuMemoryTotalGb == null ?t('osc.telemetry_unavailable') :t('osc.dedicated_vram') }}</small></div>
+          <div><HardDrive :size="16" /><span>{{t('osc.disk') }}</span><strong>{{ formatGigabytes(snapshot.diskUsedGb, 0) }} / {{ formatGigabytes(snapshot.diskTotalGb, 0) }}</strong><small>{{ snapshot.diskUsage.toFixed(0) }}%</small></div>
+          <div><Clock3 :size="16" /><span>{{t('osc.uptime') }}</span><strong>{{ formatDuration(snapshot.systemUptimeSeconds) }}</strong><small>{{t('osc.idle_1') }} {{ formatDuration(snapshot.idleSeconds) }}</small></div>
         </div>
 
         <div class="hardware-profile">
           <div class="hardware-profile-head">
-            <div><Activity :size="16" /><strong>{{ l('自动检测到的设备', 'Detected device') }}</strong><span>{{ l('实时', 'Live') }}</span></div>
-            <button :title="l('重新检测系统信息', 'Detect system information again')" :disabled="snapshotLoading" @click="refreshSnapshot">
+            <div><Activity :size="16" /><strong>{{t('osc.detected_device') }}</strong><span>{{t('osc.live') }}</span></div>
+            <button :title="t('osc.detect_system_information_again')" :disabled="snapshotLoading" @click="refreshSnapshot">
               <RefreshCcw :size="14" :class="{ spin: snapshotLoading }" />
             </button>
           </div>
           <dl>
-            <div><dt>{{ l('处理器', 'Processor') }}</dt><dd :title="snapshot.cpuName">{{ snapshot.cpuName || l('未检测到', 'Not detected') }}</dd></div>
-            <div><dt>{{ l('显卡', 'Graphics') }}</dt><dd :title="snapshot.gpuName">{{ snapshot.gpuName || l('未检测到', 'Not detected') }}</dd></div>
-            <div><dt>{{ l('系统', 'System') }}</dt><dd :title="snapshot.osName">{{ snapshot.osName || l('未检测到', 'Not detected') }}</dd></div>
-            <div><dt>{{ l('设备', 'Device') }}</dt><dd>{{ snapshot.hostName || l('未检测到', 'Not detected') }}</dd></div>
+            <div><dt>{{t('osc.processor') }}</dt><dd :title="snapshot.cpuName">{{ snapshot.cpuName ||t('osc.not_detected') }}</dd></div>
+            <div><dt>{{t('osc.graphics') }}</dt><dd :title="snapshot.gpuName">{{ snapshot.gpuName ||t('osc.not_detected') }}</dd></div>
+            <div><dt>{{t('osc.system') }}</dt><dd :title="snapshot.osName">{{ snapshot.osName ||t('osc.not_detected') }}</dd></div>
+            <div><dt>{{t('osc.device') }}</dt><dd>{{ snapshot.hostName ||t('osc.not_detected') }}</dd></div>
           </dl>
         </div>
         <p v-if="snapshotError" class="inline-status error">{{ snapshotError }}</p>
 
         <div class="automation-toolbar">
           <label>
-            <span>{{ l('刷新间隔', 'Refresh interval') }}</span>
+            <span>{{t('osc.refresh_interval') }}</span>
             <input v-model.number="automationInterval" type="number" min="250" max="60000" step="250">
             ms
           </label>
-          <button @click="addMapping"><Plus :size="15" /> {{ l('添加映射', 'Add mapping') }}</button>
+          <button @click="addMapping"><Plus :size="15" /> {{t('osc.add_mapping') }}</button>
           <button class="primary" :class="{ danger: automationRunning }" @click="toggleAutomation">
             <Square v-if="automationRunning" :size="15" />
             <Play v-else :size="15" />
-            {{ automationRunning ? l('停止映射', 'Stop mapping') : l('启动映射', 'Start mapping') }}
+            {{ automationRunning ?t('osc.stop_mapping') :t('osc.start_mapping') }}
           </button>
         </div>
 
@@ -1173,7 +1172,7 @@ onUnmounted(() => {
 
         <div class="mapping-table">
           <div class="mapping-row mapping-header">
-            <span>{{ l('启用', 'Enabled') }}</span><span>{{ l('数据源', 'Source') }}</span><span>{{ l('目标地址', 'Target address') }}</span><span>{{ l('类型', 'Type') }}</span><span>{{ l('缩放', 'Scale') }}</span><span>{{ l('偏移', 'Offset') }}</span><span>{{ l('范围', 'Range') }}</span><span>{{ l('预览', 'Preview') }}</span><span></span>
+            <span>{{t('osc.enabled') }}</span><span>{{t('osc.source_2') }}</span><span>{{t('osc.target_address') }}</span><span>{{t('osc.type') }}</span><span>{{t('osc.scale') }}</span><span>{{t('osc.offset') }}</span><span>{{t('osc.range') }}</span><span>{{t('osc.preview') }}</span><span></span>
           </div>
           <div v-for="(mapping, index) in mappings" :key="index" class="mapping-row">
             <input v-model="mapping.enabled" type="checkbox">
@@ -1193,7 +1192,7 @@ onUnmounted(() => {
               <input v-model.number="mapping.max" type="number" step="0.01" placeholder="max">
             </span>
             <code>{{ mappingPreview(mapping) }}</code>
-            <button :title="l('删除映射', 'Delete mapping')" @click="mappings.splice(index, 1)"><Trash2 :size="14" /></button>
+            <button :title="t('osc.delete_mapping')" @click="mappings.splice(index, 1)"><Trash2 :size="14" /></button>
           </div>
         </div>
       </template>
@@ -1201,12 +1200,12 @@ onUnmounted(() => {
       <template v-else>
         <div class="router-intro">
           <div>
-            <strong>{{ l('OSC 路由器', 'OSC router') }}</strong>
-            <span>{{ l('支持精确地址和以 * 结尾的前缀匹配，转发时保留原始参数类型', 'Supports exact addresses and prefix matching ending in *. Original parameter types are preserved.') }}</span>
+            <strong>{{t('osc.osc_router') }}</strong>
+            <span>{{t('osc.supports_exact_addresses_and_prefix_matc') }}</span>
           </div>
           <div>
-            <button @click="addRoute"><Plus :size="15" /> {{ l('添加规则', 'Add rule') }}</button>
-            <button class="primary" @click="applyRoutes"><Check :size="15" /> {{ l('应用规则', 'Apply rules') }}</button>
+            <button @click="addRoute"><Plus :size="15" /> {{t('osc.add_rule') }}</button>
+            <button class="primary" @click="applyRoutes"><Check :size="15" /> {{t('osc.apply_rules') }}</button>
           </div>
         </div>
 
@@ -1214,20 +1213,20 @@ onUnmounted(() => {
 
         <div class="route-table">
           <div class="route-row route-header">
-            <span>{{ l('启用', 'Enabled') }}</span><span>{{ l('来源地址', 'Source address') }}</span><span>{{ l('目标主机', 'Target host') }}</span><span>{{ l('端口', 'Port') }}</span><span>{{ l('改写地址', 'Rewrite address') }}</span><span></span>
+            <span>{{t('osc.enabled') }}</span><span>{{t('osc.source_address') }}</span><span>{{t('osc.target_host') }}</span><span>{{t('osc.port') }}</span><span>{{t('osc.rewrite_address') }}</span><span></span>
           </div>
           <div v-for="(rule, index) in routes" :key="index" class="route-row">
             <input v-model="rule.enabled" type="checkbox">
             <input v-model.trim="rule.sourceAddress" placeholder="/avatar/parameters/*">
             <input v-model.trim="rule.targetHost">
             <input v-model.number="rule.targetPort" type="number" min="1" max="65535">
-            <input v-model.trim="rule.targetAddress" :placeholder="l('留空则保持原地址', 'Leave blank to keep original address')">
-            <button :title="l('删除规则', 'Delete rule')" @click="routes.splice(index, 1)"><Trash2 :size="14" /></button>
+            <input v-model.trim="rule.targetAddress" :placeholder="t('osc.leave_blank_to_keep_original_address')">
+            <button :title="t('osc.delete_rule')" @click="routes.splice(index, 1)"><Trash2 :size="14" /></button>
           </div>
           <div v-if="routes.length === 0" class="route-empty">
             <Route :size="28" />
-            <strong>{{ l('还没有路由规则', 'No routing rules yet') }}</strong>
-            <span>{{ l('例如把 `/avatar/parameters/*` 转发到其他应用或设备', 'For example, forward `/avatar/parameters/*` to another app or device') }}</span>
+            <strong>{{t('osc.no_routing_rules_yet') }}</strong>
+            <span>{{t('osc.for_example_forward_avatar_parameters_to') }}</span>
           </div>
         </div>
       </template>

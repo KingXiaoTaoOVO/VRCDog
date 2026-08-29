@@ -402,6 +402,21 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     }
     if (cmd === 'vrpiano_midishow_remove_account') return Promise.resolve([]) as any;
     if (cmd === 'vrpiano_open_songs_dir') return Promise.resolve(undefined) as any;
+    if (cmd === 'vrpiano_set_transpose') {
+      browserVrpianoStatus = { ...browserVrpianoStatus, last_event: `Browser preview transpose ${Number(args?.transpose || 0)}` };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
+    if (cmd === 'vrpiano_set_play_mode') {
+      browserVrpianoStatus = { ...browserVrpianoStatus, last_event: `Browser preview play mode ${String(args?.mode || 'sequential')}` };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
+    if (cmd === 'vrpiano_set_playlist') {
+      browserVrpianoStatus = { ...browserVrpianoStatus, last_event: `Browser preview playlist (${Array.isArray(args?.songs) ? args.songs.length : 0} songs)` };
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
+    if (cmd === 'vrpiano_set_channel_routed') {
+      return Promise.resolve({ ...browserVrpianoStatus }) as any;
+    }
     return Promise.resolve({}) as any;
   }
   const startTime = performance.now();
@@ -1327,6 +1342,10 @@ export const VrpianoApi = {
   setChannelMute: (params: { channel: number; muted: boolean }) => safeInvoke<void>('vrpiano_set_channel_mute', params),
   setChannelSolo: (params: { channel: number; solo: boolean }) => safeInvoke<void>('vrpiano_set_channel_solo', params),
   setChannelVolume: (params: { channel: number; volume: number }) => safeInvoke<void>('vrpiano_set_channel_volume', params),
+  setTranspose: (params: { transpose: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_transpose', { transpose: params.transpose }),
+  setChannelRouted: (params: { channel: number; routed: boolean }) => safeInvoke<VrpianoStatus>('vrpiano_set_channel_routed', { channel: params.channel, routed: params.routed }),
+  setPlaylist: (params: { songs: string[] }) => safeInvoke<VrpianoStatus>('vrpiano_set_playlist', { songs: params.songs }),
+  setPlayMode: (params: { mode: string }) => safeInvoke<VrpianoStatus>('vrpiano_set_play_mode', { mode: params.mode }),
   setVoiceControlEnabled: (params: { enabled: boolean }) => safeInvoke<void>('vrpiano_set_voice_control_enabled', params),
   setTtsEnabled: (params: { enabled: boolean }) => safeInvoke<void>('vrpiano_set_tts_enabled', params),
   startVoiceListening: () => safeInvoke<string>('vrpiano_start_voice_listening'),

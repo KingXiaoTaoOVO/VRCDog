@@ -233,11 +233,11 @@ const submitWebAdminPassword = async () => {
       webAdminPasswordSubmitted.value = true;
     } else {
       webAdminPasswordSubmitted.value = false;
-      webAdminPasswordError.value = res.message || '密码错误';
+      webAdminPasswordError.value = res.message || t('app.wrong_password');
     }
   } catch (err: any) {
     webAdminPasswordSubmitted.value = false;
-    webAdminPasswordError.value = err?.message || '验证失败';
+    webAdminPasswordError.value = err?.message || t('app.verify_failed');
   }
 };
 
@@ -561,13 +561,13 @@ if (typeof window !== 'undefined') {
     class="w-full h-screen flex flex-col items-center justify-center bg-background"
   >
     <div class="text-6xl mb-4">⚠️</div>
-    <h2 class="text-xl font-bold text-text-strong mb-2">无法连接服务器</h2>
-    <p class="text-text-muted text-sm mb-4 text-center px-4">{{ webBackendErrorMsg || '请检查网络连接后刷新页面' }}</p>
+    <h2 class="text-xl font-bold text-text-strong mb-2">{{ $t('app.conn_error') }}</h2>
+    <p class="text-text-muted text-sm mb-4 text-center px-4">{{ webBackendErrorMsg || $t('app.check_network_refresh') }}</p>
     <button
       @click="reloadPage"
       class="px-4 py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
     >
-      重新加载
+      {{ $t('app.reload') }}
     </button>
   </div>
 
@@ -581,13 +581,13 @@ if (typeof window !== 'undefined') {
     class="w-full h-screen flex flex-col items-center justify-center bg-background"
   >
     <div class="w-full max-w-sm px-4">
-      <h2 class="text-xl font-bold text-text-strong mb-4 text-center">管理员验证</h2>
-      <p class="text-text-muted text-sm mb-4 text-center">请输入服务器 root 密码以访问管理后台</p>
+      <h2 class="text-xl font-bold text-text-strong mb-4 text-center">{{ $t('app.admin_verify') }}</h2>
+      <p class="text-text-muted text-sm mb-4 text-center">{{ $t('app.admin_verify_desc') }}</p>
       <input
         v-model="webAdminPassword"
         type="password"
         class="theme-field mb-3"
-        :placeholder="'root 密码'"
+        :placeholder="$t('app.root_password')"
         @keydown.enter="submitWebAdminPassword"
       />
       <p v-if="webAdminPasswordError" class="text-red-500 text-sm mb-3">{{ webAdminPasswordError }}</p>
@@ -595,7 +595,7 @@ if (typeof window !== 'undefined') {
         @click="submitWebAdminPassword"
         class="w-full py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
       >
-        验证
+        {{ $t('app.verify') }}
       </button>
     </div>
   </div>

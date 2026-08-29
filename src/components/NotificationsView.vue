@@ -12,8 +12,7 @@ import {
   parseStoredNotificationDetails,
 } from '../api/notificationNormalization';
 
-const { t, locale } = useI18n();
-const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
+const { t } = useI18n();
 const toast = useToast();
 
 const notifications = ref<VrcNotification[]>([]);
@@ -30,21 +29,21 @@ const getNotificationTitle = (notif: VrcNotification) => {
   const sender = typeof notif.senderUsername === 'string' ? notif.senderUsername.trim() : '';
   switch (notif.type) {
     case 'friendRequest':
-      return sender ? l(`${sender} 发送了好友请求`, `${sender} sent a friend request`) : l('好友请求', 'Friend request');
+      return sender ? t('notifications.friend_request_received', { sender }) :t('notifications.friend_request');
     case 'invite':
-      return sender ? l(`${sender} 邀请你加入实例`, `${sender} invited you to an instance`) : l('实例邀请', 'Instance invite');
+      return sender ? t('notifications.instance_invite_received', { sender }) :t('notifications.instance_invite');
     case 'requestInvite':
-      return sender ? l(`${sender} 请求加入你的位置`, `${sender} requested to join you`) : l('邀请请求', 'Invite request');
+      return sender ? t('notifications.invite_request_received', { sender }) :t('notifications.invite_request');
     case 'group.invite':
-      return sender ? l(`${sender} 发送了群组邀请`, `${sender} sent a group invite`) : l('群组邀请', 'Group invite');
+      return sender ? t('notifications.group_invite_received', { sender }) :t('notifications.group_invite');
     case 'group.request':
-      return sender ? l(`${sender} 发送了群组申请`, `${sender} sent a group request`) : l('群组申请', 'Group request');
+      return sender ? t('notifications.group_request_received', { sender }) :t('notifications.group_request');
     case 'friend-online':
-      return sender ? l(`${sender} 已上线`, `${sender} is online`) : l('好友已上线', 'Friend online');
+      return sender ? t('notifications.friend_online_received', { sender }) :t('notifications.friend_online');
     case 'friend-offline':
-      return sender ? l(`${sender} 已下线`, `${sender} is offline`) : l('好友已下线', 'Friend offline');
+      return sender ? t('notifications.friend_offline_received', { sender }) :t('notifications.friend_offline');
     case 'friend-location':
-      return sender ? l(`${sender} 切换了世界`, `${sender} changed worlds`) : l('好友切换世界', 'Friend changed worlds');
+      return sender ? t('notifications.friend_changed_worlds_received', { sender }) :t('notifications.friend_changed_worlds');
     default:
       return sender || '';
   }
@@ -113,12 +112,12 @@ const tryRemoteNotificationAction = async (notif: VrcNotification, action: 'acce
 
   if (action === 'accept' && notif.type === 'requestInvite' && meta.version === 1) {
     const senderId = String(notif.senderUserId || '');
-    if (!senderId) throw new Error(l('通知缺少发送者 ID', 'Notification is missing the sender user id'));
+    if (!senderId) throw new Error(t('notifications.notification_is_missing_the_sender_user_'));
     const me: any = await VrcApi.getCurrentUser();
     const location = String(me?.location || '');
     const separator = location.indexOf(':');
     if (separator <= 0 || !location.slice(separator + 1)) {
-      throw new Error(l('当前不在可被邀请的房间内', 'You are not currently in an inviteable instance'));
+      throw new Error(t('notifications.you_are_not_currently_in_an_inviteable_i'));
     }
     await VrcApi.sendInviteNotification({
       receiverUserId: senderId,
@@ -142,7 +141,7 @@ const tryRemoteNotificationAction = async (notif: VrcNotification, action: 'acce
 
   if (meta.version === 2) {
     if (action === 'accept') {
-      throw new Error(l('该通知没有接受选项', 'This notification has no accept response'));
+      throw new Error(t('notifications.this_notification_has_no_accept_response'));
     }
     await VrcApi.deleteNotificationV2(notif.id);
     return;
@@ -181,10 +180,10 @@ const acceptNotification = async (id: string) => {
     await tryRemoteNotificationAction(notif, 'accept');
     await DbApi.deleteNotification({ id });
     notifications.value = notifications.value.filter((item) => item.id !== id);
-    toast.success(l('已接受通知', 'Notification accepted'));
+    toast.success(t('notifications.notification_accepted'));
   } catch (err: any) {
     errorMsg.value = err?.message || String(err);
-    toast.error(l(`接受失败：${errorMsg.value}`, `Could not accept: ${errorMsg.value}`));
+    toast.error(t('notifications.accept_failed', { error: errorMsg.value }));
   } finally {
     processingId.value = null;
   }
@@ -198,11 +197,11 @@ const rejectNotification = async (notif: VrcNotification) => {
     await DbApi.deleteNotification({ id: notif.id });
     notifications.value = notifications.value.filter((item) => item.id !== notif.id);
     toast.success(actionableNotificationTypes.has(notif.type)
-      ? l('已拒绝通知', 'Notification declined')
-      : l('已隐藏通知', 'Notification hidden'));
+      ?t('notifications.notification_declined')
+      :t('notifications.notification_hidden'));
   } catch (err: any) {
     errorMsg.value = err?.message || String(err);
-    toast.error(l(`操作失败：${errorMsg.value}`, `Action failed: ${errorMsg.value}`));
+    toast.error(t('notifications.action_failed', { error: errorMsg.value }));
   } finally {
     processingId.value = null;
   }
@@ -240,14 +239,14 @@ const clearAllNotifications = async () => {
     ]);
     const remoteFailed = [legacyResult, v2Result].every((result) => result.status === 'rejected');
     if (remoteFailed) {
-      throw new Error(l('远端通知清理失败，未删除本地记录', 'Remote notification clearing failed; local records were kept'));
+      throw new Error(t('notifications.remote_notification_clearing_failed_loca'));
     }
     await Promise.allSettled(notifications.value.map((notif) => DbApi.deleteNotification({ id: notif.id })));
     notifications.value = [];
-    toast.success(l('已清空所有通知', 'All notifications cleared'));
+    toast.success(t('notifications.all_notifications_cleared'));
   } catch (err: any) {
     errorMsg.value = err?.message || String(err);
-    toast.error(l(`清空失败：${errorMsg.value}`, `Could not clear notifications: ${errorMsg.value}`));
+    toast.error(t('notifications.clear_failed', { error: errorMsg.value }));
   } finally {
     loading.value = false;
   }
@@ -321,10 +320,10 @@ const canAcceptNotification = (notif: VrcNotification) => {
       <div class="flex gap-1 bg-surface rounded-xl p-1 border-border-soft shadow-sm">
         <button
           v-for="tab in [
-            { key: 'all', label: l('全部', 'All') },
-            { key: 'friend', label: l('好友', 'Friends') },
-            { key: 'invite', label: l('邀请', 'Invites') },
-            { key: 'other', label: l('其他', 'Other') },
+            { key: 'all', label:t('notifications.all') },
+            { key: 'friend', label:t('notifications.friends') },
+            { key: 'invite', label:t('notifications.invites') },
+            { key: 'other', label:t('notifications.other') },
           ]"
           :key="tab.key"
           class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
@@ -341,7 +340,7 @@ const canAcceptNotification = (notif: VrcNotification) => {
         @click="clearAllNotifications"
       >
         <Trash2 :size="14" />
-        {{ l('清空全部', 'Clear all') }}
+        {{t('notifications.clear_all') }}
       </button>
     </div>
 

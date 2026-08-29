@@ -280,6 +280,7 @@ pub struct VrpianoStatus {
     vrchat_osc_port: u16,
     vrchat_osc_running: bool,
     vrchat_osc_last_error: String,
+    vrchat_osc_connected: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Copy)]
@@ -393,6 +394,20 @@ struct VrpianoRuntime {
     vrchat_osc_enabled: bool,
     vrchat_osc_host: String,
     vrchat_osc_port: u16,
+    /// Global transposition in semitones (clamped -24..24). Drum channel (9) is excluded.
+    transpose: i8,
+    /// Per-channel routing to the VRChat piano. Channels disabled here are skipped.
+    piano_channels: [bool; 16],
+    /// Active playlist (song paths) for auto-advance between tracks.
+    playlist: Vec<String>,
+    /// Playlist mode: sequential | random | one | repeat_all | stop_at_song_end | stop_at_end.
+    play_mode: String,
+    /// Index of the currently playing song within `playlist`.
+    current_index: usize,
+    /// Which playback engine started the current session ("osc" | "midi").
+    active_engine: String,
+    /// Stop flag for the standalone OSC heartbeat (set when disconnecting).
+    osc_heartbeat_stop: Option<Arc<AtomicBool>>,
     status: VrpianoStatus,
 }
 
@@ -464,7 +479,31 @@ impl MidiRecorder {
     }
 }
 
+/// Trim leading silence (shift first event to t=0) and drop trailing events that
+/// occur after the last note on/off, so recorded .mid files start cleanly.
+fn trim_recording_silence(events: &mut Vec<MidiRecordEvent>) {
+    if events.is_empty() {
+        return;
+    }
+    let first = events.iter().map(|e| e.at_ms).min().unwrap_or(0);
+    if first > 0 {
+        for e in events.iter_mut() {
+            e.at_ms = e.at_ms.saturating_sub(first);
+        }
+    }
+    if let Some(last_note) = events
+        .iter()
+        .filter(|e| e.event_type == "note_on" || e.event_type == "note_off")
+        .map(|e| e.at_ms)
+        .max()
+    {
+        events.retain(|e| e.at_ms <= last_note + 1);
+    }
+}
+
 fn write_midi_recording(path: &Path, events: &[MidiRecordEvent]) -> Result<(), String> {
+    let mut events: Vec<MidiRecordEvent> = events.to_vec();
+    trim_recording_silence(&mut events);
     let mut file = fs::File::create(path).map_err(|e| format!("Failed to create MIDI file: {e}"))?;
 
     let mut sorted: Vec<_> = events.iter().collect();
@@ -567,6 +606,9 @@ struct MidiPlayEvent {
     velocity: u8,
     channel: u8,
     is_note_on: bool,
+    /// Control change events (e.g. sustain pedal CC64, all-notes-off CC123) are carried
+    /// separately so they are not mistaken for note events.
+    control_change: Option<(u8, u8)>,
 }
 
 impl Default for VrpianoState {
@@ -582,6 +624,13 @@ impl Default for VrpianoState {
                 vrchat_osc_enabled: false,
                 vrchat_osc_host: String::new(),
                 vrchat_osc_port: 9000,
+                transpose: 0,
+                piano_channels: [true; 16],
+                playlist: Vec::new(),
+                play_mode: "sequential".to_string(),
+                current_index: 0,
+                active_engine: String::new(),
+                osc_heartbeat_stop: None,
                 status: VrpianoStatus {
                     running: false,
                     paused: false,
@@ -611,9 +660,10 @@ impl Default for VrpianoState {
                     vrchat_osc_enabled: false,
                     vrchat_osc_host: String::new(),
                     vrchat_osc_port: 9000,
-                    vrchat_osc_running: false,
-                    vrchat_osc_last_error: String::new(),
-                },
+                vrchat_osc_running: false,
+                vrchat_osc_last_error: String::new(),
+                vrchat_osc_connected: false,
+            },
             })),
             midi_backend: Arc::new(Mutex::new(MidiOutputBackend::new())),
             recorder: Arc::new(Mutex::new(MidiRecorder::new())),
@@ -1204,6 +1254,17 @@ pub async fn vrpiano_start(
 
     #[cfg(target_os = "windows")]
     {
+        {
+            let mut runtime = state
+                .inner
+                .lock()
+                .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+            runtime.active_engine = "midi".to_string();
+            if runtime.playlist.is_empty() {
+                runtime.playlist = vec![request.song_path.trim().to_string()];
+                runtime.current_index = 0;
+            }
+        }
         start_playback(app, state.inner.clone(), state.midi_backend.clone(), state.recorder.clone(), request)
     }
 }
@@ -1214,6 +1275,218 @@ pub async fn vrpiano_stop(
     state: tauri::State<'_, VrpianoState>,
 ) -> Result<VrpianoStatus, String> {
     stop_playback(app, state.inner.clone())
+}
+
+// ==================== OSC config persistence ====================
+
+fn save_vrpiano_osc_config(app: &tauri::AppHandle, host: &str, port: u16) {
+    if let Ok(dir) = app.path().app_config_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("vrpiano_osc.json");
+        let data = serde_json::json!({ "host": host, "port": port });
+        if let Ok(text) = serde_json::to_string_pretty(&data) {
+            let _ = std::fs::write(&path, text);
+        }
+    }
+}
+
+fn load_vrpiano_osc_config(app: &tauri::AppHandle) -> Option<(String, u16)> {
+    let dir = app.path().app_config_dir().ok()?;
+    let path = dir.join("vrpiano_osc.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let host = v.get("host")?.as_str()?.to_string();
+    let port = v.get("port")?.as_u64()? as u16;
+    if host.is_empty() {
+        None
+    } else {
+        Some((host, port))
+    }
+}
+
+// ==================== OSC heartbeat / connection monitor ====================
+
+fn spawn_osc_heartbeat(app: tauri::AppHandle, state: Arc<Mutex<VrpianoRuntime>>, stop: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        loop {
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+            let connected = crate::osc::system_snapshot(false).vrc_running;
+            update_runtime(&state, |s| s.vrchat_osc_connected = connected);
+            emit_status(&app, &state);
+            thread::sleep(Duration::from_millis(1500));
+        }
+    });
+}
+
+// ==================== Playlist auto-advance ====================
+
+/// Lightweight pseudo-random index pick (avoids pulling in the `rand` crate here).
+fn random_index(n: usize) -> usize {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    (nanos as usize) % n.max(1)
+}
+
+fn maybe_advance_playlist(
+    app: tauri::AppHandle,
+    state: Arc<Mutex<VrpianoRuntime>>,
+    engine: &str,
+    midi_backend: Option<Arc<Mutex<MidiOutputBackend>>>,
+    recorder: Option<Arc<Mutex<MidiRecorder>>>,
+) {
+    let next = {
+        let mut runtime = match state.lock() {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        if runtime.playlist.is_empty() {
+            return;
+        }
+        let n = runtime.playlist.len();
+        let cur = runtime.current_index;
+        let mode = runtime.play_mode.clone();
+        let next_idx = match mode.as_str() {
+            "one" => cur,
+            "repeat_all" | "sequential" => (cur + 1) % n,
+            "random" => {
+                if n <= 1 {
+                    0
+                } else {
+                    random_index(n)
+                }
+            }
+            "stop_at_song_end" | "stop_at_end" => {
+                if cur + 1 >= n {
+                    return;
+                }
+                cur + 1
+            }
+            _ => (cur + 1) % n,
+        };
+        runtime.current_index = next_idx;
+        let speed = runtime.speed.lock().map(|s| *s).unwrap_or(1.0);
+        (runtime.playlist[next_idx].clone(), speed)
+    };
+    if let (path, speed) = next {
+        // APS-NoteCast style short gap between songs
+        thread::sleep(Duration::from_millis(400));
+        match engine {
+            "osc" => {
+                let _ = begin_vrchat_osc(&app, &state, &path, 1, speed);
+            }
+            "midi" => {
+                if let (Some(mb), Some(rec)) = (midi_backend, recorder) {
+                    let req = VrpianoStartRequest {
+                        song_path: path.to_string(),
+                        delay_secs: 1,
+                        speed,
+                        midi_output_device: None,
+                    };
+                    let _ = start_playback(app.clone(), state.clone(), mb, rec, req);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ==================== Begin playback (shared by command + auto-advance) ====================
+
+fn begin_vrchat_osc(
+    app: &tauri::AppHandle,
+    state: &Arc<Mutex<VrpianoRuntime>>,
+    song_path: &str,
+    delay_secs: u64,
+    speed: f64,
+) -> Result<(), String> {
+    let path = PathBuf::from(song_path.trim());
+    if !path.exists() || !path.is_file() || !is_midi_file(&path) {
+        return Err("Please choose a valid MIDI file from the VRPiano library".to_string());
+    }
+    let (events, duration_ms) = parse_midi_for_output(&path)?;
+    if events.is_empty() {
+        return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
+    }
+    let song_name = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Untitled")
+        .to_string();
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let pause_flag;
+    let (host, port) = {
+        let mut runtime = state
+            .lock()
+            .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+        if runtime.status.running {
+            return Err("VRPiano is already playing".to_string());
+        }
+        runtime.stop = Some(stop_flag.clone());
+        runtime.paused.store(false, Ordering::SeqCst);
+        pause_flag = runtime.paused.clone();
+        if let Ok(mut s) = runtime.speed.lock() {
+            *s = speed;
+        }
+        let host = runtime.vrchat_osc_host.clone();
+        let port = runtime.vrchat_osc_port;
+        runtime.status = VrpianoStatus {
+            running: true,
+            paused: false,
+            song_name: song_name.clone(),
+            song_path: path.to_string_lossy().to_string(),
+            progress: 0.0,
+            played_notes: 0,
+            total_notes: events.len(),
+            duration_ms,
+            elapsed_ms: 0,
+            last_event: format!("VRChat OSC Starting after {}s delay", delay_secs),
+            last_error: String::new(),
+            songs_dir: runtime.status.songs_dir.clone(),
+            speed,
+            hotkeys_enabled: runtime.hotkeys_enabled,
+            hotkeys_available: cfg!(target_os = "windows"),
+            last_hotkey: runtime.status.last_hotkey.clone(),
+            last_hotkey_at_ms: runtime.status.last_hotkey_at_ms,
+            midi_connected: runtime.status.midi_connected,
+            midi_device_name: runtime.status.midi_device_name.clone(),
+            recording: false,
+            recorded_midi_path: None,
+            channels: runtime.status.channels.clone(),
+            voice_listening: false,
+            tts_enabled: false,
+            last_transcription: String::new(),
+            vrchat_osc_enabled: true,
+            vrchat_osc_host: host.clone(),
+            vrchat_osc_port: port,
+            vrchat_osc_running: true,
+            vrchat_osc_last_error: String::new(),
+            vrchat_osc_connected: runtime.status.vrchat_osc_connected,
+        };
+        (host, port)
+    };
+    let app_handle = app.clone();
+    let state_arc = state.clone();
+    spawn_osc_heartbeat(app_handle.clone(), state_arc.clone(), stop_flag.clone());
+    std::thread::spawn(move || {
+        run_vrchat_osc_playback(
+            app_handle,
+            state_arc,
+            song_name,
+            events,
+            duration_ms,
+            delay_secs,
+            host,
+            port,
+            stop_flag,
+            pause_flag,
+        );
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -1238,89 +1511,22 @@ pub async fn vrpiano_start_vrchat_osc(
         }
 
         let speed = normalize_speed(request.speed);
-        let (events, duration_ms) = parse_midi_for_output(&song_path)?;
-        if events.is_empty() {
-            return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
-        }
-
-        let song_name = song_path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("Untitled")
-            .to_string();
-
-        let stop_flag = Arc::new(AtomicBool::new(false));
-        let pause_flag;
-        let host = request.host.clone();
-        let port = request.port;
         {
             let mut runtime = state
                 .inner
                 .lock()
                 .map_err(|_| "VRPiano state lock poisoned".to_string())?;
-            if runtime.status.running {
-                return Err("VRPiano is already playing".to_string());
-            }
-            runtime.stop = Some(stop_flag.clone());
-            runtime.paused.store(false, Ordering::SeqCst);
-            pause_flag = runtime.paused.clone();
-            if let Ok(mut current) = runtime.speed.lock() {
-                *current = speed;
-            }
             runtime.vrchat_osc_enabled = true;
-            runtime.vrchat_osc_host = host.clone();
-            runtime.vrchat_osc_port = port;
-            runtime.status = VrpianoStatus {
-                running: true,
-                paused: false,
-                song_name: song_name.clone(),
-                song_path: song_path.to_string_lossy().to_string(),
-                progress: 0.0,
-                played_notes: 0,
-                total_notes: events.len(),
-                duration_ms,
-                elapsed_ms: 0,
-                last_event: format!("VRChat OSC Starting after {}s delay", request.delay_secs),
-                last_error: String::new(),
-                songs_dir: ensure_songs_dir(&app)?.to_string_lossy().to_string(),
-                speed,
-                hotkeys_enabled: runtime.hotkeys_enabled,
-                hotkeys_available: cfg!(target_os = "windows"),
-                last_hotkey: String::new(),
-                last_hotkey_at_ms: 0,
-                midi_connected: false,
-                midi_device_name: None,
-                recording: false,
-                recorded_midi_path: None,
-                channels: [ChannelState::default(); 16],
-                voice_listening: false,
-                tts_enabled: false,
-                last_transcription: String::new(),
-                vrchat_osc_enabled: true,
-                vrchat_osc_host: host.clone(),
-                vrchat_osc_port: port,
-                vrchat_osc_running: true,
-                vrchat_osc_last_error: String::new(),
-            };
+            runtime.vrchat_osc_host = request.host.clone();
+            runtime.vrchat_osc_port = request.port;
+            runtime.active_engine = "osc".to_string();
+            if runtime.playlist.is_empty() {
+                runtime.playlist = vec![request.song_path.trim().to_string()];
+                runtime.current_index = 0;
+            }
         }
-
-        let app_handle = app.clone();
-        let state_arc = state.inner.clone();
-        std::thread::spawn(move || {
-            run_vrchat_osc_playback(
-                app_handle,
-                state_arc,
-                song_name,
-                events,
-                duration_ms,
-                request.delay_secs,
-                host,
-                port,
-                stop_flag,
-                pause_flag,
-            );
-        });
-
+        save_vrpiano_osc_config(&app, &request.host, request.port);
+        begin_vrchat_osc(&app, &state.inner, &request.song_path, request.delay_secs, speed)?;
         let status = status_snapshot(&app, &state.inner)?;
         Ok(status)
     }
@@ -1458,7 +1664,7 @@ fn start_playback(
                 midi_device_name: runtime.status.midi_device_name.clone(),
                 recording: false,
                 recorded_midi_path: None,
-                channels: [ChannelState::default(); 16],
+                channels: runtime.status.channels.clone(),
                 voice_listening: false,
                 tts_enabled: false,
                 last_transcription: String::new(),
@@ -1467,6 +1673,7 @@ fn start_playback(
                 vrchat_osc_port: 9000,
                 vrchat_osc_running: false,
                 vrchat_osc_last_error: String::new(),
+                vrchat_osc_connected: false,
             };
         }
 
@@ -2012,19 +2219,29 @@ fn run_midi_playback(
                 return;
             }
 
+            let transpose = current_transpose(&state);
             let mut notes_to_send = Vec::new();
+            let mut controls_to_send = Vec::new();
             while index < events.len() && events[index].at_ms == at_ms {
                 let ev = &events[index];
+                if let Some((cc, value)) = ev.control_change {
+                    controls_to_send.push((ev.channel, cc, value));
+                    played += 1;
+                    index += 1;
+                    continue;
+                }
                 let channel_state = get_channel_state(&state, ev.channel);
+                let routed = is_channel_routed(&state, ev.channel);
+                let solo_active = is_solo_active(&state);
+                let sent_note = apply_transpose(ev.note, ev.channel, transpose);
                 if ev.is_note_on {
-                    let solo_active = is_solo_active(&state);
-                    let should_play = !channel_state.muted && (!solo_active || channel_state.solo);
+                    let should_play = routed && !channel_state.muted && (!solo_active || channel_state.solo);
                     if should_play {
-                        notes_to_send.push((ev.note, ev.velocity, ev.channel));
+                        notes_to_send.push((sent_note, ev.velocity, ev.channel));
                     }
-                    active_notes.insert((ev.note, ev.channel));
+                    active_notes.insert((sent_note, ev.channel));
                 } else {
-                    active_notes.remove(&(ev.note, ev.channel));
+                    active_notes.remove(&(sent_note, ev.channel));
                 }
                 if recorder.lock().unwrap().is_recording() {
                     let mut rec = recorder.lock().unwrap();
@@ -2045,6 +2262,9 @@ fn run_midi_playback(
                     emit_status_with_midi(&app, &state, &midi_backend);
                     return;
                 }
+            }
+            for (channel, cc, value) in controls_to_send {
+                let _ = backend.send_control_change(channel, cc, value);
             }
 
             thread::sleep(Duration::from_millis(30));
@@ -2094,6 +2314,9 @@ fn run_midi_playback(
             "MIDI Playback finished".to_string()
         };
     });
+    if !stop.load(Ordering::SeqCst) {
+        maybe_advance_playlist(app.clone(), state.clone(), "midi", Some(midi_backend.clone()), Some(recorder.clone()));
+    }
     if let Ok(mut runtime) = state.lock() {
         runtime.paused.store(false, Ordering::SeqCst);
         runtime.stop = None;
@@ -2144,13 +2367,41 @@ fn run_vrchat_osc_playback(
                 break;
             }
 
+            let transpose = current_transpose(&state);
             let mut notes_to_send = Vec::new();
             while index < events.len() && events[index].at_ms == at_ms {
                 let ev = &events[index];
-                if ev.is_note_on {
-                    notes_to_send.push((ev.note, ev.velocity, ev.channel));
+                if let Some((cc, value)) = ev.control_change {
+                    if cc == 64 {
+                        let args = vec![OscArgument {
+                            value_type: "int".to_string(),
+                            value: serde_json::json!((if value > 0 { 1 } else { 0 }) as i64),
+                        }];
+                        let _ = osc_send_message_multi(host.clone(), port, "/input/MidiSustain".to_string(), args);
+                    } else if cc == 123 || cc == 120 {
+                        send_osc_all_notes_off(&host, port, &active_notes);
+                        active_notes.clear();
+                    }
+                    played += 1;
+                    index += 1;
+                    continue;
                 }
-                active_notes.insert((ev.note, ev.channel));
+                let channel_state = get_channel_state(&state, ev.channel);
+                let routed = is_channel_routed(&state, ev.channel);
+                let solo_active = is_solo_active(&state);
+                let sent_note = apply_transpose(ev.note, ev.channel, transpose);
+                if ev.is_note_on {
+                    let should_play = routed
+                        && !channel_state.muted
+                        && (!solo_active || channel_state.solo);
+                    if should_play {
+                        let adjusted = adjust_velocity(ev.velocity, channel_state.volume);
+                        notes_to_send.push((sent_note, adjusted, ev.channel));
+                    }
+                    active_notes.insert((sent_note, ev.channel));
+                } else {
+                    active_notes.remove(&(sent_note, ev.channel));
+                }
                 played += 1;
                 index += 1;
             }
@@ -2171,19 +2422,14 @@ fn run_vrchat_osc_playback(
                         status.last_error = format!("VRChat OSC error: {}", e.message);
                         status.running = false;
                     });
+                    send_osc_all_notes_off(&host, port, &active_notes);
                     emit_status(&app, &state);
                     return;
                 }
             }
 
             thread::sleep(Duration::from_millis(30));
-            for (note, _channel) in &active_notes {
-                let args = vec![OscArgument {
-                    value_type: "int".to_string(),
-                    value: serde_json::json!(*note as i64),
-                }];
-                let _ = osc_send_message_multi(host.clone(), port, "/input/MidiNoteOff".to_string(), args);
-            }
+            send_osc_all_notes_off(&host, port, &active_notes);
             active_notes.clear();
 
             let playback_speed = current_speed(&state);
@@ -2201,6 +2447,7 @@ fn run_vrchat_osc_playback(
             emit_status(&app, &state);
             last_at = at_ms;
         }
+        send_osc_all_notes_off(&host, port, &active_notes);
     }));
 
     if result.is_err() {
@@ -2224,6 +2471,10 @@ fn run_vrchat_osc_playback(
             "VRChat OSC Playback finished".to_string()
         };
     });
+    if !stop.load(Ordering::SeqCst) {
+        stop.store(true, Ordering::SeqCst);
+        maybe_advance_playlist(app.clone(), state.clone(), "osc", None, None);
+    }
     if let Ok(mut runtime) = state.lock() {
         runtime.paused.store(false, Ordering::SeqCst);
         runtime.stop = None;
@@ -2322,10 +2573,9 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
 
     for track in &smf.tracks {
         let mut tick = 0_u64;
-        let channel = 0u8;
         for event in track {
             tick = tick.saturating_add(u64::from(event.delta.as_int()));
-            if let TrackEventKind::Midi { message, .. } = event.kind {
+            if let TrackEventKind::Midi { channel, message } = event.kind {
                 match message {
                     MidiMessage::NoteOn { key, vel } => {
                         if vel.as_int() == 0 {
@@ -2341,8 +2591,9 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note,
                                 velocity: vel.as_int(),
-                                channel,
+                                channel: channel.as_int(),
                                 is_note_on: true,
+                                control_change: None,
                             });
                     }
                     MidiMessage::NoteOff { key, .. } => {
@@ -2356,8 +2607,9 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note,
                                 velocity: 0,
-                                channel,
+                                channel: channel.as_int(),
                                 is_note_on: false,
+                                control_change: None,
                             });
                     }
                     MidiMessage::ProgramChange { program, .. } => {
@@ -2370,8 +2622,9 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note: program.as_int(),
                                 velocity: 0,
-                                channel,
+                                channel: channel.as_int(),
                                 is_note_on: false,
+                                control_change: None,
                             });
                     }
                     MidiMessage::Controller { controller, value } => {
@@ -2382,10 +2635,11 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                             .or_default()
                             .push(MidiPlayEvent {
                                 at_ms,
-                                note: controller.as_int(),
+                                note: 0,
                                 velocity: value.as_int(),
-                                channel,
+                                channel: channel.as_int(),
                                 is_note_on: false,
+                                control_change: Some((controller.as_int(), value.as_int())),
                             });
                     }
                     _ => {}
@@ -2646,6 +2900,47 @@ fn adjust_velocity(velocity: u8, channel_volume: u8) -> u8 {
     scaled.min(127).max(0) as u8
 }
 
+/// Apply global transposition. The drum channel (index 9) is never transposed so
+/// percussion stays in place, matching APS-NoteCast behaviour.
+fn apply_transpose(note: u8, channel: u8, transpose: i8) -> u8 {
+    if channel == 9 {
+        return note;
+    }
+    let shifted = note as i16 + transpose as i16;
+    shifted.clamp(0, 127) as u8
+}
+
+fn current_transpose(state: &Arc<Mutex<VrpianoRuntime>>) -> i8 {
+    state.lock().ok().map(|runtime| runtime.transpose).unwrap_or(0)
+}
+
+fn is_channel_routed(state: &Arc<Mutex<VrpianoRuntime>>, channel: u8) -> bool {
+    state
+        .lock()
+        .ok()
+        .map(|runtime| runtime.piano_channels[channel as usize])
+        .unwrap_or(true)
+}
+
+/// Release every currently-held note via VRChat OSC and clear sustain, so the
+/// world piano never gets stuck holding keys (prevents "粘键").
+fn send_osc_all_notes_off(host: &str, port: u16, notes: &HashSet<(u8, u8)>) {
+    use crate::osc::{osc_send_message_multi, OscArgument};
+
+    for (note, _channel) in notes {
+        let args = vec![OscArgument {
+            value_type: "int".to_string(),
+            value: serde_json::json!(*note as i64),
+        }];
+        let _ = osc_send_message_multi(host.to_string(), port, "/input/MidiNoteOff".to_string(), args);
+    }
+    let reset = vec![OscArgument {
+        value_type: "int".to_string(),
+        value: serde_json::json!(0_i64),
+    }];
+    let _ = osc_send_message_multi(host.to_string(), port, "/input/MidiSustain".to_string(), reset);
+}
+
 #[cfg(target_os = "windows")]
 fn release_all(keys: &HashSet<u16>) {
     for &vk in keys {
@@ -2750,6 +3045,7 @@ fn status_with_dir(app: &tauri::AppHandle, event: &str) -> Result<VrpianoStatus,
         vrchat_osc_port: 9000,
         vrchat_osc_running: false,
         vrchat_osc_last_error: String::new(),
+        vrchat_osc_connected: false,
     })
 }
 
@@ -4694,6 +4990,153 @@ pub async fn vrpiano_set_channel_volume(
     update_status(&state, |status| {
         status.channels[channel as usize].volume = volume.min(127);
     });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_transpose(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    transpose: i8,
+) -> Result<VrpianoStatus, String> {
+    if let Ok(mut runtime) = state.inner.lock() {
+        runtime.transpose = transpose.clamp(-24, 24);
+    }
+    let status = status_snapshot(&app, &state.inner)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_channel_routed(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    channel: u8,
+    routed: bool,
+) -> Result<VrpianoStatus, String> {
+    if channel >= 16 {
+        return Err("Channel must be 0-15".to_string());
+    }
+    if let Ok(mut runtime) = state.inner.lock() {
+        runtime.piano_channels[channel as usize] = routed;
+    }
+    let status = status_snapshot(&app, &state.inner)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_playlist(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    songs: Vec<String>,
+) -> Result<VrpianoStatus, String> {
+    if let Ok(mut runtime) = state.inner.lock() {
+        runtime.playlist = songs;
+        runtime.current_index = 0;
+    }
+    let status = status_snapshot(&app, &state.inner)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_play_mode(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    mode: String,
+) -> Result<VrpianoStatus, String> {
+    let allowed = [
+        "sequential",
+        "random",
+        "one",
+        "repeat_all",
+        "stop_at_song_end",
+        "stop_at_end",
+    ];
+    if !allowed.contains(&mode.as_str()) {
+        return Err(format!("Unknown play mode: {mode}"));
+    }
+    if let Ok(mut runtime) = state.inner.lock() {
+        runtime.play_mode = mode;
+    }
+    let status = status_snapshot(&app, &state.inner)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_save_osc_config(
+    app: tauri::AppHandle,
+    host: String,
+    port: u16,
+) -> Result<(), String> {
+    save_vrpiano_osc_config(&app, &host, port);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vrpiano_load_osc_config(
+    app: tauri::AppHandle,
+) -> Result<Option<serde_json::Value>, String> {
+    Ok(load_vrpiano_osc_config(&app).map(|(host, port)| {
+        serde_json::json!({ "host": host, "port": port })
+    }))
+}
+
+#[tauri::command]
+pub async fn vrpiano_connect_vrchat_osc(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    host: String,
+    port: u16,
+) -> Result<VrpianoStatus, String> {
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    {
+        let mut runtime = state
+            .inner
+            .lock()
+            .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+        runtime.vrchat_osc_enabled = true;
+        runtime.vrchat_osc_host = host.clone();
+        runtime.vrchat_osc_port = port;
+        runtime.status.vrchat_osc_running = true;
+        runtime.osc_heartbeat_stop = Some(stop_flag.clone());
+    }
+    save_vrpiano_osc_config(&app, &host, port);
+    spawn_osc_heartbeat(app.clone(), state.inner.clone(), stop_flag);
+    let status = status_snapshot(&app, &state.inner)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_disconnect_vrchat_osc(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+) -> Result<VrpianoStatus, String> {
+    {
+        let mut runtime = state
+            .inner
+            .lock()
+            .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+        runtime.status.vrchat_osc_running = false;
+        runtime.status.vrchat_osc_connected = false;
+        if let Some(flag) = runtime.osc_heartbeat_stop.take() {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+    let status = status_snapshot(&app, &state.inner)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_record_external_event(
+    state: tauri::State<'_, VrpianoState>,
+    at_ms: u64,
+    kind: String,
+    channel: u8,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    let mut recorder = state.recorder.lock().unwrap();
+    if recorder.is_recording() {
+        recorder.record(at_ms, &kind, channel, &data);
+    }
     Ok(())
 }
 
