@@ -29,6 +29,7 @@ interface LogMessage {
 }
 
 const logs = ref<LogMessage[]>([]);
+const collapsed = useStorage('vrc_translation_overlay_collapsed', false);
 const backgroundOpacity = useStorage('vrc_translation_overlay_opacity', 0.82);
 const panelStyle = computed(() => {
   const opacity = Math.min(1, Math.max(0, Number(backgroundOpacity.value) || 0));
@@ -106,14 +107,32 @@ onUnmounted(() => {
 
 <template>
   <div
-    class="h-screen w-screen overflow-hidden border border-[var(--theme-primary)] rounded-xl flex flex-col justify-end p-4 pb-8 select-none shadow-[0_0_20px_rgba(var(--theme-primary),0.3)] font-mono"
+    class="overlay-shell h-screen w-screen overflow-hidden rounded-2xl flex flex-col select-none font-mono"
     :style="panelStyle"
     @mousedown="startDrag"
   >
+    <header class="overlay-header flex items-center justify-between gap-3 px-3 py-2 shrink-0" data-no-drag>
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="status-dot" :class="{ active: logs.length > 0 }" />
+        <span class="text-[11px] font-black tracking-[0.16em] uppercase text-text truncate">VRCDOG / LIVE TRANSLATION</span>
+      </div>
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] font-bold text-text-muted mr-1">{{ logs.length }}/10</span>
+        <button class="overlay-action" :title="collapsed ? '展开' : '收起'" @click.stop="collapsed = !collapsed">{{ collapsed ? '+' : '−' }}</button>
+        <button class="overlay-action" title="关闭" @click.stop="getCurrentWindow().destroy()">×</button>
+      </div>
+    </header>
+
     <!-- 没有任何记录时的提示语 -->
     <div
-      v-if="logs.length === 0"
-      class="flex flex-col items-center justify-center h-full w-full opacity-50 pointer-events-none"
+      v-if="collapsed"
+      class="flex-1 flex items-center justify-center text-[11px] text-text-muted font-bold"
+    >
+      {{ logs.length ? 'Translation overlay paused' : 'Translation overlay ready' }}
+    </div>
+    <div
+      v-else-if="logs.length === 0"
+      class="flex flex-col items-center justify-center flex-1 w-full opacity-60 pointer-events-none"
     >
       <div
         class="px-4 py-2 text-[var(--theme-primary)] font-bold text-sm text-center"
@@ -124,7 +143,7 @@ onUnmounted(() => {
     <!-- 聊天气泡区域 -->
     <div
       v-else
-      class="space-y-2 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar"
+      class="space-y-2 flex-1 min-h-0 overflow-y-auto p-3 pb-5 custom-scrollbar"
       data-tauri-drag-region
     >
       <div
@@ -176,6 +195,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.overlay-shell {
+  border: 1px solid color-mix(in srgb, var(--theme-primary) 58%, transparent);
+  background-image: linear-gradient(145deg, rgba(255,255,255,.08), transparent 42%);
+  box-shadow: 0 14px 40px rgba(0,0,0,.28), 0 0 24px color-mix(in srgb, var(--theme-primary) 26%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+.overlay-header {
+  border-bottom: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+}
+.status-dot { width: 7px; height: 7px; border-radius: 999px; background: #94a3b8; }
+.status-dot.active { background: #34d399; box-shadow: 0 0 0 4px rgba(52,211,153,.16), 0 0 10px rgba(52,211,153,.6); }
+.overlay-action { width: 22px; height: 22px; border-radius: 7px; color: var(--theme-text-muted); font-size: 16px; line-height: 1; }
+.overlay-action:hover { color: var(--theme-text); background: rgba(255,255,255,.12); }
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
 }

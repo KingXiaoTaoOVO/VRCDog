@@ -232,17 +232,42 @@ fn clean_network_error(error: &str) -> String {
     }
 }
 
-fn parse_http_url(raw: &str) -> Result<reqwest::Url, String> {
+fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid request URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(format!("Unsupported request URL scheme: {}", url.scheme()));
     }
-    Ok(url)
+    match url.host_str() {
+        Some("api.vrchat.cloud") => Ok(url),
+        Some(host) if allow_external_host && !host.is_empty() => Ok(url),
+        _ => Err(format!(
+            "Unsupported request URL host: {}",
+            url.host_str().unwrap_or("unknown")
+        )),
+    }
 }
 
 fn parse_http_method(raw: &str) -> Result<reqwest::Method, String> {
     reqwest::Method::from_bytes(raw.trim().to_uppercase().as_bytes())
         .map_err(|error| format!("Invalid HTTP method: {error}"))
+}
+
+fn is_vrchat_image_host(host: &str) -> bool {
+    host == "api.vrchat.cloud" || host == "vrchat.com" || host.ends_with(".vrchat.cloud")
+}
+
+fn parse_image_url(raw: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid image URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!("Unsupported image URL scheme: {}", url.scheme()));
+    }
+    match url.host_str() {
+        Some(host) if is_vrchat_image_host(host) => Ok(url),
+        _ => Err(format!(
+            "Image URL host not allowed: {}",
+            url.host_str().unwrap_or("unknown")
+        )),
+    }
 }
 
 fn request_error_message(error: reqwest::Error) -> String {
@@ -304,8 +329,10 @@ mod cookie_tests {
 
     #[test]
     fn validates_http_urls_and_methods() {
-        assert!(parse_http_url("https://api.vrchat.cloud/api/1/config").is_ok());
-        assert!(parse_http_url("file:///tmp/secret").is_err());
+        assert!(parse_http_url("https://api.vrchat.cloud/api/1/config", false).is_ok());
+        assert!(parse_http_url("https://vrcdog.pcb.im/api/client/register", true).is_ok());
+        assert!(parse_http_url("https://example.com/api", false).is_err());
+        assert!(parse_http_url("file:///tmp/secret", true).is_err());
         assert_eq!(parse_http_method("post").unwrap(), reqwest::Method::POST);
         assert!(parse_http_method("not a method").is_err());
     }
@@ -320,6 +347,7 @@ pub async fn vrc_get_image_bytes(
     if url.is_empty() {
         return Err("Empty URL".to_string());
     }
+    let request_url = parse_image_url(&url)?;
     let client = state.client.read().await.clone();
     let direct_cookies = auth_cookie
         .as_deref()
@@ -329,8 +357,8 @@ pub async fn vrc_get_image_bytes(
     let mut last_error = String::new();
     let mut response = None;
     for attempt in 0..3 {
-        let mut req = client.get(&url);
-        if !direct_cookies.is_empty() {
+        let mut req = client.get(request_url.clone());
+        if !direct_cookies.is_empty() && request_url.host_str() == Some("api.vrchat.cloud") {
             let cookie_str = direct_cookies.join("; ");
             if let Ok(hv) = reqwest::header::HeaderValue::from_str(&cookie_str) {
                 req = req.header(reqwest::header::COOKIE, hv);
@@ -412,6 +440,8 @@ pub struct RequestOptions {
     /// Per-request timeout supplied by the UI.  Keep this bounded so a caller
     /// cannot accidentally keep a shared API connection alive indefinitely.
     pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub allow_external_host: bool,
 }
 
 #[derive(Serialize)]
@@ -431,7 +461,7 @@ pub async fn vrc_execute(
     let client = state.client.read().await.clone();
 
     let method = parse_http_method(&options.method)?;
-    let request_url = parse_http_url(&options.url)?;
+    let request_url = parse_http_url(&options.url, options.allow_external_host)?;
 
     let mut req = client.request(method, request_url.clone());
 

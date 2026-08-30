@@ -861,6 +861,7 @@ const fetchClients = async () => {
     const data = await VrcApi.request(`${serverUrl.value}/api/admin/clients`, {
       method: 'GET',
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     onlineClients.value = data.clients || [];
   } catch { /* ignore */ }
@@ -871,6 +872,7 @@ const fetchUsers = async () => {
     const data = await VrcApi.request(`${serverUrl.value}/api/admin/users`, {
       method: 'GET',
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     allUsers.value = data.users || [];
     banMap.value = data.bans || {};
@@ -883,6 +885,7 @@ const fetchRoles = async () => {
     const data = await VrcApi.request(`${serverUrl.value}/api/admin/roles`, {
       method: 'GET',
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     allRoles.value = data.roles || [];
   } catch { /* ignore */ }
@@ -904,6 +907,7 @@ const adminPost = async (endpoint: string, body: any) => {
       method: 'POST',
       params: body,
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     
     if (data && data.success === false) {
@@ -1008,6 +1012,7 @@ const saveRole = async () => {
       method: 'POST',
       params: selectedRole.value,
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     if(data.success) {
       toast.info(t('settings.saved'));
@@ -1026,6 +1031,7 @@ const deleteRole = async (role_id: string) => {
       method: 'POST',
       params: { role_id },
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     if(data.success) {
        if(selectedRole.value?.role_id === role_id) selectedRole.value = null;
@@ -1044,6 +1050,7 @@ const setDefaultRole = async (role_id: string) => {
       method: 'POST',
       params: { role_id },
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     showToast(t('role.default_changed') || 'Changed');
     fetchRoles();
@@ -1056,6 +1063,7 @@ const setUserRole = async (user_id: string, role_id: string | null) => {
       method: 'POST',
       params: { user_id, role_id },
       headers: adminHeaders.value,
+      allowExternalHost: true,
     });
     if (data.success) {
       showToast(t('role.assign_success') || 'Success');
@@ -1076,6 +1084,7 @@ const connectRemoteServer = async () => {
     await VrcApi.request(`${normalized}/api/admin/auth`, {
       method: 'POST',
       params: { password: props.adminPassword },
+      allowExternalHost: true,
     });
     isRunning.value = true;
     addLog(`[SUCCESS] ${t('role.remote_connected', { url: normalized })}`);

@@ -25,6 +25,7 @@ describe('AuthApi two-factor requests', () => {
       method: 'POST',
       params: { code: '123456' },
       authCookie: '["auth=pending","twoFactorAuth=session"]',
+      suppressAuthExpired: true,
     });
   });
 });

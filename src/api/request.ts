@@ -196,6 +196,25 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
       const headers = (args?.options as any)?.headers || {};
       const body = (args?.options as any)?.body;
       const authCookie = (args?.options as any)?.auth_cookie;
+      const allowExternalHost = Boolean((args?.options as any)?.allow_external_host);
+
+      if (allowExternalHost && !requestUrl.startsWith('https://api.vrchat.cloud/')) {
+        try {
+          const controller = new AbortController();
+          const timer = window.setTimeout(() => controller.abort(), Number((args?.options as any)?.timeout_ms || 30000));
+          const response = await fetch(requestUrl, {
+            method,
+            headers,
+            body: method === 'GET' || method === 'HEAD' ? undefined : body,
+            signal: controller.signal,
+            credentials: 'include',
+          });
+          window.clearTimeout(timer);
+          return { status: response.status, data: await response.text() } as T;
+        } catch (error: any) {
+          return { status: 599, data: JSON.stringify({ error: { message: error?.message || 'External request failed' } }) } as T;
+        }
+      }
 
       const vrchatBase = 'https://api.vrchat.cloud/api/1';
       let apiPath = requestUrl;
@@ -307,6 +326,8 @@ export interface RequestOptions {
     timeoutMs?: number;
     /** Set false for a GET that must bypass the single-flight request cache. */
     dedupe?: boolean;
+    /** Allow this request to use the configured VRCDog server host. */
+    allowExternalHost?: boolean;
     [key: string]: any;
 }
 
@@ -338,6 +359,7 @@ function getGetRequestKey(url: string, options: RequestOptions): string {
     `timeout=${options.timeoutMs ?? 30000}`,
     `retries=${options.maxRetries ?? 2}`,
     `suppressAuthExpired=${Boolean(options.suppressAuthExpired)}`,
+    `external=${Boolean(options.allowExternalHost)}`,
   ].join('|');
 }
 
@@ -432,6 +454,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         body: bodyStr,
         auth_cookie: cookie,
         timeout_ms: timeoutMs,
+        allow_external_host: Boolean(options.allowExternalHost),
       }
     });
 
@@ -516,6 +539,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
                 body: bodyStr,
                 auth_cookie: retryCookie,
                 timeout_ms: timeoutMs,
+                allow_external_host: Boolean(options.allowExternalHost),
               }
             });
             const retryParsed = parseResponseData(retryRes.data);

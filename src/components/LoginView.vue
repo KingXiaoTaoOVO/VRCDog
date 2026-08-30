@@ -147,13 +147,13 @@ async function loginWithSavedAccount(account: SavedAccount) {
       errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;
     }
   } catch (err: any) {
-    const msg = err.message || JSON.stringify(err);
-    if (msg.includes("hold your horses") || msg.toLowerCase().includes("twofactor")) {
-      beginTwoFactor(['emailOtp']);
-    } else if (/missing credentials|401|unauthorized|expired|invalid/i.test(msg)) {
+    const methods = extractTwoFactorMethods(err);
+    if (methods) {
+      beginTwoFactor(methods);
+    } else if (/missing credentials|401|unauthorized|expired|invalid/i.test(err.message || '')) {
       prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
     } else {
-      errorMsg.value = msg;
+      errorMsg.value = err.message || JSON.stringify(err);
     }
   } finally {
     loading.value = false;
@@ -348,6 +348,29 @@ const twoFactorMethods = ref<TwoFactorMethod[]>([]);
 const selectedTwoFactorMethod = ref<TwoFactorMethod>('totp');
 const twoFactorCode = ref('');
 
+/**
+ * Detect a "2FA required" outcome from either a thrown VrcRequestError (the
+ * login request is rejected with 401 while 2FA is pending) or a structured
+ * response. Returns the available 2FA methods, or null if it's a real failure.
+ */
+function extractTwoFactorMethods(err: any): TwoFactorMethod[] | null {
+  const resp = err?.response;
+  const fromResp = resp?.requiresTwoFactorAuth || resp?.requires_two_factor_auth;
+  if (fromResp) {
+    const methods = normalizeTwoFactorMethods(fromResp);
+    return methods.length > 0 ? methods : ['emailOtp'];
+  }
+  const msg = (err?.message || '').toLowerCase();
+  if (
+    msg.includes('twofactor') ||
+    msg.includes('two factor') ||
+    msg.includes('hold your horses')
+  ) {
+    return ['emailOtp'];
+  }
+  return null;
+}
+
 function beginTwoFactor(methods: unknown) {
   const normalized = normalizeTwoFactorMethods(methods);
   twoFactorMethods.value = normalized.length > 0 ? normalized : ['totp'];
@@ -355,6 +378,14 @@ function beginTwoFactor(methods: unknown) {
   twoFactorCode.value = '';
   errorMsg.value = '';
   show2FA.value = true;
+  // The 401 login response already merged the `auth` cookie into the DB; make
+  // sure we can pass it explicitly to the verify call so the session is intact
+  // even if the global auth-expired handler hasn't populated it yet.
+  if (!authCookie.value) {
+    DbApi.getAuth()
+      .then((stored) => { if (stored && !authCookie.value) authCookie.value = stored; })
+      .catch(() => {});
+  }
 }
 
 function twoFactorMethodLabel(method: TwoFactorMethod): string {
@@ -362,6 +393,8 @@ function twoFactorMethodLabel(method: TwoFactorMethod): string {
 }
 
 const handleLogin = async () => {
+  if (loading.value) return;
+
   if (!username.value || !password.value) {
     if (!authCookie.value) {
       errorMsg.value = t('login.error_require_credentials');
@@ -375,11 +408,6 @@ const handleLogin = async () => {
   try {
     await DbApi.clearAuth();
     await VrcApi.clearCookies();
-    try { await VrcApi.fetchConfig(); } catch (e: any) {
-      errorMsg.value = t('login.error_network', { err: e });
-      loading.value = false;
-      return;
-    }
 
     const res: any = await VrcApi.login({
       username: username.value || null,
@@ -409,11 +437,11 @@ const handleLogin = async () => {
       errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;
     }
   } catch (err: any) {
-    const msg = err.message || JSON.stringify(err);
-    if (msg.includes("hold your horses") || msg.toLowerCase().includes("twofactor")) {
-      beginTwoFactor(['emailOtp']);
+    const methods = extractTwoFactorMethods(err);
+    if (methods) {
+      beginTwoFactor(methods);
     } else {
-      errorMsg.value = msg;
+      errorMsg.value = err.message || JSON.stringify(err);
     }
   } finally {
     loading.value = false;
@@ -421,6 +449,8 @@ const handleLogin = async () => {
 };
 
 const handle2FA = async () => {
+  if (loading.value) return;
+
   const code = normalizeTwoFactorCode(twoFactorCode.value);
   twoFactorCode.value = code;
   if (!isValidTwoFactorCode(code)) {

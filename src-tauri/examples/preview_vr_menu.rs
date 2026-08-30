@@ -68,11 +68,11 @@ fn main() {
         cfg.vr_menu_text = text.to_string();
         cfg.vr_menu_text_muted = muted.to_string();
         // 模拟 page=0 (主菜单) 与 page=1 (基础设置) — 主菜单展示两行层级
-        let p0 = VrUiRenderer::render_vr_menu(&font, 0, 1, false, true, &cfg);
+        let p0 = VrUiRenderer::render_vr_menu(&font, 0, 1, false, true, &cfg, "", 0);
         let path = repo_root.join(format!("vr_menu_{}_main.png", name));
         save_png(&path, &p0, w, h);
 
-        let p1 = VrUiRenderer::render_vr_menu(&font, 1, 0, false, true, &cfg);
+        let p1 = VrUiRenderer::render_vr_menu(&font, 1, 0, false, true, &cfg, "", 0);
         let path = repo_root.join(format!("vr_menu_{}_settings.png", name));
         save_png(&path, &p1, w, h);
     }

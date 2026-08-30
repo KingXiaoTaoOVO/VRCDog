@@ -69,6 +69,7 @@ watch(() => currentSurvey.value?.survey_id, resetAnswers);
 const fetchPending = async () => {
   const data = await VrcApi.request(endpoint(`/api/client/surveys/${encodeURIComponent(props.userId)}`), {
     method: 'GET',
+    allowExternalHost: true,
   });
   surveys.value = data?.surveys || [];
   emit('resolved', surveys.value.length, surveys.value.some((survey: Survey) => survey.required_for_access));
@@ -77,6 +78,7 @@ const fetchPending = async () => {
 const fetchHistory = async () => {
   const data = await VrcApi.request(endpoint(`/api/client/survey-history/${encodeURIComponent(props.userId)}`), {
     method: 'GET',
+    allowExternalHost: true,
   });
   history.value = data?.submissions || [];
 };
@@ -109,6 +111,7 @@ const reportClick = (
   if (!survey || !props.userId) return;
   void VrcApi.request(endpoint('/api/client/surveys/click'), {
     method: 'POST',
+    allowExternalHost: true,
     params: {
       user_id: props.userId,
       survey_id: survey.survey_id,
@@ -220,6 +223,7 @@ const submit = async () => {
     }
     const data = await VrcApi.request(endpoint('/api/client/surveys/submit'), {
       method: 'POST',
+      allowExternalHost: true,
       params: {
         user_id: props.userId,
         survey_id: currentSurvey.value.survey_id,
@@ -265,6 +269,7 @@ const dismiss = async () => {
   try {
     const data = await VrcApi.request(endpoint('/api/client/surveys/dismiss'), {
       method: 'POST',
+      allowExternalHost: true,
       params: {
         user_id: props.userId,
         survey_id: currentSurvey.value.survey_id,
@@ -286,6 +291,7 @@ const deleteSubmission = async (submissionId: string) => {
   try {
     const data = await VrcApi.request(endpoint('/api/client/survey-history/delete'), {
       method: 'POST',
+      allowExternalHost: true,
       params: { user_id: props.userId, submission_id: submissionId },
     });
     if (!data?.success) throw new Error(data?.message || t('survey_center.delete_failed'));

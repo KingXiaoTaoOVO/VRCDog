@@ -32,6 +32,7 @@ import UserProfileModal from './components/UserProfileModal.vue';
 import EntityDetailModals from './components/EntityDetailModals.vue';
 import GlobalSearchModal from './components/GlobalSearchModal.vue';
 import DebugConsole from './components/DebugConsole.vue';
+import WebClientView from './components/WebClientView.vue';
 
 // Assets
 import dogImg from './assets/dog.jpg';
@@ -213,7 +214,7 @@ watch([isLoggedIn, appRole], ([loggedIn, role]) => {
 
 watch(activeTab, (tab) => {
   if (!isTauri() && tab) {
-    const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote'];
+    const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export', 'tools', 'translator', 'gallery', 'bilidown', 'danmaku'];
     if (localOnly.includes(tab)) {
       uiStore.activeTab = 'dashboard';
     }
@@ -227,6 +228,7 @@ const submitWebAdminPassword = async () => {
     const res = await VrcApi.request(`${serverDashboardTarget.value.url}/api/admin/auth`, {
       method: 'POST',
       params: { password: webAdminPassword.value.trim() },
+      allowExternalHost: true,
     });
     if (res.success) {
       serverDashboardTarget.value.password = webAdminPassword.value.trim();
@@ -552,9 +554,9 @@ if (typeof window !== 'undefined') {
     <div class="blob blob-2"></div>
   </div>
 
-  <OverlayView v-if="isTranslationOverlayMode" />
-  <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
-  <DrawingOverlayView v-else-if="isDrawingOverlayMode" />
+  <OverlayView v-if="isTranslationOverlayMode && isTauri()" />
+  <VrpianoOverlayView v-else-if="isVrpianoOverlayMode && isTauri()" />
+  <DrawingOverlayView v-else-if="isDrawingOverlayMode && isTauri()" />
 
   <div
     v-else-if="!isTauri() && !webBackendOk && webBackendChecked"
@@ -668,7 +670,7 @@ if (typeof window !== 'undefined') {
       <FriendLocationsView v-else-if="activeTab === 'locations'" />
       <ChartsView v-else-if="activeTab === 'charts'" />
       <PlayerListView v-else-if="activeTab === 'playerlist'" />
-      <GalleryView v-else-if="activeTab === 'gallery'" />
+      <GalleryView v-else-if="activeTab === 'gallery' && isTauri()" />
       <ModerationView v-else-if="activeTab === 'moderation'" />
       <SettingsView v-else-if="activeTab === 'settings'" />
       <FriendsListView v-else-if="activeTab === 'social' || activeTab === 'friendslist'" />
@@ -687,8 +689,8 @@ if (typeof window !== 'undefined') {
       <DanmakuView v-else-if="activeTab === 'danmaku' && isTauri()" />
       <VrpianoView v-else-if="activeTab === 'vrpiano' && isTauri()" />
       <DrawingView v-else-if="activeTab === 'drawing' && isTauri()" />
-      <ToolsView v-else-if="activeTab === 'tools'" />
-      <TranslatorView v-else-if="activeTab === 'translator'" />
+      <ToolsView v-else-if="activeTab === 'tools' && isTauri()" />
+      <TranslatorView v-else-if="activeTab === 'translator' && isTauri()" />
       <RemoteAssistView v-else-if="activeTab === 'remote' && isTauri()" />
       <ExportView v-else-if="activeTab === 'export' && isTauri()" />
       <EnvView v-else-if="activeTab === 'env' && isTauri()" />

@@ -46,6 +46,18 @@ vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true }));
+vi.mock('vue-i18n', () => ({ useI18n: () => ({
+  locale: { value: 'zh-CN' },
+  t: (key: string) => ({
+    'vrpiano_overlay.appearance': '外观设置',
+    'vrpiano_overlay.restart': '重新开始',
+    'vrpiano_overlay.start': '开始',
+    'vrpiano_overlay.pause': '暂停',
+    'vrpiano_overlay.resume': '继续',
+    'vrpiano_overlay.preview_on': '双击试听',
+    'vrpiano_overlay.preview_off': '试听关闭',
+  } as Record<string, string>)[key] || key,
+}) }));
 vi.mock('@tauri-apps/api/event', () => ({ emit: mocks.emit, listen: mocks.listen }));
 vi.mock('@tauri-apps/api/window', () => ({
   Effect: { Acrylic: 'acrylic' },

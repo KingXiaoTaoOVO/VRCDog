@@ -81,7 +81,7 @@ export const useUiStore = defineStore('ui', () => {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
        if (!isTauri()) {
-          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export'];
+          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export', 'tools', 'translator', 'gallery', 'bilidown', 'danmaku'];
           if (localOnly.includes(tab.key)) return false;
        }
        return true;
@@ -106,7 +106,7 @@ export const useUiStore = defineStore('ui', () => {
           if (serverMenuPerms.value[tab.key] === false) return false;
        }
        if (!isTauri()) {
-          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export'];
+          const localOnly = ['vrpiano', 'drawing', 'ovr', 'env', 'remote', 'export', 'tools', 'translator', 'gallery', 'bilidown', 'danmaku'];
           if (localOnly.includes(tab.key)) return false;
        }
        return true;
@@ -162,7 +162,7 @@ export const useUiStore = defineStore('ui', () => {
     if (!baseUrl || !user) return;
     const uid = user.id || user.displayName;
     try {
-      const data = await VrcApi.request(`${baseUrl}/api/client/features/${uid}`, { method: 'GET' });
+      const data = await VrcApi.request(`${baseUrl}/api/client/features/${uid}`, { method: 'GET', allowExternalHost: true });
       serverMenuPerms.value = data.menus || {};
       serverThemePerms.value = data.themes || {};
       serverModePerms.value = data.modes || {};

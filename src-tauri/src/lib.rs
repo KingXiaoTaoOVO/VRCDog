@@ -10,6 +10,10 @@ pub mod gallery;
 pub mod gamelog;
 pub mod hardware;
 pub mod local_server;
+pub mod model_runtime;
+pub mod translation_runtime;
+pub mod translation_hotkeys;
+pub mod keyword_actions;
 pub mod ocr;
 pub mod osc;
 pub mod ovr;
@@ -19,6 +23,7 @@ pub mod remote_assist_hub;
 pub mod server_survey;
 pub mod sys;
 pub mod toolchain;
+pub mod tts;
 pub mod translate;
 pub mod update;
 pub mod vr_ui;
@@ -420,6 +425,23 @@ pub fn run() {
             audio_capture::vrct_stop_audio_capture,
             audio_capture::vrct_set_audio_capture_paused,
             audio_capture::vrct_get_audio_capture_status,
+            model_runtime::model_get_status,
+            model_runtime::model_download_silero,
+            model_runtime::model_calibrate_vad,
+            translation_runtime::translation_runtime_get,
+            translation_runtime::translation_runtime_update,
+            translation_runtime::realtime_asr_validate,
+            translation_hotkeys::translation_check_hotkeys,
+            translation_hotkeys::translation_apply_hotkeys,
+            keyword_actions::keyword_actions_trigger,
+            tts::translation_tts_synthesize,
+            tts::tts_list_presets,
+            tts::tts_save_preset,
+            tts::tts_delete_preset,
+            tts::tts_export_presets,
+            tts::tts_import_presets,
+            ocr::vrct_translate_image,
+            gallery::gallery_wait_for_new_image,
             sys_start_server,
             sys_stop_server,
             sys_verify_server_password,

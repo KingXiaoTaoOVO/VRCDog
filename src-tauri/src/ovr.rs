@@ -1,5 +1,7 @@
 use ab_glyph::{Font, FontVec};
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
@@ -495,6 +497,9 @@ async fn perform_scan_translate(config: &OvrConfig) -> Result<(String, String), 
         model: config.trans_llm_model.clone(),
         prompt: format!("{}\n{}", config.trans_llm_prompt, ocr_text),
         custom_api_url: config.custom_api_url.clone(),
+        glossary: Vec::new(),
+        context: Vec::new(),
+        retry_count: 2,
     };
 
     match crate::translate::translate(&req).await {
@@ -504,6 +509,13 @@ async fn perform_scan_translate(config: &OvrConfig) -> Result<(String, String), 
             format!("[OCR结果 - 未配置翻译API]\n{}", ocr_text),
         )),
     }
+}
+
+fn normalized_ocr_key(text: &str) -> u64 {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let mut hasher = DefaultHasher::new();
+    normalized.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn normalize_overlay_layout(config: &mut OvrConfig) {
@@ -908,7 +920,7 @@ fn vr_thread_main(
                                     // Desktop mirror auto-scan state
     let mut auto_scan_active = false;
     let mut auto_scan_countdown: u64 = 0; // Ticks until next auto-scan (90 ticks = 1s)
-    let mut last_ocr_text = String::new();
+    let mut last_ocr_key: Option<u64> = None;
     let mut playspace = crate::playspace::PlayspaceController::new(); // Dedup: skip if same text as last scan
 
     // ===== Native Playspace Offset State =====
@@ -1462,12 +1474,13 @@ fn vr_thread_main(
             is_translating = false; // Allow next translation
 
             // Content dedup for auto-scan: skip if same text as last scan
-            if !original.is_empty() && original == last_ocr_text {
+            let ocr_key = (!original.is_empty()).then(|| normalized_ocr_key(&original));
+            if ocr_key.is_some() && ocr_key == last_ocr_key {
                 let _ = app_handle.emit("ovr_log", "[OVR] 📋 文本未变化，跳过重复翻译");
                 continue;
             }
             if !original.is_empty() {
-                last_ocr_text = original.clone();
+                last_ocr_key = ocr_key;
             }
 
             // Render translation result

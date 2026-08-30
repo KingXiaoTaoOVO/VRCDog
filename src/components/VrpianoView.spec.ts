@@ -72,7 +72,7 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
 }));
 vi.mock('@tauri-apps/api/window', () => ({ Effect: { Acrylic: 'acrylic' } }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(async () => null) }));
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'zh-CN' } }) }));
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'zh-CN' }, t: (key: string) => key }) }));
 vi.mock('../audio/generalMidi', () => ({
   GENERAL_MIDI_GROUPS: [],
   GeneralMidiSynth: class {},

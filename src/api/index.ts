@@ -869,7 +869,10 @@ export interface AudioDevice {
 export interface AudioCaptureConfig {
   source: AudioSource;
   sourceLang: string;
-  engine: 'cloud' | 'local' | 'whisper' | 'sensevoice';
+  engine: 'cloud' | 'local' | 'whisper' | 'sensevoice' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime';
+  realtimeProvider?: string;
+  realtimeConfig?: Record<string, string>;
+  sherpaConfig?: { tokens: string; encoder: string; decoder: string; joiner: string };
   deviceIndex?: number;
   energyThreshold?: number;
   dynamicEnergyThreshold?: boolean;
@@ -1041,6 +1044,48 @@ export const GamelogApi = {
 export const GalleryApi = {
   getImages: (params?: { limit?: number; offset?: number }) => safeInvoke<any[]>('gallery_get_images', params || {}),
   deleteImage: (params: { path: string }) => safeInvoke<void>('gallery_delete_image', params),
+  waitForNewImage: (params?: { timeoutSeconds?: number }) => safeInvoke<string>('gallery_wait_for_new_image', params || {}),
+};
+
+export const ModelRuntimeApi = {
+  getStatus: () => safeInvoke<{ name: string; installed: boolean; valid: boolean; path: string; sha256?: string; size: number }>('model_get_status'),
+  downloadSilero: () => safeInvoke<{ name: string; installed: boolean; valid: boolean; path: string; sha256?: string; size: number }>('model_download_silero'),
+  calibrateVad: (params: { source: 'mic' | 'speaker'; observedLevels: number[] }) => safeInvoke<{ source: string; suggestedThreshold: number; minThreshold: number; maxThreshold: number; guidance: string }>('model_calibrate_vad', params),
+};
+
+export const TranslationRuntimeApi = {
+  get: () => safeInvoke<any>('translation_runtime_get'),
+  update: (params?: { url?: string; expectedSha256?: string }) => safeInvoke<{ capabilities: any; sha256: string }>('translation_runtime_update', params || {}),
+  validateRealtimeAsr: (request: any) => safeInvoke<{ provider: string; valid: boolean; message: string }>('realtime_asr_validate', { request }),
+};
+
+export const TranslationHotkeyApi = {
+  check: (hotkeys: string[]) => safeInvoke<Array<{ hotkey: string; reason: string }>>('translation_check_hotkeys', { hotkeys }),
+  apply: (configs: Array<{ id: number; hotkey: string }>) => safeInvoke<Array<{ hotkey: string; reason: string }>>('translation_apply_hotkeys', { configs }),
+};
+
+export interface KeywordAction {
+  keyword: string;
+  address: string;
+  host: string;
+  port: number;
+  value: number;
+  valueType?: 'float' | 'double' | 'int' | 'bool';
+  enabled: boolean;
+  cooldownMs?: number;
+}
+
+export const KeywordActionApi = {
+  trigger: (params: { text: string; actions: KeywordAction[] }) => safeInvoke<{ matched: string[] }>('keyword_actions_trigger', params),
+};
+
+export const TtsApi = {
+  synthesize: (params: { provider: string; baseUrl: string; apiKey?: string; text: string; language?: string; voice?: string; speed?: number; volume?: number; referenceAudio?: string; referenceText?: string; instruct?: string }) => safeInvoke<{ provider: string; voice: string; text: string; output_path: string }>('translation_tts_synthesize', { request: params }),
+  listPresets: () => safeInvoke<any[]>('tts_list_presets'),
+  savePreset: (preset: any) => safeInvoke<any[]>('tts_save_preset', { preset }),
+  deletePreset: (id: string) => safeInvoke<any[]>('tts_delete_preset', { id }),
+  exportPresets: (path: string) => safeInvoke<void>('tts_export_presets', { path }),
+  importPresets: (path: string) => safeInvoke<any[]>('tts_import_presets', { path }),
 };
 
 export const OvrApi = {
@@ -1159,6 +1204,7 @@ export const DanmakuApi = {
 
 export const VrctApi = {
   processMessage: (params: { req: any }) => safeInvoke<any>('vrct_process_message', params),
+  translateImage: (params: { request: any }) => safeInvoke<any>('vrct_translate_image', params),
   getHistory: () => safeInvoke<any[]>('vrct_get_history'),
   clearHistory: () => safeInvoke<void>('vrct_clear_history'),
 };
@@ -1304,11 +1350,13 @@ export const VrpianoApi = {
   }),
   openSongsDir: () => safeInvoke<void>('vrpiano_open_songs_dir'),
   getStatus: () => safeInvoke<VrpianoStatus>('vrpiano_get_status'),
-  start: (params: { songPath: string; delaySecs: number; speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_start', {
+  start: (params: { songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi'; midiDeviceId?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start', {
     request: {
       song_path: params.songPath,
       delay_secs: params.delaySecs,
       speed: params.speed,
+      output_mode: params.outputMode || 'keyboard',
+      midi_output_device: params.midiDeviceId || null,
     }
   }),
   startVrchatOsc: (params: { songPath: string; delaySecs: number; speed: number; host: string; port: number }) => safeInvoke<VrpianoStatus>('vrpiano_start_vrchat_osc', {
@@ -1323,12 +1371,16 @@ export const VrpianoApi = {
   stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),
   togglePause: () => safeInvoke<VrpianoStatus>('vrpiano_toggle_pause'),
   setSpeed: (params: { speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_speed', params),
-  setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
+  setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; oscHost?: string; oscPort?: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
     config: {
       enabled: params.enabled,
       song_path: params.songPath,
       delay_secs: params.delaySecs,
       speed: params.speed,
+      output_mode: params.outputMode || 'keyboard',
+      midi_output_device: params.midiDeviceId || null,
+      osc_host: params.oscHost || '',
+      osc_port: params.oscPort || 9000,
     },
   }),
   listMidiDevices: () => safeInvoke<Array<{ id: string; name: string; kind: string }>>('vrpiano_list_midi_devices'),

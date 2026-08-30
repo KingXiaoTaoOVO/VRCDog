@@ -11,6 +11,9 @@ export const AuthApi = {
       method: 'POST',
       params: { code: params.code },
       authCookie: params.authCookie,
+      // A wrong code here is not a real session expiry; don't trigger the
+      // global "auth expired -> clear cookies / logout" handler mid-login.
+      suppressAuthExpired: true,
     }),
 
   verifyTOTP: (params: TwoFactorRequestParams) =>
@@ -18,6 +21,7 @@ export const AuthApi = {
       method: 'POST',
       params: { code: params.code },
       authCookie: params.authCookie,
+      suppressAuthExpired: true,
     }),
 
   verifyEmailOTP: (params: TwoFactorRequestParams) =>
@@ -25,6 +29,7 @@ export const AuthApi = {
       method: 'POST',
       params: { code: params.code },
       authCookie: params.authCookie,
+      suppressAuthExpired: true,
     }),
 
   getConfig: () => 
@@ -38,6 +43,9 @@ export const AuthApi = {
       const b64 = btoa(authStr);
       headers['Authorization'] = `Basic ${b64}`;
     }
-    return request('/auth/user', { method: 'GET', headers, authCookie: params.authCookie });
+    // A 401 here means "2FA required", not a dead session. Suppress the
+    // global vrc-auth-expired handler so it doesn't wipe the freshly set
+    // `auth` cookie before the user can submit their code.
+    return request('/auth/user', { method: 'GET', headers, authCookie: params.authCookie, suppressAuthExpired: true });
   }
 };

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
 import { isTauri } from '@tauri-apps/api/core';
@@ -38,6 +39,8 @@ import {
   Sliders,
   Disc3,
   SendHorizontal,
+  Keyboard,
+  Cable,
 } from 'lucide-vue-next';
 import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoMidishowLoginStatus, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
 import { SysApi } from '../api';
@@ -55,10 +58,10 @@ const { locale, t } = useI18n();
 const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const instrumentName = (program: number) => locale.value.startsWith('zh')
   ? getGeneralMidiInstrumentName(program)
-  : `General MIDI Program ${program + 1}`;
+  : t('vrpiano.general_midi_program', { program: program + 1 });
 const instrumentGroupName = (groupIndex: number, zhName: string) => locale.value.startsWith('zh')
   ? zhName
-  : `Programs ${groupIndex * 8 + 1}-${groupIndex * 8 + 8}`;
+  : t('vrpiano.programs_range', { start: groupIndex * 8 + 1, end: groupIndex * 8 + 8 });
 
 const emptyStatus = (): VrpianoStatus => ({
   running: false,
@@ -186,6 +189,7 @@ const playlist = ref<string[]>([]);
 const midiDevices = ref<Array<{ id: string; name: string; kind: string }>>([]);
 const selectedMidiDevice = ref('');
 const midiOutputState = ref<{ connected: boolean; device_id?: string; device_name?: string }>({ connected: false });
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v1', 'keyboard');
 const channelRouted = ref<boolean[]>(Array.from({ length: 16 }, () => true));
 
 const playModeOptions = [
@@ -1067,6 +1071,10 @@ const applyHotkeys = async (announce = false) => {
       songPath: selectedSong.value?.path || selectedPath.value,
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
+      outputMode: outputMode.value,
+      midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
+      oscHost: vrchatOscHost.value,
+      oscPort: vrchatOscPort.value,
     });
     hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     if (Number.isFinite(status.value.speed)) speed.value = status.value.speed;
@@ -1094,6 +1102,14 @@ const toggleHotkeys = async () => {
 
 const start = async () => {
   if (!selectedSong.value) return;
+  if (outputMode.value === 'osc') {
+    await startVrchatOsc();
+    return;
+  }
+  if (outputMode.value === 'midi') {
+    await startDirectMidi();
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -1101,6 +1117,7 @@ const start = async () => {
       songPath: selectedSong.value.path,
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
+      outputMode: 'keyboard',
     });
     addLog(t('vrpiano.preparing_to_play', { name: selectedSong.value.name }));
   } catch (e: any) {
@@ -1127,6 +1144,34 @@ const startVrchatOsc = async () => {
   } catch (e: any) {
     error.value = e.message || String(e);
     addLog(t('vrpiano.vrchat_osc_start_failed', { error: error.value }));
+  } finally {
+    loading.value = false;
+  }
+};
+
+const startDirectMidi = async () => {
+  if (!selectedSong.value || !selectedMidiDevice.value) {
+    error.value = t('vrpiano.select_midi_device_for_direct_playback');
+    return;
+  }
+  if (!midiOutputState.value.connected || midiOutputState.value.device_id !== selectedMidiDevice.value) {
+    error.value = t('vrpiano.connect_midi_device_before_direct_playback');
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  try {
+    status.value = await VrpianoApi.start({
+      songPath: selectedSong.value.path,
+      delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+      speed: clampSpeed(speed.value),
+      outputMode: 'midi',
+      midiDeviceId: selectedMidiDevice.value,
+    });
+    addLog(t('vrpiano.preparing_to_play_direct_midi', { name: selectedSong.value.name }));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+    addLog(t('vrpiano.start_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -1174,6 +1219,8 @@ const restartPlayback = async () => {
       songPath: selectedSong.value.path,
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
+      outputMode: outputMode.value === 'midi' ? 'midi' : 'keyboard',
+      midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
     });
     addLog(t('vrpiano.restarted_song', { name: selectedSong.value.name }));
   } catch (e: any) {
@@ -1215,7 +1262,7 @@ const refreshStatus = async () => {
 
 const startRecording = async () => {
   if (!isTauri()) {
-    addLog('Recording is only available in the desktop app');
+    addLog(t('vrpiano.recording_desktop_only'));
     return;
   }
   try {
@@ -1244,7 +1291,7 @@ const stopRecording = async () => {
 
 const toggleVoiceControl = async () => {
   if (!isTauri()) {
-    addLog('Voice control is only available in the desktop app');
+    addLog(t('vrpiano.voice_desktop_only'));
     return;
   }
   try {
@@ -1252,10 +1299,10 @@ const toggleVoiceControl = async () => {
     await VrpianoApi.setVoiceControlEnabled({ enabled: voiceControlEnabled.value });
     if (voiceControlEnabled.value) {
       startVoiceRecognition();
-      addLog('Voice control enabled - say: play, pause, stop, faster, slower, reset');
+      addLog(t('vrpiano.voice_enabled_hint'));
     } else {
       stopVoiceRecognition();
-      addLog('Voice control disabled');
+      addLog(t('vrpiano.voice_disabled'));
     }
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -1267,7 +1314,7 @@ let recognition: any = null;
 
 const startVoiceRecognition = () => {
   if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-    addLog('Speech recognition not supported in this browser');
+    addLog(t('vrpiano.voice_not_supported'));
     return;
   }
   const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -1278,12 +1325,12 @@ const startVoiceRecognition = () => {
 
   recognition.onresult = (event: any) => {
     const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
-    addLog(`Voice: "${transcript}"`);
+    addLog(t('vrpiano.voice_recognized', { text: transcript }));
     processVoiceCommand(transcript);
   };
 
   recognition.onerror = (event: any) => {
-    addLog(`Voice error: ${event.error}`);
+    addLog(t('vrpiano.voice_error', { error: event.error }));
     if (voiceControlEnabled.value && event.error !== 'no-speech') {
       setTimeout(() => {
         if (voiceControlEnabled.value) {
@@ -1302,7 +1349,7 @@ const startVoiceRecognition = () => {
   try {
     recognition.start();
   } catch (e) {
-    addLog(`Failed to start voice recognition: ${e}`);
+    addLog(t('vrpiano.voice_start_failed', { error: String(e) }));
   }
 };
 
@@ -1323,7 +1370,7 @@ const processVoiceCommand = async (transcript: string) => {
   } else if (cmd.includes('停止') || cmd.includes('stop')) {
     if (status.value.running) {
       await VrpianoApi.stop();
-      addLog('Playback stopped');
+      addLog(t('vrpiano.playback_stopped'));
     }
   } else if (cmd.includes('快') || cmd.includes('faster') || cmd.includes('加速')) {
     adjustSpeed(0.1);
@@ -1338,13 +1385,13 @@ const processVoiceCommand = async (transcript: string) => {
 
 const toggleTts = async () => {
   if (!isTauri()) {
-    addLog('TTS singing is only available in the desktop app');
+    addLog(t('vrpiano.tts_desktop_only'));
     return;
   }
   try {
     ttsEnabled.value = !ttsEnabled.value;
     await VrpianoApi.setTtsEnabled({ enabled: ttsEnabled.value });
-    addLog(ttsEnabled.value ? 'TTS singing enabled' : 'TTS singing disabled');
+    addLog(ttsEnabled.value ? t('vrpiano.tts_enabled') : t('vrpiano.tts_disabled'));
   } catch (e: any) {
     error.value = e.message || String(e);
     ttsEnabled.value = !ttsEnabled.value;
@@ -1468,6 +1515,8 @@ const applyPlaylist = async () => {
         songPath: playlist.value[0],
         delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
         speed: clampSpeed(speed.value),
+        outputMode: outputMode.value === 'midi' ? 'midi' : 'keyboard',
+        midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
       });
       addLog(t('vrpiano.playing_playlist', { count: playlist.value.length, label: t(`vrpiano.play_mode_${playModeLabelKey(playMode.value)}`) }));
     }
@@ -1528,6 +1577,10 @@ watch(speed, () => {
 });
 
 watch([selectedPath, delaySecs], () => {
+  if (hotkeysEnabled.value) scheduleHotkeyApply();
+});
+
+watch([outputMode, selectedMidiDevice, vrchatOscHost, vrchatOscPort], () => {
   if (hotkeysEnabled.value) scheduleHotkeyApply();
 });
 
@@ -1731,10 +1784,10 @@ onUnmounted(() => {
           <small :title="selectedSong?.path || status.songs_dir">{{ selectedSong?.path || status.songs_dir }}</small>
         </div>
 
-        <section class="player-panel">
+        <section class="player-panel preview-panel">
           <div class="player-head">
             <div>
-              <span>{{t('vrpiano.built_in_player') }}</span>
+              <span>{{ t('vrpiano.built_in_preview_title') }}</span>
               <strong>{{ playerTitle }}</strong>
             </div>
             <button class="player-toggle" :disabled="!canTogglePlayer" @click="togglePlayer">
@@ -1744,6 +1797,7 @@ onUnmounted(() => {
               {{ playerPlaying ?t('vrpiano.pause') :t('vrpiano.play') }}
             </button>
           </div>
+          <p class="panel-help">{{ t('vrpiano.built_in_preview_desc') }}</p>
           <label class="player-instrument">
             <Music :size="15" />
             <span>{{t('vrpiano.playback_instrument') }}</span>
@@ -1778,14 +1832,19 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <div class="progress-area">
+        <section class="external-section-heading">
+          <strong>{{ t('vrpiano.external_playback_title') }}</strong>
+          <span>{{ t('vrpiano.external_playback_desc') }}</span>
+        </section>
+
+        <div class="progress-area external-progress">
           <div class="progress-head">
             <span>{{ status.last_event ||t('vrpiano.ready') }}</span>
             <strong>{{ progressPercent }}%</strong>
           </div>
           <div class="progress-track"><div class="progress-fill" :style="{ width: `${progressPercent}%` }" /></div>
           <div class="progress-foot">
-            <span>{{ status.played_notes }} / {{ status.total_notes }} notes</span>
+            <span>{{ t('vrpiano.notes_count', { played: status.played_notes, total: status.total_notes }) }}</span>
             <span>{{ formatTime(status.duration_ms) }}</span>
           </div>
         </div>
@@ -1824,7 +1883,7 @@ onUnmounted(() => {
             <strong>{{t('vrpiano.midi_recording') }}</strong>
             <div class="control-row">
                <button v-if="!recording" class="small-action record-start" :disabled="loading" @click="startRecording">
-                 <Disc3 :size="14" /> Start Recording
+                 <Disc3 :size="14" /> {{ t('vrpiano.start_recording') }}
                </button>
               <button v-else class="small-action record-stop" :disabled="loading" @click="stopRecording">
                 <Square :size="14" /> {{t('vrpiano.stop_recording') }}
@@ -1834,14 +1893,15 @@ onUnmounted(() => {
           </div>
 
           <div class="control-section">
-            <strong>{{t('vrpiano.vrchat_osc_piano') }}</strong>
+            <strong>{{ t('vrpiano.vrchat_osc_piano') }}</strong>
+            <p class="panel-help">{{ t('vrpiano.osc_target_hint') }}</p>
             <div class="control-row">
               <label class="osc-config">
-                <span>Host</span>
+                <span>{{ t('vrpiano.host') }}</span>
                 <input v-model="vrchatOscHost" placeholder="127.0.0.1" :disabled="loading">
               </label>
               <label class="osc-config">
-                <span>Port</span>
+                <span>{{ t('vrpiano.port') }}</span>
                 <input v-model.number="vrchatOscPort" type="number" min="1" max="65535" :disabled="loading">
               </label>
             </div>
@@ -1854,22 +1914,46 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <div class="control-section output-mode-section">
+            <strong>{{ t('vrpiano.output_mode') }}</strong>
+            <div class="output-mode-grid">
+              <button class="output-mode-card" :class="{ active: outputMode === 'keyboard' }" @click="outputMode = 'keyboard'">
+                <Keyboard :size="16" />
+                <span>{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                <small>{{ t('vrpiano.pc_keyboard_desc') }}</small>
+              </button>
+              <button class="output-mode-card" :class="{ active: outputMode === 'midi' }" @click="outputMode = 'midi'">
+                <Cable :size="16" />
+                <span>{{ t('vrpiano.direct_midi_mode') }}</span>
+                <small>{{ t('vrpiano.direct_midi_desc') }}</small>
+              </button>
+              <button class="output-mode-card" :class="{ active: outputMode === 'osc' }" @click="outputMode = 'osc'">
+                <Radio :size="16" />
+                <span>{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                <small>{{ t('vrpiano.vrchat_osc_desc') }}</small>
+              </button>
+            </div>
+            <button v-if="outputMode === 'midi'" class="direct-midi-action" :disabled="loading || !selectedSong || !midiOutputState.connected" @click="startDirectMidi">
+              <Cable :size="14" /> {{ t('vrpiano.start_direct_midi') }}
+            </button>
+          </div>
+
           <div class="control-section">
             <strong>{{t('vrpiano.channel_controls') }}</strong>
             <div class="channel-grid">
               <div v-for="idx in 16" :key="idx - 1" class="channel-row" :class="{ muted: channelStates[idx - 1].muted, solo: channelStates[idx - 1].solo, routed: channelRouted[idx - 1] }">
-                <span class="channel-label">CH {{ idx - 1 }}</span>
+                <span class="channel-label">{{ t('vrpiano.channel_number', { channel: idx - 1 }) }}</span>
                 <button class="channel-btn mute" :class="{ active: channelStates[idx - 1].muted }" :title="t('vrpiano.mute')" @click="setChannelMute(idx - 1, !channelStates[idx - 1].muted)">
-                  M
+                  {{ t('vrpiano.mute_short') }}
                 </button>
                 <button class="channel-btn solo" :class="{ active: channelStates[idx - 1].solo }" :title="t('vrpiano.solo')" @click="setChannelSolo(idx - 1, !channelStates[idx - 1].solo)">
-                  S
+                  {{ t('vrpiano.solo_short') }}
                 </button>
                 <button class="channel-btn route" :class="{ active: channelRouted[idx - 1] }" :title="t('vrpiano.route_to_piano')" @click="setChannelRouted(idx - 1, !channelRouted[idx - 1])">
-                  R
+                  {{ t('vrpiano.route_short') }}
                 </button>
                 <input type="range" min="0" max="127" :value="channelStates[idx - 1].volume" @input="setChannelVolume(idx - 1, Number(($event.target as HTMLInputElement).valueAsNumber))" class="channel-volume">
-                <span class="channel-vol-label">{{ channelStates[idx - 1].volume }}</span>
+                <span class="channel-vol-label">{{ t('vrpiano.volume') }} {{ channelStates[idx - 1].volume }}</span>
               </div>
             </div>
           </div>
@@ -1923,7 +2007,7 @@ onUnmounted(() => {
                 </div>
               </li>
             </ul>
-            <p v-else class="playlist-empty">{{ l('播放列表为空。选择一首曲目后点击「添加当前曲目」。', 'Playlist is empty. Select a song and click "Add current song".') }}</p>
+            <p v-else class="playlist-empty">{{ t('vrpiano.playlist_empty') }}</p>
           </div>
 
           <div class="control-section">
@@ -2443,8 +2527,40 @@ h1 {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
+}
+
+input,
+select {
+  color: var(--vp-text);
+  background-color: var(--vp-surface);
+  border-color: var(--vp-border);
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--vp-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 18%, transparent);
+}
+
+input[type="range"] {
+  accent-color: var(--vp-primary);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
+}
+
+input[type="range"]::-moz-range-track {
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
+}
+
+select option {
+  color: var(--vp-text);
+  background: var(--vp-surface);
 }
 
 .icon-btn,
@@ -2607,6 +2723,25 @@ input {
   padding: 12px;
 }
 
+.panel-help,
+.external-section-heading span {
+  margin: 0;
+  color: var(--vp-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.external-section-heading {
+  display: grid;
+  gap: 4px;
+  padding: 4px 2px 0;
+}
+
+.external-section-heading strong {
+  color: var(--vp-text);
+  font-size: 14px;
+}
+
 .player-head,
 .player-slider,
 .player-volume,
@@ -2645,11 +2780,12 @@ input {
   font: inherit;
   font-size: 12px;
   font-weight: 750;
+  appearance: auto;
 }
 
 .player-instrument select:focus {
   border-color: var(--vp-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 14%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 18%, transparent);
 }
 
 .player-instrument small {
@@ -2746,6 +2882,17 @@ input {
   border-radius: 999px;
   background: var(--vp-primary);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--vp-primary) 18%, transparent);
+}
+
+.player-slider input::-moz-range-thumb,
+.player-volume input::-moz-range-thumb,
+.channel-volume::-moz-range-thumb,
+.control-grid input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--vp-primary);
 }
 
 .progress-head,
@@ -2969,18 +3116,105 @@ input {
   background: #b91c1c;
 }
 
+.output-mode-section {
+  display: grid;
+  gap: 10px;
+}
+
+.output-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.output-mode-card {
+  min-width: 0;
+  min-height: 104px;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--vp-border);
+  border-radius: 9px;
+  color: var(--vp-muted);
+  background: var(--vp-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.output-mode-card:hover,
+.output-mode-card.active {
+  color: var(--vp-text);
+  border-color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 12%, var(--vp-surface));
+}
+
+.output-mode-card span {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.output-mode-card small {
+  color: var(--vp-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.direct-midi-action {
+  min-height: 40px;
+  justify-self: start;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: var(--vp-primary);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.direct-midi-action:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.osc-config {
+  min-width: 0;
+  flex: 1 1 180px;
+  display: grid;
+  gap: 5px;
+}
+
+.osc-config span {
+  color: var(--vp-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.osc-config input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--vp-border);
+  border-radius: 7px;
+  color: var(--vp-text);
+  background: var(--vp-surface);
+}
+
 .channel-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .channel-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, 1fr));
+  gap: 8px;
   align-items: center;
-  gap: 4px;
-  padding: 6px;
-  border-radius: 6px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
   background: var(--vp-surface);
   box-shadow: inset 0 0 0 1px var(--vp-border);
 }
@@ -2995,23 +3229,28 @@ input {
 }
 
 .channel-label {
-  width: 28px;
+  width: auto;
+  min-width: 0;
+  grid-column: 1 / -1;
   color: var(--vp-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
-  text-align: center;
+  text-align: left;
 }
 
 .channel-btn {
-  width: 22px;
-  height: 22px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 30px;
   border: 1px solid var(--vp-border);
   border-radius: 4px;
   display: grid;
   place-items: center;
   color: var(--vp-muted);
   background: var(--vp-panel);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -3155,7 +3394,8 @@ input {
 }
 
 .channel-volume {
-  flex: 1;
+  grid-column: 1 / -1;
+  width: 100%;
   min-width: 0;
   appearance: none;
   height: 3px;
@@ -3172,11 +3412,52 @@ input {
 }
 
 .channel-vol-label {
-  width: 22px;
+  grid-column: 1 / -1;
+  width: auto;
   color: var(--vp-dim);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
-  text-align: right;
+  text-align: left;
+}
+
+select:focus,
+.midi-device-select:focus,
+.playmode-field select:focus {
+  border-color: var(--vp-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 18%, transparent);
+}
+
+select option:checked,
+select option:hover {
+  color: white;
+  background: var(--vp-primary);
+}
+
+.player-slider input,
+.player-volume input,
+.control-grid input[type="range"],
+.channel-volume {
+  accent-color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
+}
+
+.player-slider input::-webkit-slider-runnable-track,
+.player-volume input::-webkit-slider-runnable-track,
+.control-grid input[type="range"]::-webkit-slider-runnable-track,
+.channel-volume::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
+}
+
+.player-slider input::-moz-range-track,
+.player-volume input::-moz-range-track,
+.control-grid input[type="range"]::-moz-range-track,
+.channel-volume::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
 }
 
 .small-action.enabled {
@@ -3624,6 +3905,14 @@ input {
     min-height: 260px;
   }
 
+  .channel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .output-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
   .hotkey-panel,
   .midishow-account,
   .login-form,
@@ -3661,6 +3950,11 @@ input {
 }
 
 @media (max-width: 620px) {
+  .channel-row {
+    grid-template-columns: minmax(70px, auto) repeat(3, minmax(44px, 1fr));
+    gap: 6px;
+  }
+
   .login-form-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

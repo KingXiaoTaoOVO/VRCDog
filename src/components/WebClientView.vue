@@ -46,6 +46,7 @@ const connect = async () => {
       },
       timeoutMs: 5000,
       maxRetries: 1,
+      allowExternalHost: true,
     });
     statusText.value = data.status === 'ok' ? '已连接' : data.status;
   } catch (err: any) {

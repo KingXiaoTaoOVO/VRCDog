@@ -396,6 +396,7 @@ const enterServerDashboard = async () => {
       await VrcApi.request(`${url}/api/admin/auth`, {
         method: 'POST',
         params: { password: serverPassword.value },
+        allowExternalHost: true,
       });
     }
     emit('role-selected', {

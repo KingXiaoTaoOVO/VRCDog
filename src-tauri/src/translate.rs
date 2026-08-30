@@ -3,6 +3,9 @@ use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -18,6 +21,38 @@ pub struct TranslateRequest {
     /// Custom API endpoint URL (for "custom" service type)
     #[serde(default)]
     pub custom_api_url: String,
+    #[serde(default)]
+    pub glossary: Vec<GlossaryTerm>,
+    #[serde(default)]
+    pub context: Vec<String>,
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GlossaryTerm {
+    pub source: String,
+    pub target: String,
+    #[serde(default = "default_glossary_language")]
+    pub source_lang: String,
+    #[serde(default = "default_glossary_language")]
+    pub target_lang: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+}
+
+fn default_retry_count() -> u8 { 2 }
+fn default_glossary_language() -> String { "any".into() }
+
+pub fn glossary_term_matches(term: &GlossaryTerm, source_lang: &str, target_lang: &str) -> bool {
+    same_language(&term.source_lang, source_lang) && same_language(&term.target_lang, target_lang)
+}
+
+fn same_language(left: &str, right: &str) -> bool {
+    if left.eq_ignore_ascii_case("any") || right.eq_ignore_ascii_case("any") { return true; }
+    let left = left.replace('_', "-").to_ascii_lowercase();
+    let right = right.replace('_', "-").to_ascii_lowercase();
+    left == right || left.split('-').next() == right.split('-').next()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,8 +62,140 @@ pub struct TranslateResult {
     pub service: String,
 }
 
-/// Dispatch translation to the configured service
+struct GlossaryBinding {
+    token: String,
+    target: String,
+}
+
+static TRANSLATION_CACHE: OnceLock<Mutex<HashMap<String, (Instant, String)>>> = OnceLock::new();
+
+fn translation_cache() -> &'static Mutex<HashMap<String, (Instant, String)>> {
+    TRANSLATION_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_key(req: &TranslateRequest) -> String {
+    let glossary = req.glossary.iter().map(|term| format!("{}={}:{}:{}:{}", term.source, term.target, term.source_lang, term.target_lang, term.case_sensitive)).collect::<Vec<_>>().join("|");
+    let context = req.context.iter().take(6).map(|item| item.trim()).collect::<Vec<_>>().join("|");
+    format!("{}\0{}\0{}\0{}\0{}\0{}\0{}\0{}\0{}", req.service, req.model, req.source_lang, req.target_lang, req.text.trim(), req.prompt, req.custom_api_url, glossary, context)
+}
+
+fn matching_glossary(req: &TranslateRequest) -> Vec<&GlossaryTerm> {
+    let mut terms = req.glossary.iter().filter(|term| {
+        !term.source.trim().is_empty() && !term.target.trim().is_empty()
+            && glossary_term_matches(term, &req.source_lang, &req.target_lang)
+    }).collect::<Vec<_>>();
+    terms.sort_by_key(|term| std::cmp::Reverse(term.source.chars().count()));
+    terms
+}
+
+fn protect_glossary(req: &TranslateRequest) -> (String, Vec<GlossaryBinding>) {
+    let mut text = req.text.clone();
+    let mut bindings = Vec::new();
+    for (index, term) in matching_glossary(req).into_iter().enumerate() {
+        let source = term.source.trim();
+        let token = format!("VRCG{:06}X", index);
+        let mut spans = Vec::new();
+        if term.case_sensitive {
+            let mut cursor = 0;
+            while let Some(relative) = text[cursor..].find(source) {
+                let start = cursor + relative;
+                spans.push((start, start + source.len()));
+                cursor = start + source.len();
+            }
+        } else {
+            let source_chars = source.chars().collect::<Vec<_>>();
+            let text_chars = text.char_indices().collect::<Vec<_>>();
+            for start_index in 0..text_chars.len() {
+                let end_index = start_index + source_chars.len();
+                if end_index > text_chars.len() { break; }
+                let matches = text_chars[start_index..end_index].iter().map(|(_, ch)| *ch)
+                    .zip(source_chars.iter().copied()).all(|(left, right)| left.eq_ignore_ascii_case(&right));
+                if matches {
+                    let start = text_chars[start_index].0;
+                    let end = if end_index < text_chars.len() { text_chars[end_index].0 } else { text.len() };
+                    spans.push((start, end));
+                }
+            }
+        }
+        let mut replaced = text.clone();
+        for (start, end) in spans.into_iter().rev() {
+            replaced.replace_range(start..end, &token);
+        }
+        if replaced != text {
+            text = replaced;
+            bindings.push(GlossaryBinding { token, target: term.target.trim().into() });
+        }
+    }
+    (text, bindings)
+}
+
+fn restore_glossary(mut text: String, bindings: &[GlossaryBinding]) -> String {
+    for binding in bindings {
+        text = text.replace(&binding.token, &binding.target);
+        text = text.replace(&binding.token.to_ascii_lowercase(), &binding.target);
+    }
+    text
+}
+
+fn is_retryable(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    ["http error", "timeout", "timed out", "connection", "429", "502", "503", "504"].iter().any(|marker| lower.contains(marker))
+}
+
+fn context_instruction(req: &TranslateRequest) -> String {
+    let context = req.context.iter().map(|item| item.trim()).filter(|item| !item.is_empty()).take(6).collect::<Vec<_>>();
+    if context.is_empty() { return String::new(); }
+    format!("\nRecent conversation context (use only to resolve ambiguous wording):\n{}\n", context.join("\n"))
+}
+
+/// Dispatch translation with glossary protection, a short-lived cache, and bounded retries.
 pub async fn translate(req: &TranslateRequest) -> Result<TranslateResult, String> {
+    if req.text.trim().is_empty() {
+        return Err("Translation text is empty".into());
+    }
+    if req.source_lang != "auto" && same_language(&req.source_lang, &req.target_lang) {
+        return Ok(TranslateResult { original: req.text.clone(), translated: req.text.clone(), service: req.service.clone() });
+    }
+    let key = cache_key(req);
+    if let Ok(mut cache) = translation_cache().lock() {
+        cache.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(300));
+        if let Some((_, translated)) = cache.get(&key) {
+            return Ok(TranslateResult { original: req.text.clone(), translated: translated.clone(), service: req.service.clone() });
+        }
+    }
+    let (protected_text, bindings) = protect_glossary(req);
+    let mut protected_req = req.clone();
+    protected_req.text = protected_text;
+    let attempts = req.retry_count.min(3).saturating_add(1);
+    let mut last_error = String::new();
+    for attempt in 0..attempts {
+        match translate_provider(&protected_req).await {
+            Ok(result) => {
+                let translated = restore_glossary(result.translated, &bindings);
+                if let Ok(mut cache) = translation_cache().lock() {
+                    if cache.len() >= 256 {
+                        if let Some(oldest) = cache.iter().min_by_key(|(_, (created, _))| *created).map(|(key, _)| key.clone()) {
+                            cache.remove(&oldest);
+                        }
+                    }
+                    cache.insert(key, (Instant::now(), translated.clone()));
+                }
+                return Ok(TranslateResult { original: req.text.clone(), translated, service: req.service.clone() });
+            }
+            Err(error) => {
+                last_error = error;
+                if attempt + 1 < attempts && is_retryable(&last_error) {
+                    tokio::time::sleep(Duration::from_millis(250 * (1u64 << attempt))).await;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn translate_provider(req: &TranslateRequest) -> Result<TranslateResult, String> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .connect_timeout(std::time::Duration::from_secs(5))
@@ -102,6 +269,7 @@ pub async fn translate(req: &TranslateRequest) -> Result<TranslateResult, String
             translate_openai_compat(&client, req, &req.custom_api_url).await?
         }
         "gemini" => translate_gemini(&client, req).await?,
+        "google_cloud" => translate_google_cloud(&client, req).await?,
         "papago" => translate_papago(&client, req).await?,
         "tencent" => translate_tencent(&client, req).await?,
         "baidu" => translate_baidu(&client, req).await?,
@@ -144,16 +312,20 @@ async fn translate_openai_compat(
     let system_prompt = if req.prompt.is_empty() {
         format!(
             "You are a professional translator. Translate the following text from {} to {}. \
-             Return ONLY the translated text, nothing else.",
+             Return ONLY the translated text, nothing else. Preserve names, URLs, emojis, \
+             line breaks, and placeholder tokens exactly.{}",
             lang_name(&req.source_lang),
-            lang_name(&req.target_lang)
+            lang_name(&req.target_lang),
+            context_instruction(req)
         )
     } else {
         format!(
-            "{}\nSource language: {}\nTarget language: {}",
+            "{}\nSource language: {}\nTarget language: {} Preserve names, URLs, emojis, \
+             line breaks, and placeholder tokens exactly.{}",
             req.prompt,
             lang_name(&req.source_lang),
-            lang_name(&req.target_lang)
+            lang_name(&req.target_lang),
+            context_instruction(req)
         )
     };
 
@@ -595,6 +767,39 @@ async fn translate_google_free(client: &Client, req: &TranslateRequest) -> Resul
     Err("Failed to parse Google Translate response".into())
 }
 
+/// Google Cloud Translation Basic REST API.
+/// API key = Google Cloud API key with Cloud Translation enabled.
+async fn translate_google_cloud(client: &Client, req: &TranslateRequest) -> Result<String, String> {
+    if req.api_key.trim().is_empty() {
+        return Err("Google Cloud API key is required".into());
+    }
+    let mut body = serde_json::json!({
+        "q": [req.text.as_str()],
+        "target": req.target_lang,
+        "format": "text"
+    });
+    if req.source_lang != "auto" {
+        body["source"] = serde_json::Value::String(req.source_lang.clone());
+    }
+    let resp = client
+        .post("https://translation.googleapis.com/language/translate/v2")
+        .query(&[("key", req.api_key.as_str())])
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP error: {}", e))?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Google Cloud API error: {}", text));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| format!("JSON error: {}", e))?;
+    json["data"]["translations"][0]["translatedText"]
+        .as_str()
+        .map(|text| text.to_string())
+        .ok_or_else(|| "Google Cloud: No translation in response".into())
+}
+
 // ==================== Crypto Helpers ====================
 
 fn sha256_hash(data: &[u8]) -> Vec<u8> {
@@ -800,4 +1005,46 @@ fn papago_lang_code(code: &str) -> &str {
 #[tauri::command]
 pub async fn ovr_translate(req: TranslateRequest) -> crate::AppResult<TranslateResult> {
     translate(&req).await.map_err(|e| e.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(text: &str) -> TranslateRequest {
+        TranslateRequest {
+            text: text.into(), source_lang: "en".into(), target_lang: "zh-CN".into(),
+            service: "google_free".into(), api_key: String::new(), model: String::new(),
+            prompt: String::new(), custom_api_url: String::new(),
+            glossary: vec![GlossaryTerm {
+                source: "VRChat".into(), target: "VRChat（虚拟聊天）".into(),
+                source_lang: "any".into(), target_lang: "any".into(), case_sensitive: false,
+            }],
+            context: vec![], retry_count: 2,
+        }
+    }
+
+    #[test]
+    fn glossary_matching_accepts_regional_language_codes() {
+        let term = GlossaryTerm { source: "世界".into(), target: "world".into(), source_lang: "zh-CN".into(), target_lang: "en".into(), case_sensitive: false };
+        assert!(glossary_term_matches(&term, "zh-CN", "en-US"));
+        assert!(!glossary_term_matches(&term, "ja", "en"));
+    }
+
+    #[test]
+    fn glossary_protection_is_unicode_safe_and_restores_terms() {
+        let req = request("欢迎来到 VRChat！");
+        let (protected, bindings) = protect_glossary(&req);
+        assert!(!protected.contains("VRChat"));
+        assert_eq!(restore_glossary(protected, &bindings), "欢迎来到 VRChat（虚拟聊天）！");
+    }
+
+    #[test]
+    fn same_language_short_circuits_without_provider() {
+        let mut req = request("保持原文");
+        req.source_lang = "zh-CN".into(); req.target_lang = "zh".into();
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let result = runtime.block_on(translate(&req)).expect("same-language result");
+        assert_eq!(result.translated, "保持原文");
+    }
 }

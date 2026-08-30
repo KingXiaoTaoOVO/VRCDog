@@ -175,10 +175,10 @@ describe('RoleSelectView', () => {
     await flushPromises();
 
     expect(mocks.pingServer).toHaveBeenCalledWith({ url: 'https://admin.example.com' });
-    expect(mocks.request).toHaveBeenCalledWith(
-      'https://admin.example.com/api/admin/auth',
-      { method: 'POST', params: { password: 'root' } },
-    );
+   expect(mocks.request).toHaveBeenCalledWith(
+     'https://admin.example.com/api/admin/auth',
+      { method: 'POST', params: { password: 'root' }, allowExternalHost: true },
+   );
     const emitted = wrapper.emitted('role-selected') || [];
     expect(emitted[emitted.length - 1]).toEqual([{
       role: 'server',

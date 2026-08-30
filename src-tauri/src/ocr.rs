@@ -1,6 +1,101 @@
 use std::process::Stdio;
+use crate::translate::{translate, GlossaryTerm, TranslateRequest};
+use serde::{Deserialize, Serialize};
 
 pub struct OcrEngine;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PhotoTranslateRequest {
+    pub image_path: String,
+    #[serde(default = "default_photo_source_lang")]
+    pub source_lang: String,
+    #[serde(default = "default_photo_target_lang")]
+    pub target_lang: String,
+    #[serde(default = "default_photo_service")]
+    pub service: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub custom_api_url: String,
+    #[serde(default)]
+    pub glossary: Vec<GlossaryTerm>,
+    #[serde(default = "default_photo_retry_count")]
+    pub retry_count: u8,
+    #[serde(default = "default_photo_ocr_lang")]
+    pub ocr_lang: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PhotoTranslateResult {
+    pub image_path: String,
+    pub original: String,
+    pub translated: String,
+    pub service: String,
+}
+
+fn default_photo_source_lang() -> String { "auto".into() }
+fn default_photo_target_lang() -> String { "zh-CN".into() }
+fn default_photo_service() -> String { "google_free".into() }
+fn default_photo_retry_count() -> u8 { 2 }
+fn default_photo_ocr_lang() -> String { "auto".into() }
+
+#[tauri::command]
+pub async fn vrct_translate_image(request: PhotoTranslateRequest) -> crate::AppResult<PhotoTranslateResult> {
+    let path = std::path::Path::new(request.image_path.trim());
+    if !path.is_file() {
+        return Err("图片文件不存在".into());
+    }
+    let original = extract_text_from_image(path, &request.ocr_lang).await.map_err(crate::AppError::from)?;
+    let result = translate(&TranslateRequest {
+        text: original.clone(),
+        source_lang: request.source_lang,
+        target_lang: request.target_lang,
+        service: request.service,
+        api_key: request.api_key,
+        model: request.model,
+        prompt: request.prompt,
+        custom_api_url: request.custom_api_url,
+        glossary: request.glossary,
+        context: Vec::new(),
+        retry_count: request.retry_count,
+    }).await.map_err(crate::AppError::from)?;
+    Ok(PhotoTranslateResult {
+        image_path: request.image_path,
+        original,
+        translated: result.translated,
+        service: result.service,
+    })
+}
+
+/// OCR a user-selected image without persisting a processed copy.
+pub async fn extract_text_from_image(path: &std::path::Path, ocr_lang: &str) -> Result<String, String> {
+    let image_path = path.to_string_lossy().replace('\'', "''");
+    let lang = ocr_lang.replace('\'', "''");
+    let script = format!(r#"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.Ocr.OcrEngine,Windows.Foundation.UniversalApiContract,ContentType=WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation.UniversalApiContract,ContentType=WindowsRuntime]
+$null = [Windows.Storage.StorageFile,Windows.Foundation.UniversalApiContract,ContentType=WindowsRuntime]
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' }})[0]
+Function Await($operation, $resultType) {{ $task = $asTaskGeneric.MakeGenericMethod($resultType).Invoke($null, @($operation)); $task.Wait(-1) | Out-Null; $task.Result }}
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync('{image_path}')) ([Windows.Storage.StorageFile])
+$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$engine = $null
+if ('{lang}' -ne 'auto') {{ try {{ $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language '{lang}')) }} catch {{ $engine = $null }} }}
+if (-not $engine) {{ $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages() }}
+if ($engine) {{ (Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])).Text }} else {{ "OCR_ENGINE_NOT_AVAILABLE" }}
+"#);
+    let output = tokio::task::spawn_blocking(move || std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script]).output())
+        .await.map_err(|error| format!("OCR task failed: {error}"))?.map_err(|error| format!("OCR process failed: {error}"))?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() || text == "OCR_ENGINE_NOT_AVAILABLE" { Err("OCR 未识别到文字或当前语言包不可用".into()) } else { Ok(text) }
+}
 
 impl OcrEngine {
     /// Capture the primary desktop surface to a PNG. SteamVR mirrors its

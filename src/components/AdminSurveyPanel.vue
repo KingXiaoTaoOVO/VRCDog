@@ -53,7 +53,7 @@ const newId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toStr
 
 const request = (path: string, options: Record<string, unknown> = {}) => VrcApi.request(
   `${props.serverUrl}${path}`,
-  { ...options, headers: headers.value },
+  { ...options, headers: headers.value, allowExternalHost: true },
 );
 
 const notify = (text: string, error = false) => {

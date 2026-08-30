@@ -29,6 +29,11 @@ import sys
 import threading
 import time
 import traceback
+import base64
+import hashlib
+import hmac
+import uuid
+from urllib.parse import quote, urlencode
 from array import array
 from collections import deque
 from dataclasses import dataclass
@@ -298,12 +303,47 @@ class Denoiser:
 # --------------------------------------------------------------------------- #
 # Voice activity detection
 # --------------------------------------------------------------------------- #
+class SileroVadWrapper:
+    def __init__(self, model_path: str, threshold: int) -> None:
+        self.threshold = max(0.01, min(0.99, float(threshold) / 1000.0))
+        self.session = None
+        self.state = None
+        self.sr = None
+        try:
+            import numpy as np
+            import onnxruntime as ort
+
+            self.np = np
+            self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+            names = {item.name for item in self.session.get_inputs()}
+            self.audio_name = "input" if "input" in names else next(iter(names))
+            self.sr_name = "sr" if "sr" in names else None
+            self.state_name = "state" if "state" in names else None
+            self.state = np.zeros((2, 1, 128), dtype=np.float32)
+            self.sr = np.array(16000, dtype=np.int64)
+        except Exception as error:
+            emit("status", message="silero_unavailable", note=str(error))
+
+    def is_speech(self, frame: array) -> bool:
+        if self.session is None:
+            return False
+        samples = self.np.frombuffer(frame.tobytes(), dtype=self.np.int16).astype(self.np.float32) / 32768.0
+        inputs = {self.audio_name: samples.reshape(1, -1)}
+        if self.sr_name: inputs[self.sr_name] = self.sr
+        if self.state_name: inputs[self.state_name] = self.state
+        outputs = self.session.run(None, inputs)
+        probability = float(outputs[0].reshape(-1)[0])
+        if self.state_name and len(outputs) > 1: self.state = outputs[1]
+        return probability >= self.threshold
+
+
 class VadWrapper:
-    def __init__(self, vad_type: str, aggressiveness: int, threshold: int) -> None:
+    def __init__(self, vad_type: str, aggressiveness: int, threshold: int, silero_model: str = "") -> None:
         self.threshold = max(1, threshold)
         self.aggressiveness = max(0, min(3, aggressiveness))
         self.webrtc = None
         self.np = None
+        self.silero = SileroVadWrapper(silero_model, threshold) if vad_type == "silero" and silero_model else None
         if vad_type == "webrtc":
             try:
                 import webrtcvad
@@ -340,6 +380,12 @@ class VadWrapper:
         return flatness < flatness_threshold
 
     def is_speech(self, frame: array) -> bool:
+        if self.silero is not None and self.silero.session is not None:
+            try:
+                return self.silero.is_speech(frame)
+            except Exception as error:
+                emit("status", message="silero_runtime_fallback", note=str(error))
+                self.silero = None
         if self.webrtc is not None and len(frame) == FRAME_SAMPLES:
             try:
                 return self.webrtc.is_speech(frame.tobytes(), SAMPLE_RATE)
@@ -353,11 +399,47 @@ class VadWrapper:
 # --------------------------------------------------------------------------- #
 class Transcriber:
     def __init__(self, engine: str, source_lang: str, model_name: str, sr: Any) -> None:
+        self.engine = engine
         self.source_lang = source_lang
         self.language = source_lang.split("-")[0] or "auto"
         self.model = None
         self.sensevoice = None
+        self.sherpa = None
+        self.sherpa_stream = None
         self.sr = sr
+        self.realtime_provider = os.environ.get("VRCDOG_REALTIME_PROVIDER", "").strip().lower()
+        self.realtime_session = None
+        try:
+            self.realtime_config = json.loads(os.environ.get("VRCDOG_REALTIME_CONFIG", "{}"))
+        except json.JSONDecodeError:
+            self.realtime_config = {}
+
+        if engine == "sherpa":
+            try:
+                import sherpa_onnx
+
+                tokens = os.environ.get("VRCDOG_SHERPA_TOKENS", "")
+                encoder = os.environ.get("VRCDOG_SHERPA_ENCODER", "")
+                decoder = os.environ.get("VRCDOG_SHERPA_DECODER", "")
+                joiner = os.environ.get("VRCDOG_SHERPA_JOINER", "")
+                if not all((tokens, encoder, decoder, joiner)):
+                    raise RuntimeError("VRCDOG_SHERPA_TOKENS/ENCODER/DECODER/JOINER are required")
+                self.sherpa = sherpa_onnx.OnlineRecognizer.from_transducer(
+                    tokens=tokens,
+                    encoder=encoder,
+                    decoder=decoder,
+                    joiner=joiner,
+                    num_threads=2,
+                    sample_rate=SAMPLE_RATE,
+                    feature_dim=80,
+                    decoding_method="greedy_search",
+                )
+                self.sherpa_stream = self.sherpa.create_stream()
+                emit("status", message="model_ready", model="sherpa-online")
+            except Exception as error:
+                emit("status", message="sherpa_unavailable", note=str(error))
+                self.engine = "whisper"
+                engine = "whisper"
 
         if engine == "local" or engine == "whisper":
             emit("status", message="loading_model", model=model_name)
@@ -385,7 +467,24 @@ class Transcriber:
                 self.model = WhisperModel(model_name, device="cpu", compute_type=compute_type)
                 emit("status", message="model_ready", model=model_name)
 
-    def transcribe(self, samples: array, engine_name: str) -> str:
+    def transcribe(self, samples: array, engine_name: str, is_partial: bool = False) -> str:
+        if self.engine in {"tencent_realtime", "aliyun_realtime"} and self.realtime_provider in {"tencent_realtime", "aliyun_realtime"}:
+            return self.transcribe_realtime(samples, is_partial)
+        if self.sherpa is not None and self.sherpa_stream is not None:
+            import numpy as np
+
+            float32 = np.frombuffer(samples.tobytes(), dtype=np.int16).astype(np.float32) / 32768.0
+            self.sherpa_stream.accept_waveform(SAMPLE_RATE, float32)
+            while self.sherpa.is_ready(self.sherpa_stream):
+                self.sherpa.decode_stream(self.sherpa_stream)
+            result = self.sherpa.get_result(self.sherpa_stream).strip()
+            if not is_partial:
+                self.sherpa_stream.input_finished()
+                while self.sherpa.is_ready(self.sherpa_stream):
+                    self.sherpa.decode_stream(self.sherpa_stream)
+                result = self.sherpa.get_result(self.sherpa_stream).strip() or result
+                self.sherpa_stream = self.sherpa.create_stream()
+            return result
         float32 = None
         if self.model is not None:
             import numpy as np
@@ -418,6 +517,118 @@ class Transcriber:
         recognizer.operation_timeout = 10
         audio_data = self.sr.AudioData(samples.tobytes(), SAMPLE_RATE, BYTES_PER_SAMPLE)
         return recognizer.recognize_google(audio_data, language=self.source_lang).strip()
+
+    def transcribe_realtime(self, samples: array, is_partial: bool) -> str:
+        pcm = samples.tobytes()
+        if self.realtime_session is None:
+            if self.realtime_provider == "tencent_realtime":
+                self.realtime_session = TencentRealtimeSession(self.realtime_config)
+            else:
+                self.realtime_session = AliyunRealtimeSession(self.realtime_config)
+        try:
+            text = self.realtime_session.push(pcm, is_partial)
+            if not is_partial:
+                self.realtime_session.close()
+                self.realtime_session = None
+            return text
+        except Exception:
+            if self.realtime_session is not None:
+                self.realtime_session.close()
+                self.realtime_session = None
+            raise
+
+
+class TencentRealtimeSession:
+    def __init__(self, config: dict[str, object]) -> None:
+        import websocket
+        app_id = str(config.get("appId", "")).strip()
+        secret_id = str(config.get("secretId", "")).strip()
+        secret_key = str(config.get("secretKey", "")).strip()
+        engine = str(config.get("model", "16k_zh_en")).strip() or "16k_zh_en"
+        if not app_id or not secret_id or not secret_key:
+            raise RuntimeError("Tencent realtime ASR requires appId, secretId and secretKey")
+        now = int(time.time())
+        params = {"engine_model_type": engine, "expired": now + 86400, "needvad": 1, "nonce": now, "secretid": secret_id, "timestamp": now, "voice_format": 1, "voice_id": uuid.uuid4().hex}
+        ordered = sorted(params.items())
+        sign_query = "&".join(f"{key}={value}" for key, value in ordered)
+        request_query = urlencode(ordered, quote_via=quote, safe="")
+        path = f"asr.cloud.tencent.com/asr/v2/{app_id}"
+        signature = base64.b64encode(hmac.new(secret_key.encode(), f"{path}?{sign_query}".encode(), hashlib.sha1).digest()).decode()
+        url = f"wss://{path}?{request_query}&signature={quote(signature, safe='')}"
+        self.websocket = websocket.create_connection(url, timeout=15)
+        handshake = json.loads(self.websocket.recv())
+        if int(handshake.get("code", 0) or 0):
+            self.websocket.close()
+            raise RuntimeError(handshake.get("message", "Tencent ASR handshake failed"))
+        self.websocket.settimeout(0.05)
+
+    def push(self, pcm16: bytes, is_partial: bool) -> str:
+        import websocket
+        self.websocket.send(pcm16, opcode=websocket.ABNF.OPCODE_BINARY)
+        if not is_partial:
+            self.websocket.send(json.dumps({"type": "end"}))
+        final_text = ""
+        deadline = time.monotonic() + (0.05 if is_partial else 6.0)
+        while time.monotonic() < deadline:
+            try:
+                payload = json.loads(self.websocket.recv())
+            except Exception:
+                if is_partial: break
+                continue
+            if int(payload.get("code", 0) or 0): raise RuntimeError(payload.get("message", "Tencent ASR failed"))
+            result = payload.get("result") or {}
+            text = str(result.get("voice_text_str", "")).strip()
+            if text: final_text = text
+            if not is_partial and int(payload.get("final", 0) or 0) == 1: break
+        return final_text
+
+    def close(self) -> None:
+        try: self.websocket.close()
+        except Exception: pass
+
+
+class AliyunRealtimeSession:
+    def __init__(self, config: dict[str, object]) -> None:
+        import websocket
+        app_key = str(config.get("appKey", "")).strip()
+        token = str(config.get("accessToken", "")).strip()
+        url = str(config.get("url", "wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1")).strip()
+        if not app_key or not token:
+            raise RuntimeError("Alibaba realtime ASR requires appKey and accessToken")
+        self.websocket = websocket.create_connection(url, header=[f"X-NLS-Token: {token}"], timeout=15)
+        self.task_id = uuid.uuid4().hex
+        def command(name: str, payload: dict[str, object] | None = None) -> str:
+            message: dict[str, object] = {"header": {"message_id": uuid.uuid4().hex, "task_id": self.task_id, "namespace": "SpeechTranscriber", "name": name, "appkey": app_key}}
+            if payload is not None: message["payload"] = payload
+            return json.dumps(message, separators=(",", ":"))
+        self.command = command
+        self.websocket.send(command("StartTranscription", {"format": "pcm", "sample_rate": 16000, "enable_intermediate_result": True, "enable_punctuation_prediction": True, "enable_inverse_text_normalization": True}))
+        started = json.loads(self.websocket.recv())
+        if (started.get("header") or {}).get("name") != "TranscriptionStarted": raise RuntimeError((started.get("header") or {}).get("status_text", "Alibaba NLS failed to start"))
+        self.websocket.settimeout(0.05)
+
+    def push(self, pcm16: bytes, is_partial: bool) -> str:
+        import websocket
+        self.websocket.send(pcm16, opcode=websocket.ABNF.OPCODE_BINARY)
+        if not is_partial: self.websocket.send(self.command("StopTranscription"))
+        final_text = ""
+        deadline = time.monotonic() + (0.05 if is_partial else 6.0)
+        while time.monotonic() < deadline:
+            try: payload = json.loads(self.websocket.recv())
+            except Exception:
+                if is_partial: break
+                continue
+            header = payload.get("header") or {}
+            body = payload.get("payload") or {}
+            if header.get("name") == "TaskFailed": raise RuntimeError(header.get("status_text", "Alibaba NLS failed"))
+            text = str(body.get("result", "")).strip()
+            if text: final_text = text
+            if not is_partial and header.get("name") == "TranscriptionCompleted": break
+        return final_text
+
+    def close(self) -> None:
+        try: self.websocket.close()
+        except Exception: pass
 
 
 # --------------------------------------------------------------------------- #
@@ -474,10 +685,14 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
 
         corrector = ASRCorrector(args.correction_dict_dir) if args.correction_enabled else ASRCorrector(None)
         denoiser = Denoiser(args.denoise_strength)
-        vad = VadWrapper(args.vad_type, args.vad_aggressiveness, args.energy_threshold or 150)
+        vad = VadWrapper(args.vad_type, args.vad_aggressiveness, args.energy_threshold or 150, args.silero_model)
         transcriber = Transcriber(args.engine, args.source_lang, args.whisper_model, sr)
-        engine_name = "sensevoice" if (args.asr_engine == "sensevoice" and transcriber.sensevoice is not None) else (
-            "whisper" if transcriber.model is not None else "cloud"
+        engine_name = (
+            "sensevoice" if (args.engine == "sensevoice" and transcriber.sensevoice is not None)
+            else "sherpa" if transcriber.sherpa is not None
+            else "whisper" if transcriber.model is not None
+            else args.engine if args.engine in {"tencent_realtime", "aliyun_realtime"}
+            else "cloud"
         )
 
         transcribe_queue: queue.Queue[tuple[array, bool]] = queue.Queue(maxsize=4)
@@ -490,7 +705,7 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
                 except queue.Empty:
                     continue
                 try:
-                    text = transcriber.transcribe(samples, engine_name)
+                    text = transcriber.transcribe(samples, engine_name, is_partial)
                     if text:
                         result_queue.put((text, is_partial))
                 except sr.UnknownValueError:
@@ -510,6 +725,7 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
         silence_frames = 0
         phrase_started = 0.0
         last_partial = 0.0
+        last_level_emit = 0.0
         min_segment_frames = int(args.min_segment_s * SAMPLE_RATE / FRAME_SAMPLES)
         max_segment_frames = int(args.max_segment_s * SAMPLE_RATE / FRAME_SAMPLES)
         silence_frames_limit = max(2, int(args.silence_timeout / (FRAME_SAMPLES / SAMPLE_RATE)))
@@ -530,6 +746,10 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
                     continue
 
                 cleaned = denoiser.process(frame)
+                now = time.monotonic()
+                if now - last_level_emit >= 0.15:
+                    last_level_emit = now
+                    emit("status", message="audio_level", level=frame_rms(cleaned), source=args.source)
                 is_speech = vad.is_speech(cleaned)
 
                 if not speaking:
@@ -538,7 +758,7 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
                         speaking = True
                         phrase = list(pre_roll) + [cleaned]
                         silence_frames = 0
-                        phrase_started = time.monotonic()
+                        phrase_started = now
                         last_partial = phrase_started
                         emit("status", message="recording")
                     continue
@@ -596,7 +816,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-lang", default="en-US")
     parser.add_argument(
         "--engine",
-        choices=("cloud", "local", "whisper", "sensevoice"),
+        choices=("cloud", "local", "whisper", "sensevoice", "sherpa", "tencent_realtime", "aliyun_realtime"),
         default="local",
     )
     parser.add_argument("--device-index", type=int)
@@ -606,7 +826,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--silence-timeout", type=float, default=0.6)
     parser.add_argument("--whisper-model", default=os.environ.get("VRCDOG_WHISPER_MODEL", "tiny"))
     # Enhanced controls ported from MioVRC.
-    parser.add_argument("--vad-type", choices=("webrtc", "rms"), default="webrtc")
+    parser.add_argument("--vad-type", choices=("webrtc", "rms", "silero"), default="webrtc")
+    parser.add_argument("--silero-model", default=os.environ.get("VRCDOG_SILERO_VAD_MODEL", ""))
     parser.add_argument("--vad-aggressiveness", type=int, default=2)
     parser.add_argument("--denoise-strength", type=float, default=0.0)
     parser.add_argument("--correction-enabled", action="store_true", default=False)

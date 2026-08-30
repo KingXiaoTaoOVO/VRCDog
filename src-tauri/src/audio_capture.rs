@@ -83,6 +83,16 @@ fn resolve_dict_dir(script: &std::path::Path) -> Option<String> {
     }
 }
 
+fn resolve_silero_model(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(app_data) = app.path().app_data_dir() { candidates.push(app_data.join("models").join("silero_vad.onnx")); }
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("models").join("silero_vad.onnx"));
+        candidates.push(resource_dir.join("silero_vad.onnx"));
+    }
+    existing_file(candidates)
+}
+
 fn resolve_worker_paths(app: &tauri::AppHandle) -> AppResult<(PathBuf, PathBuf)> {
     let mut runtime_candidates = Vec::new();
     let mut script_candidates = Vec::new();
@@ -231,13 +241,16 @@ pub fn vrct_start_audio_capture(
     capture_mode: Option<String>,
     target_process: Option<String>,
     self_suppress_seconds: Option<f32>,
+    realtime_provider: Option<String>,
+    realtime_config: Option<serde_json::Value>,
+    sherpa_config: Option<serde_json::Value>,
 ) -> AppResult<()> {
     if !matches!(source.as_str(), "mic" | "speaker") {
         return Err(AppError::from("Audio source must be `mic` or `speaker`"));
     }
-    if !matches!(engine.as_str(), "cloud" | "local" | "whisper" | "sensevoice") {
+    if !matches!(engine.as_str(), "cloud" | "local" | "whisper" | "sensevoice" | "sherpa" | "tencent_realtime" | "aliyun_realtime") {
         return Err(AppError::from(
-            "STT engine must be `cloud`, `local`, `whisper` or `sensevoice`",
+            "STT engine must be `cloud`, `local`, `whisper`, `sensevoice`, `sherpa`, `tencent_realtime` or `aliyun_realtime`",
         ));
     }
 
@@ -280,6 +293,8 @@ pub fn vrct_start_audio_capture(
         .arg(whisper_model.unwrap_or_else(|| "tiny".into()))
         .arg("--vad-type")
         .arg(vad_type.clone().unwrap_or_else(|| "webrtc".into()))
+        .arg("--silero-model")
+        .arg(resolve_silero_model(&app).map(|path| path.to_string_lossy().into_owned()).unwrap_or_default())
         .arg("--vad-aggressiveness")
         .arg(vad_aggressiveness.unwrap_or(2).to_string())
         .arg("--denoise-strength")
@@ -313,6 +328,23 @@ pub fn vrct_start_audio_capture(
         let model_cache = cache_dir.join("whisper");
         let _ = std::fs::create_dir_all(&model_cache);
         command.env("HF_HOME", model_cache);
+    }
+    if let Some(provider) = realtime_provider.filter(|value| !value.trim().is_empty()) {
+        command.env("VRCDOG_REALTIME_PROVIDER", provider);
+    }
+    if let Some(config) = realtime_config {
+        if let Ok(serialized) = serde_json::to_string(&config) {
+            command.env("VRCDOG_REALTIME_CONFIG", serialized);
+        }
+    }
+    if let Some(config) = sherpa_config {
+        if let Some(object) = config.as_object() {
+            for (key, env_key) in [("tokens", "VRCDOG_SHERPA_TOKENS"), ("encoder", "VRCDOG_SHERPA_ENCODER"), ("decoder", "VRCDOG_SHERPA_DECODER"), ("joiner", "VRCDOG_SHERPA_JOINER")] {
+                if let Some(value) = object.get(key).and_then(serde_json::Value::as_str) {
+                    command.env(env_key, value);
+                }
+            }
+        }
     }
     configure_command(&mut command);
 

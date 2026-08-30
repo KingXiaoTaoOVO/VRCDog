@@ -78,7 +78,7 @@ describe('TranslatorView audio capture', () => {
     expect(wrapper.text()).toContain('Test microphone');
     expect(wrapper.text()).toContain('Test speakers [Loopback]');
 
-    const startButton = wrapper.get('button[class*="hover:bg-primary"]');
+    const startButton = wrapper.get('[data-testid="start-microphone"]');
     await startButton.trigger('click');
     await flushPromises();
 

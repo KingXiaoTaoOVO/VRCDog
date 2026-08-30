@@ -1856,7 +1856,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = load_data(&data_file).await;
     let http_client = Arc::new(
         ClientBuilder::new()
-            .cookie_store(true)
+            .cookie_store(false)
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent("VRCDog/5.1.3 (https://vrcdog.pcb.im; vrcdog@pcb.im)")
             .build()?,
     );

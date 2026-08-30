@@ -89,8 +89,12 @@ async function prepare() {
     'webrtcvad-wheels==2.0.14',
     'pycaw==20251023',
     'edge-tts==6.1.12',
+    'numpy==2.2.6',
+    'onnxruntime==1.22.0',
+    'websocket-client==1.8.0',
+    'sherpa-onnx==1.12.40',
   ], { env: isolatedEnv });
-  await run(python, ['-I', '-c', 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, webrtcvad, pycaw, edge_tts, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
+  await run(python, ['-I', '-c', 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, webrtcvad, pycaw, edge_tts, numpy, onnxruntime, websocket, sherpa_onnx, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
 
   await writeFile(path.join(stagedRuntime, 'vrcdog-runtime.json'), JSON.stringify({
     pythonVersion: PYTHON_VERSION,
@@ -109,6 +113,11 @@ async function prepare() {
       'faster-whisper==1.2.1',
       'webrtcvad-wheels==2.0.14',
       'pycaw==20251023',
+      'edge-tts==6.1.12',
+      'numpy==2.2.6',
+      'onnxruntime==1.22.0',
+      'websocket-client==1.8.0',
+      'sherpa-onnx==1.12.40',
     ],
     source: PYTHON_URL,
     archiveSha256: PYTHON_SHA256,

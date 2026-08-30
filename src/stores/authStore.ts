@@ -31,6 +31,9 @@ export const useAuthStore = defineStore('auth', () => {
   let consecutiveFailures = 0;
   let isFetchingHeartbeat = false;
   let serverEventsRegistered = false;
+  let serverRegisterInFlight: Promise<boolean | undefined> | null = null;
+  let serverRegisterRetryAt = 0;
+  let lastServerRegisterError = '';
 
   const getBaseUrl = () => clientServerUrl.value.replace(/\/+$/, '');
 
@@ -95,7 +98,8 @@ export const useAuthStore = defineStore('auth', () => {
         method: 'POST',
         params: {
           user_id: currentUser.value.id || currentUser.value.displayName
-        }
+        },
+        allowExternalHost: true,
       });
     } catch { /* ignore */ }
   };
@@ -138,9 +142,13 @@ export const useAuthStore = defineStore('auth', () => {
     stopGamelogWatcher();
   };
 
-  const registerWithServer = async (user: any) => {
-    if (!clientServerUrl.value) return;
-    try {
+  const registerWithServer = (user: any): Promise<boolean | undefined> => {
+    if (!clientServerUrl.value) return Promise.resolve(undefined);
+    if (serverRegisterInFlight) return serverRegisterInFlight;
+    if (Date.now() < serverRegisterRetryAt) return Promise.resolve(undefined);
+
+    serverRegisterInFlight = (async () => {
+      try {
       const payload: any = {
         user_id: user.id || user.displayName,
         display_name: user.displayName || '',
@@ -155,9 +163,12 @@ export const useAuthStore = defineStore('auth', () => {
         params: payload,
         timeoutMs: 5000,
         maxRetries: 1,
+        allowExternalHost: true,
       });
 
       serverConnected.value = true;
+      serverRegisterRetryAt = 0;
+      lastServerRegisterError = '';
       consecutiveFailures = 0;
       reconnectCountdown.value = 0;
       applySurveyStatus(data);
@@ -174,12 +185,25 @@ export const useAuthStore = defineStore('auth', () => {
         handleLogout(true);
         return false;
       }
-    } catch (err) {
-      console.warn(t('auto_149c8616'), err);
+      } catch (err) {
+      serverRegisterRetryAt = Date.now() + 30_000;
       serverConnected.value = false;
-      return false;
-    }
-    return true;
+      const message = err instanceof Error ? err.message : String(err);
+      if (message !== lastServerRegisterError) {
+        console.warn(t('auto_149c8616'), err);
+        lastServerRegisterError = message;
+      }
+      // The optional VRCDog server must not prevent a successful VRChat login.
+      return undefined;
+      }
+    })();
+
+    void serverRegisterInFlight.then(() => {
+      serverRegisterInFlight = null;
+    }, () => {
+      serverRegisterInFlight = null;
+    });
+    return serverRegisterInFlight;
   };
 
   const updateClientServerUrl = async (url: string, reconnect = true) => {
@@ -248,6 +272,7 @@ export const useAuthStore = defineStore('auth', () => {
           },
           timeoutMs: 3000,
           maxRetries: 0,
+          allowExternalHost: true,
         });
 
         if (!serverConnected.value) {

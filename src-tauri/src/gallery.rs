@@ -1,6 +1,7 @@
 use crate::AppResult;
 use serde::Serialize;
 use tokio::fs as async_fs;
+use tokio::time::{sleep, Duration};
 
 #[derive(Serialize, Clone)]
 pub struct VrcImage {
@@ -88,4 +89,50 @@ pub async fn gallery_delete_image(path: String) -> AppResult<()> {
         let _ = async_fs::remove_file(path).await;
     }
     Ok(())
+}
+
+fn screenshot_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(mut root) = dirs::picture_dir() {
+        root.push("VRChat");
+        roots.push(root);
+    }
+    roots
+}
+
+async fn collect_recent_images(root: &std::path::Path, output: &mut Vec<(u64, String)>) {
+    let Ok(mut entries) = async_fs::read_dir(root).await else { return; };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.is_dir() {
+            Box::pin(collect_recent_images(&path, output)).await;
+            continue;
+        }
+        let supported = path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
+            matches!(ext.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp")
+        });
+        if !supported { continue; }
+        let Ok(metadata) = entry.metadata().await else { continue; };
+        let modified = metadata.modified().ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |duration| duration.as_millis() as u64);
+        output.push((modified, path.to_string_lossy().into_owned()));
+    }
+}
+
+/// Wait for the next VRChat screenshot, matching VRCLS's armed photo mode.
+#[tauri::command]
+pub async fn gallery_wait_for_new_image(timeout_seconds: Option<u64>) -> AppResult<String> {
+    let timeout = timeout_seconds.unwrap_or(120).clamp(5, 600);
+    let mut baseline = Vec::new();
+    for root in screenshot_roots() { collect_recent_images(&root, &mut baseline).await; }
+    let baseline_latest = baseline.iter().map(|(modified, _)| *modified).max().unwrap_or(0);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout);
+    loop {
+        let mut images = Vec::new();
+        for root in screenshot_roots() { collect_recent_images(&root, &mut images).await; }
+        if let Some((_, path)) = images.into_iter().filter(|(modified, _)| *modified > baseline_latest).max_by_key(|(modified, _)| *modified) {
+            return Ok(path);
+        }
+        if tokio::time::Instant::now() >= deadline { return Err("等待 VRChat 新截图超时".into()); }
+        sleep(Duration::from_millis(500)).await;
+    }
 }

@@ -1,5 +1,6 @@
 use crate::ovr::OvrState;
-use crate::translate::{translate, TranslateRequest};
+use crate::translate::{translate, GlossaryTerm, TranslateRequest};
+use futures::future::join_all;
 use rosc::{OscMessage, OscPacket, OscType};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
@@ -47,6 +48,12 @@ pub struct VrctProcessRequest {
     pub prompt: String,
     #[serde(default)]
     pub custom_api_url: String,
+    #[serde(default)]
+    pub glossary: Vec<GlossaryTerm>,
+    #[serde(default)]
+    pub context: Vec<String>,
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u8,
     #[serde(default)]
     pub send_osc: bool,
     #[serde(default = "default_true")]
@@ -169,6 +176,10 @@ fn default_true() -> bool {
 
 fn default_separator() -> String {
     " ".into()
+}
+
+fn default_retry_count() -> u8 {
+    2
 }
 
 fn normalize_lang(code: &str) -> String {
@@ -353,9 +364,8 @@ pub async fn vrct_process_message(
         }
     }
 
-    let mut translations = Vec::with_capacity(target_languages.len());
-    for target_language in &target_languages {
-        let translate_req = TranslateRequest {
+    let requests = target_languages.iter().map(|target_language| {
+        TranslateRequest {
             text: text.clone(),
             source_lang: source_lang.clone(),
             target_lang: target_language.clone(),
@@ -364,8 +374,15 @@ pub async fn vrct_process_message(
             model: model.clone(),
             prompt: prompt.clone(),
             custom_api_url: custom_api_url.clone(),
-        };
-        match translate(&translate_req).await {
+            glossary: req.glossary.clone(),
+            context: req.context.clone(),
+            retry_count: req.retry_count,
+        }
+    }).collect::<Vec<_>>();
+    let results = join_all(requests.iter().map(translate)).await;
+    let mut translations = Vec::with_capacity(results.len());
+    for (target_language, result) in target_languages.iter().zip(results) {
+        match result {
             Ok(result) => translations.push(VrctTranslation {
                 target_lang: target_language.clone(),
                 translated: result.translated,
@@ -474,6 +491,9 @@ mod tests {
             model: String::new(),
             prompt: String::new(),
             custom_api_url: String::new(),
+            glossary: vec![],
+            context: vec![],
+            retry_count: 2,
             send_osc: true,
             complete: true,
             notification: false,
