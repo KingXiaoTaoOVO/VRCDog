@@ -3322,7 +3322,14 @@
     "voice_desktop_only": "Voice control is only available in the desktop app",
     "voice_enabled_hint": "Voice control enabled. Say play, pause, stop, faster, slower, or reset.",
     "voice_disabled": "Voice control disabled",
-    "voice_not_supported": "Speech recognition is not supported in this browser"
+    "voice_not_supported": "Speech recognition is not supported in this browser",
+    "osc_protocol": "Protocol",
+    "osc_protocol_piano": "Native piano: /PianoKeys/<note>",
+    "osc_protocol_avatar": "Avatar parameter: custom prefix/<note>",
+    "osc_avatar_prefix": "Avatar parameter prefix",
+    "test_osc_note": "Send test note",
+    "osc_test_sent": "OSC test note sent (middle C)",
+    "osc_test_failed": "OSC test failed: {error}"
   },
   "danmaku": {
     "streamer_theme": "Streamer theme",

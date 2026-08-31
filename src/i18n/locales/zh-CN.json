@@ -3323,7 +3323,14 @@
     "voice_desktop_only": "语音控制仅支持桌面应用",
     "voice_enabled_hint": "语音控制已开启，可说“播放、暂停、停止、加快、减慢、默认”",
     "voice_disabled": "语音控制已关闭",
-    "voice_not_supported": "当前浏览器不支持语音识别"
+    "voice_not_supported": "当前浏览器不支持语音识别",
+    "osc_protocol": "协议",
+    "osc_protocol_piano": "原生钢琴：/PianoKeys/<音符>",
+    "osc_protocol_avatar": "Avatar 参数：自定义前缀/<音符>",
+    "osc_avatar_prefix": "Avatar 参数前缀",
+    "test_osc_note": "发送测试音符",
+    "osc_test_sent": "OSC 测试音符已发送（中央 C）",
+    "osc_test_failed": "OSC 测试失败：{error}"
   },
   "danmaku": {
     "streamer_theme": "直播姬风格",

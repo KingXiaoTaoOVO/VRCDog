@@ -317,7 +317,14 @@ pub struct VrchatOscStartRequest {
     speed: f64,
     host: String,
     port: u16,
+    #[serde(default = "default_osc_mode")]
+    mode: String,
+    #[serde(default = "default_osc_avatar_prefix")]
+    avatar_prefix: String,
 }
+
+fn default_osc_mode() -> String { "piano".to_string() }
+fn default_osc_avatar_prefix() -> String { "/avatar/parameters/note".to_string() }
 
 #[derive(Clone, Deserialize)]
 pub struct VrpianoHotkeyConfig {
@@ -406,6 +413,8 @@ struct VrpianoRuntime {
     vrchat_osc_enabled: bool,
     vrchat_osc_host: String,
     vrchat_osc_port: u16,
+    vrchat_osc_mode: String,
+    vrchat_osc_avatar_prefix: String,
     /// Global transposition in semitones (clamped -24..24). Drum channel (9) is excluded.
     transpose: i8,
     /// Per-channel routing to the VRChat piano. Channels disabled here are skipped.
@@ -636,6 +645,8 @@ impl Default for VrpianoState {
                 vrchat_osc_enabled: false,
                 vrchat_osc_host: String::new(),
                 vrchat_osc_port: 9000,
+                vrchat_osc_mode: default_osc_mode(),
+                vrchat_osc_avatar_prefix: default_osc_avatar_prefix(),
                 transpose: 0,
                 piano_channels: [true; 16],
                 playlist: Vec::new(),
@@ -1439,7 +1450,7 @@ fn begin_vrchat_osc(
         .to_string();
     let stop_flag = Arc::new(AtomicBool::new(false));
     let pause_flag;
-    let (host, port) = {
+    let (host, port, osc_mode, avatar_prefix) = {
         let mut runtime = state
             .lock()
             .map_err(|_| "VRPiano state lock poisoned".to_string())?;
@@ -1460,6 +1471,8 @@ fn begin_vrchat_osc(
             runtime.vrchat_osc_host.clone()
         };
         let port = runtime.vrchat_osc_port;
+        let osc_mode = runtime.vrchat_osc_mode.clone();
+        let avatar_prefix = runtime.vrchat_osc_avatar_prefix.clone();
         runtime.status = VrpianoStatus {
             running: true,
             paused: false,
@@ -1493,7 +1506,7 @@ fn begin_vrchat_osc(
             vrchat_osc_last_error: String::new(),
             vrchat_osc_connected: runtime.status.vrchat_osc_connected,
         };
-        (host, port)
+        (host, port, osc_mode, avatar_prefix)
     };
     let app_handle = app.clone();
     let state_arc = state.clone();
@@ -1508,6 +1521,8 @@ fn begin_vrchat_osc(
             delay_secs,
             host,
             port,
+            osc_mode,
+            avatar_prefix,
             stop_flag,
             pause_flag,
         );
@@ -1537,25 +1552,61 @@ pub async fn vrpiano_start_vrchat_osc(
         }
 
         let speed = normalize_speed(request.speed);
+        let host = request.host.trim().to_string();
+        if host.is_empty() || request.port == 0 {
+            return Err("OSC target must use a valid host and port (1-65535)".to_string());
+        }
         {
             let mut runtime = state
                 .inner
                 .lock()
                 .map_err(|_| "VRPiano state lock poisoned".to_string())?;
             runtime.vrchat_osc_enabled = true;
-            runtime.vrchat_osc_host = request.host.clone();
+            runtime.vrchat_osc_host = host.clone();
             runtime.vrchat_osc_port = request.port;
+            runtime.vrchat_osc_mode = if request.mode.trim().eq_ignore_ascii_case("avatar") {
+                "avatar".to_string()
+            } else {
+                "piano".to_string()
+            };
+            runtime.vrchat_osc_avatar_prefix = request.avatar_prefix.trim().trim_end_matches('/').to_string();
             runtime.active_engine = "osc".to_string();
             if runtime.playlist.is_empty() {
                 runtime.playlist = vec![request.song_path.trim().to_string()];
                 runtime.current_index = 0;
             }
         }
-        save_vrpiano_osc_config(&app, &request.host, request.port);
+        save_vrpiano_osc_config(&app, &host, request.port);
         begin_vrchat_osc(&app, &state.inner, &request.song_path, request.delay_secs, speed)?;
         let status = status_snapshot(&app, &state.inner)?;
         Ok(status)
     }
+}
+
+#[tauri::command]
+pub async fn vrpiano_test_osc_note(
+    host: String,
+    port: u16,
+    mode: Option<String>,
+    avatar_prefix: Option<String>,
+    note: Option<u8>,
+) -> Result<(), String> {
+    use crate::osc::{osc_send_message_multi, OscArgument};
+    let note = note.unwrap_or(60).min(127);
+    let mode = mode.unwrap_or_else(default_osc_mode);
+    let prefix = avatar_prefix.unwrap_or_else(default_osc_avatar_prefix);
+    let address = osc_note_address(&mode, &prefix, note);
+    let pressed = vec![OscArgument {
+        value_type: "float".to_string(),
+        value: serde_json::json!(0.8_f64),
+    }];
+    osc_send_message_multi(host.clone(), port, address.clone(), pressed).map_err(|e| e.message)?;
+    std::thread::sleep(Duration::from_millis(180));
+    let released = vec![OscArgument {
+        value_type: "float".to_string(),
+        value: serde_json::json!(0.0_f64),
+    }];
+    osc_send_message_multi(host, port, address, released).map_err(|e| e.message)
 }
 
 #[tauri::command]
@@ -2415,6 +2466,8 @@ fn run_vrchat_osc_playback(
     delay_secs: u64,
     host: String,
     port: u16,
+    osc_mode: String,
+    avatar_prefix: String,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
 ) {
@@ -2429,7 +2482,7 @@ fn run_vrchat_osc_playback(
                 status.last_event = format!("VRChat OSC Starting in {remaining}s");
             });
             emit_status(&app, &state);
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            sleep_unscaled_interruptible(1_000, &stop, &paused);
         }
 
         let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
@@ -2452,6 +2505,7 @@ fn run_vrchat_osc_playback(
             let transpose = current_transpose(&state);
             let mut notes_to_send = Vec::new();
             let mut notes_to_release = Vec::new();
+            let mut pitches_pressed_at_timestamp = HashSet::new();
             while index < events.len() && events[index].at_ms == at_ms {
                 let ev = &events[index];
                 if let Some((cc, _value)) = ev.control_change {
@@ -2459,7 +2513,7 @@ fn run_vrchat_osc_playback(
                     // so CC64 is ignored. All-notes-off (CC123/CC120) still releases
                     // every held key to avoid stuck notes (粘键).
                     if cc == 123 || cc == 120 {
-                        send_osc_all_notes_off(&host, port, &active_notes);
+                        send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
                         active_notes.clear();
                     }
                     played += 1;
@@ -2478,13 +2532,39 @@ fn run_vrchat_osc_playback(
                         let adjusted = adjust_velocity(ev.velocity, channel_state.volume);
                         notes_to_send.push((sent_note, adjusted, ev.channel));
                     }
+                    pitches_pressed_at_timestamp.insert(sent_note);
                     active_notes.insert((sent_note, ev.channel));
                 } else {
                     active_notes.remove(&(sent_note, ev.channel));
-                    notes_to_release.push((sent_note, ev.channel));
+                    // The PianoKeys OSC address has no MIDI channel. Release a
+                    // pitch only after all source channels have released it.
+                    if !active_notes.iter().any(|(note, _)| *note == sent_note)
+                        && !pitches_pressed_at_timestamp.contains(&sent_note)
+                    {
+                        notes_to_release.push((sent_note, ev.channel));
+                    }
                 }
                 played += 1;
                 index += 1;
+            }
+
+            // A NoteOff and NoteOn may share a timestamp. Release old pitches
+            // first, but never release a pitch that is re-pressed in this group.
+            for (note, _channel) in notes_to_release {
+                let args = vec![OscArgument {
+                    value_type: "float".to_string(),
+                    value: serde_json::json!(0.0_f64),
+                }];
+                let address = osc_note_address(&osc_mode, &avatar_prefix, note);
+                if let Err(e) = osc_send_message_multi(host.clone(), port, address, args) {
+                    update_runtime(&state, |status| {
+                        status.last_error = format!("VRChat OSC error: {}", e.message);
+                        status.running = false;
+                    });
+                    send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
+                    emit_status(&app, &state);
+                    return;
+                }
             }
 
             for (note, velocity, _channel) in notes_to_send {
@@ -2495,32 +2575,17 @@ fn run_vrchat_osc_playback(
                     value_type: "float".to_string(),
                     value: serde_json::json!((velocity as f64) / 127.0),
                 }];
-                if let Err(e) = osc_send_message_multi(host.clone(), port, format!("/PianoKeys/{}", note), args) {
+                let address = osc_note_address(&osc_mode, &avatar_prefix, note);
+                if let Err(e) = osc_send_message_multi(host.clone(), port, address, args) {
                     update_runtime(&state, |status| {
                         status.last_error = format!("VRChat OSC error: {}", e.message);
                         status.running = false;
                     });
-                    send_osc_all_notes_off(&host, port, &active_notes);
+                    send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
                     emit_status(&app, &state);
                     return;
                 }
             }
-            for (note, _channel) in notes_to_release {
-                let args = vec![OscArgument {
-                    value_type: "float".to_string(),
-                    value: serde_json::json!(0.0_f64),
-                }];
-                if let Err(e) = osc_send_message_multi(host.clone(), port, format!("/PianoKeys/{}", note), args) {
-                    update_runtime(&state, |status| {
-                        status.last_error = format!("VRChat OSC error: {}", e.message);
-                        status.running = false;
-                    });
-                    send_osc_all_notes_off(&host, port, &active_notes);
-                    emit_status(&app, &state);
-                    return;
-                }
-            }
-
             let playback_speed = current_speed(&state);
             update_runtime(&state, |status| {
                 status.elapsed_ms = at_ms;
@@ -2536,7 +2601,7 @@ fn run_vrchat_osc_playback(
             emit_status(&app, &state);
             last_at = at_ms;
         }
-        send_osc_all_notes_off(&host, port, &active_notes);
+        send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
     }));
 
     if result.is_err() {
@@ -3010,7 +3075,21 @@ fn is_channel_routed(state: &Arc<Mutex<VrpianoRuntime>>, channel: u8) -> bool {
 
 /// Release every currently-held note on VRChat's native keyboard piano so it
 /// never gets stuck holding keys (prevents "粘键").
-fn send_osc_all_notes_off(host: &str, port: u16, notes: &HashSet<(u8, u8)>) {
+fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
+    if mode.eq_ignore_ascii_case("avatar") {
+        format!("{}/{}", avatar_prefix.trim_end_matches('/'), note)
+    } else {
+        format!("/PianoKeys/{}", note)
+    }
+}
+
+fn send_osc_all_notes_off(
+    host: &str,
+    port: u16,
+    notes: &HashSet<(u8, u8)>,
+    mode: &str,
+    avatar_prefix: &str,
+) {
     use crate::osc::{osc_send_message_multi, OscArgument};
 
     for (note, _channel) in notes {
@@ -3018,7 +3097,7 @@ fn send_osc_all_notes_off(host: &str, port: u16, notes: &HashSet<(u8, u8)>) {
             value_type: "float".to_string(),
             value: serde_json::json!(0.0_f64),
         }];
-        let _ = osc_send_message_multi(host.to_string(), port, format!("/PianoKeys/{}", *note), args);
+        let _ = osc_send_message_multi(host.to_string(), port, osc_note_address(mode, avatar_prefix, *note), args);
     }
 }
 

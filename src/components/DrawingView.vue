@@ -53,6 +53,7 @@ onMounted(async () => {
 });
 
 const openVrOverlay = () => {
+  if (overlayOpen.value) return;
   const overlay = new WebviewWindow('drawing-overlay', {
     url: '/?mode=drawing-overlay',
     title: 'VRCDog Drawing Overlay',

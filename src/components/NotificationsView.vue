@@ -23,7 +23,13 @@ const localNotificationTypes = new Set(['friend-online', 'friend-offline', 'frie
 const actionableNotificationTypes = new Set(['friendRequest', 'requestInvite', 'group.invite', 'group.request']);
 
 const getNotificationTitle = (notif: VrcNotification) => {
-  const message = typeof notif.message === 'string' ? notif.message.trim() : '';
+  let message = typeof notif.message === 'string' ? notif.message.trim() : '';
+  try {
+    const parsed = JSON.parse(message);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) message = '';
+  } catch {
+    // Ordinary notification text is kept as-is.
+  }
   if (message) return message;
 
   const sender = typeof notif.senderUsername === 'string' ? notif.senderUsername.trim() : '';
@@ -274,7 +280,7 @@ const renderDetails = (details: any) => {
   const parsed = getDisplayNotificationDetails(details);
   if (typeof parsed === 'string') return parsed;
   if (Object.keys(parsed).length === 0) return '';
-  return parsed.worldName || parsed.message || parsed.location || parsed.imageUrl || JSON.stringify(parsed);
+  return parsed.worldName || parsed.message || parsed.location || parsed.imageUrl || parsed.displayName || '';
 };
 
 const canAcceptNotification = (notif: VrcNotification) => {

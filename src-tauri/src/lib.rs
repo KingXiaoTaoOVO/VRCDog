@@ -563,6 +563,7 @@ pub fn run() {
             vrpiano::vrpiano_get_status,
             vrpiano::vrpiano_start,
             vrpiano::vrpiano_start_vrchat_osc,
+            vrpiano::vrpiano_test_osc_note,
             vrpiano::vrpiano_stop,
             vrpiano::vrpiano_toggle_pause,
             vrpiano::vrpiano_set_speed,

@@ -3322,7 +3322,14 @@
     "voice_desktop_only": "語音控制僅支援桌面應用程式",
     "voice_enabled_hint": "語音控制已開啟，可說「播放、暫停、停止、加快、減慢、預設」",
     "voice_disabled": "語音控制已關閉",
-    "voice_not_supported": "目前瀏覽器不支援語音辨識"
+    "voice_not_supported": "目前瀏覽器不支援語音辨識",
+    "osc_protocol": "協議",
+    "osc_protocol_piano": "原生鋼琴：/PianoKeys/<音符>",
+    "osc_protocol_avatar": "Avatar 參數：自訂前綴/<音符>",
+    "osc_avatar_prefix": "Avatar 參數前綴",
+    "test_osc_note": "發送測試音符",
+    "osc_test_sent": "OSC 測試音符已發送（中央 C）",
+    "osc_test_failed": "OSC 測試失敗：{error}"
   },
   "danmaku": {
     "streamer_theme": "直播姬風格",

@@ -396,6 +396,7 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     if config.bridge_gaps {
         binary = erode(&dilate(&binary, width as usize, height as usize), width as usize, height as usize);
     }
+    remove_small_components(&mut binary, width as usize, height as usize, config.artifact_removal);
     report_stage(state, app, "skeletonize", 0.6);
     skeletonize(&mut binary, width as usize, height as usize);
     if config.prune_length > 0 {
@@ -436,6 +437,29 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     };
     report_stage(state, app, "ready", 1.0);
     Ok(plan)
+}
+
+fn remove_small_components(data: &mut [u8], width: usize, height: usize, artifact_removal: f32) {
+    let minimum = ((1.0 - artifact_removal.clamp(0.0, 1.0)) * 28.0 + 3.0) as usize;
+    let mut visited = vec![false; data.len()];
+    for start in 0..data.len() {
+        if data[start] == 0 || visited[start] { continue; }
+        let mut queue = vec![start];
+        let mut component = Vec::new();
+        visited[start] = true;
+        while let Some(index) = queue.pop() {
+            component.push(index);
+            for neighbor in neighbors(data, width, height, index % width, index / width) {
+                if !visited[neighbor] {
+                    visited[neighbor] = true;
+                    queue.push(neighbor);
+                }
+            }
+        }
+        if component.len() < minimum {
+            for index in component { data[index] = 0; }
+        }
+    }
 }
 
 fn sobel_magnitude(raw: &[u8], width: usize, height: usize) -> Vec<f32> {
@@ -802,7 +826,10 @@ fn merge_nearby_strokes(mut strokes: Vec<DrawingStroke>, distance: f32) -> Vec<D
                 let b_start = strokes[right].points.first().unwrap();
                 let b_end = strokes[right].points.last().unwrap();
                 let options = [(point_distance(a_end, b_start), false, false), (point_distance(a_end, b_end), false, true), (point_distance(a_start, b_end), true, false), (point_distance(a_start, b_start), true, true)];
-                let Some((_, reverse_a, reverse_b)) = options.into_iter().filter(|option| option.0 <= distance).min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(CmpOrdering::Equal)) else { continue; };
+                let Some((_, reverse_a, reverse_b)) = options.into_iter()
+                    .filter(|option| option.0 <= distance)
+                    .filter(|(_, reverse_a, reverse_b)| stroke_join_is_smooth(&strokes[left], &strokes[right], *reverse_a, *reverse_b))
+                    .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(CmpOrdering::Equal)) else { continue; };
                 let mut b = strokes.remove(right).points;
                 if reverse_a { strokes[left].points.reverse(); }
                 if reverse_b { b.reverse(); }
@@ -813,6 +840,27 @@ fn merge_nearby_strokes(mut strokes: Vec<DrawingStroke>, distance: f32) -> Vec<D
         }
     }
     strokes
+}
+
+fn stroke_join_is_smooth(left: &DrawingStroke, right: &DrawingStroke, reverse_left: bool, reverse_right: bool) -> bool {
+    if left.points.len() < 2 || right.points.len() < 2 { return true; }
+    let left_dir = if reverse_left {
+        (left.points[0].x - left.points[1].x, left.points[0].y - left.points[1].y)
+    } else {
+        let end = left.points.len() - 1;
+        (left.points[end].x - left.points[end - 1].x, left.points[end].y - left.points[end - 1].y)
+    };
+    let right_dir = if reverse_right {
+        let end = right.points.len() - 1;
+        (right.points[end - 1].x - right.points[end].x, right.points[end - 1].y - right.points[end].y)
+    } else {
+        (right.points[1].x - right.points[0].x, right.points[1].y - right.points[0].y)
+    };
+    let left_len = left_dir.0.hypot(left_dir.1);
+    let right_len = right_dir.0.hypot(right_dir.1);
+    if left_len < f32::EPSILON || right_len < f32::EPSILON { return true; }
+    let cosine = (left_dir.0 * right_dir.0 + left_dir.1 * right_dir.1) / (left_len * right_len);
+    cosine >= 0.25
 }
 
 fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
@@ -953,6 +1001,7 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
             wait_while_paused(&stop, &paused);
             if stop.load(Ordering::SeqCst) { break; }
             mouse_left(false);
+            interruptible_sleep(config.lift_delay_ms.min(500), &stop, &paused);
             let first = &stroke.points[0];
             move_planar(&mut current_x, &mut current_y, first, &config, true, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y);
             if stop.load(Ordering::SeqCst) { break; }
@@ -969,6 +1018,8 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
             }
             mouse_left(false);
             interruptible_sleep(config.lift_delay_ms, &stop, &paused);
+            error_x = 0.0;
+            error_y = 0.0;
             update_status(&state, |status| {
                 status.current_stroke = index + 1;
                 status.progress = (index + 1) as f32 / plan.strokes.len().max(1) as f32;
@@ -1002,9 +1053,8 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
 
 #[allow(clippy::too_many_arguments)]
 fn move_planar(current_x: &mut f32, current_y: &mut f32, target: &DrawingPoint, config: &DrawingConfig, pen_up: bool, stop: &AtomicBool, paused: &AtomicBool, error_x: &mut f32, error_y: &mut f32, scale_x: f32, scale_y: f32) {
-    let pen_speed = if pen_up { config.lift_speed } else { 1.0 };
-    let delta_x = (target.x - *current_x) * scale_x * config.sensitivity * pen_speed;
-    let delta_y = (target.y - *current_y) * scale_y * config.sensitivity * config.vertical_stretch * pen_speed;
+    let delta_x = (target.x - *current_x) * scale_x * config.sensitivity;
+    let delta_y = (target.y - *current_y) * scale_y * config.sensitivity * config.vertical_stretch;
     let distance = delta_x.hypot(delta_y);
     let steps = (distance / config.max_step_px).ceil().max(1.0) as usize;
     for _ in 0..steps {
@@ -1017,7 +1067,12 @@ fn move_planar(current_x: &mut f32, current_y: &mut f32, target: &DrawingPoint, 
         *error_x = ideal_x - dx as f32;
         *error_y = ideal_y - dy as f32;
         mouse_move(dx, dy);
-        if !pen_up { thread::sleep(Duration::from_millis(config.point_delay_ms)); }
+        let delay = if pen_up {
+            (config.point_delay_ms as f32 / config.lift_speed).max(1.0) as u64
+        } else {
+            config.point_delay_ms
+        };
+        thread::sleep(Duration::from_millis(delay));
     }
     *current_x = target.x;
     *current_y = target.y;
@@ -1162,6 +1217,15 @@ mod tests {
         ];
         let ordered = order_strokes(strokes);
         assert_eq!(ordered[1].points[0].x, 12.0);
+    }
+
+    #[test]
+    fn nearby_strokes_with_a_sharp_join_remain_separate() {
+        let strokes = vec![
+            DrawingStroke { points: vec![DrawingPoint { x: 0.0, y: 0.0 }, DrawingPoint { x: 10.0, y: 0.0 }] },
+            DrawingStroke { points: vec![DrawingPoint { x: 10.5, y: 0.0 }, DrawingPoint { x: 10.5, y: 10.0 }] },
+        ];
+        assert_eq!(merge_nearby_strokes(strokes, 2.0).len(), 2);
     }
 
     #[test]

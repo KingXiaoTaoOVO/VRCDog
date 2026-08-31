@@ -1359,14 +1359,23 @@ export const VrpianoApi = {
       midi_output_device: params.midiDeviceId || null,
     }
   }),
-  startVrchatOsc: (params: { songPath: string; delaySecs: number; speed: number; host: string; port: number }) => safeInvoke<VrpianoStatus>('vrpiano_start_vrchat_osc', {
+  startVrchatOsc: (params: { songPath: string; delaySecs: number; speed: number; host: string; port: number; mode?: 'piano' | 'avatar'; avatarPrefix?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start_vrchat_osc', {
     request: {
       song_path: params.songPath,
       delay_secs: params.delaySecs,
       speed: params.speed,
       host: params.host,
       port: params.port,
+      mode: params.mode || 'piano',
+      avatar_prefix: params.avatarPrefix || '/avatar/parameters/note',
     }
+  }),
+  testOscNote: (params: { host: string; port: number; mode?: 'piano' | 'avatar'; avatarPrefix?: string; note?: number }) => safeInvoke<void>('vrpiano_test_osc_note', {
+    host: params.host,
+    port: params.port,
+    mode: params.mode || 'piano',
+    avatar_prefix: params.avatarPrefix || '/avatar/parameters/note',
+    note: params.note ?? 60,
   }),
   stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),
   togglePause: () => safeInvoke<VrpianoStatus>('vrpiano_toggle_pause'),

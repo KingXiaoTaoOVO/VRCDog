@@ -21,6 +21,25 @@ export interface StoredNotificationMeta {
 
 const META_KEY = '__vrcdog';
 
+function readableText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const keys = Object.keys(parsed).filter((key) => key !== META_KEY);
+      const nested = keys
+        .map((key) => readableText((parsed as Record<string, unknown>)[key]))
+        .find(Boolean);
+      return nested || '';
+    }
+  } catch {
+    // Ordinary notification text does not need parsing.
+  }
+  return text;
+}
+
 function objectValue(value: unknown): Record<string, any> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, any>;
@@ -78,7 +97,7 @@ export function normalizeNotificationForDb(notification: Record<string, any>): S
       || '',
     ),
     receiverUserId: notification.receiverUserId || null,
-    message: String(
+    message: readableText(
       notification.message
       || notification.title
       || data.message
@@ -111,4 +130,12 @@ export function getDisplayNotificationDetails(details: unknown): Record<string, 
   const { [META_KEY]: _meta, ...display } = parsed;
   if (Object.keys(display).length === 1 && typeof display.message === 'string') return display.message;
   return display;
+}
+
+/** Return only user-facing notification text, never internal metadata. */
+export function getReadableNotificationText(details: unknown): string {
+  const display = getDisplayNotificationDetails(details);
+  if (typeof display === 'string') return display.trim();
+  return [display.message, display.worldName, display.location, display.displayName, display.title]
+    .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
 }

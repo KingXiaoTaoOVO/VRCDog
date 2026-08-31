@@ -7,7 +7,7 @@ import { useNotificationEngine } from '../stores/notificationEngine';
 import { useFriendsStore } from '../stores/friendsStore';
 import { markDataHealthy } from '../stores/dataHealth';
 import { getCookieValue } from './cookies';
-import { normalizeNotificationForDb } from './notificationNormalization';
+import { getReadableNotificationText, normalizeNotificationForDb } from './notificationNormalization';
 
 const DEFAULT_PIPELINE_URL = 'wss://pipeline.vrchat.cloud';
 
@@ -357,7 +357,14 @@ async function emitFriendPresenceNotification(type: string, content: any) {
 function notificationTitle(content: any) {
   const sender = content?.senderUsername || content?.senderDisplayName || content?.senderUserId || 'VRChat';
   const message = typeof content?.message === 'string' ? content.message.trim() : '';
-  if (message) return message;
+  if (message) {
+    try {
+      const parsed = JSON.parse(message);
+      if (!(parsed && typeof parsed === 'object' && !Array.isArray(parsed))) return message;
+    } catch {
+      return message;
+    }
+  }
   switch (content?.type) {
     case 'friendRequest': return `${sender} 发送了好友请求`;
     case 'invite': return `${sender} 邀请你加入房间`;
@@ -370,15 +377,9 @@ function notificationTitle(content: any) {
 
 function notificationBody(content: any) {
   if (typeof content?.details === 'string') {
-    try {
-      const parsed = JSON.parse(content.details);
-      return parsed?.worldName || parsed?.message || parsed?.location || content.details;
-    } catch {
-      return content.details;
-    }
+    return getReadableNotificationText(content.details);
   }
-  const details = content?.details || {};
-  return details.worldName || details.message || details.location || content?.type || '';
+  return getReadableNotificationText(content?.details || {});
 }
 
 function getNotificationId(content: any): string | null {

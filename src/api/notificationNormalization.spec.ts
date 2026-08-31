@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getDisplayNotificationDetails,
+  getReadableNotificationText,
   getStoredNotificationMeta,
   normalizeNotificationForDb,
 } from './notificationNormalization';
@@ -38,5 +39,31 @@ describe('notification normalization', () => {
     expect(stored.senderUsername).toBe('Alice');
     expect(getStoredNotificationMeta(stored.details).version).toBe(1);
     expect(getDisplayNotificationDetails(stored.details)).toBe('Hello');
+  });
+
+  it('does not expose internal metadata as notification text', () => {
+    const stored = normalizeNotificationForDb({
+      id: 'frq_2',
+      type: 'friendRequest',
+      senderUsername: 'Bob',
+      message: '{"__vrcdog":{"version":1}}',
+    });
+
+    expect(stored.message).toBe('');
+    expect(getDisplayNotificationDetails(stored.details)).toEqual({});
+  });
+
+  it('returns readable text without exposing internal metadata', () => {
+    const stored = normalizeNotificationForDb({
+      id: 'n_3',
+      type: 'friendRequest',
+      senderUsername: 'Alice',
+      details: { message: 'Please add me', __vrcdog: { version: 1 } },
+    });
+    expect(getReadableNotificationText(stored.details)).toBe('Please add me');
+  });
+
+  it('returns an empty body for metadata-only details', () => {
+    expect(getReadableNotificationText('{"__vrcdog":{"version":1}}')).toBe('');
   });
 });

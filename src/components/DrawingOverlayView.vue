@@ -38,7 +38,14 @@ const {
 const positionLocked = useStorage('vrcdog.drawing.overlay.locked', false);
 const overlayWindow = getCurrentWindow();
 
-const closeOverlay = () => { void overlayWindow.close(); };
+const closeOverlay = async () => {
+  try {
+    if (status.value.running) await stop();
+    await overlayWindow.destroy();
+  } catch {
+    try { await overlayWindow.close(); } catch { /* window may already be closed */ }
+  }
+};
 const toggleLock = () => { positionLocked.value = !positionLocked.value; };
 const dragHandle = ref<HTMLElement | null>(null);
 
@@ -54,11 +61,11 @@ const startDrag = (event: PointerEvent) => {
     <header ref="dragHandle" class="overlay-title" @pointerdown="startDrag">
       <span class="title-grip"><ScanLine :size="15" /> {{ $t('drawing.title') }}</span>
       <div class="title-actions">
-        <button class="title-btn" :title="$t('drawing.reset')" @click="toggleLock">
+        <button class="title-btn" :title="$t('drawing.reset')" @pointerdown.stop @click.stop="toggleLock">
           <PinOff v-if="positionLocked" :size="15" />
           <Pin v-else :size="15" />
         </button>
-        <button class="title-btn" :title="$t('drawing.stop')" @click="closeOverlay"><X :size="16" /></button>
+        <button class="title-btn" :title="$t('drawing.stop')" @pointerdown.stop @click.stop="closeOverlay"><X :size="16" /></button>
       </div>
     </header>
 

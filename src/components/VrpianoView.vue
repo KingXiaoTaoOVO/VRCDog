@@ -115,6 +115,8 @@ const speed = ref(1);
 const hotkeysEnabled = ref(false);
 const vrchatOscHost = ref('127.0.0.1');
 const vrchatOscPort = ref(9000);
+const vrchatOscMode = useStorage<'piano' | 'avatar'>('vrcdog.vrpiano.oscMode.v1', 'piano');
+const vrchatOscAvatarPrefix = useStorage('vrcdog.vrpiano.oscAvatarPrefix.v1', '/avatar/parameters/note');
 const vrchatOscEnabled = ref(false);
 const onlineKeyword = ref('');
 const urlInput = ref('');
@@ -1133,17 +1135,43 @@ const startVrchatOsc = async () => {
   loading.value = true;
   error.value = '';
   try {
+    if (status.value.running) {
+      await VrpianoApi.stop();
+      await waitUntilPlaybackStops();
+    }
     status.value = await VrpianoApi.startVrchatOsc({
       songPath: selectedSong.value.path,
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
       host: vrchatOscHost.value,
       port: vrchatOscPort.value,
+      mode: vrchatOscMode.value,
+      avatarPrefix: vrchatOscAvatarPrefix.value,
     });
     addLog(t('vrpiano.preparing_to_play_vrchat_osc', { name: selectedSong.value.name }));
   } catch (e: any) {
     error.value = e.message || String(e);
     addLog(t('vrpiano.vrchat_osc_start_failed', { error: error.value }));
+  } finally {
+    loading.value = false;
+  }
+};
+
+const testOscNote = async () => {
+  loading.value = true;
+  error.value = '';
+  try {
+    await VrpianoApi.testOscNote({
+      host: vrchatOscHost.value,
+      port: vrchatOscPort.value,
+      mode: vrchatOscMode.value,
+      avatarPrefix: vrchatOscAvatarPrefix.value,
+      note: 60,
+    });
+    addLog(t('vrpiano.osc_test_sent'));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+    addLog(t('vrpiano.osc_test_failed', { error: error.value }));
   } finally {
     loading.value = false;
   }
@@ -1904,10 +1932,24 @@ onUnmounted(() => {
                 <span>{{ t('vrpiano.port') }}</span>
                 <input v-model.number="vrchatOscPort" type="number" min="1" max="65535" :disabled="loading">
               </label>
+              <label class="osc-config">
+                <span>{{ t('vrpiano.osc_protocol') }}</span>
+                <select v-model="vrchatOscMode" :disabled="loading">
+                  <option value="piano">{{ t('vrpiano.osc_protocol_piano') }}</option>
+                  <option value="avatar">{{ t('vrpiano.osc_protocol_avatar') }}</option>
+                </select>
+              </label>
+              <label v-if="vrchatOscMode === 'avatar'" class="osc-config osc-prefix-config">
+                <span>{{ t('vrpiano.osc_avatar_prefix') }}</span>
+                <input v-model.trim="vrchatOscAvatarPrefix" placeholder="/avatar/parameters/note" :disabled="loading">
+              </label>
             </div>
             <div class="control-row" style="margin-top:8px">
               <button class="small-action" :disabled="loading || !selectedSong" @click="startVrchatOsc">
                 <SendHorizontal :size="14" /> {{t('vrpiano.play_via_vrchat_osc') }}
+              </button>
+              <button class="small-action ghost" :disabled="loading" @click="testOscNote">
+                <Radio :size="14" /> {{ t('vrpiano.test_osc_note') }}
               </button>
               <span v-if="status.vrchat_osc_running" class="osc-status">{{t('vrpiano.vrchat_osc_active') }}</span>
               <span v-else-if="status.vrchat_osc_last_error" class="osc-error">{{ status.vrchat_osc_last_error }}</span>
@@ -1979,7 +2021,7 @@ onUnmounted(() => {
 
           <div class="control-section">
             <strong>{{t('vrpiano.playlist') }} / {{t('vrpiano.play_mode') }}</strong>
-            <div class="control-row">
+            <div class="control-row playlist-control-row">
               <label class="playmode-field">
                 <span>{{t('vrpiano.play_mode') }}</span>
                 <select v-model="playMode" @change="applyPlayMode">
