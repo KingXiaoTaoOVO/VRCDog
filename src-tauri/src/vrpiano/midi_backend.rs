@@ -175,11 +175,9 @@ impl MidiOutputBackend {
             let _ = self.send_reset_all_controllers(channel);
             let _ = self.send_all_sound_off(channel);
         }
-        for channel in 0..16u8 {
-            for note in 0..128u8 {
-                let _ = self.send_note_off(note, channel);
-            }
-        }
+        // CC123/CC120 are the device-level panic messages. Avoid sending
+        // 2,048 individual NoteOff packets here: slow MIDI endpoints can
+        // otherwise keep the UI in "stopping" state for several seconds.
     }
 }
 

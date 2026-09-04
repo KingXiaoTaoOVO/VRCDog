@@ -1856,6 +1856,15 @@ fn stop_playback(
     status_snapshot(&app, &state)
 }
 
+fn clear_playback_if_current(state: &Arc<Mutex<VrpianoRuntime>>, stop: &Arc<AtomicBool>) {
+    if let Ok(mut runtime) = state.lock() {
+        if runtime.stop.as_ref().is_some_and(|current| Arc::ptr_eq(current, stop)) {
+            runtime.paused.store(false, Ordering::SeqCst);
+            runtime.stop = None;
+        }
+    }
+}
+
 fn toggle_playback_pause(
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
@@ -2294,10 +2303,7 @@ fn run_playback(
             "Playback finished".to_string()
         };
     });
-    if let Ok(mut runtime) = state.lock() {
-        runtime.paused.store(false, Ordering::SeqCst);
-        runtime.stop = None;
-    }
+    clear_playback_if_current(&state, &stop);
     emit_status(&app, &state);
 }
 
@@ -2450,10 +2456,7 @@ fn run_midi_playback(
     if !stop.load(Ordering::SeqCst) {
         maybe_advance_playlist(app.clone(), state.clone(), "midi", Some(midi_backend.clone()), Some(recorder.clone()));
     }
-    if let Ok(mut runtime) = state.lock() {
-        runtime.paused.store(false, Ordering::SeqCst);
-        runtime.stop = None;
-    }
+    clear_playback_if_current(&state, &stop);
     emit_status(&app, &state);
 }
 
@@ -2629,10 +2632,7 @@ fn run_vrchat_osc_playback(
         stop.store(true, Ordering::SeqCst);
         maybe_advance_playlist(app.clone(), state.clone(), "osc", None, None);
     }
-    if let Ok(mut runtime) = state.lock() {
-        runtime.paused.store(false, Ordering::SeqCst);
-        runtime.stop = None;
-    }
+    clear_playback_if_current(&state, &stop);
     emit_status(&app, &state);
 }
 

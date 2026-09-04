@@ -10,6 +10,7 @@ import { Effect, EffectState } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   AlertTriangle,
+  CircleStop,
   Clock3,
   Download,
   Edit3,
@@ -250,6 +251,22 @@ const filteredSongs = computed(() => {
 });
 const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status.value.progress || 0)) * 100));
 const canTogglePlayback = computed(() => Boolean(selectedSong.value) && !loading.value);
+const isPlaying = computed(() => Boolean(status.value.running));
+const stopAll = async () => {
+  if (!status.value.running || loading.value) return;
+  loading.value = true;
+  error.value = '';
+  try {
+    await VrpianoApi.stop();
+    await waitUntilPlaybackStops();
+    status.value = await VrpianoApi.getStatus();
+    addLog(t('vrpiano.playback_stopped'));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  } finally {
+    loading.value = false;
+  }
+};
 const hasStartedPlayback = computed(() => Boolean(status.value.song_path));
 const playbackActionLabel = computed(() => {
   if (status.value.paused) return t('vrpiano.resume');
@@ -1236,6 +1253,10 @@ const waitUntilPlaybackStops = async () => {
 
 const restartPlayback = async () => {
   if (!selectedSong.value || !hasStartedPlayback.value || loading.value) return;
+  if (outputMode.value === 'osc') {
+    await startVrchatOsc();
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -1922,37 +1943,34 @@ onUnmounted(() => {
 
           <div class="control-section">
             <strong>{{ t('vrpiano.vrchat_osc_piano') }}</strong>
-            <p class="panel-help">{{ t('vrpiano.osc_target_hint') }}</p>
-            <div class="control-row">
-              <label class="osc-config">
-                <span>{{ t('vrpiano.host') }}</span>
+            <div class="osc-compact">
+              <div class="osc-inline-inputs">
+                <span class="osc-label">{{ t('vrpiano.host') }}</span>
                 <input v-model="vrchatOscHost" placeholder="127.0.0.1" :disabled="loading">
-              </label>
-              <label class="osc-config">
-                <span>{{ t('vrpiano.port') }}</span>
+                <span class="osc-label">{{ t('vrpiano.port') }}</span>
                 <input v-model.number="vrchatOscPort" type="number" min="1" max="65535" :disabled="loading">
-              </label>
-              <label class="osc-config">
-                <span>{{ t('vrpiano.osc_protocol') }}</span>
-                <select v-model="vrchatOscMode" :disabled="loading">
+              </div>
+              <div class="osc-inline-inputs" style="margin-top:6px">
+                <span class="osc-label">{{ t('vrpiano.osc_protocol') }}</span>
+                <select v-model="vrchatOscMode" :disabled="loading" style="flex:1">
                   <option value="piano">{{ t('vrpiano.osc_protocol_piano') }}</option>
                   <option value="avatar">{{ t('vrpiano.osc_protocol_avatar') }}</option>
                 </select>
-              </label>
-              <label v-if="vrchatOscMode === 'avatar'" class="osc-config osc-prefix-config">
-                <span>{{ t('vrpiano.osc_avatar_prefix') }}</span>
+              </div>
+              <div v-if="vrchatOscMode === 'avatar'" class="osc-inline-inputs" style="margin-top:6px">
+                <span class="osc-label">{{ t('vrpiano.osc_avatar_prefix') }}</span>
                 <input v-model.trim="vrchatOscAvatarPrefix" placeholder="/avatar/parameters/note" :disabled="loading">
-              </label>
-            </div>
-            <div class="control-row" style="margin-top:8px">
-              <button class="small-action" :disabled="loading || !selectedSong" @click="startVrchatOsc">
-                <SendHorizontal :size="14" /> {{t('vrpiano.play_via_vrchat_osc') }}
-              </button>
-              <button class="small-action ghost" :disabled="loading" @click="testOscNote">
-                <Radio :size="14" /> {{ t('vrpiano.test_osc_note') }}
-              </button>
-              <span v-if="status.vrchat_osc_running" class="osc-status">{{t('vrpiano.vrchat_osc_active') }}</span>
-              <span v-else-if="status.vrchat_osc_last_error" class="osc-error">{{ status.vrchat_osc_last_error }}</span>
+              </div>
+              <div class="control-row" style="margin-top:10px">
+                <button class="small-action" :disabled="loading || !selectedSong" @click="startVrchatOsc">
+                  <SendHorizontal :size="14" /> {{t('vrpiano.play_via_vrchat_osc') }}
+                </button>
+                <button class="small-action ghost" :disabled="loading" @click="testOscNote">
+                  <Radio :size="14" /> {{ t('vrpiano.test_osc_note') }}
+                </button>
+              </div>
+              <p v-if="status.vrchat_osc_running" class="osc-status" style="margin-top:8px">{{t('vrpiano.vrchat_osc_active') }}</p>
+              <p v-else-if="status.vrchat_osc_last_error" class="osc-error" style="margin-top:8px">{{ status.vrchat_osc_last_error }}</p>
             </div>
           </div>
 
@@ -2093,6 +2111,10 @@ onUnmounted(() => {
             <Pause v-else-if="status.running && !status.paused" :size="18" />
             <Play v-else :size="18" />
             F1 {{ playbackActionLabel }}
+          </button>
+          <button v-if="isPlaying" class="stop-action" :disabled="loading" @click="stopAll">
+            <CircleStop :size="18" />
+            {{ t('vrpiano.stop') }}
           </button>
           <button v-if="hasStartedPlayback" class="restart-action" :disabled="loading" @click="restartPlayback">
             <RefreshCcw :size="18" />
@@ -2911,30 +2933,39 @@ select option {
   min-width: 0;
   flex: 1;
   appearance: none;
-  height: 4px;
+  height: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--vp-text) 12%, transparent);
+  cursor: pointer;
+}
+
+.player-slider input:focus,
+.player-volume input:focus {
+  outline: none;
 }
 
 .player-slider input::-webkit-slider-thumb,
 .player-volume input::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: var(--vp-primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--vp-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 20%, transparent);
+  cursor: pointer;
+  margin-top: -5px;
 }
 
 .player-slider input::-moz-range-thumb,
 .player-volume input::-moz-range-thumb,
 .channel-volume::-moz-range-thumb,
 .control-grid input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border: 0;
   border-radius: 999px;
   background: var(--vp-primary);
+  cursor: pointer;
 }
 
 .progress-head,
@@ -3105,6 +3136,31 @@ select option {
   background: var(--vp-hover);
 }
 
+.stop-action {
+  min-width: 100px;
+  color: white;
+  background: #ef4444;
+  border: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  padding: 0 16px;
+}
+
+.stop-action:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.stop-action:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
 .extra-controls {
   display: grid;
   gap: 12px;
@@ -3223,8 +3279,25 @@ select option {
 .osc-config {
   min-width: 0;
   flex: 1 1 180px;
+  display: block;
+}
+
+.osc-compact {
   display: grid;
-  gap: 5px;
+  gap: 6px;
+}
+
+.osc-inline-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.osc-label {
+  min-width: 48px;
+  color: var(--vp-muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .osc-config span {
@@ -3234,7 +3307,7 @@ select option {
 }
 
 .osc-config input {
-  width: 100%;
+  flex: 1;
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid var(--vp-border);
@@ -3440,19 +3513,20 @@ select option {
   width: 100%;
   min-width: 0;
   appearance: none;
-  height: 3px;
+  height: 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--vp-text) 12%, transparent);
+  cursor: pointer;
 }
-
 .channel-volume::-webkit-slider-thumb {
   appearance: none;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-radius: 999px;
   background: var(--vp-primary);
+  cursor: pointer;
+  margin-top: -5px;
 }
-
 .channel-vol-label {
   grid-column: 1 / -1;
   width: auto;
@@ -3488,7 +3562,7 @@ select option:hover {
 .player-volume input::-webkit-slider-runnable-track,
 .control-grid input[type="range"]::-webkit-slider-runnable-track,
 .channel-volume::-webkit-slider-runnable-track {
-  height: 4px;
+  height: 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
 }
@@ -3497,7 +3571,7 @@ select option:hover {
 .player-volume input::-moz-range-track,
 .control-grid input[type="range"]::-moz-range-track,
 .channel-volume::-moz-range-track {
-  height: 4px;
+  height: 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
 }
@@ -4006,3 +4080,4 @@ select option:hover {
   }
 }
 </style>
+
