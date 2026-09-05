@@ -36,5 +36,27 @@ describe('General MIDI support', () => {
     expect(parsed.notes[0]).toMatchObject({ note: 60, channel: 0, program: 40 });
     expect(parsed.notes[0].durationMs).toBeCloseTo(500);
     expect(parsed.notes[1]).toMatchObject({ note: 36, channel: 9 });
+    expect(parsed.controlChanges).toEqual([]);
+    expect(parsed.hasSustainPedal).toBe(false);
+  });
+
+  it('extends note duration through a channel sustain pedal cycle', () => {
+    const midi = new Uint8Array([
+      0x4d, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x60,
+      0x4d, 0x54, 0x72, 0x6b, 0x00, 0x00, 0x00, 0x17,
+      0x00, 0xc0, 0x00,
+      0x00, 0x90, 0x3c, 0x64,
+      0x30, 0xb0, 0x40, 0x7f,
+      0x30, 0x80, 0x3c, 0x00,
+      0x30, 0xb0, 0x40, 0x00,
+      0x00, 0xff, 0x2f, 0x00,
+    ]);
+
+    const parsed = parseGeneralMidi(midi);
+    expect(parsed.hasSustainPedal).toBe(true);
+    expect(parsed.controlChanges).toHaveLength(2);
+    expect(parsed.controlChanges.map((event) => event.controller)).toEqual([64, 64]);
+    expect(parsed.notes[0].durationMs).toBeCloseTo(750, 0);
   });
 });

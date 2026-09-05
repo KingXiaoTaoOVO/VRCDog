@@ -43,6 +43,10 @@ skills使用说明
 src-tauri/bin/ffmpeg-x86_64-pc-windows-msvc.exe
 src-tauri/OVRAS/OVRAS_Installer.exe
 .scratch/
+
+# Local third-party reference snapshots (keep the index, not full upstream trees).
+references/*
+!references/README.md
 /.cargo-target/
 logs/
 .gemini/

@@ -11,6 +11,17 @@ export type MidiParseResult = {
   notes: MidiNote[];
   programs: number[];
   hasPercussion: boolean;
+  /** Raw channel controller events, retained for MIDI-aware integrations. */
+  controlChanges: MidiControlChange[];
+  /** True when at least one channel-64 sustain event was present. */
+  hasSustainPedal: boolean;
+};
+
+export type MidiControlChange = {
+  timeMs: number;
+  channel: number;
+  controller: number;
+  value: number;
 };
 
 export type GeneralMidiGroup = {
@@ -142,6 +153,7 @@ const walkMidiTrack = (
     const data2 = dataLength === 2 ? (bytes[offset++] ?? 0) : 0;
     handlers.midi?.(tick, statusByte, data1, data2);
   }
+  return tick;
 };
 
 const tickToMs = (tick: number, tempoMap: MidiTempoPoint[], ticksPerBeat: number) => {
@@ -184,24 +196,69 @@ export const parseGeneralMidi = (bytes: Uint8Array): MidiParseResult => {
   const compactTempoMap = tempoMap.filter((point, index) => !tempoMap[index + 1] || tempoMap[index + 1].tick !== point.tick);
 
   const notes: MidiNote[] = [];
+  const controlChanges: MidiControlChange[] = [];
   const usedPrograms = new Set<number>();
   let hasPercussion = false;
+  let hasSustainPedal = false;
+
+  // Collect pedal events before parsing notes so a file that stores notes and
+  // controllers on different tracks still gets correct sustain semantics.
+  const sustainEvents = new Map<number, Array<{ timeMs: number; value: number }>>();
+  for (const track of tracks) {
+    walkMidiTrack(bytes, track, {
+      midi: (tick, statusByte, data1, data2) => {
+        if ((statusByte & 0xf0) !== 0xb0 || data1 !== 64) return;
+        const channel = statusByte & 0x0f;
+        const events = sustainEvents.get(channel) || [];
+        events.push({ timeMs: tickToMs(tick, compactTempoMap, ticksPerBeat), value: data2 });
+        sustainEvents.set(channel, events);
+        hasSustainPedal = true;
+      },
+    });
+  }
+  for (const events of sustainEvents.values()) events.sort((a, b) => a.timeMs - b.timeMs);
+  const sustainedEndTime = (channel: number, releaseTimeMs: number) => {
+    const events = sustainEvents.get(channel);
+    if (!events?.length) return releaseTimeMs;
+    let pressed = false;
+    for (const event of events) {
+      if (event.timeMs > releaseTimeMs) break;
+      pressed = event.value >= 64;
+    }
+    if (!pressed) return releaseTimeMs;
+    return events.find((event) => event.timeMs > releaseTimeMs && event.value < 64)?.timeMs || releaseTimeMs;
+  };
 
   for (const track of tracks) {
     const channelPrograms = new Array<number>(16).fill(0);
     const openNotes = new Map<number, Array<{ timeMs: number; velocity: number; program: number }>>();
+    const pushNote = (key: number, start: { timeMs: number; velocity: number; program: number }, endTimeMs: number) => {
+      notes.push({
+        timeMs: start.timeMs,
+        durationMs: Math.max(90, endTimeMs - start.timeMs),
+        note: key & 0xff,
+        velocity: start.velocity,
+        channel: (key >> 8) & 0x0f,
+        program: start.program,
+      });
+    };
 
     walkMidiTrack(bytes, track, {
       midi: (tick, statusByte, data1, data2) => {
         const type = statusByte & 0xf0;
         const channel = statusByte & 0x0f;
+        const eventTimeMs = tickToMs(tick, compactTempoMap, ticksPerBeat);
         if (type === 0xc0) {
           channelPrograms[channel] = Math.min(127, data1);
           return;
         }
 
+        if (type === 0xb0) {
+          controlChanges.push({ timeMs: eventTimeMs, channel, controller: data1, value: data2 });
+          return;
+        }
+
         const key = (channel << 8) | data1;
-        const eventTimeMs = tickToMs(tick, compactTempoMap, ticksPerBeat);
         if (type === 0x90 && data2 > 0) {
           const program = channelPrograms[channel];
           const stack = openNotes.get(key) || [];
@@ -213,14 +270,7 @@ export const parseGeneralMidi = (bytes: Uint8Array): MidiParseResult => {
           const stack = openNotes.get(key);
           const start = stack?.shift();
           if (start) {
-            notes.push({
-              timeMs: start.timeMs,
-              durationMs: Math.max(90, eventTimeMs - start.timeMs),
-              note: data1,
-              velocity: start.velocity,
-              channel,
-              program: start.program,
-            });
+            pushNote(key, start, sustainedEndTime(channel, eventTimeMs));
           }
         }
       },
@@ -228,21 +278,21 @@ export const parseGeneralMidi = (bytes: Uint8Array): MidiParseResult => {
 
     for (const [key, stack] of openNotes.entries()) {
       for (const start of stack) {
-        notes.push({
-          timeMs: start.timeMs,
-          durationMs: 220,
-          note: key & 0xff,
-          velocity: start.velocity,
-          channel: (key >> 8) & 0x0f,
-          program: start.program,
-        });
+        pushNote(key, start, start.timeMs + 220);
       }
     }
   }
 
   notes.sort((a, b) => a.timeMs - b.timeMs);
+  controlChanges.sort((a, b) => a.timeMs - b.timeMs);
   if (!notes.length) throw new Error('这个 MIDI 没有可试听的音符');
-  return { notes, programs: Array.from(usedPrograms).sort((a, b) => a - b), hasPercussion };
+  return {
+    notes,
+    programs: Array.from(usedPrograms).sort((a, b) => a - b),
+    hasPercussion,
+    controlChanges,
+    hasSustainPedal,
+  };
 };
 
 type OscillatorLayer = {

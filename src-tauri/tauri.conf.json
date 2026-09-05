@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VRCDog",
-  "version": "5.4.2",
+  "version": "5.4.3",
   "identifier": "com.vrcenvbuilder.dev",
   "build": {
     "beforeDevCommand": "node scripts/dev-vite.mjs",
@@ -60,8 +60,7 @@
       "../src-python/midishow-downloader/dist/*",
       "../src-python/midishow-downloader/node_modules/**/*",
       "resources/python-runtime/**/*",
-      "../src-python/songs/*",
-      "../VRCLS/02.VRCLS.Services/Audio/models/silero_vad.onnx"
+      "../src-python/songs/*"
     ],
     "windows": {
       "webviewInstallMode": {

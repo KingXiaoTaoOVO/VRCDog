@@ -174,6 +174,7 @@ const parsedPlayerNotes = ref<MidiNote[]>([]);
 const playerInstrument = ref('source');
 const sourcePrograms = ref<number[]>([]);
 const sourceHasPercussion = ref(false);
+const sourceHasSustainPedal = ref(false);
 const overlayOpen = ref(false);
 const recording = ref(false);
 const recordedMidiPath = ref<string | null>(null);
@@ -554,11 +555,13 @@ const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
     parsedPlayerNotes.value = parsed.notes;
     sourcePrograms.value = parsed.programs;
     sourceHasPercussion.value = parsed.hasPercussion;
+    sourceHasSustainPedal.value = parsed.hasSustainPedal;
     playerTitle.value = midi.name;
     playerPositionMs.value = 0;
     playerDurationMs.value = Math.ceil(Math.max(...parsed.notes.map((note) => note.timeMs + note.durationMs)));
     await schedulePlayer(0);
-    addLog(t('vrpiano.builtin_player_preview_started', { name: midi.name, instrument: activeInstrumentText.value }));
+    const pedalHint = parsed.hasSustainPedal ? ` · ${l('延音踏板', 'Sustain pedal')}` : '';
+    addLog(`${t('vrpiano.builtin_player_preview_started', { name: midi.name, instrument: activeInstrumentText.value })}${pedalHint}`);
   } catch (e: any) {
     error.value = e.message || String(e);
     addLog(t('vrpiano.player_load_failed', { error: error.value }));
@@ -1858,7 +1861,7 @@ onUnmounted(() => {
                 </option>
               </optgroup>
             </select>
-            <small :title="activeInstrumentText">{{ activeInstrumentText }}</small>
+            <small :title="activeInstrumentText">{{ activeInstrumentText }}<template v-if="sourceHasSustainPedal"> · {{ l('延音踏板', 'Sustain pedal') }}</template></small>
           </label>
           <div class="player-slider">
             <span>{{ formatTime(playerPositionMs) }}</span>
