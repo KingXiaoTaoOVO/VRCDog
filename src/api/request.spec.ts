@@ -153,4 +153,21 @@ describe('request GET coalescing', () => {
       'https://api.vrchat.cloud/api/1/auth/user',
     );
   });
+
+  it('does not log out on a bare 401 from a non-auth data endpoint', async () => {
+    const expired = vi.fn();
+    window.addEventListener('vrc-auth-expired', expired);
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'vrc_execute') return { status: 401, data: '{}' };
+      if (command === 'db_get_auth') return null;
+      return null;
+    });
+
+    await expect(request('/friends', { method: 'GET', dedupe: false })).rejects.toMatchObject({
+      code: 'VRCHAT_HTTP_ERROR',
+      status: 401,
+    });
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('vrc-auth-expired', expired);
+  });
 });

@@ -33,7 +33,9 @@ interface SavedAccount {
 }
 
 const savedAccounts = ref<SavedAccount[]>([]);
-const saveCredentials = ref(false);
+// Account persistence is enabled by default so a successful 2FA session can
+// be reused on the next launch. The checkbox still lets the user opt out.
+const saveCredentials = ref(true);
 
 async function loadSavedAccounts() {
   try {
@@ -139,7 +141,8 @@ async function loginWithSavedAccount(account: SavedAccount) {
         savedAccounts.value[idx].displayName = user.displayName || user.display_name || account.displayName;
         savedAccounts.value[idx].username = user.username || account.username;
         savedAccounts.value[idx].avatarUrl = user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || account.avatarUrl;
-        savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(res.auth_cookie || savedCookie);
+        const durableCookie = await DbApi.getAuth().catch(() => null);
+        savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || res.auth_cookie || savedCookie);
         await persistSavedAccounts();
       }
       emit('login-success', user);
@@ -431,7 +434,11 @@ const handleLogin = async () => {
       }
       const user = res.currentUser || res.current_user || res;
       // 保存账号
-      await saveCurrentAccount(user, normalizeAuthCookieJson(res.auth_cookie || authCookie.value));
+      // The native bridge may refresh cookies without including them in the
+      // parsed response. Read the durable DB value so saved-account login
+      // always keeps the latest auth/two-factor cookies.
+      const durableCookie = await DbApi.getAuth().catch(() => null);
+      await saveCurrentAccount(user, normalizeAuthCookieJson(durableCookie || res.auth_cookie || authCookie.value));
       emit('login-success', user);
     } else {
       errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;

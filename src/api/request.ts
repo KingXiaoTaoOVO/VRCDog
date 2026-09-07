@@ -134,7 +134,12 @@ function isVrchatAuthExpired(status: number, url: string, message: string): bool
   }
 
   const lower = message.toLowerCase();
-  if (!lower || lower === 'http 401') return true;
+  // An empty 401 from a data endpoint is often a privacy/permission response
+  // (friends, groups, avatars, worlds). Treating every such response as a
+  // dead session logs the user out as soon as they switch menus. Only the
+  // canonical auth probe above may expire a session without an explicit
+  // authentication error message.
+  if (!lower || lower === 'http 401') return false;
   return /(missing credentials|invalid credentials|^unauthorized$|unauthorized user|expired|login required|not logged in)/i.test(lower);
 }
 

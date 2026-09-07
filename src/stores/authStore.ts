@@ -459,57 +459,21 @@ export const useAuthStore = defineStore('auth', () => {
         await friendsSyncPromise;
         await initWebsocket();
       } else if (res.error) {
-        const errMsg = res.error || '';
-
-        // Attempt to use cache first if cookie is invalid
-        const cachedUserStr = await DbApi.getSetting({ key: 'cached_vrc_user' });
-        if (cachedUserStr) {
-          try {
-            const cachedData = JSON.parse(cachedUserStr);
-            if (Date.now() < cachedData.expiresAt) {
-              currentUser.value = cachedData.user;
-              isLoggedIn.value = true;
-              registerWithServer(cachedData.user);
-              startHeartbeat();
-              await ensureServerEventListeners();
-              await uiStore.fetchServerFeatures(getBaseUrl(), cachedData.user);
-              initGamelogWatcher();
-              await startFriendsSync();
-              void syncInitialNotifications();
-              await initWebsocket();
-
-              if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
-                // Keep the cached login, but notify? Optional.
-              }
-              return;
-            } else {
-              if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
-                await DbApi.clearAuth();
-              }
-            }
-          } catch {}
-        } else if (errMsg.includes('Missing Credentials') || errMsg.includes(t('auto_1abbb174')) || errMsg.includes(t('auto_584cd195')) || errMsg.includes('expired')) {
+        // A cached profile is display data only. Never promote it to an
+        // authenticated session without a successful /auth/user response.
+        // Doing so makes the first menu request fail with 401 and appear as a
+        // random logout after startup.
+        const errMsg = typeof res.error === 'string'
+          ? res.error
+          : String(res.error?.message || res.error?.details || '');
+        if (/missing credentials|invalid credentials|expired|login required|not logged in/i.test(errMsg)) {
           await DbApi.clearAuth();
         }
       }
     } catch (err) {
-      try {
-        const cachedUserStr = await DbApi.getSetting({ key: 'cached_vrc_user' });
-        if (cachedUserStr) {
-          const cachedData = JSON.parse(cachedUserStr);
-          if (Date.now() < cachedData.expiresAt) {
-            currentUser.value = cachedData.user;
-            isLoggedIn.value = true;
-            registerWithServer(cachedData.user);
-            startHeartbeat();
-            await ensureServerEventListeners();
-            initGamelogWatcher();
-            await startFriendsSync();
-            void syncInitialNotifications();
-            await initWebsocket();
-          }
-        }
-      } catch {}
+      // Network failures leave the app on the login screen. A cached user is
+      // not sufficient to start authenticated API traffic.
+      console.warn('[Auth] automatic login verification failed', err);
     } finally {
       autoLoginLoading.value = false;
     }

@@ -338,8 +338,10 @@ const handleRoleSelected = async (payload: {
   authStore.appRole = payload.role;
   if (payload.role === 'client') {
     await authStore.updateClientServerUrl(payload.url || '', false);
-    // 不调用 tryAutoLogin —— 用户必须手动登录或点击已保存账号
-    // 自动登录仅由 LoginView 里的 loginWithSavedAccount 触发
+    // Verify the durable VRChat cookie as soon as the client role is selected.
+    // LoginView remains visible while this runs; invalid cookies simply leave
+    // the user on the normal login form.
+    await authStore.tryAutoLogin();
     return;
   }
   serverDashboardTarget.value = {
