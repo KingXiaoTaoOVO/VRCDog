@@ -32,7 +32,7 @@ def _run_cli_search(keyword: str) -> str:
             try:
                 subprocess.run(
                     ["npx", "tsc"], cwd=CLI_DIR,
-                    capture_output=True, timeout=30, shell=True,
+                    capture_output=True, timeout=30,
                 )
             except Exception:
                 pass
@@ -42,7 +42,7 @@ def _run_cli_search(keyword: str) -> str:
 
     result = subprocess.run(
         ["node", CLI_SCRIPT, "search", keyword],
-        cwd=CLI_DIR, capture_output=True, timeout=30, shell=True,
+        cwd=CLI_DIR, capture_output=True, timeout=30,
     )
 
     if result.returncode != 0:
@@ -137,7 +137,8 @@ def search_midi(keyword: str, max_results: int = 30) -> list:
     except Exception:
         results = _fallback_search(keyword, max_results)
     for r in results:
-        r["title"] = _clean_title(r.get("title", f"MIDI #{r['id']}"))
+        # F8: 结果可能缺少 'id' 键，避免 KeyError 导致整批搜索失败
+        r["title"] = _clean_title(r.get("title", f"MIDI #{r.get('id', '')}"))
         r["artist"] = _clean_artist(r.get("artist", ""))
     return results[:max_results]
 
@@ -154,15 +155,13 @@ def download_midi(midi_id: int, username: str = None) -> bytes:
 
 def get_midi_info(midi_id: int) -> dict:
     """获取 MIDI 文件信息"""
-    import requests
-    from bs4 import BeautifulSoup
-
     url = f"https://www.midishow.com/en/midi/{midi_id}.html"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "zh-CN,zh;q=0.9",
     }
     resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()  # F7: 404/5xx 不应被当作成功页面静默解析
     soup = BeautifulSoup(resp.text, "html.parser")
 
     title_el = soup.find("h1") or soup.find("title")
@@ -204,9 +203,15 @@ def download_and_save(midi_id: int, save_dir: str, filename: str = None) -> str:
     """下载 MIDI 文件并保存到本地"""
     info = get_midi_info(midi_id)
     if not filename:
-        safe_title = "".join(c for c in info["title"] if c not in r'<>:"/\\|?*')
+        # B7: 过滤标题中的路径元字符与非法文件名字符，禁止 .. 与绝对路径逃逸 save_dir
+        safe_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', info["title"]).strip()[:120]
+        if not safe_title:
+            safe_title = f"midi_{midi_id}"
         filename = f"{safe_title}.mid"
-    save_path = os.path.join(save_dir, filename)
+    save_path = os.path.normpath(os.path.join(save_dir, filename))
+    save_dir_norm = os.path.normpath(save_dir)
+    if not save_path.startswith(save_dir_norm + os.sep) and save_path != save_dir_norm:
+        raise Exception(f"非法文件名，拒绝写入: {filename}")
     data = download_midi(midi_id)
     with open(save_path, "wb") as f:
         f.write(data)

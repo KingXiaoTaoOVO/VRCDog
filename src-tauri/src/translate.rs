@@ -386,7 +386,10 @@ async fn translate_tencent(client: &Client, req: &TranslateRequest) -> Result<St
     let host = "tmt.tencentcloudapi.com";
     let action = "TextTranslate";
     let version = "2018-03-21";
-    let timestamp = Utc::now().timestamp();
+    // 安全/正确：timestamp 与 date 取自同一时刻，避免 UTC 午夜边界两者跨日导致签名被拒
+    let now = Utc::now();
+    let timestamp = now.timestamp();
+    let date = now.format("%Y-%m-%d").to_string();
 
     let source = tencent_lang_code(&req.source_lang);
     let target = tencent_lang_code(&req.target_lang);
@@ -400,7 +403,6 @@ async fn translate_tencent(client: &Client, req: &TranslateRequest) -> Result<St
     .to_string();
 
     // TC3-HMAC-SHA256 signing
-    let date = Utc::now().format("%Y-%m-%d").to_string();
     let credential_scope = format!("{}/tmt/tc3_request", date);
 
     let canonical_request = format!(

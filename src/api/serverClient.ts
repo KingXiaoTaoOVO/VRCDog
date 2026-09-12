@@ -265,14 +265,16 @@ export const DbApi = {
     all[key] = value;
     localStorage.setItem('vrcdog_web_settings', JSON.stringify(all));
   },
+  // SECURITY (S1): VRChat `auth` cookie is a full session token — keep it in
+  // `sessionStorage` (tab-scoped, cleared on close), never `localStorage`.
   getAuth: async () => {
-    return localStorage.getItem('vrcdog_auth');
+    return sessionStorage.getItem('vrcdog_auth');
   },
   saveAuth: async ({ cookie }: { cookie: string }) => {
-    localStorage.setItem('vrcdog_auth', cookie);
+    sessionStorage.setItem('vrcdog_auth', cookie);
   },
   clearAuth: async () => {
-    localStorage.removeItem('vrcdog_auth');
+    sessionStorage.removeItem('vrcdog_auth');
   },
   getStatusPresets: async () => {
     try {

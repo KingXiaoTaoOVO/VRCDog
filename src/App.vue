@@ -336,6 +336,10 @@ const handleRoleSelected = async (payload: {
   password?: string;
 }) => {
   authStore.appRole = payload.role;
+  // 持久化角色选择，供下次启动自动登录使用（restoreAndAutoLogin 读取）
+  try {
+    await DbApi.saveSetting({ key: 'appRole', value: JSON.stringify(payload.role) });
+  } catch {}
   if (payload.role === 'client') {
     await authStore.updateClientServerUrl(payload.url || '', false);
     // Verify the durable VRChat cookie as soon as the client role is selected.
@@ -477,6 +481,10 @@ onMounted(async () => {
   uiStore.fetchServerStatus();
   setInterval(uiStore.fetchServerStatus, 5 * 60 * 1000);
 
+  // 启动即尝试自动登录：仅当此前选择过 client 角色且存在可用凭据时生效
+  // （内部已做 Tauri 守卫，并对失败安全降级到角色选择界面）
+  await authStore.restoreAndAutoLogin();
+
   if (isTauri()) {
     await listen('install_progress', (event: any) => {
       const p = event.payload;
@@ -499,7 +507,10 @@ if (typeof window !== 'undefined') {
       const uid = currentUser.value.id || currentUser.value.displayName;
       fetch(`${authStore.getBaseUrl()}/api/client/disconnect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authStore.clientToken ? { 'x-vrcdog-client-token': authStore.clientToken } : {})
+        },
         body: JSON.stringify({ user_id: uid }),
         keepalive: true
       }).catch(() => {});

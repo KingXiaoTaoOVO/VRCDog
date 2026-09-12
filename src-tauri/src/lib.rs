@@ -247,7 +247,12 @@ pub fn run() {
         .setup(|app| {
             use tauri::Manager;
             let app_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
-            app.manage(db::DbState::new(app_dir.clone()));
+            let db_state = db::DbState::new(app_dir.clone())
+                .map_err(|e| {
+                    eprintln!("[VrcDog] 数据库初始化失败: {e}");
+                    e
+                })?;
+            app.manage(db_state);
             app.manage(gamelog::LogReaderState::new());
             app.manage(audio_capture::AudioCaptureState::new());
             app.manage(vrct::VrctState::with_history_path(
@@ -415,6 +420,8 @@ pub fn run() {
             sys::sys_save_vrc_config,
             sys::sys_backup_database,
             sys::sys_restore_database,
+            sys::sys_store_secure_string,
+            sys::sys_load_secure_string,
             sys::sys_open_steamvr_bindings,
             update::update_remote_releases,
             update::update_install_release,
@@ -615,19 +622,29 @@ async fn sys_verify_server_password(password: String) -> Result<(), String> {
     Ok(())
 }
 
-const DEFAULT_SERVER_PASSWORD_BCRYPT: &str =
-    "$2b$12$RpmZ/EikcFeSjCWdaTES1eETxo7JX.LgaR.mKwCO8XCDkxvCaHBJO";
-
-fn server_password_hash() -> String {
-    std::env::var("VRCDOG_SERVER_PASSWORD_BCRYPT")
+fn server_password_hash() -> Option<String> {
+    static WARNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let hash = std::env::var("VRCDOG_SERVER_PASSWORD_BCRYPT")
         .ok()
-        .map(|hash| hash.trim().to_string())
-        .filter(|hash| !hash.is_empty())
-        .unwrap_or_else(|| DEFAULT_SERVER_PASSWORD_BCRYPT.to_string())
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty());
+    if hash.is_none() {
+        WARNED.get_or_init(|| {
+            eprintln!(
+                "[VrcDog] 警告：未设置环境变量 VRCDOG_SERVER_PASSWORD_BCRYPT，管理员接口已禁用。\
+                 请设置该变量为 bcrypt 哈希（例如用 `htpasswd -nbB admin <密码>` 生成）后重启。"
+            );
+            true
+        });
+    }
+    hash
 }
 
 fn verify_server_password(password: &str) -> bool {
-    bcrypt::verify(password, &server_password_hash()).unwrap_or(false)
+    match server_password_hash() {
+        Some(hash) => bcrypt::verify(password, &hash).unwrap_or(false),
+        None => false,
+    }
 }
 
 #[cfg(test)]
@@ -657,22 +674,16 @@ mod password_tests {
     }
 
     #[test]
-    fn default_server_password_is_bcrypt_hash() {
-        assert!(DEFAULT_SERVER_PASSWORD_BCRYPT.starts_with("$2b$"));
-        assert_ne!(DEFAULT_SERVER_PASSWORD_BCRYPT, "root");
-        assert!(bcrypt::verify("root", DEFAULT_SERVER_PASSWORD_BCRYPT).unwrap());
-    }
-
-    #[test]
-    fn verifies_default_server_password_with_bcrypt() {
+    fn no_default_server_password_falls_closed() {
+        // 安全：移除硬编码默认密码后，未配置环境变量时管理员校验必须失败
         with_server_password_hash_env(None, || {
-            assert!(verify_server_password("root"));
+            assert!(!verify_server_password("root"));
             assert!(!verify_server_password("wrong-password"));
         });
     }
 
     #[test]
-    fn supports_bcrypt_hash_override_from_environment() {
+    fn verifies_server_password_with_bcrypt_env() {
         let custom_hash = bcrypt::hash("custom-passphrase", bcrypt::DEFAULT_COST).unwrap();
 
         with_server_password_hash_env(Some(&custom_hash), || {

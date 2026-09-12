@@ -788,3 +788,45 @@ pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Re
     }
     Err("Cannot resolve app data directory".to_string())
 }
+
+/// 将敏感字符串存储到应用数据目录（替代 localStorage，降低 XSS 窃取风险）
+#[tauri::command]
+pub async fn sys_store_secure_string(
+    app: tauri::AppHandle,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
+    let secure_dir = app_dir.join("secure");
+    std::fs::create_dir_all(&secure_dir).map_err(|e| format!("创建安全目录失败: {e}"))?;
+    let file_path = secure_dir.join(format!("{}.txt", sanitize_filename(&key)));
+    std::fs::write(&file_path, value).map_err(|e| format!("写入安全存储失败: {e}"))?;
+    Ok(())
+}
+
+/// 从应用数据目录读取敏感字符串
+#[tauri::command]
+pub async fn sys_load_secure_string(
+    app: tauri::AppHandle,
+    key: String,
+) -> Result<Option<String>, String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
+    let file_path = app_dir.join("secure").join(format!("{}.txt", sanitize_filename(&key)));
+    if !file_path.exists() {
+        return Ok(None);
+    }
+    let value = std::fs::read_to_string(&file_path).map_err(|e| format!("读取安全存储失败: {e}"))?;
+    Ok(Some(value))
+}
+
+fn sanitize_filename(key: &str) -> String {
+    key.chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect()
+}

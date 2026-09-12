@@ -330,30 +330,19 @@ fn display_host(value: &str) -> String {
 }
 
 fn generate_device_id() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
+    // 直接使用 OS 提供的稳定机器 GUID，避免 DefaultHasher（每进程随机种子）
+    // 导致设备 ID 每次启动都不同。
     let machine_id = get_machine_guid().unwrap_or_else(|| "vrcdog-fallback".into());
-    let mut hasher = DefaultHasher::new();
-    machine_id.hash(&mut hasher);
-    format!("{:09}", hasher.finish() % 1_000_000_000)
+    machine_id.chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 fn generate_temp_password() -> String {
-    use std::time::SystemTime;
-
-    let seed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    // 使用 uuid v4（OS 级 CSPRNG）替代可预测的时间种子 LCG。
     let chars: Vec<char> = "abcdefghjkmnpqrstuvwxyz23456789".chars().collect();
     let mut password = String::with_capacity(8);
-    let mut state = seed;
-    for _ in 0..8 {
-        password.push(chars[(state % chars.len() as u128) as usize]);
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
+    let rng_bytes = uuid::Uuid::new_v4().as_bytes().to_vec();
+    for i in 0..8 {
+        password.push(chars[(rng_bytes[i] as usize) % chars.len()]);
     }
     password
 }

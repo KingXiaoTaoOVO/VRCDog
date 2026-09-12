@@ -220,18 +220,15 @@ fn parse_stun_response(data: &[u8]) -> Option<SocketAddr> {
 }
 
 fn rand_bytes<const N: usize>() -> [u8; N] {
-    use std::time::SystemTime;
+    // 使用 uuid v4（OS 级 CSPRNG）替代可预测的时间种子 LCG
     let mut bytes = [0u8; N];
-    let seed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let mut state = seed;
-    for b in bytes.iter_mut() {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        *b = (state >> 33) as u8;
+    let mut offset = 0;
+    while offset < N {
+        let u = uuid::Uuid::new_v4();
+        let src = u.as_bytes();
+        let to_copy = (N - offset).min(src.len());
+        bytes[offset..offset + to_copy].copy_from_slice(&src[..to_copy]);
+        offset += to_copy;
     }
     bytes
 }

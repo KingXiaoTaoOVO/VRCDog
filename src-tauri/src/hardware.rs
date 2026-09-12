@@ -34,7 +34,7 @@ pub fn sys_start_auto_launch_apps(apps: Vec<String>) -> AppResult<()> {
         // Simple manual parsing to handle quotes and arguments
         let (cmd, args) = if app.starts_with('"') {
             if let Some(end_idx) = app[1..].find('"') {
-                let cmd = &app[1..=end_idx];
+                let cmd = &app[1..end_idx];
                 let args_str = app[end_idx + 2..].trim();
                 let args = args_str.split_whitespace().collect::<Vec<_>>();
                 (cmd, args)
@@ -96,14 +96,27 @@ pub fn sys_is_vrchat_running() -> AppResult<bool> {
 
 #[tauri::command]
 pub fn sys_launch_vrchat(launch_args: Option<String>) -> AppResult<()> {
-    let mut args = String::from("steam://rungameid/438100");
-    if let Some(la) = launch_args {
-        args.push_str("//");
-        args.push_str(&la);
+    // 仅允许安全的 URI 片段字符，拒绝 shell 元字符（& | && > < 等）注入
+    if let Some(ref la) = launch_args {
+        if !la
+            .chars()
+            .all(|c| c.is_alphanumeric() || "-=/.:_%+?".contains(c))
+        {
+            return Err(crate::AppError::from("launch_args 含非法字符"));
+        }
     }
 
+    let url = format!(
+        "steam://rungameid/438100{}",
+        launch_args
+            .map(|la| format!("//{}", la))
+            .unwrap_or_default()
+    );
+
+    // 不用 cmd 解释器执行拼好的字符串：以双引号包裹 URL 抑制 cmd 元字符，
+    // 并用空标题参数("")避免把 URL 误判为 start 的标题
     Command::new("cmd")
-        .args(["/C", "start", &args])
+        .args(["/C", "start", "", &format!("\"{}\"", url)])
         .spawn()
         .map_err(|e| crate::AppError::from(e.to_string()))?;
 

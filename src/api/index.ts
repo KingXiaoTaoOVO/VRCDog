@@ -58,6 +58,7 @@ const createBrowserVrpianoStatus = () => ({
   vrchat_osc_host: '',
   vrchat_osc_port: 9000,
   vrchat_osc_running: false,
+  vrchat_osc_connected: false,
   vrchat_osc_last_error: '',
 });
 
@@ -1253,6 +1254,7 @@ export interface VrpianoStatus {
   vrchat_osc_host: string;
   vrchat_osc_port: number;
   vrchat_osc_running: boolean;
+  vrchat_osc_connected: boolean;
   vrchat_osc_last_error: string;
 }
 
@@ -1554,9 +1556,14 @@ const isBrowser = typeof window !== 'undefined' && !isTauri();
 
 if (isBrowser) {
   const localStorageDb = {
-    getAuth: async (): Promise<string | null> => localStorage.getItem('vrcdog_auth'),
-    saveAuth: async ({ cookie }: { cookie: string }) => { localStorage.setItem('vrcdog_auth', cookie); },
-    clearAuth: async () => { localStorage.removeItem('vrcdog_auth'); },
+    // SECURITY (S1): the VRChat `auth` cookie is a full account session token.
+    // Never persist it in `localStorage` (readable by any same-origin XSS, survives
+    // restarts). Use `sessionStorage` so the token is scoped to the tab and wiped on
+    // close. The fully secure option is a backend proxy holding the token with the
+    // frontend only keeping a short-lived session id — tracked separately.
+    getAuth: async (): Promise<string | null> => sessionStorage.getItem('vrcdog_auth'),
+    saveAuth: async ({ cookie }: { cookie: string }) => { sessionStorage.setItem('vrcdog_auth', cookie); },
+    clearAuth: async () => { sessionStorage.removeItem('vrcdog_auth'); },
     clearGameLogs: async () => { localStorage.removeItem('vrcdog_gamelogs'); },
     clearFriendLogs: async () => { localStorage.removeItem('vrcdog_friendlogs'); },
     getHeatmap: async () => JSON.parse(localStorage.getItem('vrcdog_heatmap') || '[]'),

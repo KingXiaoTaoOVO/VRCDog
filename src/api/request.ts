@@ -192,8 +192,31 @@ function getRateLimitDelay(): number {
 // ==================== Safe Invoke ====================
 
 export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  // 脱敏：对任何含 credential/密钥语义的字段（password/cookie/auth/token/apiKey 等，
+  // 含 options.body 与响应体中的 auth_cookie）统一替换为 ***，防止会话令牌泄露到日志/控制台
+  const REDACT_KEY_RE = /^(password|passwd|secret|token|cookie|auth|credential|authorization|set-cookie|setcookie|api[_-]?key|apikey)$/i;
+  const sanitizeValue = (value: any): any => {
+    if (Array.isArray(value)) return value.map(sanitizeValue);
+    if (value && typeof value === 'object') {
+      const out: any = {};
+      for (const [k, v] of Object.entries(value)) {
+        out[k] = REDACT_KEY_RE.test(k) ? '***' : sanitizeValue(v);
+      }
+      return out;
+    }
+    return value;
+  };
+  const sanitizeArgs = (originalArgs?: Record<string, unknown>) => {
+    if (!originalArgs) return originalArgs;
+    return sanitizeValue(JSON.parse(JSON.stringify(originalArgs)));
+  };
+  const sanitizeResponse = (res: any) => {
+    if (res === undefined || res === null) return res;
+    try { return sanitizeValue(JSON.parse(JSON.stringify(res))); } catch { return res; }
+  };
+
   if (!isTauri()) {
-    console.warn(`[Browser Mode] API Command: ${cmd}`, args);
+    console.warn(`[Browser Mode] API Command: ${cmd}`, sanitizeArgs(args));
 
     if (cmd === 'vrc_execute') {
       const requestUrl = String((args?.options as any)?.url || '');
@@ -287,23 +310,12 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
   }
   const startTime = performance.now();
 
-  const sanitizeArgs = (originalArgs?: Record<string, unknown>) => {
-    if (!originalArgs) return originalArgs;
-    const safe: any = JSON.parse(JSON.stringify(originalArgs));
-    if (safe.password) safe.password = '***';
-    if (safe.authCookie) safe.authCookie = '***';
-    if (safe.cookie) safe.cookie = '***';
-    if (safe.options?.headers?.Authorization) safe.options.headers.Authorization = '***';
-    if (safe.options?.auth_cookie) safe.options.auth_cookie = '***';
-    return safe;
-  };
-
   try {
     const res = await invoke<T>(cmd, args);
     const duration = performance.now() - startTime;
     if (isDebugLogEnabled()) {
       window.dispatchEvent(new CustomEvent('app-debug-log', {
-        detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: res, timestamp: new Date().toLocaleTimeString() }
+        detail: { type: 'success', cmd, args: sanitizeArgs(args), duration: duration.toFixed(1), response: sanitizeResponse(res), timestamp: new Date().toLocaleTimeString() }
       }));
     }
     return res;

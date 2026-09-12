@@ -21,10 +21,15 @@ struct HubState {
     sessions: HashMap<String, Session>,
 }
 
+/// 出站消息缓冲上限：慢速/断连对端不再无限堆积，避免内存耗尽（P2 / DoS 防护）
+const OUTGOING_CAP: usize = 1024;
+
 #[derive(Clone)]
 struct Peer {
-    sender: mpsc::UnboundedSender<Message>,
+    sender: mpsc::Sender<Message>,
     password_hash: [u8; 32],
+    /// 每个 Peer 独立的随机 salt，防止彩虹表攻击（R5）
+    salt: [u8; 16],
     hostname: String,
     public_key: String,
     accepting: bool,
@@ -43,7 +48,7 @@ impl RemoteAssistHub {
 
     async fn handle_socket(self, socket: WebSocket) {
         let (mut socket_tx, mut socket_rx) = socket.split();
-        let (outgoing_tx, mut outgoing_rx) = mpsc::unbounded_channel::<Message>();
+        let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<Message>(OUTGOING_CAP);
         let writer = tokio::spawn(async move {
             while let Some(message) = outgoing_rx.recv().await {
                 if socket_tx.send(message).await.is_err() {
@@ -86,7 +91,7 @@ impl RemoteAssistHub {
                         .await;
                 }
                 Message::Ping(payload) => {
-                    let _ = outgoing_tx.send(Message::Pong(payload));
+                    let _ = outgoing_tx.try_send(Message::Pong(payload));
                 }
                 Message::Close(_) => break,
                 _ => {}
@@ -102,7 +107,7 @@ impl RemoteAssistHub {
     async fn register_peer(
         &self,
         value: Value,
-        sender: mpsc::UnboundedSender<Message>,
+        sender: mpsc::Sender<Message>,
     ) -> Result<String, String> {
         if value.get("type").and_then(Value::as_str) != Some("register") {
             return Err("The first message must register the device".into());
@@ -124,9 +129,13 @@ impl RemoteAssistHub {
             return Err("Registration field is too long".into());
         }
 
+        let salt = uuid::Uuid::new_v4().as_bytes().to_vec();
+        let mut salt_arr = [0u8; 16];
+        salt_arr.copy_from_slice(&salt);
         let peer = Peer {
             sender: sender.clone(),
-            password_hash: hash_password(&password),
+            password_hash: hash_password(&password, &salt_arr),
+            salt: salt_arr,
             hostname,
             public_key,
             accepting: value
@@ -149,7 +158,7 @@ impl RemoteAssistHub {
         send_json(
             &sender,
             json!({"type": "registered", "device_id": device_id}),
-        )?;
+        );
         Ok(device_id)
     }
 
@@ -236,7 +245,7 @@ impl RemoteAssistHub {
             .await;
             return;
         }
-        if target.password_hash != hash_password(password) {
+        if target.password_hash != hash_password(password, &target.salt) {
             drop(state);
             self.send_connect_error(device_id, &session_id, "Incorrect temporary password")
                 .await;
@@ -279,6 +288,16 @@ impl RemoteAssistHub {
             return;
         };
         let payload = value.get("payload").cloned().unwrap_or(Value::Null);
+        // 服务端强制拒绝转发未加密 payload（ defense in depth，客户端本身也会拒收）
+        if payload.get("encrypted").and_then(Value::as_bool) != Some(true) {
+            if let Some(peer) = self.inner.read().await.peers.get(device_id) {
+                let _ = send_json(
+                    &peer.sender,
+                    json!({"type": "error", "message": "Relay rejected: payload must be encrypted"}),
+                );
+            }
+            return;
+        }
         let state = self.inner.read().await;
         let Some(session) = state.sessions.get(&session_id) else {
             return;
@@ -377,12 +396,17 @@ fn required_string(value: &Value, key: &str) -> Result<String, String> {
         .ok_or_else(|| format!("Missing {key}"))
 }
 
-fn hash_password(password: &str) -> [u8; 32] {
-    Sha256::digest(password.as_bytes()).into()
+fn hash_password(password: &str, salt: &[u8; 16]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(salt);
+    hasher.update(password.as_bytes());
+    hasher.finalize().into()
 }
 
-fn send_json(sender: &mpsc::UnboundedSender<Message>, value: Value) -> Result<(), String> {
-    sender
-        .send(Message::Text(value.to_string().into()))
-        .map_err(|_| "WebSocket connection is closed".to_string())
+/// 发送 JSON 消息。使用有界通道 + 写满丢弃（try_send），
+/// 对端慢/断连时不会无限堆积导致内存耗尽（P2 / DoS 防护）。
+fn send_json(sender: &mpsc::Sender<Message>, value: Value) {
+    if let Ok(text) = serde_json::to_string(&value) {
+        let _ = sender.try_send(Message::Text(text.into()));
+    }
 }

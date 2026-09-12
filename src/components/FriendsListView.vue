@@ -46,6 +46,12 @@ const toggleSection = (sectionName: string) => {
 const currentUser = computed(() => authStore.currentUser);
 let fetchTimeout: any = null;
 
+// P1 修复：vrc-pipeline-event 由外部管线二进制高频推送，每次都触发「整表重拉」（最高 100 页 / 1万好友）
+// 会造成请求风暴。此处用最小刷新间隔做节流：管线事件仅在距上次全量刷新超过该间隔时才真正重拉，
+// 否则跳过；全量刷新的权威触发仍由 vrc-friends-synced 负责。
+const MIN_FULL_REFRESH_INTERVAL_MS = 30_000;
+let lastFullFetchAt = 0;
+
 const fetchFriends = async () => {
   if (fetchTimeout) {
     clearTimeout(fetchTimeout);
@@ -75,6 +81,7 @@ const fetchFriends = async () => {
       errorMsg.value = err.message || err;
     } finally {
       loading.value = false;
+      lastFullFetchAt = Date.now();
       // 后台解析世界名称
       resolveWorldNames();
     }
@@ -116,15 +123,22 @@ const fetchGroups = async (force = false) => {
   }
 };
 
+// P1 修复：管线事件高频触发，只在距上次全量刷新超过最小间隔时才真正重拉，避免请求风暴
+const onPipelineEvent = () => {
+  const now = Date.now();
+  if (now - lastFullFetchAt < MIN_FULL_REFRESH_INTERVAL_MS) return;
+  fetchFriends();
+};
+
 onMounted(() => {
   fetchFriends();
   window.addEventListener('vrc-friends-synced', fetchFriends);
-  window.addEventListener('vrc-pipeline-event', fetchFriends);
+  window.addEventListener('vrc-pipeline-event', onPipelineEvent);
 });
 
 onUnmounted(() => {
   window.removeEventListener('vrc-friends-synced', fetchFriends);
-  window.removeEventListener('vrc-pipeline-event', fetchFriends);
+  window.removeEventListener('vrc-pipeline-event', onPipelineEvent);
   if (fetchTimeout) clearTimeout(fetchTimeout);
 });
 

@@ -3,10 +3,13 @@ midishow API 客户端 — 基于 midishow-downloader-selfhost 核心逻辑
 支持登录、Cookie 缓存、下载 MIDI 文件
 """
 import os
+import re
 import json
 import base64
+import time
 import requests
 import threading
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 # ================================================================
@@ -31,9 +34,15 @@ def _load_cookie_cache() -> dict:
 
 
 def _save_cookie_cache(cache: dict):
+    # S2: 会话 Cookie 属敏感凭据，缓存文件以 0600 权限写入，避免其他本地用户/程序读取
     with _cache_lock:
-        with open(COOKIE_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
+        fd = os.open(COOKIE_CACHE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            os.close(fd)
+            raise
 
 
 def _clear_expired_cookies():
@@ -41,7 +50,7 @@ def _clear_expired_cookies():
     cache = _load_cookie_cache()
     changed = False
     for key in list(cache.keys()):
-        if isinstance(cache[key], dict) and cache[key].get("expires", 0) < __import__("time").time():
+        if isinstance(cache[key], dict) and cache[key].get("expires", 0) < time.time():
             del cache[key]
             changed = True
     if changed:
@@ -147,10 +156,16 @@ class MidiShowAPI:
         }
         resp = self.session.post(
             "https://www.midishow.com/user/account/login",
-            headers=headers, data=data, allow_redirects=False
+            headers=headers, data=data, allow_redirects=False, timeout=20
         )
         if "Location" in resp.headers:
             return True
+        # F4: 部分部署登录成功返回 200（无重定向）。以"是否获得登录态 cookie"作为兜底成功判据，
+        # 避免把成功的登录误判为密码错误
+        if resp.status_code in (200, 302):
+            cookie_names = {c.name.lower() for c in self.session.cookies}
+            if any(("identity" in n or "auth" in n) for n in cookie_names):
+                return True
         # Check for specific error messages in response
         if resp.status_code == 403:
             raise Exception("账号被风控（HTTP 403），请稍后重试")
@@ -172,7 +187,7 @@ class MidiShowAPI:
     # ---------- CSRF ----------
     def _get_csrf_token(self, page_url: str) -> str:
         headers = _gen_req_headers()
-        resp = self.session.get(page_url, headers=headers)
+        resp = self.session.get(page_url, headers=headers, timeout=20)
         soup = BeautifulSoup(resp.text, "html.parser")
         csrf_tag = soup.find_all("meta", {"name": "csrf-token"})[0]
         return csrf_tag.attrs["content"]
@@ -185,7 +200,8 @@ class MidiShowAPI:
         返回: (midi_bytes, midi_title) 或 (None, None) 失败
         """
         headers = _gen_req_headers({"Referer": "https://www.midishow.com/"})
-        resp = self.session.get(page_url, headers=headers)
+        resp = self.session.get(page_url, headers=headers, timeout=20)
+        resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
         # 获取标题
@@ -201,7 +217,6 @@ class MidiShowAPI:
                 title_tag.get_text().strip() if title_tag else "Unknown"
             )
             # 清理标题
-            import re
             midi_title = re.sub(r'\s*-\s*MidiShow.*$', '', midi_title).strip()
 
         # 获取 data-mid 和 data-id
@@ -233,6 +248,9 @@ class MidiShowAPI:
         rsp1.encoding = "utf-8"
         if rsp1.status_code == 403:
             return None, None
+        # F2: 仅对成功响应做解码；非 200（500/429 等错误页）直接放弃，避免对 HTML 做 base64 解码崩溃
+        if rsp1.status_code != 200:
+            return None, None
 
         # 获取编码后的 MIDI 文件
         real_url = (
@@ -241,7 +259,9 @@ class MidiShowAPI:
             .replace("https://www.midishow.com", "https://s.midishow.net")
             .replace(".mid?", ".js?")
         )
-        rsp2 = self.session.get(real_url, headers=STATIC_HEADERS)
+        rsp2 = self.session.get(real_url, headers=STATIC_HEADERS, timeout=20)
+        if rsp2.status_code != 200:
+            return None, None
 
         # 解码
         chr_set = _hex2str(rsp1.headers.get("Etag", "")) + rsp1.text[56:]
@@ -324,13 +344,13 @@ class AccountManager:
                 cache = _load_cookie_cache()
                 cache[username] = {
                     "cookies": cookies,
-                    "expires": __import__("time").time() + 24 * 3600
+                    "expires": time.time() + 24 * 3600
                 }
                 _save_cookie_cache(cache)
                 self._api_cache[username] = api
                 return api
-            else:
-                raise Exception(f"账号 {username} 登录失败")
+            # B5: 该账号登录失败不直接中断，继续尝试列表中其余账号（真正的多账号轮换）
+            continue
 
         raise Exception("所有账号登录失败")
 
@@ -356,13 +376,30 @@ def get_account_manager() -> AccountManager:
     return _account_manager
 
 
+def _is_midishow_host(url: str) -> bool:
+    """S3: 仅允许 midishow 官方域名（含子域），拒绝内网/元数据/任意外部地址，防 SSRF"""
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    return (
+        host == "midishow.com"
+        or host == "www.midishow.com"
+        or host == "s.midishow.net"
+        or host.endswith(".midishow.com")
+        or host.endswith(".midishow.net")
+    )
+
+
 def download_midi_url(url: str, username: str = None) -> tuple:
     """
     下载 midishow URL 对应的 MIDI 文件。
     返回: (midi_bytes, title)
     """
     if "midishow.com" not in url:
-        import re
         match = re.search(r'(\d+)', url)
         if match:
             url = f"https://www.midishow.com/en/midi/{match.group(1)}.html"
@@ -371,6 +408,10 @@ def download_midi_url(url: str, username: str = None) -> tuple:
 
     if not url.startswith("http"):
         url = "https://" + url
+
+    # S3: 严格校验目标域名，避免被诱导请求内网/云元数据等地址
+    if not _is_midishow_host(url):
+        raise Exception("无效的 midishow URL（仅允许 midishow.com 官方域名）")
 
     api = _account_manager.get_api(username)
     data, title = api.download_midi(url)

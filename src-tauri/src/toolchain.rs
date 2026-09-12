@@ -233,12 +233,20 @@ pub async fn uninstall_software(target: String) -> AppResult<()> {
 
     for path in uninstall_paths {
         if Path::new(&path).exists() {
-            let ps_cmd = format!(
-                "Start-Process -FilePath '{}' -ArgumentList '/S' -Verb RunAs -Wait",
-                path
-            );
+            // 安全：将路径作为独立参数传递，避免拼进 PowerShell 字符串后被 ' 注入并以 RunAs 提权执行
             let _ = Command::new("powershell")
-                .args(["-Command", &ps_cmd])
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Start-Process",
+                    "-FilePath",
+                    &path,
+                    "-ArgumentList",
+                    "/S",
+                    "-Verb",
+                    "RunAs",
+                    "-Wait",
+                ])
                 .status();
         }
     }
@@ -347,7 +355,7 @@ fn create_optimized_client() -> AppResult<reqwest::Client> {
         .user_agent("VrcDog/5.0-HyperEngine")
         .tcp_nodelay(true)
         .pool_max_idle_per_host(32)
-        .danger_accept_invalid_certs(true)
+        // 安全：保留 TLS 证书校验，防止 MITM 劫持下载并投放恶意二进制
         .build()
         .map_err(|e| format!("构建下载引擎失败: {}", e).into())
 }

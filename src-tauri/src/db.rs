@@ -12,8 +12,8 @@ pub struct DbState {
 }
 
 impl DbState {
-    pub fn new(app_dir: PathBuf) -> Self {
-        fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+    pub fn new(app_dir: PathBuf) -> Result<Self, String> {
+        fs::create_dir_all(&app_dir).map_err(|e| format!("Failed to create app data dir: {e}"))?;
         let database_path = app_dir.join("vrcdog.db");
         let mistaken_livehime_path = app_dir.join("livehime.db");
         if !database_path.exists() && mistaken_livehime_path.exists() {
@@ -22,9 +22,10 @@ impl DbState {
             }
         }
 
-        let conn = Connection::open(database_path).expect("Failed to open SQLite database");
+        let conn = Connection::open(&database_path)
+            .map_err(|e| format!("Failed to open SQLite database at {}: {e}", database_path.display()))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
-            .expect("Failed to set busy timeout");
+            .map_err(|e| format!("Failed to set busy timeout: {e}"))?;
 
         // Apply SQLite Performance Optimizations
         conn.execute_batch(
@@ -34,7 +35,7 @@ impl DbState {
             PRAGMA cache_size = -64000;
             ",
         )
-        .expect("Failed to apply SQLite pragmas");
+        .map_err(|e| format!("Failed to apply SQLite pragmas: {e}"))?;
 
         conn.execute_batch(
             "
@@ -146,7 +147,7 @@ impl DbState {
             );
             ",
         )
-        .expect("无法初始化数据库表");
+        .map_err(|e| format!("无法初始化数据库表: {e}"))?;
 
         // Apply schema migrations gracefully for existing users
         let _ = conn.execute(
@@ -169,9 +170,9 @@ impl DbState {
             [],
         );
 
-        Self {
+        Ok(Self {
             conn: Arc::new(StdMutex::new(conn)),
-        }
+        })
     }
 }
 

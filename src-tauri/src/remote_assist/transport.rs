@@ -13,6 +13,9 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, time::Duration};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot, Mutex};
+
+/// 命令通道缓冲上限：对端慢/断连时不再无限堆积，避免内存耗尽（P2 / DoS 防护）
+const COMMAND_CAP: usize = 256;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -21,7 +24,7 @@ lazy_static::lazy_static! {
 }
 
 struct TransportHandle {
-    command_tx: mpsc::UnboundedSender<TransportCommand>,
+    command_tx: mpsc::Sender<TransportCommand>,
     server_url: String,
     transport_id: String,
 }
@@ -67,10 +70,10 @@ pub async fn start(
         return Ok(());
     }
     if let Some(previous) = transport.take() {
-        let _ = previous.command_tx.send(TransportCommand::Shutdown);
+        let _ = previous.command_tx.try_send(TransportCommand::Shutdown);
     }
 
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
+    let (command_tx, command_rx) = mpsc::channel::<TransportCommand>(COMMAND_CAP);
     let (ready_tx, ready_rx) = oneshot::channel();
     let task_url = server_url.clone();
     let transport_id = uuid::Uuid::new_v4().to_string();
@@ -102,7 +105,7 @@ pub async fn start(
 
 pub async fn stop() {
     if let Some(handle) = TRANSPORT.lock().await.take() {
-        let _ = handle.command_tx.send(TransportCommand::Shutdown);
+        let _ = handle.command_tx.try_send(TransportCommand::Shutdown);
     }
 }
 
@@ -121,6 +124,7 @@ pub async fn connect(peer_id: String, password: String) -> Result<ConnectionSess
             password,
             reply: reply_tx,
         })
+        .await
         .map_err(|_| "Remote-assist transport is not running".to_string())?;
     match tokio::time::timeout(Duration::from_secs(12), reply_rx).await {
         Ok(Ok(result)) => result,
@@ -138,6 +142,7 @@ pub async fn send_wire(session_id: String, message: WireMessage) -> Result<(), S
             message,
             reply: reply_tx,
         })
+        .await
         .map_err(|_| "Remote-assist transport is not running".to_string())?;
     reply_rx
         .await
@@ -148,6 +153,7 @@ pub async fn disconnect(session_id: String) -> Result<(), String> {
     command_sender()
         .await?
         .send(TransportCommand::Disconnect { session_id })
+        .await
         .map_err(|_| "Remote-assist transport is not running".to_string())
 }
 
@@ -155,10 +161,11 @@ pub async fn set_accept(accepting: bool) -> Result<(), String> {
     command_sender()
         .await?
         .send(TransportCommand::SetAccept(accepting))
+        .await
         .map_err(|_| "Remote-assist transport is not running".to_string())
 }
 
-async fn command_sender() -> Result<mpsc::UnboundedSender<TransportCommand>, String> {
+async fn command_sender() -> Result<mpsc::Sender<TransportCommand>, String> {
     TRANSPORT
         .lock()
         .await
@@ -173,7 +180,7 @@ async fn run_transport(
     transport_id: String,
     device: DeviceInfo,
     accepting: bool,
-    mut command_rx: mpsc::UnboundedReceiver<TransportCommand>,
+    mut command_rx: mpsc::Receiver<TransportCommand>,
     ready_tx: oneshot::Sender<Result<(), String>>,
 ) {
     let websocket =

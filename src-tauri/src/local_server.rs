@@ -713,7 +713,7 @@ async fn handle_client_register(
                         }));
                     }
                     
-                    if verified_id != req.user_id && verified_name != req.display_name {
+                    if verified_id != req.user_id {
                         let _ = state.app_handle.emit(
                             "server_log",
                             format!(

@@ -1,6 +1,39 @@
+use lazy_static::lazy_static;
 use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 use serde::{Deserialize, Serialize};
+
+lazy_static! {
+    static ref STATE_RE: Regex =
+        Regex::new(r"window\.__INITIAL_STATE__=(.*?)</script>").unwrap();
+    static ref CLEAN_RE: Regex =
+        Regex::new(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]").unwrap();
+}
+
+/// SSRF 防护：仅允许 https 且目标为小红书官方域名（含子域），拒绝内网/元数据/用户态地址
+fn is_allowed_xhs_host(url: &str) -> bool {
+    let body = match url.strip_prefix("https://") {
+        Some(b) => b,
+        None => return false,
+    };
+    let host = body.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty()
+        || host.contains("localhost")
+        || host.contains("127.0.0.1")
+        || host.contains("0.0.0.0")
+        || host.contains("10.")
+        || host.contains("192.168.")
+        || host.contains("169.254.")
+        || host.contains('@')
+        || host.contains(':')
+    {
+        return false;
+    }
+    host == "xiaohongshu.com"
+        || host.ends_with(".xiaohongshu.com")
+        || host == "xhslink.com"
+        || host.ends_with(".xhslink.com")
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct XhsMedia {
@@ -32,6 +65,11 @@ pub fn make_headers() -> HeaderMap {
 
 #[tauri::command]
 pub async fn xhs_parse_url(url: String) -> Result<XhsItem, String> {
+    // SSRF 防护：仅允许官方域名，避免被用来探测内网/元数据服务
+    if !is_allowed_xhs_host(&url) {
+        return Err("不允许的链接：仅支持 xiaohongshu.com / xhslink.com 的 https 链接".into());
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .build()
@@ -48,8 +86,7 @@ pub async fn xhs_parse_url(url: String) -> Result<XhsItem, String> {
     let html = res.text().await.map_err(|e| e.to_string())?;
 
     // 2. Extract window.__INITIAL_STATE__
-    let re = Regex::new(r"window\.__INITIAL_STATE__=(.*?)</script>").unwrap();
-    let state_str = if let Some(caps) = re.captures(&html) {
+    let state_str = if let Some(caps) = STATE_RE.captures(&html) {
         caps.get(1)
             .map(|m| m.as_str().to_string())
             .unwrap_or_default()
@@ -58,8 +95,7 @@ pub async fn xhs_parse_url(url: String) -> Result<XhsItem, String> {
     };
 
     // Replace illegal characters (similar to python's YAML_ILLEGAL.sub)
-    let clean_re = Regex::new(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]").unwrap();
-    let cleaned_state = clean_re.replace_all(&state_str, "");
+    let cleaned_state = CLEAN_RE.replace_all(&state_str, "");
 
     // 3. Parse JSON
     let state: serde_json::Value =

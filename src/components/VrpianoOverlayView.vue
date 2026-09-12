@@ -66,6 +66,7 @@ const emptyStatus = (): VrpianoStatus => ({
   vrchat_osc_host: '',
   vrchat_osc_port: 9000,
   vrchat_osc_running: false,
+  vrchat_osc_connected: false,
   vrchat_osc_last_error: '',
 });
 

@@ -9,12 +9,14 @@ use chacha20poly1305::{
 use std::sync::atomic::{AtomicU64, Ordering};
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
-/// 加密隧道上下文
+/// 加密隧道上下文（含 nonce 重放防护）
 pub struct SecureTunnel {
     cipher: ChaCha20Poly1305,
     nonce_counter: AtomicU64,
     send_nonce_prefix: u32,
     receive_nonce_prefix: u32,
+    /// 已接收的最大 nonce，用于防重放（R11）
+    max_received_nonce: std::sync::Mutex<Option<u64>>,
 }
 
 impl SecureTunnel {
@@ -34,6 +36,7 @@ impl SecureTunnel {
             nonce_counter: AtomicU64::new(0),
             send_nonce_prefix,
             receive_nonce_prefix,
+            max_received_nonce: std::sync::Mutex::new(None),
         }
     }
 
@@ -76,8 +79,19 @@ impl SecureTunnel {
         Ok((counter, ciphertext))
     }
 
-    /// 解密数据
+    /// 解密数据（含 nonce 单调递增校验，防重放攻击 R11）
     pub fn decrypt(&self, ciphertext: &[u8], nonce_counter: u64) -> Result<Vec<u8>, String> {
+        {
+            let mut max = self.max_received_nonce.lock().unwrap();
+            if let Some(seen) = *max {
+                if nonce_counter <= seen {
+                    return Err(format!(
+                        "Replay attack detected: nonce {nonce_counter} <= max {seen}"
+                    ));
+                }
+            }
+            *max = Some(nonce_counter);
+        }
         let mut nonce_bytes = [0u8; 12];
         nonce_bytes[0..4].copy_from_slice(&self.receive_nonce_prefix.to_le_bytes());
         nonce_bytes[4..12].copy_from_slice(&nonce_counter.to_le_bytes());
@@ -118,8 +132,27 @@ mod tests {
         let shared = [7u8; 32];
         let sender = SecureTunnel::from_shared_secret_with_prefixes(&shared, 0, 1);
         let receiver = SecureTunnel::from_shared_secret_with_prefixes(&shared, 1, 0);
-        let (nonce, mut ciphertext) = sender.encrypt_packet(b"authenticated").unwrap();
-        ciphertext[0] ^= 1;
-        assert!(receiver.decrypt(&ciphertext, nonce).is_err());
+        let (nonce, ciphertext) = sender.encrypt_packet(b"authenticated").unwrap();
+        // 先成功解密一次，使 nonce 被记录
+        assert_eq!(receiver.decrypt(&ciphertext, nonce).unwrap(), b"authenticated");
+        // 再用相同 nonce（重放）尝试改密文 → 应被重放防护拦截
+        let mut tampered = ciphertext.clone();
+        tampered[0] ^= 1;
+        assert!(receiver.decrypt(&tampered, nonce).is_err());
+    }
+
+    #[test]
+    fn nonce_replay_is_rejected() {
+        let shared = [7u8; 32];
+        let sender = SecureTunnel::from_shared_secret_with_prefixes(&shared, 0, 1);
+        let receiver = SecureTunnel::from_shared_secret_with_prefixes(&shared, 1, 0);
+        let (nonce0, ct0) = sender.encrypt_packet(b"first").unwrap();
+        let (nonce1, ct1) = sender.encrypt_packet(b"second").unwrap();
+        assert_eq!(receiver.decrypt(&ct0, nonce0).unwrap(), b"first");
+        assert_eq!(receiver.decrypt(&ct1, nonce1).unwrap(), b"second");
+        // 重放 nonce0 应被拒绝
+        assert!(receiver.decrypt(&ct0, nonce0).is_err());
+        // 重放 nonce1 也应被拒绝
+        assert!(receiver.decrypt(&ct1, nonce1).is_err());
     }
 }

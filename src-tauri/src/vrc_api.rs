@@ -232,19 +232,60 @@ fn clean_network_error(error: &str) -> String {
     }
 }
 
+/// 仅当 `allow_external_host=true` 时用于外部主机，禁止指向内网/回环/云元数据
+/// 等 SSRF 目标。域名形式的 localhost/.local/.internal 一并拒绝。
+fn external_host_is_blocked(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_multicast()
+                    || v4.is_documentation()
+                    || v4.octets()[0] >= 240 // 保留段 240.0.0.0/4（替代 unstable is_reserved）
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || v6.is_multicast()
+                    // 唯一本地地址 fc00::/7
+                    || (v6.segments()[0] & 0xfe00) == 0xfc00
+                    // 链路本地地址 fe80::/10（含云元数据）
+                    || (v6.octets()[0] == 0xfe && (v6.octets()[1] & 0xc0) == 0x80)
+            }
+        };
+    }
+    let lower = host.to_ascii_lowercase();
+    lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower.ends_with(".local")
+        || lower.ends_with(".internal")
+}
+
 fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid request URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(format!("Unsupported request URL scheme: {}", url.scheme()));
     }
-    match url.host_str() {
-        Some("api.vrchat.cloud") => Ok(url),
-        Some(host) if allow_external_host && !host.is_empty() => Ok(url),
-        _ => Err(format!(
-            "Unsupported request URL host: {}",
-            url.host_str().unwrap_or("unknown")
-        )),
+    let host = url
+        .host_str()
+        .ok_or_else(|| "请求 URL 缺少主机名".to_string())?;
+    // VRChat 官方接口始终放行
+    if host == "api.vrchat.cloud" || host.ends_with(".vrchat.cloud") {
+        return Ok(url);
     }
+    // 外部主机：开放但必须经 SSRF 防护，禁止打内网/元数据
+    if allow_external_host {
+        if external_host_is_blocked(host) {
+            return Err(format!("外部主机被 SSRF 防护拦截: {host}"));
+        }
+        return Ok(url);
+    }
+    Err(format!(
+        "不支持的请求 URL 主机: {host}（如需访问外部主机请显式开启 allow_external_host）"
+    ))
 }
 
 fn parse_http_method(raw: &str) -> Result<reqwest::Method, String> {

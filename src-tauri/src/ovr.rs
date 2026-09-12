@@ -1605,15 +1605,24 @@ fn vr_thread_main(
                 if current_config.tts_enabled {
                     let tts_text = translated.clone();
                     std::thread::spawn(move || {
+                        use std::io::Write;
                         use std::os::windows::process::CommandExt;
-                        let script = format!(
-                            "Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Speak('{}');",
-                            tts_text.replace("'", "''")
-                        );
-                        let _ = std::process::Command::new("powershell")
+                        // 安全：从 stdin 以纯文本读入待朗读内容，绝不把用户文本拼进 PowerShell 脚本，
+                        // 避免聊天内容中的 ' / # / & 等触发命令注入（远程 RCE）
+                        let script = "Add-Type -AssemblyName System.Speech; \
+                            $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
+                            $synth.Speak([Console]::In.ReadToEnd())";
+                        if let Ok(mut child) = std::process::Command::new("powershell")
                             .args(["-ExecutionPolicy", "Bypass", "-Command", &script])
+                            .stdin(std::process::Stdio::piped())
                             .creation_flags(0x08000000)
-                            .output();
+                            .spawn()
+                        {
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(tts_text.as_bytes());
+                            }
+                            let _ = child.wait();
+                        }
                     });
                 }
             }
@@ -2234,24 +2243,21 @@ fn vr_thread_main(
                                               let _ = ovr.set_visibility(sh, true);
                                           }
                                       }
-                                      let _cfg = current_config.clone();
-                                      let app_h = app_handle.clone();
-                                      std::thread::spawn(move || {
-                                          let rt = tokio::runtime::Runtime::new().unwrap();
-                                          rt.block_on(async move {
-                                              match crate::ocr::OcrEngine::capture_primary_screen_to_file(
-                                                  &std::env::temp_dir().join(format!("vrcdog_capture_{}.png", chrono::Utc::now().timestamp()))
-                                              ).await {
-                                                  Ok(_) => {
-                                                      let _ = app_h.emit("ovr_log", "[OVR] ✅ 截图已保存");
-                                                      let _ = app_h.emit("ovr_screenshot_ready", "");
-                                                  }
-                                                  Err(e) => {
-                                                      let _ = app_h.emit("ovr_log", format!("[OVR] ❌ 截图失败: {}", e));
-                                                  }
-                                              }
-                                          });
-                                      });
+                                     let app_h = app_handle.clone();
+                                     // 复用 Tauri 全局 async runtime，避免每次新建 tokio::Runtime（P3）
+                                     tauri::async_runtime::spawn(async move {
+                                         match crate::ocr::OcrEngine::capture_primary_screen_to_file(
+                                             &std::env::temp_dir().join(format!("vrcdog_capture_{}.png", chrono::Utc::now().timestamp()))
+                                         ).await {
+                                             Ok(_) => {
+                                                 let _ = app_h.emit("ovr_log", "[OVR] ✅ 截图已保存");
+                                                 let _ = app_h.emit("ovr_screenshot_ready", "");
+                                             }
+                                             Err(e) => {
+                                                 let _ = app_h.emit("ovr_log", format!("[OVR] ❌ 截图失败: {}", e));
+                                             }
+                                         }
+                                     });
                                   }
                                  _ => {}
                              },

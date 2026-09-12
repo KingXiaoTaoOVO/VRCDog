@@ -816,6 +816,8 @@ fn point_line_distance(point: &DrawingPoint, start: &DrawingPoint, end: &Drawing
 fn point_distance(a: &DrawingPoint, b: &DrawingPoint) -> f32 { (a.x - b.x).hypot(a.y - b.y) }
 
 fn merge_nearby_strokes(mut strokes: Vec<DrawingStroke>, distance: f32) -> Vec<DrawingStroke> {
+    // 防御：丢弃空笔画，避免后续 points.first()/last() 在空集合上 unwrap panic
+    strokes.retain(|s| !s.points.is_empty());
     let mut changed = true;
     while changed {
         changed = false;
@@ -864,8 +866,8 @@ fn stroke_join_is_smooth(left: &DrawingStroke, right: &DrawingStroke, reverse_le
 }
 
 fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
+    let mut strokes: Vec<DrawingStroke> = strokes.into_iter().filter(|s| !s.points.is_empty()).collect();
     if strokes.len() <= 1 { return strokes; }
-    let mut strokes = strokes;
     let first = strokes.iter().enumerate().min_by(|(_, a), (_, b)| {
         let da = a.points[0].x.hypot(a.points[0].y);
         let db = b.points[0].x.hypot(b.points[0].y);
@@ -892,6 +894,7 @@ fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
 /// Reverses segments of the tour when doing so reduces the total endpoint-to-endpoint
 /// pen travel. Operates in place; `max_passes` caps iterations to keep the cost bounded.
 fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize) -> Vec<DrawingStroke> {
+    tour.retain(|s| !s.points.is_empty());
     if tour.len() < 4 { return tour; }
     for _ in 0..max_passes.max(1) {
         let mut improved = false;

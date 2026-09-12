@@ -24,6 +24,8 @@ export const useAuthStore = defineStore('auth', () => {
   const banMessage = ref<string>('');
   const pendingSurveyCount = ref(0);
   const surveyRequired = ref(false);
+  /// L2: vrcdog-server 下发的 client token，用于后续请求鉴权
+  const clientToken = ref<string>('');
 
   const serverConnected = ref(true);
   const reconnectCountdown = ref(0);
@@ -36,6 +38,10 @@ export const useAuthStore = defineStore('auth', () => {
   let lastServerRegisterError = '';
 
   const getBaseUrl = () => clientServerUrl.value.replace(/\/+$/, '');
+  const getClientTokenHeader = () => {
+    const token = clientToken.value;
+    return token ? { 'x-vrcdog-client-token': token } : {};
+  };
 
   const pushSurveyGateToRust = () => {
     if (!isTauri()) return;
@@ -62,8 +68,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isCurrentClientEvent = (payload: any): boolean => {
     const userId = normalizeServerEventUserId(payload);
-    const currentId = currentUser.value?.id || currentUser.value?.displayName || '';
-    return appRole.value === 'client' && Boolean(userId) && Boolean(currentId) && (userId === currentId || userId === currentUser.value?.displayName);
+    // 安全：以权威 user.id 判定当前客户端，避免用可伪造的 displayName 误匹配/被冒名触发登出
+    const currentId = currentUser.value?.id || '';
+    return appRole.value === 'client' && Boolean(userId) && Boolean(currentId) && userId === currentId;
   };
 
   const ensureServerEventListeners = async () => {
@@ -99,6 +106,7 @@ export const useAuthStore = defineStore('auth', () => {
         params: {
           user_id: currentUser.value.id || currentUser.value.displayName
         },
+        headers: getClientTokenHeader(),
         allowExternalHost: true,
       });
     } catch { /* ignore */ }
@@ -136,6 +144,10 @@ export const useAuthStore = defineStore('auth', () => {
     if (!keepVrcAuth) {
       appRole.value = null;
       clientServerUrl.value = '';
+      // 完全登出：清除持久化角色，下次启动回到角色选择界面（而非自动登录）
+      try {
+        void DbApi.saveSetting({ key: 'appRole', value: 'null' });
+      } catch {}
     }
     uiStore.activeTab = 'social';
     closeWebSocket();
@@ -171,6 +183,9 @@ export const useAuthStore = defineStore('auth', () => {
       lastServerRegisterError = '';
       consecutiveFailures = 0;
       reconnectCountdown.value = 0;
+      if (data.client_token) {
+        clientToken.value = data.client_token;
+      }
       applySurveyStatus(data);
       if (data.status === 'banned') {
         banMessage.value = `Account Banned! Reason: ${data.reason}${data.duration_hours ? t('auto_edf6fe7c') + data.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`;
@@ -212,6 +227,26 @@ export const useAuthStore = defineStore('auth', () => {
     if (!/^https?:\/\//i.test(normalized)) normalized = `http://${normalized}`;
     normalized = normalized.replace('0.0.0.0', '127.0.0.1').replace(/\/+$/, '');
 
+    // S6: 向用户自配服务端发送 VRChat 会话 Cookie 属敏感凭据外发。
+    // 非本机地址强制要求 HTTPS，禁止以明文 http 暴露会话令牌（可被同网段嗅探/中间人窃取）。
+    try {
+      const parsed = new URL(normalized);
+      const host = parsed.hostname.toLowerCase();
+      const isLocal =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '[::1]' ||
+        host === '::1';
+      if (parsed.protocol === 'http:' && !isLocal) {
+        throw new Error(
+          '远程 VRCDog 服务端必须使用 HTTPS：否则你的 VRChat 会话 Cookie 会以明文发送，存在被窃取风险。本地开发可使用 http://localhost / http://127.0.0.1。'
+        );
+      }
+    } catch (e) {
+      // 仅拦截我们主动抛出的 HTTPS 安全错误；其余（非法 URL 解析等）交给后续 pingServer 统一处理
+      if (e instanceof Error && e.message.includes('HTTPS')) throw e;
+    }
+
     await SysApi.pingServer({ url: normalized });
 
     clientServerUrl.value = normalized;
@@ -236,8 +271,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const startHeartbeat = () => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
-    let normalTick = 0;
     let vrcKeepaliveTick = 0;
+    // 心跳以 15s 为间隔直接运行，去掉原先 1s 空转 + 计数跳过的做法，减少无谓定时器唤醒
     heartbeatTimer = setInterval(async () => {
       if (!clientServerUrl.value || !currentUser.value) return;
       if (isFetchingHeartbeat) return;
@@ -248,10 +283,6 @@ export const useAuthStore = defineStore('auth', () => {
           return;
         }
         reconnectCountdown.value = 0;
-      } else {
-        normalTick++;
-        if (normalTick < 15) return; // every 15s send heartbeat, reduce request frequency
-        normalTick = 0;
       }
 
       // VRChat API keepalive: call /auth/user every 5 min to prevent session expiry
@@ -270,6 +301,7 @@ export const useAuthStore = defineStore('auth', () => {
           params: {
             user_id: currentUser.value.id || currentUser.value.displayName
           },
+          headers: getClientTokenHeader(),
           timeoutMs: 3000,
           maxRetries: 0,
           allowExternalHost: true,
@@ -311,7 +343,7 @@ export const useAuthStore = defineStore('auth', () => {
       } finally {
         isFetchingHeartbeat = false;
       }
-    }, 1000);
+    }, 15000);
   };
 
   const doSyncFriends = async (): Promise<VrcUser[]> => {
@@ -479,12 +511,72 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
+  /**
+   * 启动即自动登录：读取持久化的角色选择，如果是 client 且存在可用凭据
+   * （主 auth cookie 或已保存的任一账号 cookie），则直接进入自动登录流程，
+   * 跳过“选择角色”界面，无需用户手动点选/刷新即可进入主界面。
+   * 若没有任何凭据，则不做任何事，正常显示角色选择界面。
+   */
+  const restoreAndAutoLogin = async () => {
+    if (!isTauri()) return;
+    try {
+      const rawRole = await DbApi.getSetting({ key: 'appRole' });
+      const role = rawRole ? JSON.parse(rawRole) : null;
+      if (role !== 'client' && role !== 'server') return;
+
+      if (role === 'server') {
+        appRole.value = 'server';
+        return;
+      }
+
+      // client：恢复此前保存的服务端地址
+      try {
+        const saved = await DbApi.getSetting({ key: 'clientServerUrl' });
+        if (saved) clientServerUrl.value = JSON.parse(saved);
+      } catch {}
+
+      // 选取可用凭据：优先主 auth cookie，其次任一已保存账号的 cookie
+      let cookie = '';
+      try {
+        cookie = (await DbApi.getAuth()) || '';
+      } catch {}
+      if (!cookie || !cookie.trim()) {
+        try {
+          const raw = await DbApi.getSetting({ key: 'savedAccounts' });
+          if (raw) {
+            const accounts = JSON.parse(raw);
+            if (Array.isArray(accounts)) {
+              for (const a of accounts) {
+                if (a && a.authCookie && String(a.authCookie).trim()) {
+                  cookie = String(a.authCookie);
+                  break;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+      if (!cookie || !cookie.trim()) return; // 没有凭据 → 显示角色选择
+
+      // 将选中的 cookie 设为当前 auth，供 tryAutoLogin 使用
+      try {
+        await DbApi.saveAuth({ cookie });
+      } catch {}
+
+      appRole.value = 'client';
+      await tryAutoLogin();
+    } catch {
+      // 任何异常都退回角色选择界面（appRole 保持 null）
+    }
+  };
+
   return {
     appRole,
     isLoggedIn,
     currentUser,
     autoLoginLoading,
     clientServerUrl,
+    clientToken,
     banMessage,
     pendingSurveyCount,
     surveyRequired,
@@ -496,6 +588,7 @@ export const useAuthStore = defineStore('auth', () => {
     handleLogout,
     handleLoginSuccess,
     tryAutoLogin,
+    restoreAndAutoLogin,
     startHeartbeat,
     startFriendsSync,
     resolveSurveyPrompt

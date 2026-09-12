@@ -1,3 +1,4 @@
+use crate::AppError;
 use crate::AppResult;
 use serde::Serialize;
 use tokio::fs as async_fs;
@@ -84,10 +85,22 @@ async fn process_image_file(entry: tokio::fs::DirEntry, images: &mut Vec<VrcImag
 
 #[tauri::command]
 pub async fn gallery_delete_image(path: String) -> AppResult<()> {
-    // Basic security check to ensure it's a PNG and it's in the Pictures folder
-    if path.ends_with(".png") {
-        let _ = async_fs::remove_file(path).await;
+    // 安全校验：解析真实（绝对化）路径，确认其位于 VRChat 图片目录内且确为 PNG，
+    // 防止通过 ../ 逃逸到系统任意路径删除文件
+    let mut root = dirs::picture_dir().ok_or_else(|| AppError::from("无法定位图片目录"))?;
+    root.push("VRChat");
+    let root = std::fs::canonicalize(&root).map_err(|e| AppError::from(e.to_string()))?;
+
+    let target = std::fs::canonicalize(&path).map_err(|e| AppError::from(e.to_string()))?;
+    if target.extension().and_then(|e| e.to_str()) != Some("png") {
+        return Err(AppError::from("仅允许删除 PNG 文件"));
     }
+    if !target.starts_with(&root) {
+        return Err(AppError::from("非法路径：不在 VRChat 图片目录内"));
+    }
+    async_fs::remove_file(target)
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?;
     Ok(())
 }
 

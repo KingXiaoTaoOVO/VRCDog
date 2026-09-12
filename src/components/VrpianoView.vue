@@ -94,6 +94,7 @@ const emptyStatus = (): VrpianoStatus => ({
   vrchat_osc_host: '',
   vrchat_osc_port: 9000,
   vrchat_osc_running: false,
+  vrchat_osc_connected: false,
   vrchat_osc_last_error: '',
 });
 
@@ -104,7 +105,7 @@ const localSongQuery = ref('');
 const status = ref<VrpianoStatus>(emptyStatus());
 const loading = ref(false);
 const onlineLoading = ref(false);
-const ONLINE_SEARCH_TIMEOUT_MS = 12_000;
+const ONLINE_SEARCH_TIMEOUT_MS = 35_000;
 let onlineSearchRequestId = 0;
 let onlineSearchTimeout: number | null = null;
 const hasSearchedOnline = ref(false);
@@ -1636,6 +1637,18 @@ watch([outputMode, selectedMidiDevice, vrchatOscHost, vrchatOscPort], () => {
   if (hotkeysEnabled.value) scheduleHotkeyApply();
 });
 
+// 切换到「无接触 VRChat OSC」模式时，若已选曲且未在播放，则自动开始远程演奏，
+// 满足用户“开启即自动弹”的预期。仅在该模式被“主动切换”到时触发（watch 不会在
+// 组件挂载/持久化恢复时立即触发），避免在 App 启动时就自动开播。
+watch(outputMode, (newMode, oldMode) => {
+  if (newMode === 'osc' && oldMode !== 'osc' && !vrpianoDisposed) {
+    if (selectedSong.value && !status.value.running && !loading.value) {
+      addLog(t('vrpiano.auto_start_vrchat_osc'));
+      void start();
+    }
+  }
+});
+
 // 竞态防护：init() 是网络请求，组件可能在 await 期间被卸载。
 // 卸载后不再注册监听器 / 启动轮询，否则定时器和监听器永久泄漏。
 let vrpianoDisposed = false;
@@ -1711,6 +1724,11 @@ onMounted(async () => {
 
 onUnmounted(() => {
   vrpianoDisposed = true;
+  // 关闭钢琴面板时停止后端播放（含 VRChat OSC 无接触模式）。
+  // 否则后台播放线程会继续向 VRChat 发 OSC，远程钢琴会一直弹奏且无法停止。
+  if (status.value.running) {
+    void VrpianoApi.stop().catch(() => {});
+  }
   if (unlistenStatus) unlistenStatus();
   if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (unlistenMidishowLogin) unlistenMidishowLogin();
@@ -1722,6 +1740,11 @@ onUnmounted(() => {
   if (hotkeyApplyTimer !== null) window.clearTimeout(hotkeyApplyTimer);
   if (onlineSearchTimeout !== null) window.clearTimeout(onlineSearchTimeout);
   onlineSearchRequestId += 1;
+  // 关闭 VRPiano 时若仍在演奏（含 VRChat OSC 无接触模式），优先停止，
+  // 否则后台线程会继续向 VRChat 发送音符，造成“关不掉 / 关了还在弹”。
+  if (status.value?.running) {
+    VrpianoApi.stop().catch(() => {});
+  }
   pausePlayer();
   void audioContext?.close();
   stopVoiceRecognition();
@@ -1960,6 +1983,7 @@ onUnmounted(() => {
                   <option value="avatar">{{ t('vrpiano.osc_protocol_avatar') }}</option>
                 </select>
               </div>
+              <p class="osc-hint" style="margin-top:6px">{{ t('vrpiano.osc_mode_hint') }}</p>
               <div v-if="vrchatOscMode === 'avatar'" class="osc-inline-inputs" style="margin-top:6px">
                 <span class="osc-label">{{ t('vrpiano.osc_avatar_prefix') }}</span>
                 <input v-model.trim="vrchatOscAvatarPrefix" placeholder="/avatar/parameters/note" :disabled="loading">
@@ -1974,6 +1998,9 @@ onUnmounted(() => {
               </div>
               <p v-if="status.vrchat_osc_running" class="osc-status" style="margin-top:8px">{{t('vrpiano.vrchat_osc_active') }}</p>
               <p v-else-if="status.vrchat_osc_last_error" class="osc-error" style="margin-top:8px">{{ status.vrchat_osc_last_error }}</p>
+              <p v-else-if="status.vrchat_osc_connected" class="osc-status" style="margin-top:8px">{{ t('vrpiano.vrchat_osc_connected') }}</p>
+              <p v-else class="osc-warn" style="margin-top:8px">{{ t('vrpiano.vrchat_osc_not_connected') }}</p>
+              <p class="osc-hint" style="margin-top:6px">{{ t('vrpiano.vrchat_osc_close_note') }}</p>
             </div>
           </div>
 
@@ -3301,6 +3328,30 @@ select option {
   color: var(--vp-muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.osc-status {
+  color: #2ecc71;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.osc-error {
+  color: #ff6b6b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.osc-warn {
+  color: #ffb020;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.osc-hint {
+  color: var(--vp-muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .osc-config span {

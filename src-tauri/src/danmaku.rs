@@ -1320,13 +1320,20 @@ fn encode_bili_packet(operation: u32, version: u16, body: &[u8]) -> Vec<u8> {
     out
 }
 
+// 解压炸弹防护：限制单层解压输出大小与递归层数，避免恶意/被劫持节点投送的压缩数据撑爆内存
+const MAX_DECOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_BILI_DEPTH: usize = 8;
+
 fn collect_bili_frames(bytes: &[u8]) -> Vec<BiliFrame> {
     let mut frames = Vec::new();
-    collect_bili_frames_inner(bytes, &mut frames);
+    collect_bili_frames_inner(bytes, &mut frames, 0);
     frames
 }
 
-fn collect_bili_frames_inner(bytes: &[u8], frames: &mut Vec<BiliFrame>) {
+fn collect_bili_frames_inner(bytes: &[u8], frames: &mut Vec<BiliFrame>, depth: usize) {
+    if depth > MAX_BILI_DEPTH {
+        return;
+    }
     let mut offset = 0usize;
     while offset + 16 <= bytes.len() {
         let packet_len = u32::from_be_bytes([
@@ -1350,16 +1357,24 @@ fn collect_bili_frames_inner(bytes: &[u8], frames: &mut Vec<BiliFrame>) {
 
         let body = &bytes[offset + header_len..offset + packet_len];
         if op == BILI_OP_MESSAGE && version == 2 {
-            let mut decoder = ZlibDecoder::new(body);
+            let decoder = ZlibDecoder::new(body);
             let mut decompressed = Vec::new();
-            if decoder.read_to_end(&mut decompressed).is_ok() {
-                collect_bili_frames_inner(&decompressed, frames);
+            if decoder
+                .take(MAX_DECOMPRESSED_BYTES as u64)
+                .read_to_end(&mut decompressed)
+                .is_ok()
+            {
+                collect_bili_frames_inner(&decompressed, frames, depth + 1);
             }
         } else if op == BILI_OP_MESSAGE && version == 3 {
-            let mut decoder = BrotliDecompressor::new(body, 4096);
+            let decoder = BrotliDecompressor::new(body, 4096);
             let mut decompressed = Vec::new();
-            if decoder.read_to_end(&mut decompressed).is_ok() {
-                collect_bili_frames_inner(&decompressed, frames);
+            if decoder
+                .take(MAX_DECOMPRESSED_BYTES as u64)
+                .read_to_end(&mut decompressed)
+                .is_ok()
+            {
+                collect_bili_frames_inner(&decompressed, frames, depth + 1);
             }
         } else {
             frames.push(BiliFrame {

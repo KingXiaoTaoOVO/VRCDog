@@ -496,6 +496,28 @@ pub async fn update_install_release(
         return Err("下载链接为空".into());
     }
 
+    // R6: 仅允许官方 GitHub Releases 域名，避免下载并执行任意 URL 导致 RCE/供应链攻击
+    let parsed = reqwest::Url::parse(&download_url)
+        .map_err(|_| "下载链接格式非法".to_string())?;
+    match parsed.host_str() {
+        Some(h)
+            if h == "github.com"
+                || h == "objects.githubusercontent.com"
+                || h.ends_with(".github.com")
+                || h.ends_with(".githubusercontent.com") => {}
+        _ => return Err("非法的下载源：仅允许 GitHub Releases 官方域名".into()),
+    }
+
+    // 强制完整性校验：未提供 SHA-256 时拒绝安装（原实现因 GitHub 无 digest 字段常跳过校验）
+    if expected_sha256
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return Err("缺少 SHA-256 校验值，出于安全考虑拒绝安装".into());
+    }
+
     emit_progress(
         &app,
         InstallProgress {

@@ -1,6 +1,6 @@
 use axum::{
     body::{Body, Bytes},
-    extract::{ws::WebSocketUpgrade, ConnectInfo, Path, Query, State},
+    extract::{ws::WebSocketUpgrade, ConnectInfo, Extension, Path, Query, State},
     http::{header::{CONTENT_TYPE, HeaderMap, HeaderValue}, StatusCode},
     middleware,
     response::{Html, IntoResponse, Response},
@@ -45,6 +45,8 @@ struct ClientInfo {
     ip_address: String,
     connected_at: String,
     last_heartbeat: String,
+    /// L2: 服务端签发的短期 client token，用于后续请求鉴权
+    client_token: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -301,23 +303,32 @@ struct AdminAuthRequest {
 
 #[derive(Clone)]
 struct AdminSession {
-    token: String,
     created_at: String,
 }
 
-const DEFAULT_SERVER_PASSWORD_BCRYPT: &str =
-    "$2b$12$go9qphFk80mBGkPx9AiayObfu.gfsSvKCAL0sBMnTBYreWAGYDBiK";
-
-fn server_password_hash() -> String {
-    env::var("VRCDOG_SERVER_PASSWORD_BCRYPT")
+fn server_password_hash() -> Option<String> {
+    static WARNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let hash = env::var("VRCDOG_SERVER_PASSWORD_BCRYPT")
         .ok()
-        .map(|hash| hash.trim().to_string())
-        .filter(|hash| !hash.is_empty())
-        .unwrap_or_else(|| DEFAULT_SERVER_PASSWORD_BCRYPT.to_string())
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty());
+    if hash.is_none() {
+        WARNED.get_or_init(|| {
+            eprintln!(
+                "[VrcDog-Server] 警告：未设置环境变量 VRCDOG_SERVER_PASSWORD_BCRYPT，管理员接口已禁用。\
+                 请设置该变量为 bcrypt 哈希后重启。"
+            );
+            true
+        });
+    }
+    hash
 }
 
 fn verify_server_password(password: &str) -> bool {
-    bcrypt::verify(password, &server_password_hash()).unwrap_or(false)
+    match server_password_hash() {
+        Some(hash) => bcrypt::verify(password, &hash).unwrap_or(false),
+        None => false,
+    }
 }
 
 fn now_string() -> String {
@@ -549,12 +560,17 @@ async fn remote_assist_ws(
     state.remote_assist.upgrade(ws).await
 }
 
+fn generate_client_token() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 async fn register(
     State(state): State<AppState>,
     ConnectInfo(address): ConnectInfo<SocketAddr>,
     Json(request): Json<RegisterRequest>,
 ) -> Json<Value> {
     let now = now_string();
+    let client_token = generate_client_token();
     let was_kicked = state.data.read().await.kicked.contains_key(&request.user_id);
     if was_kicked {
         let mut data = state.data.write().await;
@@ -615,7 +631,8 @@ async fn register(
             avatar_url: request.avatar_url.clone(),
             ip_address: address.to_string(),
             connected_at: now.clone(),
-            last_heartbeat: now,
+            last_heartbeat: now.clone(),
+            client_token: client_token.clone(),
         },
     );
     schedule_persist(&state);
@@ -623,13 +640,18 @@ async fn register(
     let data = state.data.read().await;
     let mut response = survey_gate_payload(&data, &request.user_id);
     response["message"] = json!("registered");
+    response["client_token"] = json!(client_token);
     Json(response)
 }
 
 async fn heartbeat(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Json(request): Json<UserIdRequest>,
 ) -> Json<Value> {
+    if verified_user_id != request.user_id {
+        return Json(json!({"status": "auth_failed", "reason": "Token mismatch"}));
+    }
     let was_kicked = state.data.read().await.kicked.contains_key(&request.user_id);
     if was_kicked {
         let mut data = state.data.write().await;
@@ -667,8 +689,12 @@ async fn heartbeat(
 
 async fn disconnect(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Json(request): Json<UserIdRequest>,
 ) -> Json<Value> {
+    if verified_user_id != request.user_id {
+        return Json(json!({"status": "auth_failed", "reason": "Token mismatch"}));
+    }
     state.clients.write().await.remove(&request.user_id);
     if let Some(user) = state.data.write().await.users.get_mut(&request.user_id) {
         user.is_online = false;
@@ -920,8 +946,12 @@ async fn client_get_upload(State(state): State<AppState>, Path(raw): Path<String
 
 async fn client_click_survey(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Json(request): Json<ClickSurveyRequest>,
 ) -> Json<Value> {
+    if verified_user_id != request.user_id {
+        return Json(json!({"status": "auth_failed", "reason": "Token mismatch"}));
+    }
     let mut data = state.data.write().await;
     // Snapshot question/option/survey labels server-side so the click log stays
     // readable even after the survey is edited or deleted.
@@ -999,8 +1029,12 @@ async fn client_click_survey(
 
 async fn client_submit_survey(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Json(request): Json<SubmitSurveyRequest>,
 ) -> Json<Value> {
+    if verified_user_id != request.user_id {
+        return Json(json!({"status": "auth_failed", "reason": "Token mismatch"}));
+    }
     let mut data = state.data.write().await;
     let Some(survey) = data.surveys.get(&request.survey_id).cloned() else {
         return Json(json!({ "success": false, "message": "Survey not found" }));
@@ -1103,8 +1137,12 @@ async fn client_submit_survey(
 
 async fn client_dismiss_survey(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Json(request): Json<DismissSurveyRequest>,
 ) -> Json<Value> {
+    if verified_user_id != request.user_id {
+        return Json(json!({"status": "auth_failed", "reason": "Token mismatch"}));
+    }
     let mut data = state.data.write().await;
     let Some(survey) = data.surveys.get(&request.survey_id).cloned() else {
         return Json(json!({ "success": false, "message": "Survey not found" }));
@@ -1140,8 +1178,12 @@ async fn client_dismiss_survey(
 
 async fn client_survey_history(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Path(user_id): Path<String>,
 ) -> Json<Value> {
+    if let Err(e) = assert_client_owner(&verified_user_id, &user_id) {
+        return e;
+    }
     let data = state.data.read().await;
     let mut submissions: Vec<SurveySubmission> = data
         .survey_submissions
@@ -1155,8 +1197,12 @@ async fn client_survey_history(
 
 async fn client_delete_submission(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Json(request): Json<DeleteSubmissionRequest>,
 ) -> Json<Value> {
+    if verified_user_id != request.user_id {
+        return Json(json!({"status": "auth_failed", "reason": "Token mismatch"}));
+    }
     let mut data = state.data.write().await;
     let owned = data
         .survey_submissions
@@ -1179,7 +1225,6 @@ async fn admin_auth(State(state): State<AppState>, Json(request): Json<AdminAuth
     if verify_server_password(&request.password) {
         let token = hex::encode(rand::random::<[u8; 32]>());
         let session = AdminSession {
-            token: token.clone(),
             created_at: now_string(),
         };
         state.admin_sessions.write().await.insert(token.clone(), session);
@@ -1198,28 +1243,13 @@ async fn admin_auth(State(state): State<AppState>, Json(request): Json<AdminAuth
     }
 }
 
-async fn require_admin_password(
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response, StatusCode> {
-    let password = request
-        .headers()
-        .get("x-vrcdog-admin-password")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if !verify_server_password(password) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    Ok(next.run(request).await)
-}
-
 #[derive(Deserialize)]
 struct VrchatProxyQuery {
     path: String,
 }
 
 async fn require_admin_session(
-    mut request: axum::extract::Request,
+    request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     let token = request
@@ -1237,6 +1267,45 @@ async fn require_admin_session(
     }
     drop(sessions);
     Ok(next.run(request).await)
+}
+
+/// L2: 校验 client token，将验证通过的 user_id 注入 request extensions
+async fn require_client_token(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let token = request
+        .headers()
+        .get("x-vrcdog-client-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let state = request
+        .extensions()
+        .get::<AppState>()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let clients = state.clients.read().await;
+    let verified_user_id = clients
+        .values()
+        .find(|c| c.client_token == token)
+        .map(|c| c.user_id.clone());
+    drop(clients);
+    let Some(user_id) = verified_user_id else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let mut request = request;
+    request.extensions_mut().insert(user_id);
+    Ok(next.run(request).await)
+}
+
+/// 校验已验证的 user_id 与请求中声明的 user_id 一致（所有权 / 越权防护）
+fn assert_client_owner(verified: &str, claimed: &str) -> Result<(), Json<Value>> {
+    if verified != claimed {
+        return Err(Json(json!({
+            "status": "auth_failed",
+            "reason": "Client token does not match claimed user_id"
+        })));
+    }
+    Ok(())
 }
 
 async fn vrchat_api_proxy(
@@ -1744,13 +1813,7 @@ fn router(state: AppState) -> Router {
             post(admin_delete_submission),
         )
         .route("/api/admin/survey-clicks", get(admin_survey_clicks))
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_admin_session));
-
-    Router::new()
-        .route("/", get(status_page))
-        .route("/ping", get(ping))
-        .route("/api/version", get(api_version))
-        .route("/api/admin/auth", post(admin_auth))
+        // 安全：vrchat-proxy 仅限管理员，随 admin_routes 一起套用 require_admin_session
         .route(
             "/api/vrchat-proxy",
             on(
@@ -1763,10 +1826,12 @@ fn router(state: AppState) -> Router {
                 vrchat_api_proxy,
             ),
         )
-        .route("/api/client/register", post(register))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_admin_session));
+
+    // L2: client token 保护的路由（register 除外，因为 token 在 register 时才下发）
+    let client_protected_routes = Router::new()
         .route("/api/client/heartbeat", post(heartbeat))
         .route("/api/client/disconnect", post(disconnect))
-        .route("/api/remote-assist/ws", get(remote_assist_ws))
         .route("/api/client/check-status/{user_id}", get(check_status))
         .route("/api/client/features/{user_id}", get(get_features))
         .route("/api/client/surveys/{user_id}", get(client_surveys))
@@ -1783,6 +1848,16 @@ fn router(state: AppState) -> Router {
             "/api/client/survey-history/delete",
             post(client_delete_submission),
         )
+        .route_layer(middleware::from_fn(require_client_token));
+
+    Router::new()
+        .route("/", get(status_page))
+        .route("/ping", get(ping))
+        .route("/api/version", get(api_version))
+        .route("/api/admin/auth", post(admin_auth))
+        .route("/api/client/register", post(register))
+        .route("/api/remote-assist/ws", get(remote_assist_ws))
+        .merge(client_protected_routes)
         .merge(admin_routes)
         .layer(
             CorsLayer::new()
@@ -1879,17 +1954,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(cleanup_expired_sessions(state.clone()));
 
     let address: SocketAddr = format!("{host}:{port}").parse()?;
-    let listener = tokio::net::TcpListener::bind(address).await?;
-    info!(%address, "VRCDog standalone server started");
-    axum::serve(
-        listener,
-        router(state.clone()).into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        info!("shutdown signal received");
-        let _ = persist_inner(&state).await;
-    })
-    .await?;
+
+    // R5: optional TLS termination for the relay (wss://). When both cert and key
+    // are configured the server serves TLS so the remote-assist channel is not
+    // exposed to transport-level MITM. Without it we still serve plain ws:// (the
+    // relay payloads are E2E-encrypted, but operators should enable TLS in prod).
+    let tls_cert = env::var("VRCDOG_SERVER_TLS_CERT").ok().filter(|v| !v.is_empty());
+    let tls_key = env::var("VRCDOG_SERVER_TLS_KEY").ok().filter(|v| !v.is_empty());
+    match (tls_cert, tls_key) {
+        (Some(cert_path), Some(key_path)) => {
+            let rustls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path).await?;
+            info!(%address, "VRCDog standalone server started (TLS/wss enabled)");
+            let serve_future = axum_server::bind_rustls(address, rustls_config)
+                .serve(router(state.clone()).into_make_service_with_connect_info::<SocketAddr>());
+            let shutdown_state = state.clone();
+            let result = tokio::select! {
+                res = serve_future => res,
+                _ = tokio::signal::ctrl_c() => {
+                    info!("shutdown signal received");
+                    let _ = persist_inner(&shutdown_state).await;
+                    return Ok(());
+                }
+            };
+            if let Err(e) = result {
+                return Err(e.into());
+            }
+        }
+        _ => {
+            let listener = tokio::net::TcpListener::bind(address).await?;
+            warn!(
+                %address,
+                "VRCDog standalone server started WITHOUT TLS (ws://). Remote-assist traffic is \
+                 unencrypted at the transport layer — set VRCDOG_SERVER_TLS_CERT / VRCDOG_SERVER_TLS_KEY \
+                 to enable wss:// and mitigate MITM on the key exchange."
+            );
+            axum::serve(
+                listener,
+                router(state.clone()).into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                let _ = tokio::signal::ctrl_c().await;
+                info!("shutdown signal received");
+                let _ = persist_inner(&state).await;
+            })
+            .await?;
+        }
+    }
     Ok(())
 }

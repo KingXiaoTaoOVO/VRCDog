@@ -68,7 +68,8 @@ class MidiShowDownloader {
                 'Origin': 'https://www.midishow.com',
                 'Host': 'www.midishow.com'
             },
-            proxy
+            proxy,
+            timeout: 20000
         });
 
         const csrf = this.getCsrf(response.data);
@@ -98,13 +99,15 @@ class MidiShowDownloader {
                 'Host': 'www.midishow.com',
                 'Cookie': cookie_csrf
             },
-            proxy
+            proxy,
+            timeout: 20000
         });
     }
 
     public async getMidiFile(id: number, proxy: AxiosProxyConfig | false = false): Promise<string> {
         const pageResponse: AxiosResponse = await this.requester.get(`https://www.midishow.com/en/midi/${id}.html`, {
-            proxy
+            proxy,
+            timeout: 20000
         });
 
         const csrf = this.getCsrf(pageResponse.data);
@@ -117,7 +120,8 @@ class MidiShowDownloader {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 "X-Requested-With": "XMLHttpRequest"
             },
-            proxy
+            proxy,
+            timeout: 20000
         });
 
         const response2: AxiosResponse = await this.requester.get(
@@ -129,10 +133,13 @@ class MidiShowDownloader {
                     'X-CSRF-TOKEN': csrf,
                     "X-Requested-With": "XMLHttpRequest"
                 },
-                proxy
+                proxy,
+                timeout: 20000
             });
 
-        const de_e = this.etag_decode(response1.headers['etag']) + response1.data.substr(56);
+        // F5: 服务器可能未返回 etag，缺失时回退为空串，避免 etag_decode(undefined) 抛 TypeError
+        const etag = response1.headers['etag'] || '';
+        const de_e = this.etag_decode(etag) + response1.data.substr(56);
         const file = this.de(response1.data.substr(28, 28), de_e)
             + this.de(response2.data.substr(3, response2.data.length - 5), de_e)
             + this.de(response1.data.substr(0, 28), de_e);

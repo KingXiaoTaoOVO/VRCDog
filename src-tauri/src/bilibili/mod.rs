@@ -298,7 +298,11 @@ pub async fn bili_download_video(
             .ok_or_else(|| "unable to resolve cid for Bilibili video".to_string())?;
     }
 
-    let app_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\".to_string());
+    // 缺失 LOCALAPPDATA 时不回退到系统盘根（可能无写权限），改用临时目录下的专有子目录
+    let app_data = std::env::var("LOCALAPPDATA")
+        .or_else(|_| std::env::var("TEMP"))
+        .or_else(|_| std::env::var("TMP"))
+        .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().to_string());
     let download_dir = PathBuf::from(&app_data).join("VrcDog").join("bilidown");
     std::fs::create_dir_all(&download_dir).map_err(|e| e.to_string())?;
 
@@ -416,7 +420,17 @@ pub async fn bili_download_video(
                 "_",
             );
             let final_dest = download_dir.join(format!("{} {}.mp4", safe_title, bvid_c));
-            let _permit = get_download_sem().acquire().await.unwrap();
+            let permit_result = get_download_sem().acquire().await;
+            if let Err(_) = permit_result {
+                // 信号量已关闭，跳过本次下载并回报错误，而非 panic 丢失任务
+                update_status("error");
+                let _ = app_c.emit(
+                    "bili_download_error",
+                    format!("下载信号量已关闭，跳过 {}", bvid_c),
+                );
+                return;
+            }
+            let _permit = permit_result.unwrap();
 
             if let Err(e) = queue::download_stream(
                 app_c.clone(),
@@ -497,7 +511,15 @@ pub async fn bili_download_video(
         );
         let final_dest = download_dir.join(format!("{} {}.mp4", safe_title, bvid_c));
 
-        let _permit = get_download_sem().acquire().await.unwrap();
+        let permit_result = get_download_sem().acquire().await;
+        if let Err(_) = permit_result {
+            let _ = app_c.emit(
+                "bili_download_error",
+                format!("下载信号量已关闭，跳过 {}", bvid_c),
+            );
+            return;
+        }
+        let _permit = permit_result.unwrap();
 
         // Download Video using queue module
         if let Err(e) = queue::download_stream(

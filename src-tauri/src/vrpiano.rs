@@ -33,8 +33,8 @@ const MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS: u64 = 300_000;
 /// 手动完成，而不是干等 75s 才超时。
 const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 20_000;
 /// Keep an online search responsive when the proxy or Cloudflare stalls.
-const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 5;
-const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 6;
+const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 8;
+const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 15;
 const MIDISHOW_LOGIN_TITLE_PREFIX: &str = "VRCDOG_MIDISHOW:";
 
 /// Regex patterns compiled once and reused across all calls.
@@ -3077,8 +3077,21 @@ fn is_channel_routed(state: &Arc<Mutex<VrpianoRuntime>>, channel: u8) -> bool {
 /// never gets stuck holding keys (prevents "粘键").
 fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
     if mode.eq_ignore_ascii_case("avatar") {
-        format!("{}/{}", avatar_prefix.trim_end_matches('/'), note)
+        // VRChat routes /avatar/parameters/<name> to the avatar param whose
+        // name is the exact string after the prefix. The canonical convention
+        // (VRChat_MIDI_Player) is `/avatar/parameters/note<NNN>` with the MIDI
+        // note zero-padded to 3 digits and NO extra slash — so the param name
+        // is literally "note060". Appending "/<note>" (old behavior) produced
+        // "note/60", which VRChat cannot match and silently dropped.
+        let base = if avatar_prefix.trim().is_empty() {
+            "/avatar/parameters/note".to_string()
+        } else {
+            avatar_prefix.trim().trim_end_matches('/').to_string()
+        };
+        format!("{}{:03}", base, note)
     } else {
+        // Piano-avatar mode (e.g. Kade's Piano): /PianoKeys/<raw MIDI note>,
+        // matching VRChat_MIDI_Player exactly. No offset, no zero-padding.
         format!("/PianoKeys/{}", note)
     }
 }
@@ -3170,6 +3183,9 @@ fn status_snapshot(
         status.hotkeys_available = cfg!(target_os = "windows");
         status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
     }
+    // 实时反映本机是否运行着 VRChat（OSC 接收端），让前端能明确告知用户
+    // “无接触”演奏为何没有声音（UDP 发往无人监听的端口会静默成功）。
+    status.vrchat_osc_connected = crate::osc::system_snapshot(false).vrc_running;
     Ok(status)
 }
 
@@ -3321,25 +3337,36 @@ async fn search_midishow(
     // account or browser Cookie that the user saved in VRPiano. Search through
     // the application session first and only keep the CLI as a public fallback.
     let account = default_midishow_account(app)?;
-    match tokio::time::timeout(
+    let http_result = tokio::time::timeout(
         Duration::from_secs(MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS),
         search_midishow_http(keyword, limit, account.as_ref()),
     )
-    .await
-    {
+    .await;
+
+    match http_result {
         Ok(Ok(results)) => Ok(results),
-        Ok(Err(request_error)) => match run_midishow_cli_json_with_timeout(
-            project_path,
-            &["search", keyword],
-            Duration::from_secs(MIDISHOW_SEARCH_CLI_TIMEOUT_SECS),
-        ) {
-            Ok(value) => parse_midishow_results(value, limit),
-            Err(cli_error) => Err(format!("{request_error}; CLI fallback failed: {cli_error}")),
-        },
-        Err(_) => {
-            Err("Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索".to_string())
-        }
+        Ok(Err(request_error)) => run_midishow_cli_search(project_path, keyword, limit)
+            .map_err(|cli_error| format!("{request_error}; CLI 搜索回退失败: {cli_error}")),
+        // HTTP 请求超时（网络慢 / 代理握手）也要回退到 CLI，而不是直接报“搜索超时”。
+        // 之前只在非超时错误时才回退，导致任何慢一点的请求都被误判为超时。
+        Err(_) => run_midishow_cli_search(project_path, keyword, limit).map_err(|cli_error| {
+            format!("Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索。CLI 回退也失败: {cli_error}")
+        }),
     }
+}
+
+/// 通过 Node CLI 作为公共（未登录）搜索的回退实现。
+fn run_midishow_cli_search(
+    project_path: &Path,
+    keyword: &str,
+    limit: usize,
+) -> Result<Vec<VrpianoOnlineSong>, String> {
+    let value = run_midishow_cli_json_with_timeout(
+        project_path,
+        &["search", keyword],
+        Duration::from_secs(MIDISHOW_SEARCH_CLI_TIMEOUT_SECS),
+    )?;
+    parse_midishow_results(value, limit)
 }
 
 fn parse_midishow_results(
@@ -5568,7 +5595,7 @@ mod vrpiano_download_tests {
     use super::{
         extract_midishow_username, filename_from_content_disposition, is_midishow_login_url,
         looks_like_direct_midi_url, midishow_login_monitor_script, midishow_login_script,
-        parse_midishow_login_title, MidishowLoginSignal, MIDISHOW_LOGIN_URL,
+        osc_note_address, parse_midishow_login_title, MidishowLoginSignal, MIDISHOW_LOGIN_URL,
     };
 
     #[test]
@@ -5652,5 +5679,37 @@ mod vrpiano_download_tests {
         assert!(!is_midishow_login_url(
             "https://www.midishow.com.evil.test/user/account/login"
         ));
+    }
+
+    #[test]
+    fn osc_piano_mode_address_matches_reference_tool() {
+        // VRChat_MIDI_Player convention: /PianoKeys/<raw MIDI note>, no offset,
+        // no zero-padding. The avatar prefix must be ignored in piano mode.
+        assert_eq!(osc_note_address("piano", "", 60), "/PianoKeys/60");
+        assert_eq!(osc_note_address("piano", "/avatar/parameters/note", 21), "/PianoKeys/21");
+        assert_eq!(osc_note_address("PIANO", "", 108), "/PianoKeys/108");
+    }
+
+    #[test]
+    fn osc_avatar_mode_address_is_well_formed() {
+        // Must match /avatar/parameters/note<NNN> with the MIDI note zero-padded
+        // to 3 digits and NO extra slash between the prefix and the note — the
+        // old "/avatar/parameters/note/60" form was silently dropped by VRChat.
+        assert_eq!(
+            osc_note_address("avatar", "", 60),
+            "/avatar/parameters/note060"
+        );
+        assert_eq!(
+            osc_note_address("avatar", "/avatar/parameters/note", 7),
+            "/avatar/parameters/note007"
+        );
+        assert_eq!(
+            osc_note_address("avatar", "/avatar/parameters/note/", 7),
+            "/avatar/parameters/note007"
+        );
+        assert_eq!(
+            osc_note_address("AVATAR", "/avatar/parameters/PianoKeys", 60),
+            "/avatar/parameters/PianoKeys060"
+        );
     }
 }

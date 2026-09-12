@@ -32,12 +32,24 @@ async function main() {
         case 'search':
             await doSearch(arg);
             break;
-        case 'download':
-            await doDownload(parseInt(arg));
+        case 'download': {
+            const id = parseInt(arg, 10);
+            if (!Number.isInteger(id) || id <= 0) {
+                console.error('错误: download 需要一个正整数 ID');
+                process.exit(1);
+            }
+            await doDownload(id);
             break;
-        case 'info':
-            await doInfo(parseInt(arg));
+        }
+        case 'info': {
+            const id = parseInt(arg, 10);
+            if (!Number.isInteger(id) || id <= 0) {
+                console.error('错误: info 需要一个正整数 ID');
+                process.exit(1);
+            }
+            await doInfo(id);
             break;
+        }
         case 'login':
             await doLogin(arg, arg2 || '');
             break;
