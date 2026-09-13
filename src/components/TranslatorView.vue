@@ -146,18 +146,30 @@ const photoOcrLang = useStorage('vrc_translator_photo_ocr_lang', 'auto');
 const translateEngine = useStorage('vrc_translator_engine', 'google_free');
 const micEngine = useStorage<'cloud' | 'local' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime'>('vrc_translator_mic_stt_engine', 'cloud');
 const otherEngine = useStorage<'cloud' | 'local' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime'>('vrc_translator_stt_engine', 'cloud');
-// S4 修复：Tauri 模式下将 API Key 存储到应用数据目录（替代 localStorage）
-const apiKeyRaw = useStorage('vrc_translator_api_key', '');
-const apiKey = ref<string>(apiKeyRaw.value);
-watch(apiKey, async (val) => {
-  apiKeyRaw.value = val;
+// S4 修复：API Key 一律不再写入 localStorage。
+// - Tauri：只写应用数据目录里的加密存储（sys_store_secure_string）
+// - Web：退到 sessionStorage，关闭标签页即清除，不落盘
+// 旧版本遗留在 localStorage 的明文 Key 会在挂载时迁移并删除。
+const SECURE_API_KEY_NAME = 'translator_api_key';
+const WEB_API_KEY_STORAGE = 'vrc_translator_api_key';
+const apiKey = ref<string>('');
+const persistApiKey = async (val: string) => {
   if (isTauri()) {
     try {
-      await invoke('sys_store_secure_string', { key: 'translator_api_key', value: val });
+      await invoke('sys_store_secure_string', { key: SECURE_API_KEY_NAME, value: val });
     } catch (e) {
       console.warn('[Translator] 无法写入安全存储:', e);
     }
+    return;
   }
+  try {
+    sessionStorage.setItem(WEB_API_KEY_STORAGE, val);
+  } catch {
+    // sessionStorage 不可用（隐私模式等）时只保留在内存里
+  }
+};
+watch(apiKey, (val) => {
+  void persistApiKey(val);
 });
 const model = useStorage('vrc_translator_model', '');
 const customApiUrl = useStorage('vrc_translator_custom_api_url', '');
@@ -988,18 +1000,36 @@ let translatorDisposed = false;
 
 onMounted(async () => {
   translatorDisposed = false;
+  // S4：取出旧版本写入 localStorage 的明文 Key 后立即删除，改由加密存储 / sessionStorage 接管
+  let legacyApiKey = '';
+  try {
+    legacyApiKey = localStorage.getItem(WEB_API_KEY_STORAGE) || '';
+    localStorage.removeItem(WEB_API_KEY_STORAGE);
+  } catch {
+    // localStorage 不可用时忽略
+  }
+
   // S4 修复：Tauri 模式下从安全存储加载 API Key（替代 localStorage）
   if (isTauri()) {
     try {
-      const secure = await invoke<string | null>('sys_load_secure_string', { key: 'translator_api_key' });
-      if (secure !== null) {
-        apiKey.value = secure;
-      }
+      const secure = await invoke<string | null>('sys_load_secure_string', { key: SECURE_API_KEY_NAME });
+      // 加密存储里没有就沿用迁移出来的旧值，后续由 watch 自动写回加密存储
+      apiKey.value = secure !== null ? secure : legacyApiKey;
     } catch (e) {
       console.warn('[Translator] 无法读取安全存储:', e);
+      apiKey.value = legacyApiKey;
     }
   } else {
-    console.warn('[Translator] Web 模式：API Key 以明文存储在 localStorage，存在 XSS 泄露风险');
+    let stored = '';
+    try {
+      stored = sessionStorage.getItem(WEB_API_KEY_STORAGE) || '';
+    } catch {
+      // 忽略
+    }
+    apiKey.value = stored || legacyApiKey;
+    if (apiKey.value) {
+      console.warn('[Translator] Web 模式：API Key 仅保存在 sessionStorage（关闭标签页即清除），请勿在公共电脑使用');
+    }
   }
   if (isTauri()) {
     overlayWebview = await WebviewWindow.getByLabel('translation-overlay');
