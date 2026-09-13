@@ -53,6 +53,12 @@ jobs:
           # TAURI_PRIVATE_KEY / TAURI_KEY_PASSWORD 用于签名 updater.json。
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          # Tauri v2 实际读取的是 TAURI_SIGNING_PRIVATE_KEY 这一组变量名。
+          # 之前只配了 v1 的名字，所以开启 bundle.createUpdaterArtifacts 后报
+          # "A public key has been found, but no private key" —— 这也是历史上
+          # updater.json 一直没被生成出来的根本原因。这里复用同一份密钥。
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }} # 使用触发该工作流的 tag 作为版本号
           releaseName: '发布 ${{ github.ref_name }} 新版本'
