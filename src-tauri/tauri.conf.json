@@ -40,7 +40,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "externalBin": [
       "bin/ffmpeg"
     ],

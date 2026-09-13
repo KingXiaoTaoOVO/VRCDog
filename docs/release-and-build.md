@@ -210,6 +210,27 @@ node scripts/tauri.mjs build --config .scratch/tauri-skip-prepare.json
 
 ## 9. 常见问题与排坑
 
+### updater 签名密钥不可用（当前状态）
+
+`tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 目前是 `false`，因此 **CI 不会产出
+`updater.json`**，`tauri.conf.json` 里那个 `/releases/latest/download/updater.json`
+端点仍然是死链。应用内更新走的是直连 GitHub Releases API，不影响用户更新。
+
+**为什么不开**：v5.6.0 尝试开启后 CI 连续报两个错——
+
+1. `A public key has been found, but no private key`  
+   → Tauri v2 读的是 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，
+   而仓库旧 Secrets 只有 v1 名字 `TAURI_PRIVATE_KEY` / `TAURI_KEY_PASSWORD`。
+   已在 `release.yml` 里补齐 v2 变量名（复用同一份密钥）。
+2. `incorrect updater private key password: Wrong password for that key`  
+   → `TAURI_PRIVATE_KEY` 与 `TAURI_KEY_PASSWORD` 这两个 Secret **内容本身不匹配**，
+   无法通过代码修复，必须人工轮换。
+
+**修好步骤**：跑 `python scripts/rotate-updater-keys.py` 生成新密钥对 →
+用新公钥覆盖 `tauri.conf.json` 的 `plugins.updater.pubkey` →
+把新私钥与口令写入仓库 Secrets（`TAURI_PRIVATE_KEY` + `TAURI_KEY_PASSWORD`，
+v2 变量由 release.yml 自动复用）→ 把 `createUpdaterArtifacts` 改回 `true`。
+
 ### prepare-python-runtime pip install 卡死
 
 **症状**：`prepare-python-runtime.mjs` 的 pip install 从 `files.pythonhosted.org` 下载包时龟速，55 分钟无进展。
@@ -286,7 +307,7 @@ git push origin v5.0.x
 
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
-| v5.6.0 | 2026-09-13 | 注册接口 VRChat 身份核验（L2）；管理员口令爆破锁定（R4）；远程协助默认 wss + 监听收敛到回环（R5）；外部请求 DNS rebinding 防护与可选白名单（R9）；敏感字符串改用 DPAPI 加密存储（S4）；midishow 请求超时补齐（B6）；好友列表增量更新（P1）；OSC 套接字复用（P6）；开启 updater 产物生成 |
+| v5.6.0 | 2026-09-13 | 注册接口 VRChat 身份核验（L2）；管理员口令爆破锁定（R4）；远程协助默认 wss + 监听收敛到回环（R5）；外部请求 DNS rebinding 防护与可选白名单（R9）；敏感字符串改用 DPAPI 加密存储（S4）；midishow 请求超时补齐（B6）；好友列表增量更新（P1）；OSC 套接字复用（P6）。**updater 产物仍关闭**：仓库 Secrets 里的签名私钥与口令不匹配，需先轮换密钥 |
 | v5.5.0 | 2026-09-13 | 客户端令牌鉴权 + 服务端 HTTPS 支持；移除硬编码默认管理员密码（改为环境变量，未配置则拒绝）；更新强制 SHA-256 校验 + GitHub 官方域名白名单；TTS / VRChat 启动参数命令注入修复；远程协助加密隧道 nonce 重放防护；启动自动登录；日志敏感字段脱敏；VRPiano OSC 地址对齐 VRChat_MIDI_Player |
 | v5.0.9 | 2026-08-19 | 修复更新黑屏 cmd 窗口（改用 schtasks 派发）；登录页新增静默预检测更新红点提示 |
 | v5.0.8 | 2026-08-19 | 修复 OS error 32 无法启动安装程序（引入 bootstrapper.cmd + DETACHED_PROCESS 派发）；release 命名改为中文格式 |
