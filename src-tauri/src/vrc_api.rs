@@ -329,12 +329,16 @@ fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, 
                     "外部主机不在白名单内: {host}（请加入 VRCDOG_ALLOWED_EXTERNAL_HOSTS）"
                 ));
             }
+            // 白名单是运维显式授信，直接放行、跳过下面的 DNS rebinding 检查。
+            // 否则「域名解析到私有地址」的内网自建服务端（例如
+            // home.example.com -> 192.168.x.x）会被误杀。
+            return Ok(url);
         }
         // R9：解析后的真实 IP 也必须落在公网，挡住 DNS rebinding
         let port = url.port_or_known_default().unwrap_or(443);
         if host_resolves_to_blocked_address(host, port) {
             return Err(format!(
-                "外部主机解析到内网/保留地址，已被 SSRF 防护拦截: {host}"
+                "外部主机解析到内网/保留地址，已被 SSRF 防护拦截: {host}。                 若为可信的内网自建服务端，请将其加入 VRCDOG_ALLOWED_EXTERNAL_HOSTS"
             ));
         }
         return Ok(url);

@@ -199,7 +199,7 @@ node scripts/tauri.mjs build --config .scratch/tauri-skip-prepare.json
 |------|------|------|
 | `VRCDOG_SERVER_PASSWORD_BCRYPT` | 未设置 | **必填**（否则管理员接口禁用）。bcrypt 哈希，可用 `htpasswd -nbB admin <密码>` 生成 |
 | `VRCDOG_REGISTER_SKIP_VERIFY` | 未设置 | 设为 `1` 可关闭注册的 VRChat 身份核验。**会重新暴露冒名风险**，仅限可信内网 |
-| `VRCDOG_ALLOWED_EXTERNAL_HOSTS` | 未设置 | 逗号分隔的白名单。设置后，客户端 `allow_external_host` 请求只能访问清单内主机（含子域） |
+| `VRCDOG_ALLOWED_EXTERNAL_HOSTS` | 未设置 | 逗号分隔的白名单。设置后，客户端 `allow_external_host` 请求只能访问清单内主机（含子域），且清单内主机会跳过 DNS rebinding 检查 —— **内网自建服务端（域名解析到私有地址）必须加到这里才能连通** |
 | `VRCDOG_SERVER_TLS_CERT` / `VRCDOG_SERVER_TLS_KEY` | 未设置 | 独立服务端启用 HTTPS / wss。两者都设置才生效，见 `main.rs` 的 TLS 分支 |
 
 > **v5.6.0 破坏性变更**：`/api/client/register` 现在会用客户端的 VRChat 会话 Cookie

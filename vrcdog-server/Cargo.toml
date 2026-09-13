@@ -1,6 +1,6 @@
 [package]
 name = "vrcdog-server"
-version = "5.6.1"
+version = "5.6.2"
 edition = "2021"
 description = "Standalone deployable server for VRCDog clients"
 license = "MIT"
