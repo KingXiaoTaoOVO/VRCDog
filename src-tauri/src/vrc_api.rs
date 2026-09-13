@@ -307,6 +307,16 @@ fn host_matches_allowlist(host: &str, allowlist: &[String]) -> bool {
 }
 
 fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, String> {
+    parse_http_url_with_allowlist(raw, allow_external_host, external_host_allowlist().as_deref())
+}
+
+/// 与 [`parse_http_url`] 逻辑一致，但白名单由调用方显式传入。
+/// 这样测试不必依赖进程级环境变量（并发测试下会互相干扰）。
+fn parse_http_url_with_allowlist(
+    raw: &str,
+    allow_external_host: bool,
+    allowlist: Option<&[String]>,
+) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid request URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(format!("Unsupported request URL scheme: {}", url.scheme()));
@@ -323,8 +333,8 @@ fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, 
         if external_host_is_blocked(host) {
             return Err(format!("外部主机被 SSRF 防护拦截: {host}"));
         }
-        if let Some(allowlist) = external_host_allowlist() {
-            if !host_matches_allowlist(host, &allowlist) {
+        if let Some(allowlist) = allowlist {
+            if !host_matches_allowlist(host, allowlist) {
                 return Err(format!(
                     "外部主机不在白名单内: {host}（请加入 VRCDOG_ALLOWED_EXTERNAL_HOSTS）"
                 ));
@@ -436,6 +446,76 @@ mod cookie_tests {
         assert!(parse_http_url("file:///tmp/secret", true).is_err());
         assert_eq!(parse_http_method("post").unwrap(), reqwest::Method::POST);
         assert!(parse_http_method("not a method").is_err());
+    }
+}
+
+#[cfg(test)]
+mod external_host_tests {
+    use super::{
+        external_host_is_blocked, host_matches_allowlist, host_resolves_to_blocked_address,
+        parse_http_url_with_allowlist,
+    };
+
+    #[test]
+    fn blocks_classic_ssrf_targets() {
+        for blocked in [
+            "127.0.0.1",
+            "169.254.169.254",
+            "192.168.1.10",
+            "10.0.0.5",
+            "172.16.0.1",
+            "0.0.0.0",
+            "localhost",
+            "db.internal",
+            "nas.local",
+        ] {
+            assert!(external_host_is_blocked(blocked), "should block {blocked}");
+        }
+        for allowed in ["8.8.8.8", "example.com", "api.vrchat.cloud"] {
+            assert!(!external_host_is_blocked(allowed), "should allow {allowed}");
+        }
+    }
+
+    /// IP 字面量不需要 DNS，结果确定可复现
+    #[test]
+    fn dns_rebinding_check_flags_resolved_loopback() {
+        assert!(host_resolves_to_blocked_address("127.0.0.1", 443));
+        assert!(host_resolves_to_blocked_address("localhost", 80));
+    }
+
+    /// 白名单匹配的语义。注意 evil-example.com 不能因为后缀相似就命中，
+    /// 否则白名单等于给攻击者开了后门。
+    #[test]
+    fn allowlist_matches_exact_subdomain_and_trailing_dot() {
+        let list = vec!["example.com".to_string()];
+        assert!(host_matches_allowlist("example.com", &list));
+        assert!(host_matches_allowlist("srv.example.com", &list));
+        assert!(host_matches_allowlist("a.b.example.com", &list));
+        assert!(host_matches_allowlist("example.com.", &list));
+        assert!(!host_matches_allowlist("evil-example.com", &list));
+        assert!(!host_matches_allowlist("example.com.evil.net", &list));
+        assert!(!host_matches_allowlist("other.org", &list));
+    }
+
+    /// 回归防护：v5.6.0 的 DNS rebinding 检查会误杀「域名解析到内网地址」的
+    /// 自建服务端，v5.6.2 改为命中白名单即放行、跳过 DNS 判定。
+    #[test]
+    fn allowlist_short_circuits_before_dns_check() {
+        let list = vec!["example.com".to_string()];
+        // 未命中白名单：报错且提示环境变量名
+        let err = parse_http_url_with_allowlist("https://notlisted.org/api", true, Some(&list))
+            .unwrap_err();
+        assert!(
+            err.contains("VRCDOG_ALLOWED_EXTERNAL_HOSTS"),
+            "unexpected error: {err}"
+        );
+        // 命中白名单：直接放行
+        assert!(parse_http_url_with_allowlist(
+            "https://srv.example.com/api",
+            true,
+            Some(&list)
+        )
+        .is_ok());
     }
 }
 

@@ -2136,3 +2136,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod admin_auth_tests {
+    use super::*;
+
+    /// TEST-NET-3（RFC 5737）地址，不会与任何真实来源 IP 冲突。
+    ///
+    /// 注意：ADMIN_AUTH_ATTEMPTS 是进程级全局状态，而 cargo test 默认并行执行，
+    /// 因此每条用例必须使用互不相交的 IP，否则会互相清掉对方的计数。
+    const IP_A: &str = "203.0.113.1";
+    const IP_B: &str = "203.0.113.2";
+    const IP_C: &str = "203.0.113.3";
+
+    #[test]
+    fn locks_source_ip_after_repeated_failures() {
+        admin_auth_record_success(IP_A);
+        assert_eq!(admin_auth_lock_remaining(IP_A), 0, "初始状态不应锁定");
+
+        // 未达阈值：只累计失败次数，不锁定
+        for _ in 0..ADMIN_AUTH_MAX_FAILURES - 1 {
+            admin_auth_record_failure(IP_A);
+            assert_eq!(admin_auth_lock_remaining(IP_A), 0, "未达阈值不应锁定");
+        }
+
+        // 达到阈值：锁定
+        admin_auth_record_failure(IP_A);
+        let remaining = admin_auth_lock_remaining(IP_A);
+        assert!(remaining > 0, "达到阈值后应锁定");
+        assert!(remaining <= ADMIN_AUTH_LOCKOUT_SECS, "锁定时长超出上限");
+
+        // 认证成功即清零
+        admin_auth_record_success(IP_A);
+        assert_eq!(admin_auth_lock_remaining(IP_A), 0, "认证成功后应解锁");
+    }
+
+    /// 计数器按 IP 隔离：一个来源被锁定不影响其它来源。
+    /// 用 IP_B / IP_C，与上面那条用例的 IP_A 错开。
+    #[test]
+    fn failure_counter_is_per_ip() {
+        admin_auth_record_success(IP_B);
+        admin_auth_record_success(IP_C);
+        for _ in 0..ADMIN_AUTH_MAX_FAILURES {
+            admin_auth_record_failure(IP_B);
+        }
+        assert!(admin_auth_lock_remaining(IP_B) > 0, "IP_B 应被锁定");
+        assert_eq!(admin_auth_lock_remaining(IP_C), 0, "IP_C 不应受 IP_B 影响");
+        admin_auth_record_success(IP_B);
+        admin_auth_record_success(IP_C);
+    }
+}
