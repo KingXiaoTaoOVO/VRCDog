@@ -766,7 +766,9 @@ const cycleLanguage = () => {
 };
 
 const emit = defineEmits(['exit']);
-const serverHost = useStorage('vrc_dashboard_host', '0.0.0.0');
+// R5：默认只监听回环地址，避免管理服务端与远程协助通道被局域网直接访问。
+// 需要局域网访问时，用户在界面上显式改为 0.0.0.0 即可。
+const serverHost = useStorage('vrc_dashboard_host', '127.0.0.1');
 const serverPort = useStorage('vrc_dashboard_port', 11451);
 const serverMode = ref<'local' | 'remote'>(props.initialMode);
 const remoteServerUrl = useStorage(

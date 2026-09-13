@@ -264,6 +264,48 @@ fn external_host_is_blocked(host: &str) -> bool {
         || lower.ends_with(".internal")
 }
 
+/// R9：DNS rebinding 防护。主机字符串检查只能看到域名，攻击者可以让域名
+/// 「解析时指向公网、真正连接时指向 127.0.0.1 / 169.254.169.254」。
+/// 这里先把域名解析成 IP，再对每个解析结果做一遍 SSRF 判定。
+fn host_resolves_to_blocked_address(host: &str, port: u16) -> bool {
+    use std::net::ToSocketAddrs;
+    let Ok(resolved) = (host, port).to_socket_addrs() else {
+        // 解析失败交给后续真实请求去报错，这里不做判定
+        return false;
+    };
+    let mut seen = 0usize;
+    for addr in resolved {
+        seen += 1;
+        if external_host_is_blocked(&addr.ip().to_string()) {
+            return true;
+        }
+    }
+    // 解析不出任何地址同样视为可疑，交给上层拒绝
+    seen == 0
+}
+
+/// R9：可选的外部主机白名单。设置 VRCDOG_ALLOWED_EXTERNAL_HOSTS（逗号分隔）
+/// 后，allow_external_host 只允许访问清单内的主机（含其子域）；未设置则保持开放。
+fn external_host_allowlist() -> Option<Vec<String>> {
+    std::env::var("VRCDOG_ALLOWED_EXTERNAL_HOSTS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+                .filter(|host| !host.is_empty())
+                .collect()
+        })
+        .filter(|list: &Vec<String>| !list.is_empty())
+}
+
+fn host_matches_allowlist(host: &str, allowlist: &[String]) -> bool {
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    allowlist
+        .iter()
+        .any(|allowed| allowed == &lower || lower.ends_with(&format!(".{allowed}")))
+}
+
 fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid request URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -280,6 +322,20 @@ fn parse_http_url(raw: &str, allow_external_host: bool) -> Result<reqwest::Url, 
     if allow_external_host {
         if external_host_is_blocked(host) {
             return Err(format!("外部主机被 SSRF 防护拦截: {host}"));
+        }
+        if let Some(allowlist) = external_host_allowlist() {
+            if !host_matches_allowlist(host, &allowlist) {
+                return Err(format!(
+                    "外部主机不在白名单内: {host}（请加入 VRCDOG_ALLOWED_EXTERNAL_HOSTS）"
+                ));
+            }
+        }
+        // R9：解析后的真实 IP 也必须落在公网，挡住 DNS rebinding
+        let port = url.port_or_known_default().unwrap_or(443);
+        if host_resolves_to_blocked_address(host, port) {
+            return Err(format!(
+                "外部主机解析到内网/保留地址，已被 SSRF 防护拦截: {host}"
+            ));
         }
         return Ok(url);
     }

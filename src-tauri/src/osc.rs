@@ -262,7 +262,7 @@ fn send_message_internal(
         args: value_to_osc(value_type, value)?,
     });
     let bytes = rosc::encoder::encode(&packet).map_err(app_error)?;
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(app_error)?;
+    let socket = shared_osc_socket().ok_or_else(|| app_error("无法创建 OSC 套接字"))?;
     socket.send_to(&bytes, endpoint).map_err(app_error)?;
     Ok(())
 }
@@ -303,7 +303,7 @@ pub fn osc_send_chatbox(
         ],
     });
     let bytes = rosc::encoder::encode(&packet).map_err(app_error)?;
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(app_error)?;
+    let socket = shared_osc_socket().ok_or_else(|| app_error("无法创建 OSC 套接字"))?;
     socket.send_to(&bytes, endpoint).map_err(app_error)?;
     Ok(())
 }
@@ -336,9 +336,23 @@ pub fn osc_send_message_multi(
         args: osc_args,
     });
     let bytes = rosc::encoder::encode(&packet).map_err(app_error)?;
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(app_error)?;
+    let socket = shared_osc_socket().ok_or_else(|| app_error("无法创建 OSC 套接字"))?;
     socket.send_to(&bytes, endpoint).map_err(app_error)?;
     Ok(())
+}
+
+/// P6：复用同一个 UDP 套接字发送 OSC。
+/// 之前每发一个包都 bind 一个临时端口，高频演奏时会瞬间产生大量套接字，
+/// 既浪费 fd 又让发送延迟抖动。这里全局共享一个，失败不 panic。
+fn shared_osc_socket() -> Option<&'static UdpSocket> {
+    static SOCKET: std::sync::OnceLock<UdpSocket> = std::sync::OnceLock::new();
+    if let Some(socket) = SOCKET.get() {
+        return Some(socket);
+    }
+    let Ok(socket) = UdpSocket::bind("0.0.0.0:0") else {
+        return None;
+    };
+    Some(SOCKET.get_or_init(|| socket))
 }
 
 fn osc_argument(arg: OscType) -> OscArgument {
@@ -427,7 +441,7 @@ fn route_message(rules: &[OscRouteRule], listen_endpoint: &str, message: &OscMes
         let Ok(bytes) = rosc::encoder::encode(&packet) else {
             continue;
         };
-        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if let Some(socket) = shared_osc_socket() {
             let _ = socket.send_to(&bytes, target_endpoint);
         }
     }

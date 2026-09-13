@@ -208,6 +208,10 @@ struct RegisterRequest {
     display_name: String,
     #[serde(default)]
     avatar_url: String,
+    /// 客户端的 VRChat 会话 Cookie。服务端据此向官方 API 反查真实 user id，
+    /// 防止任何人仅凭 user_id 冒名注册并领取 client_token（L2）。
+    #[serde(default)]
+    auth_cookie: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -564,11 +568,75 @@ fn generate_client_token() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// 是否对注册做 VRChat 身份核验。默认开启（fail-closed）。
+/// 无外网的自建部署可设 VRCDOG_REGISTER_SKIP_VERIFY=1 关闭，但会重新暴露冒名风险。
+fn register_verification_enabled() -> bool {
+    static WARNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let skip = env::var("VRCDOG_REGISTER_SKIP_VERIFY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if skip {
+        WARNED.get_or_init(|| {
+            eprintln!(
+                "[VrcDog-Server] 警告：VRCDOG_REGISTER_SKIP_VERIFY 已开启，注册不再校验 VRChat 身份，任何人都可凭 user_id 冒名。仅在可信内网使用。"
+            );
+            true
+        });
+    }
+    !skip
+}
+
+/// L2：用客户端的 VRChat 会话 Cookie 向官方 API 反查真实 user id，
+/// 确认与请求声明的 user_id 一致，防止仅凭 user_id 冒名注册并领取 client_token。
+async fn verify_register_identity(request: &RegisterRequest) -> Result<(), String> {
+    if !register_verification_enabled() {
+        return Ok(());
+    }
+    let cookie = request
+        .auth_cookie
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .ok_or_else(|| "VRChat auth cookie is required".to_string())?;
+
+    let client = ClientBuilder::new()
+        .timeout(StdDuration::from_secs(10))
+        .build()
+        .map_err(|e| format!("VRChat auth client init failed: {e}"))?;
+    let res = client
+        .get("https://api.vrchat.cloud/api/1/auth/user")
+        .header(reqwest::header::COOKIE, cookie)
+        .send()
+        .await
+        .map_err(|e| format!("VRChat auth request failed: {e}"))?;
+    if !res.status().is_success() {
+        return Err(format!("VRChat auth failed with status: {}", res.status()));
+    }
+    let body: Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse VRChat auth response: {e}"))?;
+    let verified_id = body.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if verified_id.is_empty() {
+        return Err("VRChat auth returned an empty user id".to_string());
+    }
+    if verified_id != request.user_id {
+        return Err("VRChat credentials do not match the claimed identity".to_string());
+    }
+    Ok(())
+}
+
 async fn register(
     State(state): State<AppState>,
     ConnectInfo(address): ConnectInfo<SocketAddr>,
     Json(request): Json<RegisterRequest>,
 ) -> Json<Value> {
+    // L2：注册前先核验身份。任何失败一律拒绝，绝不签发 client_token。
+    if let Err(reason) = verify_register_identity(&request).await {
+        warn!(user_id = %request.user_id, reason = %reason, "拒绝注册：VRChat 身份核验未通过");
+        return Json(json!({ "status": "auth_failed", "reason": reason }));
+    }
+
     let now = now_string();
     let client_token = generate_client_token();
     let was_kicked = state.data.read().await.kicked.contains_key(&request.user_id);
@@ -1221,8 +1289,73 @@ async fn client_delete_submission(
     }))
 }
 
-async fn admin_auth(State(state): State<AppState>, Json(request): Json<AdminAuthRequest>) -> impl axum::response::IntoResponse {
+/// R4：管理员口令爆破防护。同一来源 IP 连续失败 ADMIN_AUTH_MAX_FAILURES 次后
+/// 锁定 ADMIN_AUTH_LOCKOUT_SECS 秒，避免口令被离线/在线穷举。
+const ADMIN_AUTH_MAX_FAILURES: u32 = 5;
+const ADMIN_AUTH_LOCKOUT_SECS: i64 = 300;
+
+static ADMIN_AUTH_ATTEMPTS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (u32, i64)>>> =
+    std::sync::OnceLock::new();
+
+fn admin_auth_attempts() -> &'static std::sync::Mutex<HashMap<String, (u32, i64)>> {
+    ADMIN_AUTH_ATTEMPTS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// 返回剩余锁定秒数，0 表示未锁定。锁定到期后自动重置计数。
+fn admin_auth_lock_remaining(ip: &str) -> i64 {
+    let mut guard = admin_auth_attempts()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = chrono::Utc::now().timestamp();
+    let entry = guard.entry(ip.to_string()).or_insert((0, 0));
+    if entry.1 > now {
+        return entry.1 - now;
+    }
+    if entry.1 != 0 {
+        *entry = (0, 0);
+    }
+    0
+}
+
+fn admin_auth_record_failure(ip: &str) {
+    let mut guard = admin_auth_attempts()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = chrono::Utc::now().timestamp();
+    let entry = guard.entry(ip.to_string()).or_insert((0, 0));
+    entry.0 += 1;
+    if entry.0 >= ADMIN_AUTH_MAX_FAILURES {
+        warn!(%ip, "管理员口令连续失败次数过多，已临时锁定该来源 IP");
+        *entry = (0, now + ADMIN_AUTH_LOCKOUT_SECS);
+    }
+}
+
+fn admin_auth_record_success(ip: &str) {
+    let mut guard = admin_auth_attempts()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.remove(ip);
+}
+
+async fn admin_auth(
+    State(state): State<AppState>,
+    ConnectInfo(address): ConnectInfo<SocketAddr>,
+    Json(request): Json<AdminAuthRequest>,
+) -> impl axum::response::IntoResponse {
+    let client_ip = address.ip().to_string();
+    let remaining = admin_auth_lock_remaining(&client_ip);
+    if remaining > 0 {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({
+                "success": false,
+                "message": format!("尝试失败次数过多，请 {} 秒后重试", remaining)
+            })),
+        );
+    }
+
     if verify_server_password(&request.password) {
+        admin_auth_record_success(&client_ip);
         let token = hex::encode(rand::random::<[u8; 32]>());
         let session = AdminSession {
             created_at: now_string(),
@@ -1233,6 +1366,7 @@ async fn admin_auth(State(state): State<AppState>, Json(request): Json<AdminAuth
             Json(json!({ "success": true, "token": token })),
         )
     } else {
+        admin_auth_record_failure(&client_ip);
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({

@@ -789,40 +789,181 @@ pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Re
     Err("Cannot resolve app data directory".to_string())
 }
 
-/// 将敏感字符串存储到应用数据目录（替代 localStorage，降低 XSS 窃取风险）
+/// 敏感字符串的落盘目录与文件路径。
+fn secure_storage_paths(
+    app: &tauri::AppHandle,
+    key: &str,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
+    let secure_dir = app_dir.join("secure");
+    let file_path = secure_dir.join(format!("{}.txt", sanitize_filename(key)));
+    Ok((secure_dir, file_path))
+}
+
+/// S4：敏感字符串落盘前先加密，绝不明文写入。
+///
+/// - Windows：DPAPI（CryptProtectData），密文绑定当前 Windows 用户账户，
+///   把文件复制到别的机器或换个账户登录都无法解密。
+/// - 其它平台：ChaCha20-Poly1305 + 安装级随机主密钥（弱于 DPAPI，但同样不是明文）。
+#[cfg(target_os = "windows")]
+fn protect_bytes(_secure_dir: &std::path::Path, plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    use windows::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
+    };
+    if plaintext.is_empty() {
+        return Ok(Vec::new());
+    }
+    unsafe {
+        let mut input = CRYPT_INTEGER_BLOB {
+            cbData: plaintext.len() as u32,
+            pbData: plaintext.as_ptr() as *mut u8,
+        };
+        let mut output = CRYPT_INTEGER_BLOB::default();
+        let ok = CryptProtectData(
+            &mut input,
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        );
+        if let Err(error) = ok {
+            return Err(format!("DPAPI 加密失败: {error}"));
+        }
+        let slice = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
+        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            output.pbData as *mut std::ffi::c_void,
+        ));
+        Ok(slice)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn unprotect_bytes(_secure_dir: &std::path::Path, blob: &[u8]) -> Result<Vec<u8>, String> {
+    use windows::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
+    };
+    if blob.is_empty() {
+        return Ok(Vec::new());
+    }
+    unsafe {
+        let mut input = CRYPT_INTEGER_BLOB {
+            cbData: blob.len() as u32,
+            pbData: blob.as_ptr() as *mut u8,
+        };
+        let mut output = CRYPT_INTEGER_BLOB::default();
+        let ok = CryptUnprotectData(
+            &mut input,
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        );
+        if let Err(_) = ok {
+            return Err("DPAPI 解密失败：数据可能已损坏或不属于当前用户".to_string());
+        }
+        let slice = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
+        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            output.pbData as *mut std::ffi::c_void,
+        ));
+        Ok(slice)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn local_master_key(secure_dir: &std::path::Path) -> Result<[u8; 32], String> {
+    use sha2::{Digest, Sha256};
+    let path = secure_dir.join(".localkey");
+    let material = match std::fs::read(&path) {
+        Ok(existing) if !existing.is_empty() => existing,
+        _ => {
+            let random = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+            std::fs::write(&path, random.as_bytes())
+                .map_err(|e| format!("写入本机主密钥失败: {e}"))?;
+            random.into_bytes()
+        }
+    };
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&Sha256::digest(&material));
+    Ok(key)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn protect_bytes(secure_dir: &std::path::Path, plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    use chacha20poly1305::{
+        aead::{Aead, KeyInit},
+        ChaCha20Poly1305, Nonce,
+    };
+    let key = local_master_key(secure_dir)?;
+    let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|e| format!("{e}"))?;
+    let uuid_bytes = uuid::Uuid::new_v4().as_bytes().to_owned();
+    let nonce = Nonce::from(<[u8; 12]>::try_from(&uuid_bytes[..12]).unwrap_or([0u8; 12]));
+    let ciphertext = cipher
+        .encrypt(&nonce, plaintext)
+        .map_err(|e| format!("本机加密失败: {e}"))?;
+    let mut out = nonce.to_vec();
+    out.extend_from_slice(&ciphertext);
+    Ok(out)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unprotect_bytes(secure_dir: &std::path::Path, blob: &[u8]) -> Result<Vec<u8>, String> {
+    use chacha20poly1305::{
+        aead::{Aead, KeyInit},
+        ChaCha20Poly1305, Nonce,
+    };
+    if blob.len() < 12 {
+        return Err("密文长度不足".to_string());
+    }
+    let key = local_master_key(secure_dir)?;
+    let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|e| format!("{e}"))?;
+    let nonce = Nonce::from(<[u8; 12]>::try_from(&blob[..12]).unwrap_or([0u8; 12]));
+    cipher
+        .decrypt(&nonce, &blob[12..])
+        .map_err(|_| "本机解密失败：数据可能已损坏".to_string())
+}
+
+/// 将敏感字符串加密后存储到应用数据目录（替代 localStorage，降低 XSS 窃取风险）
 #[tauri::command]
 pub async fn sys_store_secure_string(
     app: tauri::AppHandle,
     key: String,
     value: String,
 ) -> Result<(), String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
-    let secure_dir = app_dir.join("secure");
+    let (secure_dir, file_path) = secure_storage_paths(&app, &key)?;
     std::fs::create_dir_all(&secure_dir).map_err(|e| format!("创建安全目录失败: {e}"))?;
-    let file_path = secure_dir.join(format!("{}.txt", sanitize_filename(&key)));
-    std::fs::write(&file_path, value).map_err(|e| format!("写入安全存储失败: {e}"))?;
+    let blob = protect_bytes(&secure_dir, value.as_bytes())?;
+    std::fs::write(&file_path, blob).map_err(|e| format!("写入安全存储失败: {e}"))?;
     Ok(())
 }
 
-/// 从应用数据目录读取敏感字符串
+/// 从应用数据目录读取并解密敏感字符串。
+/// 若遇到升级前遗留的明文文件，读出后立即改写为加密格式。
 #[tauri::command]
 pub async fn sys_load_secure_string(
     app: tauri::AppHandle,
     key: String,
 ) -> Result<Option<String>, String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
-    let file_path = app_dir.join("secure").join(format!("{}.txt", sanitize_filename(&key)));
+    let (secure_dir, file_path) = secure_storage_paths(&app, &key)?;
     if !file_path.exists() {
         return Ok(None);
     }
-    let value = std::fs::read_to_string(&file_path).map_err(|e| format!("读取安全存储失败: {e}"))?;
-    Ok(Some(value))
+    let raw = std::fs::read(&file_path).map_err(|e| format!("读取安全存储失败: {e}"))?;
+    match unprotect_bytes(&secure_dir, &raw) {
+        Ok(bytes) => Ok(Some(String::from_utf8(bytes).map_err(|e| format!("安全存储内容非法: {e}"))?)),
+        Err(_) => {
+            // 兼容旧版明文文件：取到值后立刻升级为加密存储
+            let legacy = String::from_utf8(raw).map_err(|_| "安全存储内容无法解析".to_string())?;
+            let _ = sys_store_secure_string(app, key, legacy.clone()).await;
+            Ok(Some(legacy))
+        }
+    }
 }
 
 fn sanitize_filename(key: &str) -> String {

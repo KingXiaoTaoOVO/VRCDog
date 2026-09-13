@@ -52,6 +52,54 @@ let fetchTimeout: any = null;
 const MIN_FULL_REFRESH_INTERVAL_MS = 30_000;
 let lastFullFetchAt = 0;
 
+// 好友在线/活跃判定（提到模块作用域，供全量刷新与增量更新共用）
+const isOnlineLocation = (location: unknown) => {
+  const loc = String(location || '').trim().toLowerCase();
+  return Boolean(loc) && loc !== 'offline';
+};
+const isActiveStatus = (status: unknown) => {
+  const value = String(status || '').trim().toLowerCase();
+  return Boolean(value) && value !== 'offline';
+};
+
+/// P1：好友状态类管线事件走增量更新。
+/// 之前每个事件都触发整表重拉（最高 100 页 / 1 万好友）造成请求风暴，
+/// 现在只改动受影响的那一条，未变化的行保持原对象引用，Vue 不会重建 DOM。
+const FRIEND_STATE_EVENT_TYPES = new Set([
+  'friend-online',
+  'friend-offline',
+  'friend-location',
+  'friend-update',
+  'friend-status',
+  'friend-active',
+  'friend-add',
+]);
+
+const applyFriendPatch = (userId: string, patch: Record<string, unknown>) => {
+  if (!userId || Object.keys(patch).length === 0) return false;
+  const identity = (f: any) => f.id || f.displayName;
+  const buckets = [onlineFriends, activeFriends, offlineFriends];
+  let entry: any = null;
+  for (const bucket of buckets) {
+    const idx = bucket.value.findIndex((f: any) => identity(f) === userId);
+    if (idx >= 0) {
+      entry = { ...bucket.value[idx], ...patch };
+      bucket.value.splice(idx, 1);
+      break;
+    }
+  }
+  if (!entry) return false;
+  friendsStore.updateFriend(userId, patch as any);
+  if (isOnlineLocation(entry.location)) {
+    onlineFriends.value = [...onlineFriends.value, entry];
+  } else if (isActiveStatus(entry.status)) {
+    activeFriends.value = [...activeFriends.value, entry];
+  } else {
+    offlineFriends.value = [...offlineFriends.value, entry];
+  }
+  return true;
+};
+
 const fetchFriends = async () => {
   if (fetchTimeout) {
     clearTimeout(fetchTimeout);
@@ -65,14 +113,7 @@ const fetchFriends = async () => {
       const cached = await friendsStore.fetchFriends();
 
       const normalized = cached.filter((f: any) => f?.id || f?.displayName);
-      const isOnlineLocation = (location: unknown) => {
-        const loc = String(location || '').trim().toLowerCase();
-        return Boolean(loc) && loc !== 'offline';
-      };
-      const isActiveStatus = (status: unknown) => {
-        const value = String(status || '').trim().toLowerCase();
-        return Boolean(value) && value !== 'offline';
-      };
+      // 判定函数已提到模块作用域
 
       onlineFriends.value = normalized.filter((f: any) => isOnlineLocation(f.location));
       activeFriends.value = normalized.filter((f: any) => !isOnlineLocation(f.location) && isActiveStatus(f.status));
@@ -124,7 +165,23 @@ const fetchGroups = async (force = false) => {
 };
 
 // P1 修复：管线事件高频触发，只在距上次全量刷新超过最小间隔时才真正重拉，避免请求风暴
-const onPipelineEvent = () => {
+const onPipelineEvent = (event?: Event) => {
+  const detail = (event as CustomEvent | undefined)?.detail || {};
+  const type = String(detail.type || '');
+  const content = detail.content || detail || {};
+  const userId = content.userId || content.user?.id || content.id;
+
+  if (FRIEND_STATE_EVENT_TYPES.has(type) && userId) {
+    const patch: Record<string, unknown> = {};
+    if (content.location !== undefined) patch.location = content.location;
+    const status = content.user?.status ?? content.status;
+    if (status !== undefined) patch.status = status;
+    if (content.user?.displayName) patch.displayName = content.user.displayName;
+    // 增量命中就不需要重拉整表
+    if (applyFriendPatch(String(userId), patch)) return;
+    // 本地没有这条（新好友等），退回全量刷新
+  }
+
   const now = Date.now();
   if (now - lastFullFetchAt < MIN_FULL_REFRESH_INTERVAL_MS) return;
   fetchFriends();

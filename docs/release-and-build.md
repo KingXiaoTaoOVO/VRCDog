@@ -193,7 +193,22 @@ node scripts/tauri.mjs build --config .scratch/tauri-skip-prepare.json
 
 ---
 
-## 8. 常见问题与排坑
+## 8. 服务端环境变量（v5.6.0 起）
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `VRCDOG_SERVER_PASSWORD_BCRYPT` | 未设置 | **必填**（否则管理员接口禁用）。bcrypt 哈希，可用 `htpasswd -nbB admin <密码>` 生成 |
+| `VRCDOG_REGISTER_SKIP_VERIFY` | 未设置 | 设为 `1` 可关闭注册的 VRChat 身份核验。**会重新暴露冒名风险**，仅限可信内网 |
+| `VRCDOG_ALLOWED_EXTERNAL_HOSTS` | 未设置 | 逗号分隔的白名单。设置后，客户端 `allow_external_host` 请求只能访问清单内主机（含子域） |
+| `VRCDOG_SERVER_TLS_CERT` / `VRCDOG_SERVER_TLS_KEY` | 未设置 | 独立服务端启用 HTTPS / wss。两者都设置才生效，见 `main.rs` 的 TLS 分支 |
+
+> **v5.6.0 破坏性变更**：`/api/client/register` 现在会用客户端的 VRChat 会话 Cookie
+> 向 `api.vrchat.cloud` 反查真实 user id，不一致即拒绝。因此**服务端必须能出网访问
+> VRChat 官方 API**；无法出网的部署请显式设置 `VRCDOG_REGISTER_SKIP_VERIFY=1`。
+
+---
+
+## 9. 常见问题与排坑
 
 ### prepare-python-runtime pip install 卡死
 
@@ -271,6 +286,7 @@ git push origin v5.0.x
 
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
+| v5.6.0 | 2026-09-13 | 注册接口 VRChat 身份核验（L2）；管理员口令爆破锁定（R4）；远程协助默认 wss + 监听收敛到回环（R5）；外部请求 DNS rebinding 防护与可选白名单（R9）；敏感字符串改用 DPAPI 加密存储（S4）；midishow 请求超时补齐（B6）；好友列表增量更新（P1）；OSC 套接字复用（P6）；开启 updater 产物生成 |
 | v5.5.0 | 2026-09-13 | 客户端令牌鉴权 + 服务端 HTTPS 支持；移除硬编码默认管理员密码（改为环境变量，未配置则拒绝）；更新强制 SHA-256 校验 + GitHub 官方域名白名单；TTS / VRChat 启动参数命令注入修复；远程协助加密隧道 nonce 重放防护；启动自动登录；日志敏感字段脱敏；VRPiano OSC 地址对齐 VRChat_MIDI_Player |
 | v5.0.9 | 2026-08-19 | 修复更新黑屏 cmd 窗口（改用 schtasks 派发）；登录页新增静默预检测更新红点提示 |
 | v5.0.8 | 2026-08-19 | 修复 OS error 32 无法启动安装程序（引入 bootstrapper.cmd + DETACHED_PROCESS 派发）；release 命名改为中文格式 |

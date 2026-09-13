@@ -635,10 +635,61 @@ fn websocket_url(server: &ServerConfig) -> Result<String, String> {
         format!("ws://{rest}")
     } else if base.starts_with("ws://") || base.starts_with("wss://") {
         base.to_string()
-    } else {
+    } else if is_loopback_host(base) {
+        // 本机回环没有中间人风险，明文 ws 可接受
         format!("ws://{base}")
+    } else {
+        // R5：未显式指定协议且目标不是本机时，一律走加密 WebSocket。
+        // 明文 ws 会让配对口令与远程协助流量在公网/局域网上被直接嗅探。
+        format!("wss://{base}")
     };
     Ok(format!("{websocket_base}/api/remote-assist/ws"))
+}
+
+/// 判断目标是否为本机回环地址（只有这种情况才允许明文 ws）。
+fn is_loopback_host(base: &str) -> bool {
+    let raw = base
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .rsplit('@')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let host = if let Some(inner) = raw.strip_prefix('[') {
+        // [::1]:9000 这类 IPv6 字面量，先取方括号内部分再谈端口
+        inner.split(']').next().unwrap_or(inner).to_string()
+    } else {
+        raw.rsplit_once(':')
+            .map(|(host, _)| host.to_string())
+            .unwrap_or(raw.clone())
+    };
+    matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1") || raw == "::1"
+}
+
+#[cfg(test)]
+mod transport_url_tests {
+    use super::is_loopback_host;
+
+    #[test]
+    fn loopback_hosts_are_recognized() {
+        assert!(is_loopback_host("127.0.0.1:11451"));
+        assert!(is_loopback_host("localhost:11451"));
+        assert!(is_loopback_host("http://127.0.0.1:11451"));
+        assert!(is_loopback_host("[::1]:11451"));
+        assert!(is_loopback_host("::1"));
+    }
+
+    #[test]
+    fn remote_hosts_are_not_loopback() {
+        assert!(!is_loopback_host("vrcdog.example.com"));
+        assert!(!is_loopback_host("https://vrcdog.example.com"));
+        assert!(!is_loopback_host("192.168.1.50:11451"));
+        assert!(!is_loopback_host("http://192.168.1.50:11451"));
+    }
 }
 
 fn string_field(value: &Value, key: &str) -> String {

@@ -243,7 +243,9 @@ class MidiShowAPI:
                 "X-Csrf-Token": csrf_token,
                 "X-Requested-With": "XMLHttpRequest"
             }),
-            data={"id": midi_id}
+            # B6：必须带超时，否则对端不响应时会永久阻塞整个下载流程
+            data={"id": midi_id},
+            timeout=20,
         )
         rsp1.encoding = "utf-8"
         if rsp1.status_code == 403:
