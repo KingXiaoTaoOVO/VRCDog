@@ -16,7 +16,9 @@
 5. [CI 自动构建](#5-ci-自动构建)
 6. [本地打包（bun）](#6-本地打包bun)
 7. [发布命名规范](#7-发布命名规范)
-8. [常见问题与排坑](#8-常见问题与排坑)
+8. [服务端环境变量（v5.6.0 起）](#8-服务端环境变量v560-起)
+9. [常见问题与排坑](#9-常见问题与排坑)
+10. [已知待办：Bilibili 会话凭据明文存储](#10-已知待办bilibili-会话凭据明文存储)
 
 ---
 
@@ -302,6 +304,44 @@ git push origin v5.0.x
 ```
 
 ---
+
+## 10. 已知待办：Bilibili 会话凭据明文存储
+
+**状态**：已确认，计划随下个功能版一起修复（不单独发补丁版）。
+**发现时间**：2026-09-13，v5.6.2 发布后的安全复查。属于 S4 同类问题，且为历史遗留、非 v5.6.x 引入。
+
+### 现状
+
+Bilibili 的三个会话凭据走的是通用设置通道 `DbApi.saveSetting`：
+
+| 键 | 含义 |
+|------|------|
+| `bili_sessdata` | SESSDATA，完整会话令牌，等同密码 |
+| `bili_jct` | CSRF token |
+| `bili_buvid3` | 设备标识 |
+
+- **桌面端**：`db_save_setting` 明文写入 SQLite 的 `app_settings` 表（`src-tauri/src/db.rs:630`）
+- **Web 端**：明文写入 `localStorage` 的 `vrcdog_setting_<key>`（`src/api/index.ts:1582`）
+
+### 严重度：中等
+
+- 桌面端需要本机文件访问（恶意软件、他人接触电脑）才能读到，不是远程可利用
+- Web 端需要 XSS 才能读到
+- 日志侧已经安全：`src/api/index.ts:29` 的 `SENSITIVE_ARG_KEYS` 已覆盖
+  `sessdata` / `bili_jct` / `buvid3`，不会泄漏到日志
+
+### 修复方案（下个功能版执行）
+
+参照 v5.6.1 处理 Translator API Key 的方式：
+
+1. 在设置通道里把这三个键识别为敏感键
+2. 桌面端改走 `sys_store_secure_string` / `sys_load_secure_string`（DPAPI / ChaCha20 加密）
+3. Web 端改走 `sessionStorage`（标签页级，关闭即清除）
+4. 读取时先走新路径，取不到再回退旧值并迁移，迁移完成后清除旧值
+
+读写点约 11 处，集中在 `src/components/BilidownView.vue` 与 `src/components/DanmakuView.vue`。
+改动会触及 Bilibili 登录流程，修复后必须实测两条路径：
+「登录 → 重启应用 → 凭据仍在」与「退出登录 → 凭据已清除」。
 
 ## 附录：版本变更历史
 
