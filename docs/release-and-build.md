@@ -2,7 +2,7 @@
 
 本文档覆盖 VRCDog 从代码修改到发布新版本、本地打包的完整工作流。
 
-> **最后更新**：2026-09-13（v5.5.0）
+> **最后更新**：2026-09-13（v5.6.2）
 > **维护者**：KingXiaoTaoOVO
 
 ---
@@ -307,6 +307,7 @@ git push origin v5.0.x
 
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
+| v5.6.2 | 2026-09-13 | 修复 v5.6.0 引入的回归：R9 的 DNS rebinding 检查会误杀「域名解析到私有地址」的内网自建服务端；现在命中 VRCDOG_ALLOWED_EXTERNAL_HOSTS 白名单的主机直接放行、跳过 DNS 检查 |
 | v5.6.1 | 2026-09-13 | 修复 API Key 仍明文落 localStorage：v5.6.0 的 `useStorage` 是无条件写 localStorage，Tauri 模式下 DPAPI 加密被绕过；现在 Tauri 只写加密存储，Web 退到 sessionStorage，并迁移清除旧明文 |
 | v5.6.0 | 2026-09-13 | 注册接口 VRChat 身份核验（L2）；管理员口令爆破锁定（R4）；远程协助默认 wss + 监听收敛到回环（R5）；外部请求 DNS rebinding 防护与可选白名单（R9）；敏感字符串改用 DPAPI 加密存储（S4）；midishow 请求超时补齐（B6）；好友列表增量更新（P1）；OSC 套接字复用（P6）。**updater 产物仍关闭**：仓库 Secrets 里的签名私钥与口令不匹配，需先轮换密钥 |
 | v5.5.0 | 2026-09-13 | 客户端令牌鉴权 + 服务端 HTTPS 支持；移除硬编码默认管理员密码（改为环境变量，未配置则拒绝）；更新强制 SHA-256 校验 + GitHub 官方域名白名单；TTS / VRChat 启动参数命令注入修复；远程协助加密隧道 nonce 重放防护；启动自动登录；日志敏感字段脱敏；VRPiano OSC 地址对齐 VRChat_MIDI_Player |
