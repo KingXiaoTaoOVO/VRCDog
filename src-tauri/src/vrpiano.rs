@@ -18,7 +18,7 @@ use tauri::{Emitter, Manager};
 mod midi_backend;
 use midi_backend::{MidiDevice, MidiOutputBackend, MidiOutputState};
 
-const NOTE_HOLD_MS: u64 = 28;
+const NOTE_HOLD_MS: u64 = 42;
 const SPEED_STEP: f64 = 0.1;
 const MAX_MIDI_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
 const MIDISHOW_LOGIN_WINDOW_LABEL: &str = "midishow-login";
@@ -1287,6 +1287,7 @@ pub async fn vrpiano_start(
                 "osc" | "vrchat_osc" => "osc",
                 _ => "keyboard",
             }.to_string();
+            runtime.hotkey_song_path = request.song_path.trim().to_string();
             if runtime.playlist.is_empty() {
                 runtime.playlist = vec![request.song_path.trim().to_string()];
                 runtime.current_index = 0;
@@ -1422,7 +1423,18 @@ fn maybe_advance_playlist(
                     let _ = start_playback(app.clone(), state.clone(), mb, rec, req);
                 }
             }
-            _ => {}
+            "keyboard" | _ => {
+                if let (Some(mb), Some(rec)) = (midi_backend, recorder) {
+                    let req = VrpianoStartRequest {
+                        song_path: path.to_string(),
+                        delay_secs: 1,
+                        speed,
+                        output_mode: "keyboard".into(),
+                        midi_output_device: None,
+                    };
+                    let _ = start_playback(app.clone(), state.clone(), mb, rec, req);
+                }
+            }
         }
 }
 
@@ -1571,6 +1583,7 @@ pub async fn vrpiano_start_vrchat_osc(
             };
             runtime.vrchat_osc_avatar_prefix = request.avatar_prefix.trim().trim_end_matches('/').to_string();
             runtime.active_engine = "osc".to_string();
+            runtime.hotkey_song_path = request.song_path.trim().to_string();
             if runtime.playlist.is_empty() {
                 runtime.playlist = vec![request.song_path.trim().to_string()];
                 runtime.current_index = 0;
@@ -1818,10 +1831,14 @@ fn start_playback(
                 return status_snapshot(&app, &state);
         }
 
+        let midi_backend_for_run = midi_backend.clone();
+        let recorder_for_run = recorder.clone();
         thread::spawn(move || {
             run_playback(
                 app_handle,
                 state_inner,
+                midi_backend_for_run,
+                recorder_for_run,
                 stop_flag,
                 pause_flag,
                 song_name,
@@ -2112,41 +2129,65 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
         match vk {
             112 => {
                 let (running, song_path, delay_secs, output_mode) = match context.state.lock() {
-                    Ok(runtime) => (
-                        runtime.status.running,
-                        runtime.hotkey_song_path.clone(),
-                        runtime.hotkey_delay_secs,
-                        runtime.active_engine.clone(),
-                    ),
+                    Ok(runtime) => {
+                        let path = if !runtime.hotkey_song_path.is_empty() {
+                            runtime.hotkey_song_path.clone()
+                        } else if !runtime.status.song_path.is_empty() {
+                            runtime.status.song_path.clone()
+                        } else if !runtime.playlist.is_empty() {
+                            runtime.playlist.get(runtime.current_index).cloned().unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+                        (
+                            runtime.status.running,
+                            path,
+                            runtime.hotkey_delay_secs,
+                            runtime.active_engine.clone(),
+                        )
+                    }
                     Err(_) => return,
                 };
                 if running {
                     let _ = toggle_playback_pause(context.app.clone(), context.state.clone());
-                } else if output_mode == "osc" {
-                    let _ = begin_vrchat_osc(&context.app, &context.state, &song_path, delay_secs, current_speed(&context.state));
-                } else {
-                    let request = VrpianoStartRequest {
-                        song_path,
-                        delay_secs,
-                        speed: current_speed(&context.state),
-                        output_mode: output_mode.clone(),
-                        midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
-                    };
-                    let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
+                } else if !song_path.is_empty() {
+                    if output_mode == "osc" {
+                        let _ = begin_vrchat_osc(&context.app, &context.state, &song_path, delay_secs, current_speed(&context.state));
+                    } else {
+                        let request = VrpianoStartRequest {
+                            song_path,
+                            delay_secs,
+                            speed: current_speed(&context.state),
+                            output_mode: output_mode.clone(),
+                            midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
+                        };
+                        let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
+                    }
                 }
             }
             113 => {
                 let (running, song_path, delay_secs, output_mode) = match context.state.lock() {
-                    Ok(runtime) => (
-                        runtime.status.running,
-                        runtime.status.song_path.clone(),
-                        runtime.hotkey_delay_secs,
-                        runtime.active_engine.clone(),
-                    ),
+                    Ok(runtime) => {
+                        let path = if !runtime.status.song_path.is_empty() {
+                            runtime.status.song_path.clone()
+                        } else if !runtime.hotkey_song_path.is_empty() {
+                            runtime.hotkey_song_path.clone()
+                        } else if !runtime.playlist.is_empty() {
+                            runtime.playlist.get(runtime.current_index).cloned().unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+                        (
+                            runtime.status.running,
+                            path,
+                            runtime.hotkey_delay_secs,
+                            runtime.active_engine.clone(),
+                        )
+                    }
                     Err(_) => return,
                 };
                 if !song_path.is_empty() {
-                if running {
+                    if running {
                         let _ = stop_playback(context.app.clone(), context.state.clone());
                         for _ in 0..50 {
                             let stopped = context
@@ -2171,11 +2212,11 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                             let _ = begin_vrchat_osc(&context.app, &context.state, &song_path, delay_secs, current_speed(&context.state));
                         } else {
                             let request = VrpianoStartRequest {
-                            song_path,
-                            delay_secs,
-                            speed: current_speed(&context.state),
-                            output_mode: output_mode.clone(),
-                            midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
+                                song_path,
+                                delay_secs,
+                                speed: current_speed(&context.state),
+                                output_mode: output_mode.clone(),
+                                midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
                             };
                             let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
                         }
@@ -2215,6 +2256,8 @@ fn record_hotkey(app: &tauri::AppHandle, state: &Arc<Mutex<VrpianoRuntime>>, vk:
 fn run_playback(
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
+    midi_backend: Arc<Mutex<MidiOutputBackend>>,
+    recorder: Arc<Mutex<MidiRecorder>>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     song_name: String,
@@ -2233,6 +2276,9 @@ fn run_playback(
             emit_status(&app, &state);
             sleep_unscaled_interruptible(1_000, &stop, &paused);
         }
+
+        #[cfg(target_os = "windows")]
+        focus_vrchat_window();
 
         let mut active_keys = HashSet::new();
         let mut last_at = 0_u64;
@@ -2303,6 +2349,10 @@ fn run_playback(
             "Playback finished".to_string()
         };
     });
+    if !stop.load(Ordering::SeqCst) {
+        stop.store(true, Ordering::SeqCst);
+        maybe_advance_playlist(app.clone(), state.clone(), "keyboard", Some(midi_backend.clone()), Some(recorder.clone()));
+    }
     clear_playback_if_current(&state, &stop);
     emit_status(&app, &state);
 }
@@ -2637,23 +2687,66 @@ fn run_vrchat_osc_playback(
 }
 
 #[cfg(target_os = "windows")]
+fn focus_vrchat_window() {
+    use windows::core::w;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        ShowWindow, BringWindowToTop, SW_RESTORE,
+    };
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+
+    let Ok(window) = (unsafe { FindWindowW(None, w!("VRChat")) }) else {
+        return;
+    };
+    if window.0.is_null() {
+        return;
+    }
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let current_tid = GetCurrentThreadId();
+        let foreground_tid = GetWindowThreadProcessId(foreground, None);
+        if foreground_tid != 0 && foreground_tid != current_tid {
+            let _ = AttachThreadInput(current_tid, foreground_tid, true);
+            let _ = ShowWindow(window, SW_RESTORE);
+            let _ = SetForegroundWindow(window);
+            let _ = BringWindowToTop(window);
+            let _ = AttachThreadInput(current_tid, foreground_tid, false);
+        } else {
+            let _ = ShowWindow(window, SW_RESTORE);
+            let _ = SetForegroundWindow(window);
+            let _ = BringWindowToTop(window);
+        }
+    }
+    thread::sleep(Duration::from_millis(150));
+}
+
+#[cfg(not(target_os = "windows"))]
+fn focus_vrchat_window() {}
+
+#[cfg(target_os = "windows")]
 fn send_key(vk: u16, key_up: bool) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+        KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
         VIRTUAL_KEY,
     };
 
-    let flags = if key_up {
+    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
+    let mut flags = if key_up {
         KEYEVENTF_KEYUP
     } else {
         KEYBD_EVENT_FLAGS(0)
     };
+    if vk == 111 || (vk >= 33 && vk <= 46) {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+
     let input = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: VIRTUAL_KEY(vk),
-                wScan: 0,
+                wScan: scan,
                 dwFlags: flags,
                 time: 0,
                 dwExtraInfo: 0,
@@ -2664,6 +2757,9 @@ fn send_key(vk: u16, key_up: bool) {
         SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
     }
 }
+
+#[cfg(not(target_os = "windows"))]
+fn send_key(_vk: u16, _key_up: bool) {}
 
 fn parse_midi_events(path: &Path) -> Result<(Vec<PlayEvent>, u64), String> {
     let bytes = fs::read(path).map_err(|e| format!("Failed to read MIDI: {e}"))?;
@@ -4756,6 +4852,94 @@ fn midishow_title(project_path: &Path, midi_id: u64) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Reject path shapes that the Windows command-line parser can reduce to a
+/// bare drive root before Node even sees argv[1]: empty paths, drive-only
+/// forms ("C", "C:", "C:/", "C:\\"), UNC roots, and the canonicalised
+/// `\\?\X:\` form that `std::fs::canonicalize` returns for a bare drive.
+/// Any of these crash Node's CJS loader with `EISDIR: lstat 'D:'`.
+fn is_unsafe_spawn_path(path: &Path) -> bool {
+    let text = path.as_os_str().to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    // Strip the Windows extended-length / device namespace prefix before
+    // scanning so `\\?\D:\` is treated the same as `D:\`.
+    let stripped = trimmed
+        .strip_prefix(r"\\?\")
+        .or_else(|| trimmed.strip_prefix(r"\\.\"))
+        .unwrap_or(trimmed);
+    // Drive-absolute-only paths: `<letter>:` followed by zero or more path
+    // separators and nothing else. Anything more than that (e.g. `D:foo`,
+    // `D:/foo/bar`) is allowed because it points at a real location.
+    if let Some(colon_idx) = stripped.find(':') {
+        let (prefix, after_colon) = stripped.split_at(colon_idx);
+        let after = &after_colon[1..]; // skip the ':'
+        let only_seps = after.chars().all(|c| c == '\\' || c == '/');
+        let is_alpha_prefix = !prefix.is_empty()
+            && prefix.chars().all(|c| c.is_ascii_alphabetic());
+        if is_alpha_prefix && only_seps {
+            return true;
+        }
+    }
+    false
+}
+
+/// Resolve `path` to a real, canonicalized file. Refuses drive-only paths
+/// so we never hand Node a script argument it cannot stat.
+fn require_real_file(path: &Path, label: &str) -> Result<PathBuf, String> {
+    if is_unsafe_spawn_path(path) {
+        return Err(format!(
+            "{label} is not a usable script path: {}",
+            path.display()
+        ));
+    }
+    let canonical = std::fs::canonicalize(path).map_err(|e| {
+        format!(
+            "Failed to canonicalize {label} ({}): {e}",
+            path.display()
+        )
+    })?;
+    if is_unsafe_spawn_path(&canonical) {
+        return Err(format!(
+            "{label} canonicalized to an unusable path: {}",
+            canonical.display()
+        ));
+    }
+    if !canonical.is_file() {
+        return Err(format!(
+            "{label} is not a file: {}",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
+}
+
+/// Resolve `path` to a real, canonicalized directory. Same protections as
+/// [`require_real_file`]; Node resolves argv[1] against this directory, so
+/// an unsafe cwd re-introduces the EISDIR class of bug.
+fn require_real_dir(path: &Path, label: &str) -> Result<PathBuf, String> {
+    if is_unsafe_spawn_path(path) {
+        return Err(format!(
+            "{label} is not a usable directory path: {}",
+            path.display()
+        ));
+    }
+    let canonical = std::fs::canonicalize(path).map_err(|e| {
+        format!(
+            "Failed to canonicalize {label} ({}): {e}",
+            path.display()
+        )
+    })?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "{label} is not a directory: {}",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
+}
+
 /// Resolve `node` to a concrete `node.exe` on PATH. Preferring the `.exe`
 /// directly (instead of relying on CreateProcessW's `.cmd` shim discovery)
 /// avoids a command-line re-parse that can mangle the script path into a bare
@@ -4783,18 +4967,31 @@ fn run_midishow_cli_json_with_timeout(
 ) -> Result<serde_json::Value, String> {
     let cli = find_midishow_cli(project_path)
         .ok_or_else(|| format!("Midishow CLI not found near: {}", project_path.display()))?;
-    // Canonicalize to a fully-qualified, drive-absolute path so Windows Node
-    // never receives a drive-relative path (e.g. `C:`) that triggers EISDIR.
-    let cli = std::fs::canonicalize(&cli).unwrap_or(cli);
-    if !cli.is_file() {
-        return Err(format!("Midishow CLI is not a file: {}", cli.display()));
-    }
+    // Canonicalize and harden the script path. Silently falling back to the
+    // original path (the previous `unwrap_or(cli)`) lets CreateProcessW hand
+    // Node a drive-relative path like `D:`, which crashes Node's CJS loader
+    // with `EISDIR: lstat 'D:'` (see realpathSync -> toRealPath). Reject any
+    // path that canonicalize refuses or that is not a real file.
+    let cli = require_real_file(&cli, "Midishow CLI")?;
+    // current_dir must also be canonicalized and a directory; Node resolves
+    // argv[1] against this directory, so an unsafe working dir re-introduces
+    // the same drive-relative failure.
+    let workdir = cli
+        .parent()
+        .ok_or_else(|| format!("Midishow CLI has no parent directory: {}", cli.display()))?;
+    let workdir = require_real_dir(workdir, "Midishow CLI working directory")?;
     let node = resolve_node_exe();
+    // Pass the script as its bare filename so Node's CJS loader resolves it
+    // against the canonicalized cwd instead of receiving an argv[1] that the
+    // Windows command-line parser can mangle into a drive root.
+    let script_name = cli
+        .file_name()
+        .ok_or_else(|| format!("Midishow CLI path has no filename: {}", cli.display()))?;
     let mut command = std::process::Command::new(&node);
     command
-        .arg(&cli)
+        .arg(script_name)
         .args(args)
-        .current_dir(cli.parent().unwrap_or(project_path))
+        .current_dir(&workdir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     // The node CLI (axios) does not inherit the Windows system proxy, so pass
@@ -5711,5 +5908,89 @@ mod vrpiano_download_tests {
             osc_note_address("AVATAR", "/avatar/parameters/PianoKeys", 60),
             "/avatar/parameters/PianoKeys060"
         );
+    }
+}
+
+#[cfg(test)]
+mod midishow_spawn_tests {
+    use super::{is_unsafe_spawn_path, require_real_dir, require_real_file};
+    use std::path::PathBuf;
+
+    #[test]
+    fn rejects_bare_drive_paths_that_trigger_eisdir() {
+        // The exact failure modes Node v25 hits when CreateProcessW mangles
+        // argv[1]: every one of these used to crash with
+        // `EISDIR: illegal operation on a directory, lstat 'D:'`.
+        for raw in [
+            "D:",
+            "D:\\",
+            "D:/",
+            "C:",
+            "c:",
+            "Z:\\\\",
+            "\\\\?\\D:\\",
+            "",
+            "   ",
+        ] {
+            assert!(
+                is_unsafe_spawn_path(&PathBuf::from(raw)),
+                "expected `{raw}` to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_real_file_paths() {
+        // Locate any real file on disk so the test is portable across CI.
+        let cargo = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .or_else(|_| std::env::current_dir())
+            .expect("cargo manifest or cwd must be available");
+        let candidate = cargo.join("Cargo.toml");
+        if !candidate.is_file() {
+            // Skip if the test is run outside the project tree.
+            return;
+        }
+        let canonical = require_real_file(&candidate, "Cargo.toml")
+            .expect("canonicalize of a real file must succeed");
+        assert!(canonical.is_file(), "canonicalized path must still be a file");
+        assert!(
+            canonical.to_string_lossy().len() > candidate.to_string_lossy().len() / 2,
+            "canonicalization should produce a usable absolute path"
+        );
+    }
+
+    #[test]
+    fn rejects_path_that_fails_to_canonicalize() {
+        let bogus = PathBuf::from("Z:/this/path/should/not/exist/anywhere/cli.js");
+        let result = require_real_file(&bogus, "Midishow CLI");
+        assert!(result.is_err(), "missing files must be rejected, not silently kept");
+    }
+
+    #[test]
+    fn rejects_directory_when_file_is_required() {
+        let cargo = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+        let dir = cargo.join("src");
+        if !dir.is_dir() {
+            return;
+        }
+        let result = require_real_file(&dir, "Midishow CLI");
+        assert!(result.is_err(), "directories must not be accepted as scripts");
+    }
+
+    #[test]
+    fn canonicalizes_real_directory_for_cwd() {
+        let cargo = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+        let dir = cargo.join("src");
+        if !dir.is_dir() {
+            return;
+        }
+        let canonical = require_real_dir(&dir, "working dir")
+            .expect("canonicalize of a real directory must succeed");
+        assert!(canonical.is_dir());
     }
 }

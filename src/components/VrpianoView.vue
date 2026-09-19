@@ -114,9 +114,9 @@ const onlineBusyId = ref<number | null>(null);
 const error = ref('');
 const delaySecs = ref(5);
 const speed = ref(1);
-const hotkeysEnabled = ref(false);
-const vrchatOscHost = ref('127.0.0.1');
-const vrchatOscPort = ref(9000);
+const hotkeysEnabled = useStorage('vrcdog.vrpiano.hotkeysEnabled.v1', true);
+const vrchatOscHost = useStorage('vrcdog.vrpiano.vrchatOscHost.v1', '127.0.0.1');
+const vrchatOscPort = useStorage('vrcdog.vrpiano.vrchatOscPort.v1', 9000);
 const vrchatOscMode = useStorage<'piano' | 'avatar'>('vrcdog.vrpiano.oscMode.v1', 'piano');
 const vrchatOscAvatarPrefix = useStorage('vrcdog.vrpiano.oscAvatarPrefix.v1', '/avatar/parameters/note');
 const vrchatOscEnabled = ref(false);
@@ -192,7 +192,7 @@ const excludeDrums = ref(true);
 const playMode = ref('sequential');
 const playlist = ref<string[]>([]);
 const midiDevices = ref<Array<{ id: string; name: string; kind: string }>>([]);
-const selectedMidiDevice = ref('');
+const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const midiOutputState = ref<{ connected: boolean; device_id?: string; device_name?: string }>({ connected: false });
 const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v1', 'keyboard');
 const channelRouted = ref<boolean[]>(Array.from({ length: 16 }, () => true));
@@ -803,7 +803,11 @@ const init = async () => {
   error.value = '';
   try {
     status.value = await VrpianoApi.init();
-    hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
+    if (hotkeysEnabled.value) {
+      await applyHotkeys(false);
+    } else {
+      hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
+    }
     await Promise.all([refreshSongs(), loadMidishowAccounts(), refreshMidiDevices()]);
     addLog(t('vrpiano.vrpiano_is_ready'));
   } catch (e: any) {
@@ -1685,6 +1689,9 @@ onMounted(async () => {
     });
     unlistenStatus = await listen<VrpianoStatus>('vrpiano_status', (event) => {
       status.value = event.payload;
+      if (event.payload.running && playerPlaying.value) {
+        pausePlayer();
+      }
       if (Number.isFinite(event.payload.speed)) speed.value = event.payload.speed;
       hotkeysEnabled.value = Boolean(event.payload.hotkeys_enabled);
       if (event.payload.song_path && songs.value.some((song) => song.path === event.payload.song_path)) {
@@ -1722,11 +1729,11 @@ onMounted(async () => {
   // works without VRCDog being focused) — no JS keydown listener needed here.
 });
 
-onUnmounted(() => {
+onUnmounted(async () => {
   vrpianoDisposed = true;
-  // 关闭钢琴面板时停止后端播放（含 VRChat OSC 无接触模式）。
-  // 否则后台播放线程会继续向 VRChat 发 OSC，远程钢琴会一直弹奏且无法停止。
-  if (status.value.running) {
+  // 关闭钢琴面板时，若悬浮窗未打开则停止后端播放；若悬浮窗仍打开，则允许继续演奏。
+  const overlayWindow = isTauri() ? await WebviewWindow.getByLabel('vrpiano-overlay').catch(() => null) : null;
+  if (!overlayWindow && status.value.running) {
     void VrpianoApi.stop().catch(() => {});
   }
   if (unlistenStatus) unlistenStatus();

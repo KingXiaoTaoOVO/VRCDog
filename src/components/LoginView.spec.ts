@@ -132,6 +132,7 @@ describe('LoginView two-factor flow', () => {
     });
     expect(mocks.getCurrentUser).toHaveBeenCalledWith({
       authCookie: '["auth=pending","twoFactorAuth=session"]',
+      suppressAuthExpired: true,
     });
     expect(wrapper.emitted('login-success')).toBeTruthy();
   });

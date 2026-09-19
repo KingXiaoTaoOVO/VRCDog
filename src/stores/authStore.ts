@@ -502,7 +502,24 @@ export const useAuthStore = defineStore('auth', () => {
           await DbApi.clearAuth();
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      // A 401 from /auth/user means the saved session is dead; without
+      // clearing it the login screen will keep popping back to the role
+      // picker on every launch (and global listeners may treat the stale
+      // cookie as live).
+      const status = err?.status;
+      const respMsg = String(
+        err?.response?.error?.message ||
+        err?.response?.message ||
+        err?.response?.details ||
+        '',
+      ).toLowerCase();
+      const looksExpired =
+        status === 401 ||
+        /missing credentials|invalid credentials|expired|login required|not logged in/.test(respMsg);
+      if (looksExpired) {
+        try { await DbApi.clearAuth(); } catch { /* ignore */ }
+      }
       // Network failures leave the app on the login screen. A cached user is
       // not sufficient to start authenticated API traffic.
       console.warn('[Auth] automatic login verification failed', err);

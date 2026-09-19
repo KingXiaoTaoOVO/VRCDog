@@ -484,7 +484,13 @@ const handle2FA = async () => {
 
       const finalCookie = await DbApi.getAuth().catch(() => null);
       const effectiveCookie = normalizeAuthCookieJson(finalCookie || authCookie.value);
-      const user: any = await VrcApi.getCurrentUser({ authCookie: effectiveCookie });
+      // Confirm the freshly-2FA-verified session without re-entering the
+      // global logout pipeline. The dedicated App.vue handler already
+      // validates auth on any vrc-auth-expired event from other paths.
+      const user: any = await VrcApi.getCurrentUser({
+        authCookie: effectiveCookie,
+        suppressAuthExpired: true,
+      });
       if (user?.id || user?.currentUser || user?.current_user) {
         const currentUser = user.currentUser || user.current_user || user;
         await saveCurrentAccount(currentUser, effectiveCookie);

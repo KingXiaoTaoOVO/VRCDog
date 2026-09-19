@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   togglePause: vi.fn(),
   previewSong: vi.fn(),
+  setHotkeys: vi.fn(),
+  startVrchatOsc: vi.fn(),
   status: {} as any,
   songs: [] as any[],
   focusHandler: null as null | ((event: { payload: boolean }) => void),
@@ -54,8 +56,12 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({
     'vrpiano_overlay.start': '开始',
     'vrpiano_overlay.pause': '暂停',
     'vrpiano_overlay.resume': '继续',
-    'vrpiano_overlay.preview_on': '双击试听',
+    'vrpiano_overlay.preview_on': '单击试听',
     'vrpiano_overlay.preview_off': '试听关闭',
+    'vrpiano_overlay.mode_keyboard': '键盘模拟',
+    'vrpiano_overlay.previewing': '试听中',
+    'vrpiano_overlay.on': '开启',
+    'vrpiano_overlay.off': '关闭',
   } as Record<string, string>)[key] || key,
 }) }));
 vi.mock('@tauri-apps/api/event', () => ({ emit: mocks.emit, listen: mocks.listen }));
@@ -81,6 +87,8 @@ vi.mock('../api', () => ({
     stop: mocks.stop,
     togglePause: mocks.togglePause,
     previewSong: mocks.previewSong,
+    setHotkeys: mocks.setHotkeys,
+    startVrchatOsc: mocks.startVrchatOsc,
   },
 }));
 
@@ -132,6 +140,14 @@ describe('VrpianoOverlayView appearance controls', () => {
       return { ...mocks.status };
     });
     mocks.previewSong.mockImplementation(async () => undefined);
+    mocks.setHotkeys.mockImplementation(async (params: any) => {
+      mocks.status = { ...mocks.status, hotkeys_enabled: params.enabled };
+      return { ...mocks.status };
+    });
+    mocks.startVrchatOsc.mockImplementation(async ({ songPath }: { songPath: string }) => {
+      mocks.status = { ...mocks.status, running: true, song_path: songPath };
+      return { ...mocks.status };
+    });
   });
 
   it('updates opacity and toggles the native backdrop effect', async () => {
@@ -217,27 +233,52 @@ describe('VrpianoOverlayView appearance controls', () => {
     wrapper.unmount();
   });
 
-  it('previews a song on double click while the preview switch is enabled', async () => {
+  it('previews a song on single click and plays in game on double click', async () => {
+    vi.useFakeTimers();
     mocks.songs = [{ id: 'song-1', name: 'Test Song', path: 'C:/songs/test.mid', size: 10, modified_ms: 1 }];
     const wrapper = mount(VrpianoOverlayView);
     await flushPromises();
 
     const songButton = wrapper.get('.playlist-scroll button');
-    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('双击试听');
-    await songButton.trigger('dblclick');
+    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('单击试听');
+
+    // Single click triggers preview after timer
+    await songButton.trigger('click');
+    await vi.advanceTimersByTimeAsync(230);
     await flushPromises();
     expect(mocks.emit).toHaveBeenCalledWith(VRPIANO_PREVIEW_SONG_EVENT, { songPath: 'C:/songs/test.mid' });
-    expect(mocks.previewSong).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
 
-    await wrapper.get('[data-testid="preview-toggle"]').trigger('click');
-    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('试听关闭');
-    mocks.previewSong.mockClear();
+    // Double click plays in game immediately
     mocks.emit.mockClear();
+    mocks.start.mockClear();
     await songButton.trigger('dblclick');
     await flushPromises();
-    expect(mocks.previewSong).not.toHaveBeenCalled();
-    expect(mocks.emit).not.toHaveBeenCalledWith(VRPIANO_PREVIEW_SONG_EVENT, { songPath: 'C:/songs/test.mid' });
+    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
 
+    // When preview is disabled, single click does not preview
+    await wrapper.get('[data-testid="preview-toggle"]').trigger('click');
+    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('试听关闭');
+    mocks.emit.mockClear();
+    mocks.start.mockClear();
+    await songButton.trigger('click');
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(mocks.emit).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('allows toggling global hotkeys directly from the hotkey header', async () => {
+    mocks.songs = [{ id: 'song-1', name: 'Test Song', path: 'C:/songs/test.mid', size: 10, modified_ms: 1 }];
+    const wrapper = mount(VrpianoOverlayView);
+    await flushPromises();
+
+    const hotkeyHeader = wrapper.get('.hotkey-title.clickable');
+    await hotkeyHeader.trigger('click');
+    await flushPromises();
+
+    expect(mocks.setHotkeys).toHaveBeenCalled();
     wrapper.unmount();
   });
 });

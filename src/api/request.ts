@@ -528,12 +528,19 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         continue;
       }
 
-      // Handle 401 auto-retry
+      // Handle 401 auto-retry. When the caller asked us to suppress the
+      // auth-expired side effect (e.g. the login form, 2FA verify, or any
+      // caller that wants to interpret 401 itself) we MUST NOT replay the
+      // request: the replay can re-trigger the global logout handler and
+      // any stale retry-cookie will overwrite the freshly-set 2FA cookie,
+      // causing the user to be kicked back to the login screen right after
+      // they typed their code.
       if (
         res.status === 401 &&
         isVrchat &&
         !reqUrl.includes('/config') &&
-        !isVrchatPermissionError(res.status, reqUrl, errorMessage)
+        !isVrchatPermissionError(res.status, reqUrl, errorMessage) &&
+        !options.suppressAuthExpired
       ) {
         if (res.auth_cookie) {
           try { await mergeCookiesAndSave(res.auth_cookie); } catch { /* ignore */ }
@@ -611,6 +618,17 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         });
       }
       if (isVrchatAuthExpired(res.status, reqUrl, errorMessage)) {
+        if (options.suppressAuthExpired) {
+          // Caller explicitly opted out of the session-expiry signal.
+          // Surface the raw 401 + body so the caller (e.g. LoginView) can
+          // inspect `requiresTwoFactorAuth` or show its own error message.
+          throw new VrcRequestError(errorMessage, {
+            code: 'VRCHAT_HTTP_ERROR',
+            status: res.status,
+            url: reqUrl,
+            response: parsed,
+          });
+        }
         throw new VrcRequestError(errorMessage, {
           code: 'VRCHAT_AUTH_EXPIRED',
           status: res.status,

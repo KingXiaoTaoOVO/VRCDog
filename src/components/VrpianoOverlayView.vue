@@ -81,6 +81,19 @@ const overlayBlur = useStorage(VRPIANO_OVERLAY_BLUR_KEY, DEFAULT_VRPIANO_OVERLAY
 const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
 const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', true);
 const previewingPath = ref('');
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v1', 'keyboard');
+const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
+const vrchatOscHost = useStorage('vrcdog.vrpiano.vrchatOscHost.v1', '127.0.0.1');
+const vrchatOscPort = useStorage('vrcdog.vrpiano.vrchatOscPort.v1', 9000);
+const vrchatOscMode = useStorage<'piano' | 'avatar'>('vrcdog.vrpiano.oscMode.v1', 'piano');
+const vrchatOscAvatarPrefix = useStorage('vrcdog.vrpiano.oscAvatarPrefix.v1', '/avatar/parameters/note');
+const hotkeysEnabled = useStorage('vrcdog.vrpiano.hotkeysEnabled.v1', true);
+
+const modeBadgeText = computed(() => {
+  if (outputMode.value === 'osc') return 'OSC';
+  if (outputMode.value === 'midi') return 'MIDI';
+  return t('vrpiano_overlay.mode_keyboard');
+});
 
 let pollTimer: number | null = null;
 let hotkeyTimer: number | null = null;
@@ -208,16 +221,39 @@ const playSong = async (song: VrpianoSong) => {
   if (busy.value) return;
   busy.value = true;
   error.value = '';
+  previewingPath.value = '';
   try {
     if (status.value.running) {
       await VrpianoApi.stop();
       await waitUntilStopped();
     }
-    applyStatus(await VrpianoApi.start({
-      songPath: song.path,
-      delaySecs: 0,
-      speed: status.value.speed || 1,
-    }));
+    const currentSpeed = status.value.speed || 1;
+    if (outputMode.value === 'osc') {
+      applyStatus(await VrpianoApi.startVrchatOsc({
+        songPath: song.path,
+        delaySecs: 0,
+        speed: currentSpeed,
+        host: vrchatOscHost.value,
+        port: vrchatOscPort.value,
+        mode: vrchatOscMode.value,
+        avatarPrefix: vrchatOscAvatarPrefix.value,
+      }));
+    } else if (outputMode.value === 'midi') {
+      applyStatus(await VrpianoApi.start({
+        songPath: song.path,
+        delaySecs: 0,
+        speed: currentSpeed,
+        outputMode: 'midi',
+        midiDeviceId: selectedMidiDevice.value || undefined,
+      }));
+    } else {
+      applyStatus(await VrpianoApi.start({
+        songPath: song.path,
+        delaySecs: 0,
+        speed: currentSpeed,
+        outputMode: 'keyboard',
+      }));
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -252,20 +288,8 @@ const restartSong = async () => {
   if (currentSong.value) await playSong(currentSong.value);
 };
 
-const handleSongClick = (song: VrpianoSong) => {
-  if (!previewEnabled.value) {
-    void playSong(song);
-    return;
-  }
-  if (songClickTimer !== null) window.clearTimeout(songClickTimer);
-  songClickTimer = window.setTimeout(() => {
-    songClickTimer = null;
-    void playSong(song);
-  }, 220);
-};
-
 const previewSong = async (song: VrpianoSong) => {
-  if (!previewEnabled.value || busy.value || previewingPath.value) return;
+  if (!previewEnabled.value || busy.value) return;
   if (songClickTimer !== null) {
     window.clearTimeout(songClickTimer);
     songClickTimer = null;
@@ -276,8 +300,44 @@ const previewSong = async (song: VrpianoSong) => {
     await emit(VRPIANO_PREVIEW_SONG_EVENT, { songPath: song.path });
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
-  } finally {
-    previewingPath.value = '';
+  }
+};
+
+const handleSongClick = (song: VrpianoSong) => {
+  if (!previewEnabled.value) return;
+  if (songClickTimer !== null) window.clearTimeout(songClickTimer);
+  songClickTimer = window.setTimeout(() => {
+    songClickTimer = null;
+    void previewSong(song);
+  }, 220);
+};
+
+const handleSongDblClick = (song: VrpianoSong) => {
+  if (songClickTimer !== null) {
+    window.clearTimeout(songClickTimer);
+    songClickTimer = null;
+  }
+  previewingPath.value = '';
+  void playSong(song);
+};
+
+const toggleHotkeys = async () => {
+  const nextEnabled = !status.value.hotkeys_enabled;
+  hotkeysEnabled.value = nextEnabled;
+  try {
+    const targetSongPath = currentSong.value?.path || status.value.song_path || songs.value[0]?.path || '';
+    applyStatus(await VrpianoApi.setHotkeys({
+      enabled: nextEnabled,
+      songPath: targetSongPath,
+      delaySecs: 0,
+      speed: status.value.speed || 1,
+      outputMode: outputMode.value === 'osc' ? 'osc' : outputMode.value === 'midi' ? 'midi' : 'keyboard',
+      midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
+      oscHost: vrchatOscHost.value,
+      oscPort: vrchatOscPort.value,
+    }));
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause);
   }
 };
 
@@ -366,8 +426,11 @@ onUnmounted(() => {
     <header class="overlay-header">
       <div class="brand">
         <span class="brand-icon"><Music2 :size="17" /></span>
-        <div>
-          <strong>VRPiano</strong>
+        <div class="brand-meta">
+          <div class="brand-line">
+            <strong>VRPiano</strong>
+            <span class="mode-badge" :class="outputMode">{{ modeBadgeText }}</span>
+          </div>
           <small :class="{ active: status.running && !status.paused }">{{ playbackLabel }}</small>
         </div>
       </div>
@@ -448,10 +511,20 @@ onUnmounted(() => {
     </nav>
 
     <section class="hotkey-panel" :class="{ enabled: status.hotkeys_enabled }">
-      <div class="hotkey-title">
+      <div
+        class="hotkey-title clickable"
+        role="button"
+        tabindex="0"
+        :title="status.hotkeys_enabled ? t('vrpiano_overlay.disable_hotkeys') : t('vrpiano_overlay.enable_hotkeys')"
+        @click="toggleHotkeys"
+        @keydown.enter="toggleHotkeys"
+        @keydown.space.prevent="toggleHotkeys"
+      >
         <Keyboard :size="14" />
         <strong>{{ t('vrpiano_overlay.global_hotkeys') }}</strong>
-        <span>{{ status.hotkeys_enabled ? t('vrpiano_overlay.on') : t('vrpiano_overlay.off') }}</span>
+        <span class="hotkey-switch" :class="{ on: status.hotkeys_enabled }">
+          {{ status.hotkeys_enabled ? t('vrpiano_overlay.on') : t('vrpiano_overlay.off') }}
+        </span>
       </div>
       <div class="hotkey-list">
         <span
@@ -488,10 +561,11 @@ onUnmounted(() => {
         <button
           v-for="(song, index) in songs"
           :key="song.path"
-          :class="{ active: index === currentIndex }"
+          :class="{ active: index === currentIndex, previewing: song.path === previewingPath }"
           :disabled="busy"
+          :title="t('vrpiano_overlay.click_to_preview_dblclick_to_play')"
           @click="handleSongClick(song)"
-          @dblclick.prevent="previewSong(song)"
+          @dblclick.prevent="handleSongDblClick(song)"
         >
           <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
             <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
@@ -500,7 +574,11 @@ onUnmounted(() => {
             <b v-else class="song-index">{{ index + 1 }}</b>
           </span>
           <strong :title="song.name">{{ song.name }}</strong>
-           <small v-if="index === currentIndex">{{ status.paused ? t('vrpiano_overlay.pause') : status.running ? t('vrpiano_overlay.playing') : t('vrpiano_overlay.current') }}</small>
+          <small v-if="song.path === previewingPath" class="preview-badge">
+            <Headphones :size="11" />
+            {{ t('vrpiano_overlay.previewing') }}
+          </small>
+          <small v-else-if="index === currentIndex">{{ status.paused ? t('vrpiano_overlay.pause') : status.running ? t('vrpiano_overlay.playing') : t('vrpiano_overlay.current') }}</small>
         </button>
       </div>
     </section>
@@ -595,14 +673,42 @@ input {
   background: var(--theme-primary);
 }
 
-.brand div {
+.brand-meta {
   min-width: 0;
   display: grid;
   line-height: 1.1;
 }
 
+.brand-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .brand strong {
   font-size: 14px;
+}
+
+.mode-badge {
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--theme-primary) 18%, transparent);
+  color: var(--theme-primary);
+  border: 1px solid color-mix(in srgb, var(--theme-primary) 32%, transparent);
+}
+
+.mode-badge.osc {
+  background: color-mix(in srgb, #8b5cf6 18%, transparent);
+  color: #8b5cf6;
+  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
+}
+
+.mode-badge.midi {
+  background: color-mix(in srgb, #06b6d4 18%, transparent);
+  color: #06b6d4;
+  border-color: color-mix(in srgb, #06b6d4 32%, transparent);
 }
 
 .brand small {
@@ -894,11 +1000,35 @@ input {
   font-size: 11px;
 }
 
+.hotkey-title.clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background 120ms ease;
+}
+
+.hotkey-title.clickable:hover {
+  background: color-mix(in srgb, var(--theme-primary) 10%, transparent);
+}
+
 .hotkey-title span {
   margin-left: auto;
   color: var(--theme-text-muted);
   font-size: 10px;
   font-weight: 800;
+}
+
+.hotkey-switch {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-muted) 16%, transparent);
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.hotkey-switch.on {
+  color: #059669;
+  background: color-mix(in srgb, #059669 16%, transparent);
 }
 
 .hotkey-panel.enabled .hotkey-title span {
@@ -1026,6 +1156,11 @@ input {
   background: var(--theme-active-bg);
 }
 
+.playlist-scroll button.previewing {
+  border-color: color-mix(in srgb, var(--theme-primary) 50%, transparent);
+  background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
+}
+
 .playlist-scroll button > span {
   color: var(--theme-text-muted);
   font-size: 9px;
@@ -1079,6 +1214,14 @@ input {
   color: var(--theme-primary);
   font-size: 9px;
   font-weight: 900;
+}
+
+.preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--theme-primary) !important;
+  font-weight: 850;
 }
 
 .error-line {

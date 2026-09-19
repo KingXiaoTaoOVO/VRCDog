@@ -528,8 +528,8 @@ export const VrcApi = {
   },
 
   // 用户模块
-  getCurrentUser: (params: { authCookie?: string } = {}) =>
-    baseRequest('/auth/user', { authCookie: params.authCookie }),
+  getCurrentUser: (params: { authCookie?: string; suppressAuthExpired?: boolean } = {}) =>
+    baseRequest('/auth/user', { authCookie: params.authCookie, suppressAuthExpired: params.suppressAuthExpired }),
   getUser: UserApi.getUser,
   searchUsers: (params: any) => UserApi.getUsers({ search: params.query || params.search, ...params }),
   updateStatus: UserApi.updateStatus,
