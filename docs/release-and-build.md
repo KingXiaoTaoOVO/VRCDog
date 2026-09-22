@@ -2,7 +2,7 @@
 
 本文档覆盖 VRCDog 从代码修改到发布新版本、本地打包的完整工作流。
 
-> **最后更新**：2026-09-20（v5.6.3）
+> **最后更新**：2026-09-22（v5.6.4）
 > **维护者**：KingXiaoTaoOVO
 
 ---
@@ -347,6 +347,7 @@ Bilibili 的三个会话凭据走的是通用设置通道 `DbApi.saveSetting`：
 
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
+| v5.6.4 | 2026-09-22 | 深度对标 shgeum/VRCLT 重构同传翻译交流系统：新增 VRChat / Discord / Custom 三大场景模式、Avatar OSC 说话状态同步 (/avatar/parameters/VRCT_IsTalking)、原生麦克风零延迟直通虚拟声卡 (Raw Mic Passthrough)、通义千问 Qwen3.5 LiveTranslate 国内外双节点与 DashScope Workspace ID 隔离；规范全界面 UI 图标体系（移除 emoji）；保持全套自动化测试 100% 通过 |
 | v5.6.3 | 2026-09-20 | 修复自动弹琴在游戏中失灵（补充硬件扫描码与前台焦点激活机制、优化按键保持时间）；纠正悬浮窗点击交互（单击软件内试听、双击游戏中播放）；多引擎输出（键盘/MIDI/OSC）与状态无缝联动；全局快捷键全系统响应与持久化生效 |
 | v5.6.2 | 2026-09-13 | 修复 v5.6.0 引入的回归：R9 的 DNS rebinding 检查会误杀「域名解析到私有地址」的内网自建服务端；现在命中 VRCDOG_ALLOWED_EXTERNAL_HOSTS 白名单的主机直接放行、跳过 DNS 检查 |
 | v5.6.1 | 2026-09-13 | 修复 API Key 仍明文落 localStorage：v5.6.0 的 `useStorage` 是无条件写 localStorage，Tauri 模式下 DPAPI 加密被绕过；现在 Tauri 只写加密存储，Web 退到 sessionStorage，并迁移清除旧明文 |

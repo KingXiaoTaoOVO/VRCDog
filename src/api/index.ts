@@ -855,7 +855,7 @@ export let DbApi = {
   saveApiCache: (params: { key: string, data: string }) => safeInvoke<void>('db_save_api_cache', params),
 };
 
-export type AudioSource = 'mic' | 'speaker';
+export type AudioSource = 'mic' | 'speaker' | 'output';
 
 export interface AudioDevice {
   id: string;
@@ -865,6 +865,12 @@ export interface AudioDevice {
   is_default: boolean;
   sample_rate: number;
   channels: number;
+}
+
+export interface AudioSessionInfo {
+  pid: number;
+  name: string;
+  is_active: boolean;
 }
 
 export interface AudioCaptureConfig {
@@ -889,6 +895,7 @@ export interface AudioCaptureConfig {
   captureMode?: string;
   targetProcess?: string;
   selfSuppressSeconds?: number;
+  passthroughDevice?: number;
 }
 
 export interface AudioCaptureStatus {
@@ -926,6 +933,8 @@ export let SysApi = {
   saveTextFile: (params: { path: string; content: string }) => safeInvoke<void>('sys_save_text_file', params),
   saveBinaryFile: (params: { path: string; content: number[] }) => safeInvoke<void>('sys_save_binary_file', params),
   getAudioDevices: () => safeInvoke<AudioDevice[]>('vrct_get_audio_devices'),
+  getAudioSessions: () => safeInvoke<AudioSessionInfo[]>('vrct_get_audio_sessions'),
+  playAudioToDevice: (params: { filePath: string; deviceIndex?: number; volume?: number }) => safeInvoke<void>('vrct_play_audio_to_device', params),
   startAudioCapture: (params: AudioCaptureConfig) => safeInvoke<void>('vrct_start_audio_capture', { ...params }),
   stopAudioCapture: (params: { source: AudioSource }) => safeInvoke<void>('vrct_stop_audio_capture', params),
   setAudioCapturePaused: (params: { source: AudioSource; paused: boolean }) => safeInvoke<void>('vrct_set_audio_capture_paused', params),
@@ -1627,6 +1636,8 @@ if (isBrowser) {
     saveTextFile: async () => {},
     saveBinaryFile: async () => {},
     getAudioDevices: async () => [],
+    getAudioSessions: async () => [],
+    playAudioToDevice: async () => {},
     startAudioCapture: async () => {},
     stopAudioCapture: async () => {},
     setAudioCapturePaused: async () => {},

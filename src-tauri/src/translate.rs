@@ -206,6 +206,25 @@ async fn translate_provider(req: &TranslateRequest) -> Result<TranslateResult, S
             translate_openai_compat(&client, req, "https://api.deepseek.com/v1/chat/completions")
                 .await?
         }
+        "qwen" | "dashscope" => {
+            let endpoint = if !req.custom_api_url.is_empty() && req.custom_api_url.starts_with("http") {
+                req.custom_api_url.as_str()
+            } else if req.model.contains("intl") || req.api_key.starts_with("sk-intl") || req.custom_api_url.contains("intl") {
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+            } else {
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+            };
+            let workspace = if req.custom_api_url.starts_with("ws:") {
+                Some(req.custom_api_url.trim_start_matches("ws:").trim())
+            } else if req.custom_api_url.starts_with("workspace:") {
+                Some(req.custom_api_url.trim_start_matches("workspace:").trim())
+            } else if let Some(idx) = req.custom_api_url.find("workspace=") {
+                Some(req.custom_api_url[idx + 10..].split('&').next().unwrap_or("").trim())
+            } else {
+                None
+            };
+            translate_openai_compat_with_workspace(&client, req, endpoint, workspace).await?
+        }
         "openai" => {
             translate_openai_compat(&client, req, "https://api.openai.com/v1/chat/completions")
                 .await?
@@ -285,20 +304,30 @@ async fn translate_provider(req: &TranslateRequest) -> Result<TranslateResult, S
     })
 }
 
-/// OpenAI-compatible API (DeepSeek, OpenAI, SiliconFlow, Moonshot, ZhiPu, etc.)
+/// OpenAI-compatible API (DeepSeek, Qwen/DashScope, OpenAI, SiliconFlow, Moonshot, ZhiPu, etc.)
 async fn translate_openai_compat(
     client: &Client,
     req: &TranslateRequest,
     url: &str,
 ) -> Result<String, String> {
+    translate_openai_compat_with_workspace(client, req, url, None).await
+}
+
+async fn translate_openai_compat_with_workspace(
+    client: &Client,
+    req: &TranslateRequest,
+    url: &str,
+    workspace: Option<&str>,
+) -> Result<String, String> {
     let model = if req.model.is_empty() {
         match req.service.as_str() {
+            "qwen" | "dashscope" => "qwen-mt-plus",
             "deepseek" => "deepseek-chat",
             "openai" => "gpt-4o-mini",
             "siliconflow" => "Qwen/Qwen2.5-7B-Instruct",
             "moonshot" => "moonshot-v1-8k",
             "zhipu" => "glm-4-flash",
-            "groq" => "llama-3.1-8b-instant",
+            "groq" => "llama-3.3-70b-versatile",
             "openrouter" => "openai/gpt-4o-mini",
             "plamo" => "plamo-2-translate",
             "ollama" => "qwen2.5",
@@ -311,9 +340,14 @@ async fn translate_openai_compat(
 
     let system_prompt = if req.prompt.is_empty() {
         format!(
-            "You are a professional translator. Translate the following text from {} to {}. \
-             Return ONLY the translated text, nothing else. Preserve names, URLs, emojis, \
-             line breaks, and placeholder tokens exactly.{}",
+            "You are an expert simultaneous interpreter for VRChat live social conversations. \
+             Translate the following spoken message from {} to {}.\n\
+             Key requirements:\n\
+             1. Conversational & Natural: Use casual, friendly, authentic spoken language. Avoid stiff textbook style or mechanical translation.\n\
+             2. Gamers & Social Slang: Keep VRChat/gaming culture terms intact (e.g., Avatar, World, Instance, AFK, FBT, OSC, Mirror, etc.).\n\
+             3. Tone & Expressiveness: Preserve user emotion, laughter, slang, tone markers, emojis, and actions (e.g. *waves*, *laughs*, haha, lol, www, 草).\n\
+             4. Output rule: Output ONLY the translated sentence with NO quotes, NO explanation, NO prefixes, NO markdown formatting.\n\
+             5. Preserve all placeholder tokens (e.g. VRCG000000X) exactly as they are.{}",
             lang_name(&req.source_lang),
             lang_name(&req.target_lang),
             context_instruction(req)
@@ -342,6 +376,11 @@ async fn translate_openai_compat(
     let mut request = client.post(url).header("Content-Type", "application/json");
     if !req.api_key.trim().is_empty() {
         request = request.header("Authorization", format!("Bearer {}", req.api_key));
+    }
+    if let Some(ws) = workspace {
+        if !ws.is_empty() {
+            request = request.header("X-DashScope-WorkSpace", ws);
+        }
     }
 
     let resp = request

@@ -18,7 +18,47 @@ use tauri::{Emitter, Manager};
 mod midi_backend;
 use midi_backend::{MidiDevice, MidiOutputBackend, MidiOutputState};
 
-const NOTE_HOLD_MS: u64 = 42;
+const NOTE_HOLD_MS: u64 = 35;
+
+#[cfg(target_os = "windows")]
+#[link(name = "winmm")]
+extern "system" {
+    fn timeBeginPeriod(u_period: u32) -> u32;
+    fn timeEndPeriod(u_period: u32) -> u32;
+}
+
+#[cfg(target_os = "windows")]
+pub struct MultimediaTimerGuard;
+
+#[cfg(target_os = "windows")]
+impl MultimediaTimerGuard {
+    pub fn new() -> Self {
+        unsafe {
+            let _ = timeBeginPeriod(1);
+        }
+        Self
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for MultimediaTimerGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = timeEndPeriod(1);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub struct MultimediaTimerGuard;
+
+#[cfg(not(target_os = "windows"))]
+impl MultimediaTimerGuard {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 const SPEED_STEP: f64 = 0.1;
 const MAX_MIDI_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
 const MIDISHOW_LOGIN_WINDOW_LABEL: &str = "midishow-login";
@@ -613,12 +653,6 @@ fn write_variable_length(buffer: &mut Vec<u8>, mut value: u64) {
     buffer.extend(bytes.into_iter().rev());
 }
 
-#[derive(Clone)]
-struct PlayEvent {
-    at_ms: u64,
-    note: u8,
-    vk: u16,
-}
 
 #[derive(Clone)]
 struct MidiPlayEvent {
@@ -1388,7 +1422,8 @@ fn maybe_advance_playlist(
                     random_index(n)
                 }
             }
-            "stop_at_song_end" | "stop_at_end" => {
+            "stop_at_song_end" => return,
+            "stop_at_end" => {
                 if cur + 1 >= n {
                     return;
                 }
@@ -1735,17 +1770,17 @@ fn start_playback(
                 return Err("MIDI 直连模式需要先连接所选 MIDI 输出设备".to_string());
             }
         }
-        let (keyboard_events, _midi_events, duration_ms, total_notes) = if output_mode == "midi" {
-            let (midi_events, duration_ms) = parse_midi_for_output(&song_path)?;
-            if midi_events.is_empty() { return Err("This MIDI has no playable events".to_string()); }
-            let total_notes = midi_events.len();
-            (Vec::new(), midi_events, duration_ms, total_notes)
-        } else {
-            let (keyboard_events, duration_ms) = parse_midi_events(&song_path)?;
-            if keyboard_events.is_empty() { return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string()); }
-            let total_notes = keyboard_events.len();
-            (keyboard_events, Vec::new(), duration_ms, total_notes)
-        };
+        let (midi_events, duration_ms) = parse_midi_for_output(&song_path)?;
+        if midi_events.is_empty() {
+            return Err("This MIDI has no playable events".to_string());
+        }
+        if output_mode != "midi" {
+            let has_keyboard_keys = midi_events.iter().any(|ev| ev.is_note_on && note_to_vk(ev.note).is_some());
+            if !has_keyboard_keys {
+                return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
+            }
+        }
+        let total_notes = midi_events.iter().filter(|ev| ev.is_note_on).count();
         if total_notes == 0 {
             return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
         }
@@ -1811,8 +1846,8 @@ fn start_playback(
         let state_inner = state.clone();
         let midi_backend = midi_backend.clone();
 
+        let events_for_run = midi_events;
         if output_mode == "midi" {
-            let (midi_events, _) = parse_midi_for_output(&song_path)?;
             let recorder = recorder.clone();
             thread::spawn(move || {
                 run_midi_playback(
@@ -1823,12 +1858,12 @@ fn start_playback(
                     stop_flag,
                     pause_flag,
                     song_name,
-                midi_events,
+                    events_for_run,
                     duration_ms,
                     request.delay_secs,
                 );
             });
-                return status_snapshot(&app, &state);
+            return status_snapshot(&app, &state);
         }
 
         let midi_backend_for_run = midi_backend.clone();
@@ -1842,7 +1877,7 @@ fn start_playback(
                 stop_flag,
                 pause_flag,
                 song_name,
-                keyboard_events,
+                events_for_run,
                 duration_ms,
                 request.delay_secs,
             );
@@ -2124,6 +2159,18 @@ unsafe extern "system" fn vrpiano_keyboard_proc(
 }
 
 #[cfg(target_os = "windows")]
+fn find_first_local_song(app: &tauri::AppHandle) -> Option<String> {
+    let songs_dir = ensure_songs_dir(app).ok()?;
+    let entries = fs::read_dir(&songs_dir).ok()?;
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|entry| entry.path()))
+        .filter(|p| is_midi_file(p))
+        .collect();
+    files.sort();
+    files.first().map(|p| p.to_string_lossy().to_string())
+}
+
+#[cfg(target_os = "windows")]
 fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
     thread::spawn(move || {
         match vk {
@@ -2150,18 +2197,26 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                 };
                 if running {
                     let _ = toggle_playback_pause(context.app.clone(), context.state.clone());
-                } else if !song_path.is_empty() {
-                    if output_mode == "osc" {
-                        let _ = begin_vrchat_osc(&context.app, &context.state, &song_path, delay_secs, current_speed(&context.state));
-                    } else {
-                        let request = VrpianoStartRequest {
-                            song_path,
-                            delay_secs,
-                            speed: current_speed(&context.state),
-                            output_mode: output_mode.clone(),
-                            midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
-                        };
-                        let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
+                } else {
+                    let mut target_song = song_path;
+                    if target_song.is_empty() {
+                        if let Some(first) = find_first_local_song(&context.app) {
+                            target_song = first;
+                        }
+                    }
+                    if !target_song.is_empty() {
+                        if output_mode == "osc" {
+                            let _ = begin_vrchat_osc(&context.app, &context.state, &target_song, delay_secs, current_speed(&context.state));
+                        } else {
+                            let request = VrpianoStartRequest {
+                                song_path: target_song,
+                                delay_secs,
+                                speed: current_speed(&context.state),
+                                output_mode: output_mode.clone(),
+                                midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
+                            };
+                            let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
+                        }
                     }
                 }
             }
@@ -2186,7 +2241,13 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                     }
                     Err(_) => return,
                 };
-                if !song_path.is_empty() {
+                let mut target_song = song_path;
+                if target_song.is_empty() {
+                    if let Some(first) = find_first_local_song(&context.app) {
+                        target_song = first;
+                    }
+                }
+                if !target_song.is_empty() {
                     if running {
                         let _ = stop_playback(context.app.clone(), context.state.clone());
                         for _ in 0..50 {
@@ -2209,10 +2270,10 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                         .unwrap_or(false);
                     if stopped {
                         if output_mode == "osc" {
-                            let _ = begin_vrchat_osc(&context.app, &context.state, &song_path, delay_secs, current_speed(&context.state));
+                            let _ = begin_vrchat_osc(&context.app, &context.state, &target_song, delay_secs, current_speed(&context.state));
                         } else {
                             let request = VrpianoStartRequest {
-                                song_path,
+                                song_path: target_song,
                                 delay_secs,
                                 speed: current_speed(&context.state),
                                 output_mode: output_mode.clone(),
@@ -2261,7 +2322,7 @@ fn run_playback(
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     song_name: String,
-    events: Vec<PlayEvent>,
+    events: Vec<MidiPlayEvent>,
     duration_ms: u64,
     delay_secs: u64,
 ) {
@@ -2277,13 +2338,17 @@ fn run_playback(
             sleep_unscaled_interruptible(1_000, &stop, &paused);
         }
 
+        let _timer_guard = MultimediaTimerGuard::new();
+
         #[cfg(target_os = "windows")]
         focus_vrchat_window();
 
-        let mut active_keys = HashSet::new();
+        // active_keys tracks virtual keys currently pressed: vk -> pressed_at_ms
+        let mut active_keys: HashMap<u16, u64> = HashMap::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
         let mut index = 0_usize;
+        let mut last_emit_at = 0_u64;
 
         while index < events.len() {
             if stop.load(Ordering::SeqCst) {
@@ -2292,41 +2357,124 @@ fn run_playback(
 
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
-            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state);
-            if stop.load(Ordering::SeqCst) {
-                break;
+            if wait_ms > 0 {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+                    for (&vk, _) in active_keys.iter() {
+                        send_key(vk, true);
+                    }
+                    active_keys.clear();
+                });
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
             }
 
-            release_all(&active_keys);
-            active_keys.clear();
+            // Pause safety: release any keys held when paused
+            if paused.load(Ordering::SeqCst) {
+                for (&vk, _) in active_keys.iter() {
+                    send_key(vk, true);
+                }
+                active_keys.clear();
+                while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+
+            let transpose = current_transpose(&state);
+            let mut keys_to_press: Vec<u16> = Vec::new();
+            let mut keys_to_release: Vec<u16> = Vec::new();
 
             while index < events.len() && events[index].at_ms == at_ms {
-                send_key(events[index].vk, false);
-                active_keys.insert(events[index].vk);
+                let ev = &events[index];
+                if let Some((cc, _)) = ev.control_change {
+                    if cc == 123 || cc == 120 {
+                        for (&vk, _) in active_keys.iter() {
+                            send_key(vk, true);
+                        }
+                        active_keys.clear();
+                    }
+                    played += 1;
+                    index += 1;
+                    continue;
+                }
+
+                let channel_state = get_channel_state(&state, ev.channel);
+                let routed = is_channel_routed(&state, ev.channel);
+                let solo_active = is_solo_active(&state);
+                let sent_note = apply_transpose(ev.note, ev.channel, transpose);
+
+                if let Some(vk) = note_to_vk(sent_note) {
+                    if ev.is_note_on {
+                        let should_play = routed && !channel_state.muted && (!solo_active || channel_state.solo);
+                        if should_play {
+                            keys_to_press.push(vk);
+                        }
+                    } else {
+                        keys_to_release.push(vk);
+                    }
+                }
+
+                if recorder.lock().unwrap().is_recording() {
+                    let mut rec = recorder.lock().unwrap();
+                    rec.record(at_ms, if ev.is_note_on { "note_on" } else { "note_off" }, ev.channel, &[ev.note, ev.velocity]);
+                }
                 played += 1;
                 index += 1;
             }
 
-            thread::sleep(Duration::from_millis(NOTE_HOLD_MS));
-            release_all(&active_keys);
-            active_keys.clear();
-            let playback_speed = current_speed(&state);
-            update_runtime(&state, |status| {
-                status.elapsed_ms = at_ms;
-                status.played_notes = played;
-                status.progress = if duration_ms == 0 {
-                    1.0
-                } else {
-                    (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
-                };
-                status.speed = playback_speed;
-                status.last_event = format!("Playing {} at {:.2}x", song_name, status.speed);
-            });
-            emit_status(&app, &state);
+            // Release keys that are finishing (unless being struck again at this timestamp)
+            for vk in keys_to_release {
+                if !keys_to_press.contains(&vk) {
+                    if let Some(pressed_at) = active_keys.remove(&vk) {
+                        let held_ms = at_ms.saturating_sub(pressed_at);
+                        if held_ms < NOTE_HOLD_MS {
+                            thread::sleep(Duration::from_millis(NOTE_HOLD_MS - held_ms));
+                        }
+                        send_key(vk, true);
+                    }
+                }
+            }
+
+            // Press newly starting keys
+            for vk in keys_to_press {
+                if active_keys.contains_key(&vk) {
+                    send_key(vk, true);
+                    thread::sleep(Duration::from_millis(5));
+                }
+                send_key(vk, false);
+                active_keys.insert(vk, at_ms);
+            }
+
             last_at = at_ms;
+
+            // Throttle status updates to avoid UI event spam (every 100ms or last event)
+            let now_ms = at_ms;
+            if now_ms.saturating_sub(last_emit_at) >= 100 || index >= events.len() {
+                last_emit_at = now_ms;
+                let playback_speed = current_speed(&state);
+                update_runtime(&state, |status| {
+                    status.elapsed_ms = at_ms;
+                    status.played_notes = played;
+                    status.progress = if duration_ms == 0 {
+                        1.0
+                    } else {
+                        (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                    };
+                    status.speed = playback_speed;
+                    status.last_event = format!("Playing {} at {:.2}x", song_name, status.speed);
+                });
+                emit_status(&app, &state);
+            }
         }
 
-        release_all(&active_keys);
+        // Release all keys when playback ends
+        for (&vk, _) in active_keys.iter() {
+            send_key(vk, true);
+        }
+        active_keys.clear();
     }));
 
     if result.is_err() {
@@ -2394,7 +2542,12 @@ fn run_midi_playback(
 
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
-            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state);
+            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+                if let Ok(backend) = midi_backend.lock() {
+                    let _ = backend.send_panic();
+                }
+                active_notes.clear();
+            });
             if stop.load(Ordering::SeqCst) {
                 break;
             }
@@ -2527,6 +2680,7 @@ fn run_vrchat_osc_playback(
     use crate::osc::{osc_send_message_multi, OscArgument};
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _timer_guard = MultimediaTimerGuard::new();
         for remaining in (1..=delay_secs).rev() {
             if stop.load(Ordering::SeqCst) {
                 return;
@@ -2550,7 +2704,10 @@ fn run_vrchat_osc_playback(
 
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
-            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state);
+            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+                send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
+                active_notes.clear();
+            });
             if stop.load(Ordering::SeqCst) {
                 break;
             }
@@ -2691,13 +2848,14 @@ fn focus_vrchat_window() {
     use windows::core::w;
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
-        ShowWindow, BringWindowToTop, SW_RESTORE,
+        ShowWindow, BringWindowToTop, SW_RESTORE, IsIconic,
     };
     use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 
-    let Ok(window) = (unsafe { FindWindowW(None, w!("VRChat")) }) else {
-        return;
-    };
+    let mut window = unsafe { FindWindowW(None, w!("VRChat")) }.unwrap_or_default();
+    if window.0.is_null() {
+        window = unsafe { FindWindowW(w!("UnityWndClass"), w!("VRChat")) }.unwrap_or_default();
+    }
     if window.0.is_null() {
         return;
     }
@@ -2705,14 +2863,15 @@ fn focus_vrchat_window() {
         let foreground = GetForegroundWindow();
         let current_tid = GetCurrentThreadId();
         let foreground_tid = GetWindowThreadProcessId(foreground, None);
+        if IsIconic(window).as_bool() {
+            let _ = ShowWindow(window, SW_RESTORE);
+        }
         if foreground_tid != 0 && foreground_tid != current_tid {
             let _ = AttachThreadInput(current_tid, foreground_tid, true);
-            let _ = ShowWindow(window, SW_RESTORE);
             let _ = SetForegroundWindow(window);
             let _ = BringWindowToTop(window);
             let _ = AttachThreadInput(current_tid, foreground_tid, false);
         } else {
-            let _ = ShowWindow(window, SW_RESTORE);
             let _ = SetForegroundWindow(window);
             let _ = BringWindowToTop(window);
         }
@@ -2761,52 +2920,6 @@ fn send_key(vk: u16, key_up: bool) {
 #[cfg(not(target_os = "windows"))]
 fn send_key(_vk: u16, _key_up: bool) {}
 
-fn parse_midi_events(path: &Path) -> Result<(Vec<PlayEvent>, u64), String> {
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read MIDI: {e}"))?;
-    let smf = Smf::parse(&bytes).map_err(|e| format!("Invalid MIDI file: {e}"))?;
-    let ticks_per_beat = match smf.header.timing {
-        Timing::Metrical(ticks) => u64::from(ticks.as_int()),
-        Timing::Timecode(_, _) => {
-            return Err("SMPTE timecode MIDI files are not supported yet".to_string())
-        }
-    };
-
-    let tempo_map = collect_tempo_map(&smf);
-    let mut grouped: BTreeMap<u64, Vec<PlayEvent>> = BTreeMap::new();
-
-    for track in &smf.tracks {
-        let mut tick = 0_u64;
-        for event in track {
-            tick = tick.saturating_add(u64::from(event.delta.as_int()));
-            if let TrackEventKind::Midi {
-                message: MidiMessage::NoteOn { key, vel },
-                ..
-            } = event.kind
-            {
-                if vel.as_int() == 0 {
-                    continue;
-                }
-                let note = key.as_int();
-                if let Some(vk) = note_to_vk(note) {
-                    let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
-                    let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
-                    grouped
-                        .entry(at_ms)
-                        .or_default()
-                        .push(PlayEvent { at_ms, note, vk });
-                }
-            }
-        }
-    }
-
-    let mut events = Vec::new();
-    for (_at, mut group) in grouped {
-        group.sort_by_key(|event| event.note);
-        events.extend(group);
-    }
-    let duration_ms = events.last().map(|event| event.at_ms).unwrap_or(0);
-    Ok((events, duration_ms))
-}
 
 fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), String> {
     let bytes = fs::read(path).map_err(|e| format!("Failed to read MIDI: {e}"))?;
@@ -3078,20 +3191,29 @@ fn key_to_vk(key: &str) -> Option<u16> {
     })
 }
 
-fn sleep_scaled_interruptible(
+fn sleep_scaled_interruptible<F>(
     music_ms: u64,
     stop: &AtomicBool,
     paused: &AtomicBool,
     state: &Arc<Mutex<VrpianoRuntime>>,
-) {
+    mut on_pause: F,
+) where
+    F: FnMut(),
+{
     let mut remaining = music_ms as f64;
+    let mut was_paused = false;
     while remaining > 0.0 && !stop.load(Ordering::SeqCst) {
         if paused.load(Ordering::SeqCst) {
+            if !was_paused {
+                was_paused = true;
+                on_pause();
+            }
             thread::sleep(Duration::from_millis(20));
             continue;
         }
+        was_paused = false;
         let speed = current_speed(state).max(0.25);
-        let real_chunk = (remaining / speed).ceil().clamp(5.0, 20.0) as u64;
+        let real_chunk = (remaining / speed).ceil().clamp(1.0, 20.0) as u64;
         thread::sleep(Duration::from_millis(real_chunk));
         remaining -= real_chunk as f64 * speed;
     }
@@ -3173,21 +3295,28 @@ fn is_channel_routed(state: &Arc<Mutex<VrpianoRuntime>>, channel: u8) -> bool {
 /// never gets stuck holding keys (prevents "粘键").
 fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
     if mode.eq_ignore_ascii_case("avatar") {
-        // VRChat routes /avatar/parameters/<name> to the avatar param whose
-        // name is the exact string after the prefix. The canonical convention
-        // (VRChat_MIDI_Player) is `/avatar/parameters/note<NNN>` with the MIDI
-        // note zero-padded to 3 digits and NO extra slash — so the param name
-        // is literally "note060". Appending "/<note>" (old behavior) produced
-        // "note/60", which VRChat cannot match and silently dropped.
-        let base = if avatar_prefix.trim().is_empty() {
-            "/avatar/parameters/note".to_string()
+        let trimmed = avatar_prefix.trim();
+        if trimmed.contains("{note}") {
+            trimmed.replace("{note}", &note.to_string())
+        } else if trimmed.contains("{03d}") || trimmed.contains("{note:03}") {
+            trimmed
+                .replace("{03d}", &format!("{:03}", note))
+                .replace("{note:03}", &format!("{:03}", note))
         } else {
-            avatar_prefix.trim().trim_end_matches('/').to_string()
-        };
-        format!("{}{:03}", base, note)
+            let base = if trimmed.is_empty() {
+                "/avatar/parameters/note".to_string()
+            } else {
+                trimmed.trim_end_matches('/').to_string()
+            };
+            if base.ends_with('_') || base.ends_with('-') {
+                format!("{}{}", base, note)
+            } else {
+                format!("{}{:03}", base, note)
+            }
+        }
     } else {
-        // Piano-avatar mode (e.g. Kade's Piano): /PianoKeys/<raw MIDI note>,
-        // matching VRChat_MIDI_Player exactly. No offset, no zero-padding.
+        // Piano-avatar / world piano mode (e.g. ShadowForests, Kade's Piano, Reimajo):
+        // /PianoKeys/<raw MIDI note>, matching VRChat_MIDI_Player exactly.
         format!("/PianoKeys/{}", note)
     }
 }
@@ -3201,21 +3330,27 @@ fn send_osc_all_notes_off(
 ) {
     use crate::osc::{osc_send_message_multi, OscArgument};
 
-    for (note, _channel) in notes {
-        let args = vec![OscArgument {
-            value_type: "float".to_string(),
-            value: serde_json::json!(0.0_f64),
-        }];
-        let _ = osc_send_message_multi(host.to_string(), port, osc_note_address(mode, avatar_prefix, *note), args);
+    if !notes.is_empty() {
+        for (note, _channel) in notes {
+            let args = vec![OscArgument {
+                value_type: "float".to_string(),
+                value: serde_json::json!(0.0_f64),
+            }];
+            let _ = osc_send_message_multi(host.to_string(), port, osc_note_address(mode, avatar_prefix, *note), args);
+        }
+    } else if !mode.eq_ignore_ascii_case("avatar") {
+        // When stopping or resetting in world piano mode, release all 88 standard piano keys (A0=21 to C8=108)
+        // to guarantee no keys remain stuck down in VRChat worlds
+        for note in 21..=108 {
+            let args = vec![OscArgument {
+                value_type: "float".to_string(),
+                value: serde_json::json!(0.0_f64),
+            }];
+            let _ = osc_send_message_multi(host.to_string(), port, osc_note_address(mode, avatar_prefix, note), args);
+        }
     }
 }
 
-#[cfg(target_os = "windows")]
-fn release_all(keys: &HashSet<u16>) {
-    for &vk in keys {
-        send_key(vk, true);
-    }
-}
 
 fn update_runtime(state: &Arc<Mutex<VrpianoRuntime>>, update: impl FnOnce(&mut VrpianoStatus)) {
     if let Ok(mut runtime) = state.lock() {
@@ -5908,6 +6043,20 @@ mod vrpiano_download_tests {
             osc_note_address("AVATAR", "/avatar/parameters/PianoKeys", 60),
             "/avatar/parameters/PianoKeys060"
         );
+    }
+
+    #[test]
+    fn multimedia_timer_guard_lifecycle() {
+        let guard = super::MultimediaTimerGuard::new();
+        drop(guard);
+    }
+
+    #[test]
+    fn note_to_vk_mapping_correctness() {
+        assert_eq!(super::note_to_vk(36), Some(90)); // 'z'
+        assert_eq!(super::note_to_vk(60), Some(81)); // 'q' (middle C)
+        assert_eq!(super::note_to_vk(84), Some(112)); // F1
+        assert_eq!(super::note_to_vk(20), None); // Out of range
     }
 }
 

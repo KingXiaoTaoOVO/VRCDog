@@ -189,8 +189,8 @@ const transpose = ref(0);
 // `apply_transpose`, so this checkbox is informational and always reflects that
 // percussion is never transposed. Kept checked + disabled to surface the behaviour.
 const excludeDrums = ref(true);
-const playMode = ref('sequential');
-const playlist = ref<string[]>([]);
+const playMode = useStorage('vrcdog.vrpiano.playMode.v1', 'sequential');
+const playlist = useStorage<string[]>('vrcdog.vrpiano.playlist.v1', []);
 const midiDevices = ref<Array<{ id: string; name: string; kind: string }>>([]);
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const midiOutputState = ref<{ connected: boolean; device_id?: string; device_name?: string }>({ connected: false });
@@ -809,6 +809,12 @@ const init = async () => {
       hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     }
     await Promise.all([refreshSongs(), loadMidishowAccounts(), refreshMidiDevices()]);
+    if (playlist.value.length > 0) {
+      void VrpianoApi.setPlaylist({ songs: playlist.value }).catch(() => {});
+    }
+    if (playMode.value) {
+      void VrpianoApi.setPlayMode({ mode: playMode.value }).catch(() => {});
+    }
     addLog(t('vrpiano.vrpiano_is_ready'));
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -820,18 +826,31 @@ const init = async () => {
 
 const importMidi = async () => {
   const selected = await open({
-    multiple: false,
+    multiple: true,
     filters: [{ name: 'MIDI', extensions: ['mid', 'midi'] }],
   });
-  if (!selected || Array.isArray(selected)) return;
+  if (!selected) return;
+  const paths = Array.isArray(selected) ? selected : [selected];
+  if (!paths.length) return;
 
   loading.value = true;
   error.value = '';
   try {
-    const song = await VrpianoApi.importSong({ sourcePath: selected });
+    let lastSong: VrpianoSong | null = null;
+    let successCount = 0;
+    for (const sourcePath of paths) {
+      if (!sourcePath) continue;
+      const song = await VrpianoApi.importSong({ sourcePath });
+      lastSong = song;
+      successCount += 1;
+    }
     await refreshSongs();
-    selectedPath.value = song.path;
-    addLog(t('vrpiano.imported_song', { name: song.name }));
+    if (lastSong) {
+      selectedPath.value = lastSong.path;
+      addLog(successCount > 1
+        ? t('vrpiano.imported_song', { name: `${successCount} items` })
+        : t('vrpiano.imported_song', { name: lastSong.name }));
+    }
   } catch (e: any) {
     error.value = e.message || String(e);
     addLog(t('vrpiano.import_failed', { error: error.value }));
@@ -1140,6 +1159,10 @@ const start = async () => {
   loading.value = true;
   error.value = '';
   try {
+    if (status.value.running) {
+      await VrpianoApi.stop();
+      await waitUntilPlaybackStops();
+    }
     status.value = await VrpianoApi.start({
       songPath: selectedSong.value.path,
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
@@ -1214,6 +1237,10 @@ const startDirectMidi = async () => {
   loading.value = true;
   error.value = '';
   try {
+    if (status.value.running) {
+      await VrpianoApi.stop();
+      await waitUntilPlaybackStops();
+    }
     status.value = await VrpianoApi.start({
       songPath: selectedSong.value.path,
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
@@ -1562,25 +1589,57 @@ const clearPlaylist = () => {
 };
 
 const applyPlaylist = async () => {
-  if (!isTauri()) return;
+  if (!isTauri() || !playlist.value.length) return;
+  loading.value = true;
+  error.value = '';
   try {
+    if (status.value.running) {
+      await VrpianoApi.stop();
+      await waitUntilPlaybackStops();
+    }
     const nextStatus = await VrpianoApi.setPlaylist({ songs: playlist.value });
     status.value = nextStatus;
     await VrpianoApi.setPlayMode({ mode: playMode.value });
-    if (playlist.value.length) {
-      await VrpianoApi.start({
-        songPath: playlist.value[0],
+    const firstSongPath = playlist.value[0];
+    if (outputMode.value === 'osc') {
+      status.value = await VrpianoApi.startVrchatOsc({
+        songPath: firstSongPath,
         delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
         speed: clampSpeed(speed.value),
-        outputMode: outputMode.value === 'midi' ? 'midi' : 'keyboard',
-        midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
+        host: vrchatOscHost.value,
+        port: vrchatOscPort.value,
+        mode: vrchatOscMode.value,
+        avatarPrefix: vrchatOscAvatarPrefix.value,
       });
-      addLog(t('vrpiano.playing_playlist', { count: playlist.value.length, label: t(`vrpiano.play_mode_${playModeLabelKey(playMode.value)}`) }));
+    } else if (outputMode.value === 'midi') {
+      status.value = await VrpianoApi.start({
+        songPath: firstSongPath,
+        delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+        speed: clampSpeed(speed.value),
+        outputMode: 'midi',
+        midiDeviceId: selectedMidiDevice.value || undefined,
+      });
+    } else {
+      status.value = await VrpianoApi.start({
+        songPath: firstSongPath,
+        delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+        speed: clampSpeed(speed.value),
+        outputMode: 'keyboard',
+      });
     }
+    addLog(t('vrpiano.playing_playlist', { count: playlist.value.length, label: t(`vrpiano.play_mode_${playModeLabelKey(playMode.value)}`) }));
   } catch (e: any) {
     error.value = e.message || String(e);
+  } finally {
+    loading.value = false;
   }
 };
+
+watch(playlist, (newList) => {
+  if (isTauri() && !vrpianoDisposed) {
+    void VrpianoApi.setPlaylist({ songs: newList }).catch(() => {});
+  }
+}, { deep: true });
 
 const refreshMidiDevices = async () => {
   if (!isTauri()) return;
@@ -2094,13 +2153,20 @@ onUnmounted(async () => {
               </button>
             </div>
             <ul v-if="playlist.length" class="playlist-list">
-              <li v-for="(path, index) in playlist" :key="path" class="playlist-item">
+              <li
+                v-for="(path, index) in playlist"
+                :key="path"
+                class="playlist-item"
+                :class="{ active: selectedPath === path }"
+                @click="selectedPath = path"
+                @dblclick="togglePlayback"
+              >
                 <span class="playlist-index">{{ index + 1 }}</span>
                 <span class="playlist-name" :title="path">{{ playlistSongs[index]?.name || path }}</span>
                 <div class="playlist-actions">
-                  <button class="channel-btn" :disabled="index === 0" :title="t('vrpiano.move_up')" @click="movePlaylistItem(index, -1)">↑</button>
-                  <button class="channel-btn" :disabled="index === playlist.length - 1" :title="t('vrpiano.move_down')" @click="movePlaylistItem(index, 1)">↓</button>
-                  <button class="channel-btn" :title="t('vrpiano.remove_from_playlist')" @click="removeFromPlaylist(path)">✕</button>
+                  <button class="channel-btn" :disabled="index === 0" :title="t('vrpiano.move_up')" @click.stop="movePlaylistItem(index, -1)">↑</button>
+                  <button class="channel-btn" :disabled="index === playlist.length - 1" :title="t('vrpiano.move_down')" @click.stop="movePlaylistItem(index, 1)">↓</button>
+                  <button class="channel-btn" :title="t('vrpiano.remove_from_playlist')" @click.stop="removeFromPlaylist(path)">✕</button>
                 </div>
               </li>
             </ul>
@@ -3529,6 +3595,17 @@ select option {
   padding: 5px 8px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--vp-text) 6%, transparent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.playlist-item:hover {
+  background: color-mix(in srgb, var(--vp-accent) 10%, transparent);
+}
+
+.playlist-item.active {
+  background: color-mix(in srgb, var(--vp-accent) 18%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--vp-accent) 40%, transparent);
 }
 
 .playlist-index {

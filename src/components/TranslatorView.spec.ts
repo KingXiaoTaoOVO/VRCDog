@@ -25,7 +25,11 @@ vi.hoisted(() => {
   });
 });
 
-vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true }));
+vi.mock('@tauri-apps/api/core', () => ({
+  isTauri: () => true,
+  invoke: vi.fn(async () => null),
+  convertFileSrc: (p: string) => p,
+}));
 vi.mock('@tauri-apps/api/event', () => ({
   emit: vi.fn(async () => undefined),
   listen: vi.fn(async () => vi.fn()),
@@ -46,12 +50,15 @@ vi.mock('vue-i18n', () => ({
 vi.mock('../api', () => ({
   SysApi: {
     getAudioDevices: mocks.getAudioDevices,
+    getAudioSessions: vi.fn(async () => []),
+    playAudioToDevice: vi.fn(async () => 'ok'),
     getAudioCaptureStatus: vi.fn(async () => []),
     startAudioCapture: mocks.startAudioCapture,
     stopAudioCapture: mocks.stopAudioCapture,
     setAudioCapturePaused: vi.fn(async () => undefined),
     synthesizeGptSovits: vi.fn(),
     sendOscChatbox: vi.fn(),
+    sendOscParam: vi.fn(async () => undefined),
   },
   VrctApi: {
     getHistory: vi.fn(async () => []),

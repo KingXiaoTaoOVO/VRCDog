@@ -567,9 +567,9 @@ if (typeof window !== 'undefined') {
     <div class="blob blob-2"></div>
   </div>
 
-  <OverlayView v-if="isTranslationOverlayMode && isTauri()" />
-  <VrpianoOverlayView v-else-if="isVrpianoOverlayMode && isTauri()" />
-  <DrawingOverlayView v-else-if="isDrawingOverlayMode && isTauri()" />
+  <OverlayView v-if="isTranslationOverlayMode" />
+  <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
+  <DrawingOverlayView v-else-if="isDrawingOverlayMode" />
 
   <div
     v-else-if="!isTauri() && !webBackendOk && webBackendChecked"

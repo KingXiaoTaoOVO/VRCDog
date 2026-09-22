@@ -30,6 +30,7 @@ const translationProviderOptions = [
   { label: 'Ollama Local', value: 'ollama' },
   { label: 'LM Studio Local', value: 'lmstudio' },
   { label: 'Custom OpenAI API', value: 'custom_llm' },
+  { label: 'Alibaba Qwen (通义千问)', value: 'qwen' },
 ];
 
 const llmPromptServices = [
@@ -45,6 +46,7 @@ const llmPromptServices = [
   'lmstudio',
   'custom_llm',
   'gemini',
+  'qwen',
 ];
 
 const apiTestUrls: Record<string, string> = {
@@ -54,6 +56,7 @@ const apiTestUrls: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1/models',
   plamo: 'https://api.platform.preferredai.jp/v1/models',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
 };
 
 const activeSubTab = ref('basic');

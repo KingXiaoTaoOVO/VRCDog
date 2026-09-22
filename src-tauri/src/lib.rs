@@ -428,6 +428,8 @@ pub fn run() {
             update::update_restart,
             update::update_cleanup_stale_artifacts,
             audio_capture::vrct_get_audio_devices,
+            audio_capture::vrct_get_audio_sessions,
+            audio_capture::vrct_play_audio_to_device,
             audio_capture::vrct_start_audio_capture,
             audio_capture::vrct_stop_audio_capture,
             audio_capture::vrct_set_audio_capture_paused,

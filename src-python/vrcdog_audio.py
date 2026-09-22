@@ -62,6 +62,9 @@ def load_audio_dependencies():
 # Device enumeration / selection (unchanged from original worker)
 # --------------------------------------------------------------------------- #
 def device_payload(device: dict[str, Any], source: str, is_default: bool) -> dict[str, Any]:
+    channels = int(device.get("maxInputChannels", 0))
+    if source == "output":
+        channels = int(device.get("maxOutputChannels", 0))
     return {
         "id": f"{source}:{int(device['index'])}",
         "index": int(device["index"]),
@@ -69,7 +72,7 @@ def device_payload(device: dict[str, Any], source: str, is_default: bool) -> dic
         "source": source,
         "is_default": is_default,
         "sample_rate": int(float(device.get("defaultSampleRate", 16000))),
-        "channels": max(1, int(device.get("maxInputChannels", 1))),
+        "channels": max(1, channels),
     }
 
 
@@ -96,6 +99,7 @@ def enumerate_devices(pyaudio: Any) -> list[dict[str, Any]]:
                 int(loopbacks[0]["index"]) if loopbacks else -1,
             )
         except Exception:
+            default_output = -1
             default_loopback = -1
 
         for index in range(audio.get_device_count()):
@@ -105,6 +109,8 @@ def enumerate_devices(pyaudio: Any) -> list[dict[str, Any]]:
                 continue
             if int(device.get("maxInputChannels", 0)) > 0 and index not in loopback_indexes:
                 devices.append(device_payload(device, "mic", index == default_input))
+            if int(device.get("maxOutputChannels", 0)) > 0:
+                devices.append(device_payload(device, "output", index == default_output))
 
         for device in loopbacks:
             index = int(device["index"])
@@ -112,21 +118,119 @@ def enumerate_devices(pyaudio: Any) -> list[dict[str, Any]]:
     return devices
 
 
+def enumerate_audio_sessions() -> list[dict[str, Any]]:
+    sessions_list = []
+    seen_names = set()
+    try:
+        from pycaw.pycaw import AudioUtilities
+        sessions = AudioUtilities.GetAllSessions()
+        for session in sessions:
+            if session.Process:
+                try:
+                    name = session.Process.name()
+                    pid = session.ProcessId
+                    if not name:
+                        continue
+                    is_active = False
+                    try:
+                        is_active = (session.State == 1)
+                    except Exception:
+                        pass
+                    if name.lower() not in seen_names:
+                        seen_names.add(name.lower())
+                        sessions_list.append({
+                            "pid": pid,
+                            "name": name,
+                            "is_active": is_active,
+                        })
+                except Exception:
+                    continue
+    except Exception as error:
+        emit("status", message="session_enumeration_failed", note=str(error))
+
+    # Also detect running common apps (VRChat, Discord)
+    try:
+        import psutil
+        for proc in psutil.process_iter(["pid", "name"]):
+            try:
+                pname = proc.info.get("name") or ""
+                if pname.lower() in {"vrchat.exe", "discord.exe"} and pname.lower() not in seen_names:
+                    seen_names.add(pname.lower())
+                    sessions_list.append({
+                        "pid": proc.info["pid"],
+                        "name": pname,
+                        "is_active": False,
+                    })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    sessions_list.sort(key=lambda item: (not item["is_active"], item["name"].lower()))
+    return sessions_list
+
+
+def play_audio_file(pyaudio_mod: Any, file_path: str, device_index: int | None = None, volume: float = 1.0) -> None:
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+    import av
+    import numpy as np
+
+    volume = max(0.0, min(2.0, float(volume)))
+    container = av.open(file_path)
+    audio_streams = [s for s in container.streams if s.type == "audio"]
+    if not audio_streams:
+        raise RuntimeError(f"No audio stream found in {file_path}")
+
+    stream = audio_streams[0]
+    resampler = av.AudioResampler(
+        format="s16",
+        layout="stereo",
+        rate=48000,
+    )
+
+    with pyaudio_mod.PyAudio() as audio:
+        out_stream = audio.open(
+            format=pyaudio_mod.paInt16,
+            channels=2,
+            rate=48000,
+            output=True,
+            output_device_index=device_index,
+        )
+        emit("status", message="playback_started", file=file_path, device_index=device_index)
+        try:
+            for packet in container.demux(stream):
+                for frame in packet.decode():
+                    resampled_frames = resampler.resample(frame)
+                    for rframe in (resampled_frames if isinstance(resampled_frames, list) else [resampled_frames]):
+                        if rframe is None:
+                            continue
+                        pcm_bytes = rframe.to_ndarray().tobytes()
+                        if volume != 1.0:
+                            samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) * volume
+                            pcm_bytes = np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+                        out_stream.write(pcm_bytes)
+        finally:
+            out_stream.stop_stream()
+            out_stream.close()
+            emit("status", message="playback_completed", file=file_path)
+
+
 def select_device(audio: Any, pyaudio: Any, source: str, requested_index: int | None, process_name: str | None = None) -> dict[str, Any]:
     if requested_index is not None and requested_index >= 0:
         device = audio.get_device_info_by_index(requested_index)
-        if int(device.get("maxInputChannels", 0)) <= 0:
-            raise RuntimeError(f"Selected device {requested_index} has no input channels")
+        channels = int(device.get("maxInputChannels", 0)) if source != "output" else int(device.get("maxOutputChannels", 0))
+        if channels <= 0:
+            raise RuntimeError(f"Selected device {requested_index} has no channels for {source}")
         return device
 
     if source == "mic":
         return audio.get_default_input_device_info()
+    if source == "output":
+        return audio.get_default_output_device_info()
 
     if process_name:
-        # Best-effort process-targeted loopback: locate the process's audio
-        # session via pycaw and use its output device. Falls back to the
-        # default output loopback when pycaw is unavailable or the process is
-        # not found (true per-session isolation needs comtypes WASAPI).
         try:
             from pycaw.pycaw import AudioSessionControl  # noqa: F401
             from pycaw.constants import AudioSessionState  # noqa: F401
@@ -683,6 +787,23 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
             channels=channels,
         )
 
+        passthrough_stream = None
+        pt_device = getattr(args, "passthrough_device", -1)
+        if args.source == "mic" and pt_device is not None and pt_device >= 0:
+            try:
+                passthrough_stream = audio.open(
+                    format=pyaudio.paInt16,
+                    channels=channels,
+                    rate=native_rate,
+                    output=True,
+                    output_device_index=int(pt_device),
+                    frames_per_buffer=frames_per_buffer,
+                )
+                emit("status", message="passthrough_active", target_device_index=int(pt_device))
+            except Exception as pt_err:
+                emit("status", message="passthrough_failed", error=str(pt_err))
+                passthrough_stream = None
+
         corrector = ASRCorrector(args.correction_dict_dir) if args.correction_enabled else ASRCorrector(None)
         denoiser = Denoiser(args.denoise_strength)
         vad = VadWrapper(args.vad_type, args.vad_aggressiveness, args.energy_threshold or 150, args.silero_model)
@@ -734,6 +855,11 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
 
         while not control.stopped.is_set():
             raw = stream.read(frames_per_buffer, exception_on_overflow=False)
+            if passthrough_stream is not None and not control.paused.is_set():
+                try:
+                    passthrough_stream.write(raw, exception_on_underflow=False)
+                except Exception:
+                    pass
             pending.extend(to_mono_16k(raw, channels, native_rate))
             while len(pending) >= FRAME_SAMPLES:
                 frame = pending[:FRAME_SAMPLES]
@@ -806,6 +932,12 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
 
         stream.stop_stream()
         stream.close()
+        if passthrough_stream is not None:
+            try:
+                passthrough_stream.stop_stream()
+                passthrough_stream.close()
+            except Exception:
+                pass
         emit("status", message="stopped")
 
 
@@ -820,6 +952,7 @@ def parse_args() -> argparse.Namespace:
         default="local",
     )
     parser.add_argument("--device-index", type=int)
+    parser.add_argument("--passthrough-device", type=int, default=-1)
     parser.add_argument("--energy-threshold", type=int, default=0)
     parser.add_argument("--dynamic-energy-threshold", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--phrase-time-limit", type=float, default=10.0)
@@ -839,6 +972,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capture-mode", choices=("loopback", "process"), default="loopback")
     parser.add_argument("--target-process", default="VRChat.exe")
     parser.add_argument("--self-suppress-seconds", type=float, default=0.0)
+    # Audio session enumeration & playback
+    parser.add_argument("--list-sessions", action="store_true")
+    parser.add_argument("--play-audio", type=str, default="")
+    parser.add_argument("--play-device", type=int, default=-1)
+    parser.add_argument("--play-volume", type=float, default=1.0)
     return parser.parse_args()
 
 
@@ -848,6 +986,17 @@ def main() -> int:
         pyaudio, sr = load_audio_dependencies()
         if args.list_devices:
             emit("devices", devices=enumerate_devices(pyaudio))
+            return 0
+        if args.list_sessions:
+            emit("sessions", sessions=enumerate_audio_sessions())
+            return 0
+        if args.play_audio:
+            play_audio_file(
+                pyaudio,
+                args.play_audio,
+                device_index=args.play_device if args.play_device >= 0 else None,
+                volume=args.play_volume,
+            )
             return 0
         listen(args, pyaudio, sr)
         return 0

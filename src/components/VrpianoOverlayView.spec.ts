@@ -56,9 +56,10 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({
     'vrpiano_overlay.start': '开始',
     'vrpiano_overlay.pause': '暂停',
     'vrpiano_overlay.resume': '继续',
-    'vrpiano_overlay.preview_on': '单击试听',
-    'vrpiano_overlay.preview_off': '试听关闭',
+    'vrpiano_overlay.preview_on': '试听模式',
+    'vrpiano_overlay.preview_off': '点击即播',
     'vrpiano_overlay.mode_keyboard': '键盘模拟',
+    'vrpiano_overlay.mode_osc_contactless': 'OSC无接触',
     'vrpiano_overlay.previewing': '试听中',
     'vrpiano_overlay.on': '开启',
     'vrpiano_overlay.off': '关闭',
@@ -233,14 +234,25 @@ describe('VrpianoOverlayView appearance controls', () => {
     wrapper.unmount();
   });
 
-  it('previews a song on single click and plays in game on double click', async () => {
+  it('plays in game on single click by default and previews when preview mode is toggled on', async () => {
     vi.useFakeTimers();
     mocks.songs = [{ id: 'song-1', name: 'Test Song', path: 'C:/songs/test.mid', size: 10, modified_ms: 1 }];
     const wrapper = mount(VrpianoOverlayView);
     await flushPromises();
 
     const songButton = wrapper.get('.playlist-scroll button');
-    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('单击试听');
+    // By default preview is off -> click to play directly in game
+    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('点击即播');
+
+    await songButton.trigger('click');
+    await flushPromises();
+    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
+    expect(mocks.emit).not.toHaveBeenCalled();
+
+    // Toggle preview mode on
+    mocks.start.mockClear();
+    await wrapper.get('[data-testid="preview-toggle"]').trigger('click');
+    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('试听模式');
 
     // Single click triggers preview after timer
     await songButton.trigger('click');
@@ -249,22 +261,12 @@ describe('VrpianoOverlayView appearance controls', () => {
     expect(mocks.emit).toHaveBeenCalledWith(VRPIANO_PREVIEW_SONG_EVENT, { songPath: 'C:/songs/test.mid' });
     expect(mocks.start).not.toHaveBeenCalled();
 
-    // Double click plays in game immediately
+    // Double click still plays in game immediately
     mocks.emit.mockClear();
     mocks.start.mockClear();
     await songButton.trigger('dblclick');
     await flushPromises();
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
-
-    // When preview is disabled, single click does not preview
-    await wrapper.get('[data-testid="preview-toggle"]').trigger('click');
-    expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('试听关闭');
-    mocks.emit.mockClear();
-    mocks.start.mockClear();
-    await songButton.trigger('click');
-    await vi.advanceTimersByTimeAsync(300);
-    await flushPromises();
-    expect(mocks.emit).not.toHaveBeenCalled();
 
     wrapper.unmount();
   });

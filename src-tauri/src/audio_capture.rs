@@ -21,6 +21,13 @@ pub struct AudioDevice {
     pub channels: u16,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioSessionInfo {
+    pub pid: u32,
+    pub name: String,
+    pub is_active: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioCaptureStatus {
     pub source: String,
@@ -218,6 +225,56 @@ pub fn vrct_get_audio_devices(app: tauri::AppHandle) -> AppResult<Vec<AudioDevic
     }))
 }
 
+#[tauri::command]
+pub fn vrct_get_audio_sessions(app: tauri::AppHandle) -> AppResult<Vec<AudioSessionInfo>> {
+    let (runtime, script) = resolve_worker_paths(&app)?;
+    let mut command = Command::new(runtime);
+    command.arg(script).arg("--list-sessions");
+    configure_command(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| AppError::from(format!("Unable to enumerate audio sessions: {error}")))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().rev() {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) == Some("sessions") {
+            return serde_json::from_value(value.get("sessions").cloned().unwrap_or_default())
+                .map_err(|error| {
+                    AppError::from(format!("Invalid audio session response: {error}"))
+                });
+        }
+    }
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+pub fn vrct_play_audio_to_device(
+    app: tauri::AppHandle,
+    file_path: String,
+    device_index: Option<i32>,
+    volume: Option<f32>,
+) -> AppResult<()> {
+    if file_path.trim().is_empty() {
+        return Err(AppError::from("Audio file path cannot be empty"));
+    }
+    let (runtime, script) = resolve_worker_paths(&app)?;
+    std::thread::spawn(move || {
+        let mut command = Command::new(runtime);
+        command.arg(script).arg("--play-audio").arg(&file_path);
+        if let Some(idx) = device_index {
+            command.arg("--play-device").arg(idx.to_string());
+        }
+        if let Some(vol) = volume {
+            command.arg("--play-volume").arg(vol.to_string());
+        }
+        configure_command(&mut command);
+        let _ = command.output();
+    });
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn vrct_start_audio_capture(
@@ -241,6 +298,7 @@ pub fn vrct_start_audio_capture(
     capture_mode: Option<String>,
     target_process: Option<String>,
     self_suppress_seconds: Option<f32>,
+    passthrough_device: Option<i32>,
     realtime_provider: Option<String>,
     realtime_config: Option<serde_json::Value>,
     sherpa_config: Option<serde_json::Value>,
@@ -323,6 +381,11 @@ pub fn vrct_start_audio_capture(
         .stderr(Stdio::piped());
     if let Some(index) = device_index {
         command.arg("--device-index").arg(index.to_string());
+    }
+    if source == "mic" {
+        if let Some(pt_index) = passthrough_device {
+            command.arg("--passthrough-device").arg(pt_index.to_string());
+        }
     }
     if let Ok(cache_dir) = app.path().app_cache_dir() {
         let model_cache = cache_dir.join("whisper");

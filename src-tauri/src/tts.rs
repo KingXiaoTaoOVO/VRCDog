@@ -131,12 +131,17 @@ fn provider_path(provider: &str) -> Option<&'static str> {
         "moss" | "moss-tts" => Some("tts/moss"),
         "omnivoice" | "omni" | "omni-voice" => Some("tts/omnivoice"),
         "edge" => Some("tts/edge"),
+        "openai" | "openai_tts" | "siliconflow" => Some("v1/audio/speech"),
         _ => None,
     }
 }
 
 fn resolve_endpoint(provider: &str, base_url: &str) -> Result<String, String> {
-    let base = base_url.trim().trim_end_matches('/');
+    let base = if base_url.trim().is_empty() && (provider == "openai" || provider == "openai_tts") {
+        "https://api.openai.com"
+    } else {
+        base_url.trim().trim_end_matches('/')
+    };
     if !(base.starts_with("http://") || base.starts_with("https://")) {
         return Err("TTS 服务地址必须以 http:// 或 https:// 开头".into());
     }
@@ -186,19 +191,30 @@ pub async fn translation_tts_synthesize(app: AppHandle, request: TtsSynthesisReq
     let client = Client::builder().timeout(std::time::Duration::from_secs(120)).build().map_err(|error| AppError::from(error.to_string()))?;
     let mut builder = client.post(endpoint).header("Content-Type", "application/json");
     if !request.api_key.trim().is_empty() { builder = builder.bearer_auth(request.api_key.trim()); }
-    let payload = serde_json::json!({
-        "input": request.text.trim(),
-        "text": request.text.trim(),
-        "language": request.language,
-        "voice": request.voice,
-        "speed": request.speed.clamp(0.5, 2.0),
-        "volume": request.volume.clamp(0.0, 1.0),
-        "response_format": "wav",
-        "stream": false,
-        "ref_audio": request.reference_audio,
-        "ref_text": request.reference_text,
-        "instruct": request.instruct,
-    });
+    let is_openai = provider == "openai" || provider == "openai_tts";
+    let payload = if is_openai {
+        let voice = if request.voice.is_empty() { "alloy" } else { request.voice.as_str() };
+        serde_json::json!({
+            "model": "tts-1",
+            "input": request.text.trim(),
+            "voice": voice,
+            "speed": request.speed.clamp(0.5, 2.0),
+        })
+    } else {
+        serde_json::json!({
+            "input": request.text.trim(),
+            "text": request.text.trim(),
+            "language": request.language,
+            "voice": request.voice,
+            "speed": request.speed.clamp(0.5, 2.0),
+            "volume": request.volume.clamp(0.0, 1.0),
+            "response_format": "wav",
+            "stream": false,
+            "ref_audio": request.reference_audio,
+            "ref_text": request.reference_text,
+            "instruct": request.instruct,
+        })
+    };
     let response = builder.json(&payload).send().await.map_err(|error| AppError::from(format!("TTS 请求失败: {error}")))?;
     if !response.status().is_success() { let status = response.status(); let body = response.text().await.unwrap_or_default(); return Err(AppError::from(format!("TTS 服务返回 HTTP {status}: {body}"))); }
     let (content_type, audio) = response_audio(response).await.map_err(AppError::from)?;

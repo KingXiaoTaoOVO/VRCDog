@@ -8,12 +8,16 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useStorage } from '@vueuse/core';
 import {
+  Activity,
   CheckCircle2,
   Camera,
   ClipboardList,
   Ear,
+  Gamepad2,
   Headphones,
+  HelpCircle,
   Languages,
+  MessageSquare,
   Mic,
   MicOff,
   MonitorUp,
@@ -26,9 +30,10 @@ import {
   Square,
   Trash2,
   Volume2,
+  X,
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import { GalleryApi, SysApi, VrctApi, VrpianoApi, type AudioDevice, type AudioSource, type KeywordAction } from '../api';
+import { GalleryApi, SysApi, VrctApi, VrpianoApi, type AudioDevice, type AudioSource, type AudioSessionInfo, type KeywordAction } from '../api';
 import * as TranslationApis from '../api';
 import { SerialTaskQueue } from '../utils/serialTaskQueue';
 import CustomSelect from './CustomSelect.vue';
@@ -126,6 +131,7 @@ const engineOptions = computed<EngineOption[]>(() => [
   { label: tt('translator.engine_ollama_local', 'Ollama Local'), value: 'ollama', supportsLocal: true, hint: 'http://127.0.0.1:11434' },
   { label: tt('translator.engine_lmstudio_local', 'LM Studio Local'), value: 'lmstudio', supportsLocal: true, hint: 'http://127.0.0.1:1234' },
   { label: tt('translator.engine_custom_openai', 'Custom OpenAI API'), value: 'custom_llm', needsKey: true, hint: tt('translator.hint_openai_endpoint', 'OpenAI-compatible endpoint') },
+  { label: 'Alibaba Qwen (通义千问/DashScope)', value: 'qwen', needsKey: true, hint: tt('translator.hint_qwen_key', 'DashScope API Key (qwen-mt-plus)') },
 ]);
 
 const speakerEngineOptions = computed<Option[]>(() => [
@@ -255,6 +261,50 @@ const serverTtsVoice = useStorage('vrc_translator_server_tts_voice', '');
 const ttsReferenceText = useStorage('vrc_translator_tts_reference_text', '');
 const ttsPresets = ref<any[]>([]);
 const activeTtsPresetId = useStorage('vrc_translator_tts_preset_id', '');
+const ttsDeviceId = useStorage('vrc_translator_tts_device', '');
+const textOnlyMode = useStorage('vrc_translator_text_only_mode', false);
+const showCableGuide = ref(false);
+const activeAudioSessions = ref<AudioSessionInfo[]>([]);
+const isLoadingSessions = ref(false);
+
+const appMode = useStorage<'vrchat' | 'discord' | 'custom'>('vrc_translator_app_mode', 'vrchat');
+const avatarOscSync = useStorage('vrc_translator_avatar_osc_sync', true);
+const avatarOscParam = useStorage('vrc_translator_avatar_osc_param', '/avatar/parameters/VRCT_IsTalking');
+const micPassthrough = useStorage('vrc_translator_mic_passthrough', false);
+const qwenEndpoint = useStorage<'beijing' | 'intl'>('vrc_translator_qwen_endpoint', 'beijing');
+const qwenWorkspaceId = useStorage('vrc_translator_qwen_workspace_id', '');
+
+const setAvatarTalking = async (talking: boolean) => {
+  if (!avatarOscSync.value || !isTauri()) return;
+  try {
+    await SysApi.sendOscParam({
+      address: avatarOscParam.value.trim() || '/avatar/parameters/VRCT_IsTalking',
+      value: talking ? 1.0 : 0.0,
+    });
+  } catch (e) {
+    console.warn('[Translator] Failed to sync avatar OSC param:', e);
+  }
+};
+
+const selectAppMode = (mode: 'vrchat' | 'discord' | 'custom') => {
+  appMode.value = mode;
+  if (mode === 'vrchat') {
+    targetProcess.value = 'VRChat.exe';
+    captureMode.value = 'process';
+    autoSendOsc.value = true;
+    avatarOscSync.value = true;
+    setStatus(tt('translator.app_mode_vrchat_applied', '已应用 VRChat 模式（目标进程 VRChat.exe，开启 OSC 与形象同步）'));
+  } else if (mode === 'discord') {
+    targetProcess.value = 'Discord.exe';
+    captureMode.value = 'process';
+    autoSendOsc.value = false;
+    avatarOscSync.value = false;
+    setStatus(tt('translator.app_mode_discord_applied', '已应用 Discord 模式（目标进程 Discord.exe，关闭 OSC 冒字，建议使用悬浮字幕）'));
+  } else {
+    captureMode.value = 'loopback';
+    setStatus(tt('translator.app_mode_custom_applied', '已应用自定义模式（可自由选择发声应用或全局内录）'));
+  }
+};
 
 const isRecording = ref(false);
 const isOtherRecording = ref(false);
@@ -285,7 +335,7 @@ let unlistenTranslationHotkey: UnlistenFn | null = null;
 
 const currentEngine = computed(() => engineOptions.value.find((engine) => engine.value === translateEngine.value) ?? engineOptions.value[0]);
 const needsApiKey = computed(() => Boolean(currentEngine.value.needsKey && !currentEngine.value.supportsLocal));
-const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'plamo', 'ollama', 'lmstudio', 'custom_llm', 'gemini'].includes(translateEngine.value));
+const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'plamo', 'ollama', 'lmstudio', 'custom_llm', 'gemini', 'qwen'].includes(translateEngine.value));
 const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
 const normalizedGlossary = computed(() => glossary.value.filter((term) => term.source.trim() && term.target.trim()).slice(0, 128));
 const activeProfile = computed(() => translationProfiles.value.find((profile) => profile.id === activeProfileId.value));
@@ -296,7 +346,7 @@ const profileOptions = computed<Option[]>(() => [
 
 const routeConfig = (route: TranslationRoute) => {
   const profile = translationProfiles.value.find((item) => item.id === routeProfileIds.value[route]);
-  return profile
+  const base = profile
     ? {
         engine: profile.engine,
         apiKey: profile.apiKey,
@@ -311,6 +361,20 @@ const routeConfig = (route: TranslationRoute) => {
         customApiUrl: customApiUrl.value,
         prompt: prompt.value,
       };
+
+  if (base.engine === 'qwen') {
+    let url = base.customApiUrl;
+    if (!url) {
+      url = qwenEndpoint.value === 'intl'
+        ? 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions'
+        : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+    }
+    if (qwenWorkspaceId.value.trim()) {
+      url += (url.includes('?') ? '&' : '?') + `workspace=${encodeURIComponent(qwenWorkspaceId.value.trim())}`;
+    }
+    base.customApiUrl = url;
+  }
+  return base;
 };
 const micDeviceOptions = computed<Option[]>(() => audioDevices.value
   .filter(device => device.source === 'mic')
@@ -318,6 +382,15 @@ const micDeviceOptions = computed<Option[]>(() => audioDevices.value
 const speakerDeviceOptions = computed<Option[]>(() => audioDevices.value
   .filter(device => device.source === 'speaker')
   .map(device => ({ label: `${device.name}${device.is_default ? ` (${t('translator.default')}})` : ''}`, value: device.id })));
+const ttsDeviceOptions = computed<Option[]>(() => [
+  { label: tt('translator.tts_device_default', '系统默认输出 (扬声器/耳机)'), value: '' },
+  ...audioDevices.value
+    .filter(device => device.source === 'output')
+    .map(device => ({
+      label: `${device.name}${device.is_default ? ` (${tt('translator.default', '默认')})` : ''}`,
+      value: device.id,
+    })),
+]);
 
 const translationQueue = new SerialTaskQueue((pending) => {
   isTranslating.value = pending > 0;
@@ -380,12 +453,18 @@ watch(overlayBackgroundOpacity, () => {
 });
 
 const playTts = async (text: string, lang = lastTargetLang.value) => {
-  if (!text.trim()) return;
+  if (!text.trim() || textOnlyMode.value) return;
   const pauseLoopback = isTauri() && isOtherRecording.value;
   try {
+    void setAvatarTalking(true);
     if (pauseLoopback) {
-      await SysApi.setAudioCapturePaused({ source: 'speaker', paused: true });
+      await SysApi.setAudioCapturePaused({ source: 'speaker', paused: true }).catch(() => undefined);
     }
+
+    const targetOutputDevice = ttsDeviceId.value
+      ? audioDevices.value.find(d => d.id === ttsDeviceId.value && d.source === 'output')
+      : undefined;
+    const deviceIndex = targetOutputDevice?.index;
 
     if (ttsEngine.value === 'system') {
       if (!('speechSynthesis' in window)) {
@@ -408,13 +487,21 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
         rate: Number(ttsRate.value) || 1,
         volume: Number(ttsVolume.value) || 1,
       });
-      const audio = new Audio(convertFileSrc(result.output_path));
-      audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
-      await new Promise<void>((resolve, reject) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error('Edge TTS audio playback failed'));
-        audio.play().catch(reject);
-      });
+      if (deviceIndex !== undefined && SysApi.playAudioToDevice) {
+        await SysApi.playAudioToDevice({
+          filePath: result.output_path,
+          deviceIndex,
+          volume: Math.min(1, Math.max(0, Number(ttsVolume.value) || 1)),
+        });
+      } else {
+        const audio = new Audio(convertFileSrc(result.output_path));
+        audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error('Edge TTS audio playback failed'));
+          audio.play().catch(reject);
+        });
+      }
     } else if (ttsEngine.value === 'gpt_sovits') {
       const langCode = lang.startsWith('ja') ? 'ja' : lang.startsWith('ko') ? 'ko' : lang.startsWith('en') ? 'en' : 'zh';
       const audioUrl = await SysApi.synthesizeGptSovits({
@@ -428,7 +515,7 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
         promptLanguage: gptPromptLanguage.value || langCode,
       });
       const audio = new Audio(audioUrl);
-      audio.volume = 1;
+      audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 1));
       await new Promise<void>((resolve, reject) => {
         audio.onended = () => resolve();
         audio.onerror = () => reject(new Error('TTS audio playback failed'));
@@ -449,15 +536,25 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
         instruct: gptPromptText.value,
       });
       if (!result) throw new Error('TTS provider is unavailable');
-      const audio = new Audio(convertFileSrc(result.output_path));
-      audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
-      await new Promise<void>((resolve, reject) => { audio.onended = () => resolve(); audio.onerror = () => reject(new Error('Server TTS audio playback failed')); audio.play().catch(reject); });
+      if (deviceIndex !== undefined && SysApi.playAudioToDevice) {
+        await SysApi.playAudioToDevice({
+          filePath: result.output_path,
+          deviceIndex,
+          volume: Math.min(1, Math.max(0, Number(ttsVolume.value) || 1)),
+        });
+      } else {
+        const audio = new Audio(convertFileSrc(result.output_path));
+        audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
+        await new Promise<void>((resolve, reject) => { audio.onended = () => resolve(); audio.onerror = () => reject(new Error('Server TTS audio playback failed')); audio.play().catch(reject); });
+      }
     }
   } catch (error) {
     errorMsg.value = tt('translator.tts_error', 'TTS playback failed: {err}').replace('{err}', errorText(error));
   } finally {
+    void setAvatarTalking(false);
     if (pauseLoopback) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      const tail = Math.max(0.2, Number(selfSuppressSeconds.value) || 0.2) * 1000;
+      await new Promise(resolve => setTimeout(resolve, tail));
       await SysApi.setAudioCapturePaused({ source: 'speaker', paused: false }).catch(() => undefined);
     }
   }
@@ -756,7 +853,7 @@ const processMessageNow = async (
     applyRecord(record);
     await notifyOverlay(record);
 
-    if (autoPlayTts.value && record.translated) {
+    if (!textOnlyMode.value && autoPlayTts.value && record.translated) {
       await playTts(record.translated, targetLanguage);
     }
 
@@ -836,6 +933,10 @@ const startCapture = async (source: AudioSource) => {
   if (isMic) isMicStarting.value = true;
   else isSpeakerStarting.value = true;
   try {
+    const passthroughDeviceIndex = isMic && micPassthrough.value && ttsDeviceId.value
+      ? audioDevices.value.find(d => d.id === ttsDeviceId.value && d.source === 'output')?.index
+      : undefined;
+
     await SysApi.startAudioCapture({
       source,
       sourceLang: isMic ? sourceLang.value : otherSourceLang.value,
@@ -844,6 +945,7 @@ const startCapture = async (source: AudioSource) => {
       realtimeConfig: realtimeAsrConfig.value,
       sherpaConfig: sherpaConfig.value,
       deviceIndex: selectedDeviceIndex(source),
+      passthroughDevice: passthroughDeviceIndex,
       energyThreshold: isMic ? Number(micEnergyThreshold.value) : Number(speakerEnergyThreshold.value),
       dynamicEnergyThreshold: true,
       phraseTimeLimit: Number(phraseTimeLimit.value),
@@ -862,8 +964,12 @@ const startCapture = async (source: AudioSource) => {
     setStatus(t('translator.starting_audio_recognition_service'));
   } catch (error) {
     errorMsg.value = tt('translator.capture_error_cloud', 'Audio capture failed: {err}').replace('{err}', errorText(error));
-    if (isMic) isRecording.value = false;
-    else isOtherRecording.value = false;
+    if (isMic) {
+      isRecording.value = false;
+      void setAvatarTalking(false);
+    } else {
+      isOtherRecording.value = false;
+    }
   } finally {
     if (isMic) isMicStarting.value = false;
     else isSpeakerStarting.value = false;
@@ -875,6 +981,7 @@ const stopCapture = async (source: AudioSource) => {
   if (source === 'mic') {
     isRecording.value = false;
     isMicStarting.value = false;
+    void setAvatarTalking(false);
   } else {
     isOtherRecording.value = false;
     isSpeakerStarting.value = false;
@@ -894,6 +1001,44 @@ const toggleRecording = async () => {
 const toggleOtherRecording = async () => {
   if (isOtherRecording.value || isSpeakerStarting.value) await stopCapture('speaker');
   else await startCapture('speaker');
+};
+
+const isTwoWayRunning = computed(() => isRecording.value && isOtherRecording.value);
+const isTwoWayStarting = computed(() => isMicStarting.value || isSpeakerStarting.value);
+
+const toggleTwoWay = async () => {
+  if (isRecording.value || isOtherRecording.value || isTwoWayStarting.value) {
+    await Promise.all([
+      stopCapture('mic'),
+      stopCapture('speaker'),
+    ]);
+    setStatus(tt('translator.two_way_stopped', '已停止双向同传'));
+  } else {
+    selfSuppress.value = true;
+    await Promise.all([
+      startCapture('mic'),
+      startCapture('speaker'),
+    ]);
+    setStatus(tt('translator.two_way_started', '已启动双向同传（自声抑制已生效）'));
+  }
+};
+
+const refreshAudioSessions = async () => {
+  if (!isTauri() || !SysApi.getAudioSessions) return;
+  isLoadingSessions.value = true;
+  try {
+    const sessions = await SysApi.getAudioSessions();
+    activeAudioSessions.value = Array.isArray(sessions) ? sessions : [];
+    if (activeAudioSessions.value.length) {
+      setStatus(`${tt('translator.sessions_found', '已检测到发声进程')}: ${activeAudioSessions.value.map(s => s.name).join(', ')}`);
+    } else {
+      setStatus(tt('translator.no_sessions_found', '未检测到活跃发声进程'));
+    }
+  } catch (err) {
+    console.warn('Failed to load audio sessions:', err);
+  } finally {
+    isLoadingSessions.value = false;
+  }
 };
 
 const manualSend = () => {
@@ -990,6 +1135,14 @@ const loadAudioDevices = async () => {
     };
     micDeviceId.value = selectDefault('mic', micDeviceId.value);
     speakerDeviceId.value = selectDefault('speaker', speakerDeviceId.value);
+
+    // Auto-detect VB-Audio Cable Input for TTS device if available and not set
+    if (!ttsDeviceId.value) {
+      const cableOutput = audioDevices.value.find(d => d.source === 'output' && d.name.toLowerCase().includes('cable input'));
+      if (cableOutput) {
+        ttsDeviceId.value = cableOutput.id;
+      }
+    }
   } catch (error) {
     audioDeviceError.value = errorText(error);
   }
@@ -1045,6 +1198,7 @@ onMounted(async () => {
           if (source === 'mic') {
             isRecording.value = false;
             isMicStarting.value = false;
+            void setAvatarTalking(false);
           } else {
             isOtherRecording.value = false;
             isSpeakerStarting.value = false;
@@ -1073,12 +1227,22 @@ onMounted(async () => {
           if (source === 'mic') {
             isRecording.value = false;
             isMicStarting.value = false;
+            void setAvatarTalking(false);
           } else {
             isOtherRecording.value = false;
             isSpeakerStarting.value = false;
           }
           if (!payload.expected && payload.exit_code !== 0) {
             errorMsg.value = t('translator.audio_recognition_service_stopped_unexpe');
+          }
+        }
+
+        // Avatar OSC 说话状态同步
+        if (source === 'mic') {
+          if (payload.message === 'recording') {
+            void setAvatarTalking(true);
+          } else if (payload.message === 'listening' || payload.message === 'stopped') {
+            void setAvatarTalking(false);
           }
         }
 
@@ -1134,6 +1298,7 @@ onMounted(async () => {
     await refreshModelStatus();
     await loadTtsPresets();
     await checkTranslationHotkeys();
+    await refreshAudioSessions().catch(() => undefined);
     let runtime: any = null;
     try { runtime = await TranslationApis.TranslationRuntimeApi?.get?.().catch(() => null); } catch { runtime = null; }
     if (runtime?.version) runtimeVersion.value = runtime.version;
@@ -1161,6 +1326,7 @@ onMounted(async () => {
 
 onUnmounted(async () => {
   translatorDisposed = true;
+  void setAvatarTalking(false);
   if (isTauri()) {
     await Promise.all([
       SysApi.stopAudioCapture({ source: 'mic' }).catch(() => undefined),
@@ -1183,7 +1349,40 @@ onUnmounted(async () => {
         <span class="truncate">{{ tt('translator.title', '翻译官') }}</span>
       </h2>
       <div class="flex items-center justify-end gap-3 flex-wrap">
-        <label class="min-w-[220px] flex items-center gap-3 px-3 py-2 bg-surface border border-border-soft rounded-xl shadow-sm">
+        <button
+          :class="isTwoWayRunning
+            ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/25 border-red-500'
+            : isTwoWayStarting
+            ? 'bg-surface border-border-soft text-text-muted'
+            : 'bg-primary hover:brightness-110 text-white shadow-md shadow-primary/20 border-primary'"
+          class="px-4 py-2.5 font-extrabold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-sm shrink-0 border"
+          @click="toggleTwoWay"
+        >
+          <component :is="isTwoWayStarting ? RefreshCw : Activity" :class="{ 'animate-spin': isTwoWayStarting }" :size="16" />
+          <span>{{ isTwoWayRunning ? tt('translator.two_way_stop', '停止双向同传') : tt('translator.two_way_start', '一键启动双向同传') }}</span>
+        </button>
+
+        <button
+          type="button"
+          :class="textOnlyMode ? 'bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400' : 'bg-surface border-border-soft text-text-muted hover:border-border-strong'"
+          class="px-3 py-2.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 transition-all shrink-0"
+          :title="tt('translator.text_only_hint', '仅发送 Chatbox 头顶冒字，不播放 TTS 语音')"
+          @click="textOnlyMode = !textOnlyMode"
+        >
+          <MessageSquare :size="14" />
+          <span>{{ tt('translator.text_only_mode', 'Text-Only (纯文本)') }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="px-3 py-2.5 rounded-xl border border-border-soft bg-surface hover:bg-surface-hover text-text-muted hover:text-primary text-xs font-extrabold flex items-center gap-1.5 transition-all shrink-0"
+          @click="showCableGuide = true"
+        >
+          <HelpCircle :size="14" />
+          <span>{{ tt('translator.cable_guide_btn', '虚拟声卡指南') }}</span>
+        </button>
+
+        <label class="min-w-[190px] flex items-center gap-2.5 px-3 py-2 bg-surface border border-border-soft rounded-xl shadow-sm">
           <span class="text-xs font-bold text-text-muted whitespace-nowrap">
             {{ tt('translator.overlay_opacity', '背景不透明度') }}
           </span>
@@ -1195,7 +1394,7 @@ onUnmounted(async () => {
             step="0.05"
             class="overlay-opacity-slider min-w-0 flex-1"
           >
-          <output class="w-10 text-right text-xs font-extrabold text-primary tabular-nums">
+          <output class="w-9 text-right text-xs font-extrabold text-primary tabular-nums">
             {{ Math.round(overlayBackgroundOpacity * 100) }}%
           </output>
         </label>
@@ -1209,6 +1408,64 @@ onUnmounted(async () => {
         </button>
       </div>
     </header>
+
+    <!-- App Mode Bar (VRChat / Discord / Custom) & Avatar OSC Sync (VRCLT 对标) -->
+    <div class="flex items-center justify-between gap-3 mb-4 p-2.5 bg-surface/90 backdrop-blur-md rounded-2xl border border-border-soft shadow-sm shrink-0 flex-wrap">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-black text-text-muted px-2 flex items-center gap-1.5 shrink-0">
+          <Settings :size="14" class="text-primary" />
+          {{ tt('translator.app_mode_label', '场景模式') }}
+        </span>
+        <div class="inline-flex rounded-xl bg-surface-hover p-1 border border-border-soft shrink-0">
+          <button
+            type="button"
+            :class="appMode === 'vrchat' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text'"
+            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5"
+            @click="selectAppMode('vrchat')"
+          >
+            <Gamepad2 :size="14" />
+            <span>{{ tt('translator.app_mode_vrchat', 'VRChat 模式') }}</span>
+          </button>
+          <button
+            type="button"
+            :class="appMode === 'discord' ? 'bg-indigo-600 text-white shadow-sm' : 'text-text-muted hover:text-text'"
+            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5"
+            @click="selectAppMode('discord')"
+          >
+            <MessageSquare :size="14" />
+            <span>{{ tt('translator.app_mode_discord', 'Discord 模式') }}</span>
+          </button>
+          <button
+            type="button"
+            :class="appMode === 'custom' ? 'bg-emerald-600 text-white shadow-sm' : 'text-text-muted hover:text-text'"
+            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5"
+            @click="selectAppMode('custom')"
+          >
+            <SlidersHorizontal :size="14" />
+            <span>{{ tt('translator.app_mode_custom', '自定义进程') }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Avatar OSC Sync Controls -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <label
+          class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-surface-hover border border-border-soft cursor-pointer text-xs font-bold text-text-muted shrink-0 transition-colors hover:border-primary"
+          :title="tt('translator.avatar_osc_hint', '说话或播报 TTS 时自动将 Avatar 状态参数置为 1.0，停顿结束时恢复 0.0')"
+        >
+          <input v-model="avatarOscSync" type="checkbox" class="w-3.5 h-3.5 text-primary rounded">
+          <span>{{ tt('translator.avatar_osc_sync', 'Avatar 说话状态同步') }}</span>
+        </label>
+        <input
+          v-if="avatarOscSync"
+          v-model="avatarOscParam"
+          type="text"
+          class="px-2.5 py-1 bg-surface-hover border border-border-soft rounded-xl text-xs font-mono font-bold text-text outline-none w-56 shrink-0 focus:border-primary"
+          placeholder="/avatar/parameters/VRCT_IsTalking"
+          :title="tt('translator.avatar_osc_param_hint', 'VRChat Avatar OSC 参数地址')"
+        >
+      </div>
+    </div>
 
     <section class="bg-surface backdrop-blur-xl rounded-2xl p-4 border-border-strong shadow-sm mb-5">
       <div class="grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-4">
@@ -1341,6 +1598,35 @@ onUnmounted(async () => {
                   { label: tt('translator.tts_server', 'VRCLS Server TTS'), value: 'server' }
                 ]"
               />
+            </div>
+            <div class="min-w-0">
+              <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5 flex items-center justify-between">
+                <span class="flex items-center gap-1.5"><Volume2 :size="12" /> {{ tt('translator.tts_device_label', 'TTS 输出设备 (直通虚拟声卡)') }}</span>
+                <button type="button" class="text-[10px] text-primary cursor-pointer hover:underline font-bold flex items-center gap-1" @click="showCableGuide = true">
+                  <HelpCircle :size="12" />
+                  <span>{{ tt('translator.cable_guide_btn', '虚拟声卡指南') }}</span>
+                </button>
+              </label>
+              <CustomSelect v-model="ttsDeviceId" :options="ttsDeviceOptions" />
+            </div>
+            <div class="md:col-span-2 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border border-border-soft">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold text-text">{{ tt('translator.mic_passthrough_title', '麦克风原生直通虚拟声卡 (Raw Mic Passthrough)') }}</span>
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-primary/10 text-primary">VRCLT 同款</span>
+                </div>
+                <span class="text-[11px] text-text-muted block mt-0.5">
+                  {{ tt('translator.mic_passthrough_desc', '将物理麦克风声音近 0 延迟实时拷贝直通推入虚拟声卡（CABLE Input），TTS 语音合成播报时自动暂停避让。无需第三方复杂跳线！') }}
+                </span>
+              </div>
+              <button
+                type="button"
+                :class="micPassthrough ? 'bg-primary text-white' : 'bg-surface border-border-soft text-text-muted'"
+                class="relative w-11 h-6 rounded-full transition-colors shrink-0"
+                @click="micPassthrough = !micPassthrough"
+              >
+                <span :class="micPassthrough ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
+              </button>
             </div>
             <div v-if="ttsEngine === 'server'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div><label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_provider', 'Provider') }}</label><CustomSelect v-model="serverTtsProvider" :options="[{ label: 'Edge-TTS', value: 'edge' }, { label: 'Qwen-TTS', value: 'qwen' }, { label: 'MOSS-TTS', value: 'moss' }, { label: 'OmniVoice', value: 'omnivoice' }]" /></div>
@@ -1478,6 +1764,27 @@ onUnmounted(async () => {
                   <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.custom_api_url_label', 'Custom API URL') }}</label>
                   <input v-model="customApiUrl" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="https://example.com/v1/chat/completions">
                 </div>
+                <div v-if="translateEngine === 'qwen'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                  <div>
+                    <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.qwen_endpoint_label', '通义千问服务节点') }}</label>
+                    <CustomSelect
+                      v-model="qwenEndpoint"
+                      :options="[
+                        { label: tt('translator.qwen_endpoint_beijing', '中国大陆 (北京节点 - DashScope)'), value: 'beijing' },
+                        { label: tt('translator.qwen_endpoint_intl', '国际节点 (新加坡/国际站 - DashScope Intl)'), value: 'intl' },
+                      ]"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.qwen_workspace_label', 'DashScope Workspace ID (可选)') }}</label>
+                    <input
+                      v-model="qwenWorkspaceId"
+                      type="text"
+                      class="w-full px-3 py-2 bg-surface border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10"
+                      :placeholder="tt('translator.qwen_workspace_placeholder', '如无多空间隔离可留空')"
+                    >
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -1551,10 +1858,33 @@ onUnmounted(async () => {
                   <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.capture_mode') }}</label>
                   <CustomSelect v-model="captureMode" :options="[{ label:t('translator.whole_speaker_loopback'), value: 'loopback' }, { label:t('translator.vrchat_process_only'), value: 'process' }]" />
                 </div>
-                <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.target_process') }}</span>
-                  <input v-model="targetProcess" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="VRChat.exe">
-                </label>
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="block text-[11px] font-extrabold text-text-muted uppercase">{{ t('translator.target_process') }}</span>
+                    <button
+                      type="button"
+                      class="text-[10px] text-primary hover:underline flex items-center gap-1 font-bold"
+                      :disabled="isLoadingSessions"
+                      @click="refreshAudioSessions"
+                    >
+                      <RefreshCw :class="{ 'animate-spin': isLoadingSessions }" :size="10" />
+                      <span>{{ tt('translator.refresh_sessions', '刷新发声进程') }}</span>
+                    </button>
+                  </div>
+                  <div class="flex gap-2">
+                    <input v-model="targetProcess" type="text" class="flex-1 min-w-0 px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="VRChat.exe">
+                    <div v-if="activeAudioSessions.length > 0" class="w-40 shrink-0">
+                      <CustomSelect
+                        :model-value="targetProcess"
+                        :options="[
+                          { label: tt('translator.select_process', '选择发声进程'), value: '' },
+                          ...activeAudioSessions.map(s => ({ label: `${s.name} (${s.pid})`, value: s.name }))
+                        ]"
+                        @update:model-value="if ($event) { targetProcess = $event; captureMode = 'process'; }"
+                      />
+                    </div>
+                  </div>
+                </div>
                 <label class="min-w-0">
                   <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.energy_threshold') }}</span>
                   <input v-model.number="speakerEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
@@ -1846,6 +2176,38 @@ onUnmounted(async () => {
             </p>
           </div>
         </aside>
+      </div>
+    </div>
+
+    <!-- VB-Audio Cable Setup Guide Modal -->
+    <div v-if="showCableGuide" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div class="bg-surface border border-border-strong rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 text-primary font-black text-base">
+            <Volume2 :size="20" />
+            <span>{{ tt('translator.cable_guide_title', 'VB-Audio 虚拟声卡配置向导 (VRCLT 同款)') }}</span>
+          </div>
+          <button class="p-1 rounded-xl hover:bg-surface-hover text-text-muted" @click="showCableGuide = false">
+            <X :size="18" />
+          </button>
+        </div>
+        <div class="text-xs text-text space-y-3 leading-relaxed">
+          <div class="p-3 bg-primary/10 rounded-2xl border border-primary/20 text-xs flex items-start gap-2">
+            <HelpCircle :size="15" class="text-primary shrink-0 mt-0.5" />
+            <div><strong>原理说明：</strong> 让 VRChat 里的外国友人能够直接听到你由 AI 翻译合成的多语言 TTS 语音，打造与 VRCLT 一致的双向同传交流闭环。</div>
+          </div>
+          <ol class="list-decimal list-inside space-y-2.5 text-xs text-text-muted">
+            <li><strong class="text-text">步骤 1：安装虚拟音频驱动</strong><br><span class="pl-4 inline-block">安装免费驱动 <code class="text-primary font-mono font-bold">VB-CABLE Virtual Audio Device</code>（如已安装可跳过）。</span></li>
+            <li><strong class="text-text">步骤 2：VRCDog 指定 TTS 输出</strong><br><span class="pl-4 inline-block">在上方【TTS 输出设备】选择 <code class="text-primary font-mono font-bold">CABLE Input (VB-Audio Virtual Cable)</code>。</span></li>
+            <li><strong class="text-text">步骤 3：VRChat 麦克风输入设置</strong><br><span class="pl-4 inline-block">在 VRChat 游戏菜单中打开 <span class="text-text font-bold">Settings &gt; Audio &gt; Microphone</span>，选择 <code class="text-primary font-mono font-bold">CABLE Output (VB-Audio Virtual Cable)</code>。</span></li>
+            <li><strong class="text-text">步骤 4：享受双向实时同传！</strong><br><span class="pl-4 inline-block">点击顶栏【一键启动双向同传】。你说话会自动翻译并通过虚拟麦克风播报到游戏世界，外国朋友说话则自动在悬浮窗同传字幕显示！</span></li>
+          </ol>
+        </div>
+        <div class="pt-2 flex justify-end">
+          <button class="px-5 py-2.5 bg-primary text-white text-xs font-extrabold rounded-xl hover:brightness-110" @click="showCableGuide = false">
+            确定
+          </button>
+        </div>
       </div>
     </div>
   </div>

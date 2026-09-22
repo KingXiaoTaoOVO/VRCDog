@@ -79,7 +79,7 @@ const recentHotkey = ref('');
 const overlayOpacity = useStorage(VRPIANO_OVERLAY_OPACITY_KEY, DEFAULT_VRPIANO_OVERLAY_OPACITY);
 const overlayBlur = useStorage(VRPIANO_OVERLAY_BLUR_KEY, DEFAULT_VRPIANO_OVERLAY_BLUR);
 const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
-const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', true);
+const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', false);
 const previewingPath = ref('');
 const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v1', 'keyboard');
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
@@ -90,10 +90,16 @@ const vrchatOscAvatarPrefix = useStorage('vrcdog.vrpiano.oscAvatarPrefix.v1', '/
 const hotkeysEnabled = useStorage('vrcdog.vrpiano.hotkeysEnabled.v1', true);
 
 const modeBadgeText = computed(() => {
-  if (outputMode.value === 'osc') return 'OSC';
+  if (outputMode.value === 'osc') return t('vrpiano_overlay.mode_osc_contactless');
   if (outputMode.value === 'midi') return 'MIDI';
   return t('vrpiano_overlay.mode_keyboard');
 });
+
+const cycleOutputMode = async () => {
+  const modes: Array<'keyboard' | 'midi' | 'osc'> = ['keyboard', 'midi', 'osc'];
+  const currentIndex = modes.indexOf(outputMode.value);
+  outputMode.value = modes[(currentIndex + 1) % modes.length];
+};
 
 let pollTimer: number | null = null;
 let hotkeyTimer: number | null = null;
@@ -304,12 +310,16 @@ const previewSong = async (song: VrpianoSong) => {
 };
 
 const handleSongClick = (song: VrpianoSong) => {
-  if (!previewEnabled.value) return;
   if (songClickTimer !== null) window.clearTimeout(songClickTimer);
-  songClickTimer = window.setTimeout(() => {
-    songClickTimer = null;
-    void previewSong(song);
-  }, 220);
+  if (previewEnabled.value) {
+    songClickTimer = window.setTimeout(() => {
+      songClickTimer = null;
+      void previewSong(song);
+    }, 220);
+  } else {
+    previewingPath.value = '';
+    void playSong(song);
+  }
 };
 
 const handleSongDblClick = (song: VrpianoSong) => {
@@ -371,6 +381,24 @@ watch(overlayBlur, (value) => {
   });
 });
 
+watch(outputMode, async (newMode) => {
+  if (status.value.hotkeys_enabled) {
+    const targetSongPath = currentSong.value?.path || status.value.song_path || songs.value[0]?.path || '';
+    try {
+      applyStatus(await VrpianoApi.setHotkeys({
+        enabled: true,
+        songPath: targetSongPath,
+        delaySecs: 0,
+        speed: status.value.speed || 1,
+        outputMode: newMode,
+        midiDeviceId: newMode === 'midi' ? selectedMidiDevice.value : undefined,
+        oscHost: vrchatOscHost.value,
+        oscPort: vrchatOscPort.value,
+      }));
+    } catch {}
+  }
+});
+
 const handleOpacityInput = (event: Event) => {
   const target = event.target as HTMLInputElement;
   overlayOpacity.value = normalizeVrpianoOverlayOpacity(target.value);
@@ -398,6 +426,19 @@ onMounted(async () => {
     const [nextStatus, nextSongs] = await Promise.all([VrpianoApi.getStatus(), VrpianoApi.listSongs()]);
     applyStatus(nextStatus);
     songs.value = nextSongs;
+    if (hotkeysEnabled.value && !nextStatus.hotkeys_enabled) {
+      const targetSongPath = currentSong.value?.path || nextStatus.song_path || nextSongs[0]?.path || '';
+      applyStatus(await VrpianoApi.setHotkeys({
+        enabled: true,
+        songPath: targetSongPath,
+        delaySecs: 0,
+        speed: nextStatus.speed || 1,
+        outputMode: outputMode.value === 'osc' ? 'osc' : outputMode.value === 'midi' ? 'midi' : 'keyboard',
+        midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
+        oscHost: vrchatOscHost.value,
+        oscPort: vrchatOscPort.value,
+      }));
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   }
@@ -429,7 +470,15 @@ onUnmounted(() => {
         <div class="brand-meta">
           <div class="brand-line">
             <strong>VRPiano</strong>
-            <span class="mode-badge" :class="outputMode">{{ modeBadgeText }}</span>
+            <span
+              class="mode-badge clickable"
+              :class="outputMode"
+              :title="t('vrpiano_overlay.switch_mode_hint')"
+              data-no-drag
+              @click.stop="cycleOutputMode"
+            >
+              {{ modeBadgeText }}
+            </span>
           </div>
           <small :class="{ active: status.running && !status.paused }">{{ playbackLabel }}</small>
         </div>
@@ -477,6 +526,32 @@ onUnmounted(() => {
         >
         <b>{{ blurEnabled ? t('vrpiano_overlay.on') : t('vrpiano_overlay.off') }}</b>
       </label>
+      <div class="setting-row" data-no-drag>
+        <span>{{ t('vrpiano.output_mode') }}</span>
+        <div class="mode-toggle-group">
+          <button
+            class="mode-toggle-btn"
+            :class="{ active: outputMode === 'keyboard' }"
+            @click="outputMode = 'keyboard'"
+          >
+            {{ t('vrpiano_overlay.mode_keyboard') }}
+          </button>
+          <button
+            class="mode-toggle-btn"
+            :class="{ active: outputMode === 'midi' }"
+            @click="outputMode = 'midi'"
+          >
+            MIDI
+          </button>
+          <button
+            class="mode-toggle-btn"
+            :class="{ active: outputMode === 'osc' }"
+            @click="outputMode = 'osc'"
+          >
+            {{ t('vrpiano_overlay.mode_osc_contactless') }}
+          </button>
+        </div>
+      </div>
     </section>
 
     <section class="now-playing">
@@ -563,7 +638,7 @@ onUnmounted(() => {
           :key="song.path"
           :class="{ active: index === currentIndex, previewing: song.path === previewingPath }"
           :disabled="busy"
-          :title="t('vrpiano_overlay.click_to_preview_dblclick_to_play')"
+          :title="previewEnabled ? t('vrpiano_overlay.click_to_preview_dblclick_to_play') : t('vrpiano_overlay.click_to_play')"
           @click="handleSongClick(song)"
           @dblclick.prevent="handleSongDblClick(song)"
         >
@@ -711,6 +786,21 @@ input {
   border-color: color-mix(in srgb, #06b6d4 32%, transparent);
 }
 
+.mode-badge.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.mode-badge.clickable:hover {
+  filter: brightness(1.25);
+  transform: scale(1.05);
+}
+
+.mode-badge.clickable:active {
+  transform: scale(0.95);
+}
+
 .brand small {
   margin-top: 3px;
   color: var(--theme-text-muted);
@@ -775,6 +865,46 @@ input {
   color: var(--theme-text-soft);
   font-size: 10px;
   font-weight: 800;
+}
+
+.appearance-settings .setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--theme-text-soft);
+}
+
+.appearance-settings .mode-toggle-group {
+  display: flex;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 2px;
+  border-radius: 5px;
+}
+
+.appearance-settings .mode-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.appearance-settings .mode-toggle-btn:hover {
+  color: var(--theme-text-strong);
+}
+
+.appearance-settings .mode-toggle-btn.active {
+  background: color-mix(in srgb, var(--theme-primary) 35%, rgba(255, 255, 255, 0.12));
+  color: var(--theme-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .appearance-settings input {
