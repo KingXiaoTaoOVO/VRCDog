@@ -3,7 +3,7 @@ import { useToast } from "../composables/useToast";
 
 const toast = useToast();
 import { ref, onMounted, computed } from 'vue';
-import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2 } from 'lucide-vue-next';
+import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2, X } from 'lucide-vue-next';
 import { GalleryApi, SysApi } from '../api';
 import { isTauri } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -312,10 +312,10 @@ const uploadToVrcPlus = async () => {
             class="max-w-full max-h-[70vh] object-contain"
           >
           <button
-            class="absolute top-4 right-4 p-2 rounded-xl bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
+            class="absolute top-4 right-4 p-2 rounded-xl bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
             @click="previewImage = null"
           >
-            ✕
+            <X :size="18" />
           </button>
         </div>
         <div class="p-6 bg-surface rounded-b-2xl">

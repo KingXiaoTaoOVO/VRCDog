@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, UserPlus, UserCheck, Clock3, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2 } from "lucide-vue-next";
+import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, UserPlus, UserCheck, Clock3, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2, Crown, Lock } from "lucide-vue-next";
 import { useUserProfileStore } from "../stores/userProfile";
 import { useAuthStore } from "../stores/authStore";
 import { useEntityModalStore } from "../stores/entityModal";
@@ -1695,8 +1695,8 @@ const parseLocationInfo = async () => {
   // Parse region
   const regionMatch = instancePart.match(/region\(([^)]+)\)/);
   const region = regionMatch ? regionMatch[1] : '';
-  const regionFlags: Record<string, string> = { jp: '🇯🇵', us: '🇺🇸', use: '🇺🇸', usw: '🇺🇸', eu: '🇪🇺' };
-  locationRegionFlag.value = regionFlags[region] || '🌐';
+  const regionNames: Record<string, string> = { jp: 'JP', us: 'US', use: 'US-E', usw: 'US-W', eu: 'EU' };
+  locationRegionFlag.value = regionNames[region] || (region ? region.toUpperCase() : '');
 
   // Parse access type
   const groupMatch = instancePart.match(/group\(([^)]+)\)/);
@@ -2122,7 +2122,7 @@ watch(activeTab, (tab) => {
                 <div v-if="locationWorldName" class="info-section mb-3 p-3 rounded-xl" style="background: var(--theme-surface); border: 1px solid var(--theme-border-soft);">
                   <div class="flex items-center gap-2 text-sm font-bold" style="color: var(--theme-text-strong);">
                     <MapPin :size="14" style="color: var(--theme-primary);" />
-                    <span>{{ locationRegionFlag }}</span>
+                    <span v-if="locationRegionFlag" class="text-[11px] px-1.5 py-0.5 rounded font-mono font-bold border border-border-soft bg-surface-hover">{{ locationRegionFlag }}</span>
                     <span v-if="locationPlayerCount" style="color: var(--theme-text-muted);">{{ t('user_profile.info.players_count', { count: locationPlayerCount }) }}</span>
                     <span class="text-xs px-1.5 py-0.5 rounded" style="background: var(--theme-primary); color: white; opacity: 0.8;">{{ locationInstanceInfo }}</span>
                   </div>
@@ -2144,7 +2144,7 @@ watch(activeTab, (tab) => {
                 <div v-else-if="profileStore.baseInfo?.location === 'private'" class="info-section mb-3 p-3 rounded-xl" style="background: var(--theme-surface); border: 1px solid var(--theme-border-soft);">
                   <div class="flex items-center gap-2 text-sm" style="color: var(--theme-text-muted);">
                     <MapPin :size="14" />
-                    <span>🔒 {{ t('user_profile.info.private_room') }}</span>
+                    <span class="flex items-center gap-1"><Lock :size="12" class="text-orange-400" /> {{ t('user_profile.info.private_room') }}</span>
                   </div>
                 </div>
 
@@ -2295,7 +2295,7 @@ watch(activeTab, (tab) => {
                     >
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-1">
-                        <span v-if="representedGroup.ownerId === profileStore.targetUserId" class="shrink-0">👑</span>
+                        <Crown v-if="representedGroup.ownerId === profileStore.targetUserId" :size="14" class="shrink-0 text-amber-400" />
                         <span class="font-medium truncate" style="color: var(--theme-text);">{{ representedGroup.name || '—' }}</span>
                       </div>
                       <div class="text-xs" style="color: var(--theme-text-muted);">
@@ -2408,7 +2408,7 @@ watch(activeTab, (tab) => {
                     <div v-for="g in groupedGroups.own" :key="g.id" class="friend-item" @click="openGroupDetail(g)">
                       <div class="relative shrink-0">
                         <VrcAvatar :user="g" :url="g.iconUrl || g.thumbnailUrl" custom-class="w-9 h-9 rounded-lg object-cover" />
-                        <span class="absolute -top-1 -right-1 text-xs">👑</span>
+                        <Crown :size="12" class="absolute -top-1 -right-1 text-amber-400" />
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="truncate text-sm font-medium" style="color: var(--theme-text);">{{ g.name }}</div>
@@ -2498,9 +2498,9 @@ watch(activeTab, (tab) => {
                   <div class="p-2">
                     <div class="truncate text-sm font-medium" style="color: var(--theme-text);">{{ w.name }}</div>
                     <div class="flex items-center gap-2 mt-1 text-xs" style="color: var(--theme-text-muted);">
-                      <span v-if="(w as any).visits != null">👁 {{ (w as any).visits }}</span>
-                      <span v-if="(w as any).favorites != null">⭐ {{ (w as any).favorites }}</span>
-                      <span v-if="(w as any).occupants != null">👥 {{ (w as any).occupants }}</span>
+                      <span v-if="(w as any).visits != null" class="flex items-center gap-1"><Eye :size="12" /> {{ (w as any).visits }}</span>
+                      <span v-if="(w as any).favorites != null" class="flex items-center gap-1"><Star :size="12" class="text-amber-400 fill-amber-400" /> {{ (w as any).favorites }}</span>
+                      <span v-if="(w as any).occupants != null" class="flex items-center gap-1"><Users :size="12" /> {{ (w as any).occupants }}</span>
                     </div>
                   </div>
                 </div>

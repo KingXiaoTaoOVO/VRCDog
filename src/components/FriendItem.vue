@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEntityModalStore } from '../stores/entityModal';
 import { useUserProfileStore } from '../stores/userProfile';
+import { Globe, Home, Lock, Moon, Plane } from 'lucide-vue-next';
 
 const props = defineProps<{
   friend: any;
@@ -59,14 +60,6 @@ const countryFlags = computed(() => {
     .filter(Boolean)
     .slice(0, 3); // max 3 flags like VrcDog
 });
-
-const getFlag = (location: string) => {
-  if (location === 'private') return '🔒';
-  if (location === 'traveling') return '✈️';
-  if (location === 'offline') return '💤';
-  if (location.includes('wrld_')) return '🌎';
-  return '🏠';
-};
 
 const cleanLocName = (location: string) => {
   if (location === 'private') return t('friends.loc_private');
@@ -129,9 +122,11 @@ const handleWorldClick = (event: MouseEvent) => {
       <!-- slots for subtitle -->
       <slot name="subtitle">
          <div v-if="friend.location && !isOffline" class="flex items-center gap-1.5 mt-1 text-[12px] font-bold text-[var(--theme-text-muted)] truncate bg-[var(--theme-bg-main)]/10 dark:bg-[var(--theme-text)]/5 self-start px-2 py-0.5 rounded-lg border border-border-soft">
-           <span v-if="friend.location === 'private'" class="shrink-0 text-orange-400 opacity-80 text-[10px]">🔒</span>
-           <span v-else-if="friend.location.startsWith('wrld_')" class="shrink-0 text-[10px] cursor-pointer hover:text-primary hover:underline transition-colors" @click.stop="handleWorldClick($event)" title="点击查看世界详情">{{ getFlag(friend.location) }}</span>
-           <span v-else class="shrink-0 text-[10px]">{{ getFlag(friend.location) }}</span>
+           <Lock v-if="friend.location === 'private'" :size="12" class="shrink-0 text-orange-400 opacity-80" />
+           <Globe v-else-if="friend.location.startsWith('wrld_')" :size="12" class="shrink-0 text-emerald-400 cursor-pointer hover:text-primary transition-colors" @click.stop="handleWorldClick($event)" title="点击查看世界详情" />
+           <Plane v-else-if="friend.location === 'traveling'" :size="12" class="shrink-0 text-sky-400" />
+           <Moon v-else-if="friend.location === 'offline'" :size="12" class="shrink-0 text-zinc-500" />
+           <Home v-else :size="12" class="shrink-0 text-primary" />
            <span class="truncate cursor-pointer hover:text-primary hover:underline transition-colors"
                  v-if="friend.location.startsWith('wrld_')"
                  @click.stop="handleWorldClick($event)"

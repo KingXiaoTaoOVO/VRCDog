@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { VrcApi, SysApi } from "../api";
-import { Users, Loader2, Shield, Search, Check, UsersRound, Settings, ScrollText, Megaphone, ShieldAlert, FileText, UserX, Ban } from 'lucide-vue-next';
+import { Users, Loader2, Shield, Search, Check, UsersRound, Settings, ScrollText, Megaphone, ShieldAlert, FileText, UserX, Ban, X } from 'lucide-vue-next';
 import VrcAvatar from './VrcAvatar.vue';
 import VrcResourceCard from './VrcResourceCard.vue';
 import BaseModal from './BaseModal.vue';
@@ -292,10 +292,10 @@ onMounted(() => {
           <!-- 磨砂渐变遮罩 -->
           <div class="absolute inset-0 bg-gradient-to-t from-surface via-surface/40 to-transparent"></div>
           <button
-            class="absolute top-4 right-4 p-2 rounded-full bg-surface/50 hover:bg-background/80 backdrop-blur-md text-text transition-colors z-20"
+            class="absolute top-4 right-4 p-2 rounded-full bg-surface/50 hover:bg-background/80 backdrop-blur-md text-text transition-colors z-20 flex items-center justify-center"
             @click="selectedGroup = null"
           >
-            ✕
+            <X :size="18" />
           </button>
         </div>
 

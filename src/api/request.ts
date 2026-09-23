@@ -139,8 +139,8 @@ function isVrchatAuthExpired(status: number, url: string, message: string): bool
   // dead session logs the user out as soon as they switch menus. Only the
   // canonical auth probe above may expire a session without an explicit
   // authentication error message.
-  if (!lower || lower === 'http 401') return false;
-  return /(missing credentials|invalid credentials|^unauthorized$|unauthorized user|expired|login required|not logged in)/i.test(lower);
+  if (!lower || lower === 'http 401' || lower === 'unauthorized') return false;
+  return /(missing credentials|invalid credentials|unauthorized user|cookie expired|session expired|login required|not logged in)/i.test(lower);
 }
 
 function isTransientHttpStatus(status: number): boolean {
@@ -479,9 +479,13 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
       throw new Error('Invalid response from native HTTP bridge');
     }
     if (res.auth_cookie && isVrchat) {
-      const mergedCookie = await mergeCookiesAndSave(res.auth_cookie);
-      if (mergedCookie) {
-        res.auth_cookie = mergedCookie;
+      const isSuccess = res.status >= 200 && res.status < 300;
+      const isAuthProbe = reqUrl.includes('/auth/user');
+      if (isSuccess || isAuthProbe) {
+        const mergedCookie = await mergeCookiesAndSave(res.auth_cookie);
+        if (mergedCookie) {
+          res.auth_cookie = mergedCookie;
+        }
       }
     }
 
@@ -542,10 +546,6 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         !isVrchatPermissionError(res.status, reqUrl, errorMessage) &&
         !options.suppressAuthExpired
       ) {
-        if (res.auth_cookie) {
-          try { await mergeCookiesAndSave(res.auth_cookie); } catch { /* ignore */ }
-        }
-
         const fireAuthExpired = () => {
           if (!options.suppressAuthExpired) {
             window.dispatchEvent(new CustomEvent('vrc-auth-expired'));

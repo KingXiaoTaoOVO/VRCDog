@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { VrcApi, DbApi } from "../api";
 import { isTauri } from '@tauri-apps/api/core';
-import { Search, RefreshCcw, Settings, ChevronDown, ChevronRight, UsersRound, X } from 'lucide-vue-next';
+import { Search, RefreshCcw, Settings, ChevronDown, ChevronRight, UsersRound, X, Globe } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/authStore';
 import { useUserProfileStore } from '../stores/userProfile';
@@ -250,12 +250,12 @@ const groupedFriends = computed(() => {
   locationMap.forEach((friendsInLoc, loc) => {
     if (friendsInLoc.length > 1) { // 2 or more friends in the same instance
       let locName = friendsInLoc[0]?.location || t('auto_65717df5');
-      let flag = '🌐';
-      if (locName.includes('JP')) flag = '🇯🇵';
-      else if (locName.includes('US')) flag = '🇺🇸';
-      else if (locName.includes('CN')) flag = '🇨🇳';
-      else if (locName.includes('EU')) flag = '🇪🇺';
-      else if (locName.includes('KR')) flag = '🇰🇷';
+      let flag = '';
+      if (locName.includes('JP')) flag = 'JP';
+      else if (locName.includes('US')) flag = 'US';
+      else if (locName.includes('CN')) flag = 'CN';
+      else if (locName.includes('EU')) flag = 'EU';
+      else if (locName.includes('KR')) flag = 'KR';
       
       // Clean up location name for display - resolve world name from cache
       let displayLoc = locName.split('~')[0];
@@ -340,13 +340,13 @@ const getStatusColor = (status: string) => {
 };
 
 const getFlag = (locName: string) => {
-  if (!locName) return '🌐';
-  if (locName.includes('JP')) return '🇯🇵';
-  if (locName.includes('US')) return '🇺🇸';
-  if (locName.includes('CN')) return '🇨🇳';
-  if (locName.includes('EU')) return '🇪🇺';
-  if (locName.includes('KR')) return '🇰🇷';
-  return '🌐';
+  if (!locName) return '';
+  if (locName.includes('JP')) return 'JP';
+  if (locName.includes('US')) return 'US';
+  if (locName.includes('CN')) return 'CN';
+  if (locName.includes('EU')) return 'EU';
+  if (locName.includes('KR')) return 'KR';
+  return '';
 };
 
 const cleanLocName = (loc: string) => {
@@ -497,7 +497,8 @@ const resolveWorldNames = async () => {
               <template v-for="group in groupedFriends.sameRoom" :key="group.location">
                 <!-- Location Header -->
                 <div class="flex items-center gap-2 py-1.5 px-4 text-[13px] font-bold text-[var(--theme-text-muted)] bg-[var(--theme-surface)]-hover rounded-[16px] mx-4 mb-2 mt-2 border-2 border-border-soft shadow-sm hover:scale-[1.01] transition-transform">
-                  <span class="text-[16px] drop-shadow-sm">{{ group.flag }}</span>
+                  <Globe :size="14" class="text-primary shrink-0" />
+                  <span v-if="group.flag" class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold border border-border-soft bg-[var(--theme-surface)] text-[var(--theme-text)]">{{ group.flag }}</span>
                   <span class="truncate max-w-[200px]">{{ group.locationName }}</span>
                   <span class="ml-auto shrink-0 bg-[var(--theme-surface)] border-2 border-border-soft px-2.5 py-0.5 rounded-full text-[11px] text-[var(--theme-text)]">{{ group.friends.length }}</span>
                 </div>

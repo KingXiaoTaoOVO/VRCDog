@@ -447,6 +447,26 @@ mod cookie_tests {
         assert_eq!(parse_http_method("post").unwrap(), reqwest::Method::POST);
         assert!(parse_http_method("not a method").is_err());
     }
+
+    #[test]
+    fn jar_provides_cookies_for_api_requests() {
+        use reqwest::cookie::CookieStore;
+        use std::sync::Arc;
+
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let base_url = "https://api.vrchat.cloud".parse::<reqwest::Url>().unwrap();
+        jar.add_cookie_str("auth=a1", &base_url);
+        jar.add_cookie_str("twoFactorAuth=t1", &base_url);
+
+        let target_url = "https://api.vrchat.cloud/api/1/auth/user".parse::<reqwest::Url>().unwrap();
+        let cookie_header = jar.cookies(&target_url);
+        eprintln!("[TEST] Cookie header: {:?}", cookie_header);
+        assert!(cookie_header.is_some());
+        let val = cookie_header.unwrap().to_str().unwrap().to_string();
+        eprintln!("[TEST] Cookie header val: {}", val);
+        assert!(val.contains("auth=a1"));
+        assert!(val.contains("twoFactorAuth=t1"));
+    }
 }
 
 #[cfg(test)]

@@ -36,7 +36,7 @@ import WebClientView from './components/WebClientView.vue';
 
 // Assets
 import dogImg from './assets/dog.jpg';
-import { Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
+import { AlertTriangle, Ban, Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
 import { setAppLocale } from './i18n';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -525,21 +525,33 @@ if (typeof window !== 'undefined') {
       console.warn('[App] Auth expired event already queued, skipping duplicate');
       return;
     }
+    // 登录保护宽限期内（30秒内），忽略 auth-expired 事件，防止初始并发请求的 401 触发误踢
+    if (authStore.isInLoginGracePeriod()) {
+      console.warn('[App] Within login grace period, ignoring auth-expired event');
+      return;
+    }
     authExpiredPending = true;
     console.warn('[App] Auth expired event received, verifying...');
 
     // 验证：用当前 cookie 再试一次 /auth/user，确认 auth 确实失效
     // 防止 WebSocket 断开等误触发导致用户被强制登出
     try {
-      const verifyUser = await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true });
-      if (verifyUser && verifyUser.displayName) {
+      const verifyUser: any = await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true });
+      if (verifyUser && (verifyUser.id || verifyUser.displayName || verifyUser.username || verifyUser.currentUser || verifyUser.current_user)) {
         // auth 仍然有效，忽略本次事件
         console.log('[App] Auth still valid, ignoring auth-expired event');
         authExpiredPending = false;
         return;
       }
-    } catch {
-      // verify 也失败了，auth 确实失效
+    } catch (err: any) {
+      // 只有在明确收到 HTTP 401 且属于凭据失效时，才判定为 session expired！
+      // 如果是网络抖动、超时、429 限流或 5xx 服务端异常，绝不自杀式清除凭据并登出
+      const status = err?.status ?? err?.response?.status;
+      if (status !== 401) {
+        console.warn('[App] Auth verification encountered transient error, preserving session:', err);
+        authExpiredPending = false;
+        return;
+      }
     }
 
     console.warn('[App] Auth truly expired, clearing login state...');
@@ -575,7 +587,7 @@ if (typeof window !== 'undefined') {
     v-else-if="!isTauri() && !webBackendOk && webBackendChecked"
     class="w-full h-screen flex flex-col items-center justify-center bg-background"
   >
-    <div class="text-6xl mb-4">⚠️</div>
+    <AlertTriangle :size="64" class="text-amber-500 mb-4" />
     <h2 class="text-xl font-bold text-text-strong mb-2">{{ $t('app.conn_error') }}</h2>
     <p class="text-text-muted text-sm mb-4 text-center px-4">{{ webBackendErrorMsg || $t('app.check_network_refresh') }}</p>
     <button
@@ -654,9 +666,7 @@ if (typeof window !== 'undefined') {
        class="fixed inset-0 bg-[var(--theme-bg-main)]/70 flex items-center justify-center z-[9999]"
     >
        <div class="bg-[var(--theme-bg-main)]/90 border border-red-500 rounded-xl p-6 max-w-md mx-4 text-center shadow-2xl">
-        <div class="text-4xl mb-3">
-          🚫
-        </div>
+        <Ban :size="48" class="text-red-400 mx-auto mb-3" />
         <h2 class="text-xl font-bold text-red-400 mb-3">
           {{ t('app.access_restricted') || 'Access Restricted' }}
         </h2>

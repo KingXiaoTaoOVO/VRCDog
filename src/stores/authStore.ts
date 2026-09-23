@@ -29,6 +29,16 @@ export const useAuthStore = defineStore('auth', () => {
 
   const serverConnected = ref(true);
   const reconnectCountdown = ref(0);
+  const loginGracePeriodUntil = ref(0);
+
+  const setLoginGracePeriod = (durationMs = 30_000) => {
+    loginGracePeriodUntil.value = Date.now() + durationMs;
+  };
+
+  const isInLoginGracePeriod = () => {
+    return Date.now() < loginGracePeriodUntil.value;
+  };
+
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let consecutiveFailures = 0;
   let isFetchingHeartbeat = false;
@@ -372,14 +382,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const syncInitialNotifications = async () => {
     try {
-      const [legacyResult, v2Result] = await Promise.allSettled([
-        VrcApi.getNotifications({ n: 100, offset: 0 }),
-        VrcApi.getNotificationsV2({ n: 100, offset: 0 }),
-      ]);
-      const notifs = [
-        ...(legacyResult.status === 'fulfilled' && Array.isArray(legacyResult.value) ? legacyResult.value : []),
-        ...(v2Result.status === 'fulfilled' && Array.isArray(v2Result.value) ? v2Result.value : []),
-      ];
+      const legacyResult = await VrcApi.getNotifications({ n: 100, offset: 0 }).catch(() => []);
+      const notifs = Array.isArray(legacyResult) ? legacyResult : [];
       if (notifs.length > 0 && isTauri()) {
         await DbApi.batchSaveNotifications({ notificationsJson: JSON.stringify(notifs.map(normalizeNotificationForDb)) });
       }
@@ -402,6 +406,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const handleLoginSuccess = async (user: any) => {
+    setLoginGracePeriod(30_000);
     currentUser.value = user;
 
     DbApi.saveSetting({
@@ -435,6 +440,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const tryAutoLogin = async () => {
+    setLoginGracePeriod(30_000);
     autoLoginLoading.value = true;
     try {
       if (!isTauri()) { autoLoginLoading.value = false; return; }
@@ -608,6 +614,9 @@ export const useAuthStore = defineStore('auth', () => {
     restoreAndAutoLogin,
     startHeartbeat,
     startFriendsSync,
-    resolveSurveyPrompt
+    resolveSurveyPrompt,
+    loginGracePeriodUntil,
+    setLoginGracePeriod,
+    isInLoginGracePeriod
   };
 });

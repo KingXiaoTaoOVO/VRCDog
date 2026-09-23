@@ -107,7 +107,7 @@ bootstrap().catch((error) => {
     root.innerHTML = `
       <div style="height:100vh;display:flex;align-items:center;justify-content:center;background:#fffaf0;color:#9a6a38;font-family:system-ui,Segoe UI,sans-serif;">
         <div style="text-align:center;font-weight:700;max-width:480px;padding:0 16px;">
-          <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 16px;display:block;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <div style="font-size:18px;margin-bottom:12px;">VrcDog 启动失败</div>
           <div style="font-size:13px;color:#92400e;margin-bottom:16px;white-space:pre-wrap;">${message.replace(/</g, '&lt;')}</div>
           <button onclick="window.location.reload()" style="border:0;border-radius:10px;padding:10px 16px;background:#d97706;color:white;font-weight:700;cursor:pointer;">重新加载</button>

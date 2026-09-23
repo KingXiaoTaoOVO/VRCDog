@@ -2166,7 +2166,7 @@ onUnmounted(async () => {
                 <div class="playlist-actions">
                   <button class="channel-btn" :disabled="index === 0" :title="t('vrpiano.move_up')" @click.stop="movePlaylistItem(index, -1)">↑</button>
                   <button class="channel-btn" :disabled="index === playlist.length - 1" :title="t('vrpiano.move_down')" @click.stop="movePlaylistItem(index, 1)">↓</button>
-                  <button class="channel-btn" :title="t('vrpiano.remove_from_playlist')" @click.stop="removeFromPlaylist(path)">✕</button>
+                  <button class="channel-btn" :title="t('vrpiano.remove_from_playlist')" @click.stop="removeFromPlaylist(path)"><X :size="12" /></button>
                 </div>
               </li>
             </ul>

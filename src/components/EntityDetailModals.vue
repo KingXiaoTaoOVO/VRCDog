@@ -7,7 +7,7 @@ import BaseModal from './BaseModal.vue';
 import VrcAvatar from './VrcAvatar.vue';
 import { useI18n } from 'vue-i18n';
 import { SysApi, VrcApi } from '../api';
-import { Globe, UsersRound, Shield, Check } from 'lucide-vue-next';
+import { Check, Globe, Shield, UsersRound, X } from 'lucide-vue-next';
 
 import { useUserProfileStore } from '../stores/userProfile';
 
@@ -130,10 +130,10 @@ const handleWorldUpload = async (e: Event) => {
           custom-class="w-full h-full object-cover"
         />
         <button
-          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
+          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
           @click="entityStore.closeWorld()"
         >
-          ✕
+          <X :size="18" />
         </button>
       </div>
       <div class="p-6">
@@ -266,10 +266,10 @@ const handleWorldUpload = async (e: Event) => {
           custom-class="w-full h-full object-cover"
         />
         <button
-          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
+          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
           @click="entityStore.closeAvatar()"
         >
-          ✕
+          <X :size="18" />
         </button>
       </div>
       <div class="p-6">
@@ -338,10 +338,10 @@ const handleWorldUpload = async (e: Event) => {
           custom-class="w-full h-full object-cover opacity-80"
         />
         <button
-          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors"
+          class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
           @click="entityStore.closeGroup()"
         >
-          ✕
+          <X :size="18" />
         </button>
       </div>
       <div class="p-6 relative">

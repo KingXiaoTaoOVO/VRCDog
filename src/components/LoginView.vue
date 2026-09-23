@@ -145,6 +145,9 @@ async function loginWithSavedAccount(account: SavedAccount) {
         savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || res.auth_cookie || savedCookie);
         await persistSavedAccounts();
       }
+      show2FA.value = false;
+      twoFactorCode.value = '';
+      errorMsg.value = '';
       emit('login-success', user);
     } else {
       errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;
@@ -439,6 +442,10 @@ const handleLogin = async () => {
       // always keeps the latest auth/two-factor cookies.
       const durableCookie = await DbApi.getAuth().catch(() => null);
       await saveCurrentAccount(user, normalizeAuthCookieJson(durableCookie || res.auth_cookie || authCookie.value));
+      show2FA.value = false;
+      twoFactorCode.value = '';
+      errorMsg.value = '';
+      await loadSavedAccounts();
       emit('login-success', user);
     } else {
       errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;
@@ -494,6 +501,10 @@ const handle2FA = async () => {
       if (user?.id || user?.currentUser || user?.current_user) {
         const currentUser = user.currentUser || user.current_user || user;
         await saveCurrentAccount(currentUser, effectiveCookie);
+        show2FA.value = false;
+        twoFactorCode.value = '';
+        errorMsg.value = '';
+        await loadSavedAccounts();
         emit('login-success', currentUser);
       } else {
         errorMsg.value = t('login.error_verify_failed');
@@ -515,6 +526,8 @@ function closeVrcDogMenusOutside(e: MouseEvent) {
 }
 
 onMounted(async () => {
+  show2FA.value = false;
+  twoFactorCode.value = '';
   try {
     appVersion.value = await getVersion();
     const cookie = await DbApi.getAuth();
