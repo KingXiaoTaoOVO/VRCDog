@@ -73,11 +73,11 @@ impl Default for DrawingConfig {
             blur: 0.8,
             invert: false,
             bridge_gaps: true,
-            prune_length: 4,
-            min_stroke_length: 7,
-            smooth_window: 3,
-            simplify_epsilon: 1.35,
-            merge_distance: 3.0,
+            prune_length: 3,
+            min_stroke_length: 6,
+            smooth_window: 7,
+            simplify_epsilon: 1.6,
+            merge_distance: 6.0,
             optimize_path: true,
             sensitivity: 1.2,
             vertical_stretch: 1.0,
@@ -372,6 +372,49 @@ fn report_stage(state: &VrDrawingState, app: &tauri::AppHandle, stage: &str, pro
     emit_status(app, state);
 }
 
+/// Builds the binary ink mask for the selected mode.
+/// Builds the binary ink mask for the selected mode.
+fn build_ink_mask(raw: &[u8], width: usize, height: usize, config: &DrawingConfig) -> Vec<u8> {
+    // `threshold` doubles as a sensitivity control: higher means fewer, stronger
+    // lines. The 150 default maps to a scale of 1.0.
+    let scale = (config.threshold as f32 / 150.0).clamp(0.3, 3.0);
+    if config.mode == "dither" {
+        return floyd_steinberg(raw, width, height, config.threshold, config.invert);
+    }
+    if config.mode == "edges" {
+        return canny_edges(raw, width, height, scale, 0.4);
+    }
+    let stats = image_stats(raw);
+    let pre = edge_preserving(raw, width, height, &stats);
+    if config.mode == "ai" {
+        // Strongest texture suppression: the DoG line map alone.
+        let contrasted: Vec<u8> = pre.iter().map(|value| {
+            let adjusted = (*value as f32 - 128.0) * config.contrast + 128.0;
+            adjusted.clamp(0.0, 255.0) as u8
+        }).collect();
+        return line_map(&contrasted, width, height);
+    }
+    // `lineart` auto-routes on the image itself.
+    if is_line_art(raw, width, height) {
+        // A drawing already IS a set of thin dark strokes: thresholding keeps it
+        // exactly, and an edge detector would only add a second, offset line.
+        return adaptive_ink(&pre, width, height, (width.min(height) / 24).max(6), 16.0, config.invert);
+    }
+    // Photo / shaded illustration. XDoG gives clean coherent lines and suppresses
+    // the surface texture and shading gradients that a threshold would ink in;
+    // Canny adds back the fine interior detail (eyes, lettering, vents) that XDoG
+    // alone drops. Their union beats either one on its own.
+    let mut mask = line_map(&pre, width, height);
+    let detail = canny_edges(&pre, width, height, scale, 0.4);
+    for (slot, value) in mask.iter_mut().zip(detail.iter()) {
+        *slot |= *value;
+    }
+    let outline = silhouette(&pre, width, height, stats.bright_ratio, 6);
+    for (slot, value) in mask.iter_mut().zip(outline.iter()) {
+        *slot |= *value;
+    }
+    mask
+}
 fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, config: &DrawingConfig) -> Result<PreparedDrawing, String> {
     report_stage(state, app, "decode", 0.05);
     let image = image::open(path).map_err(|error| format!("Unable to decode image: {error}"))?;
@@ -387,23 +430,26 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     }
     let raw = gray.into_raw();
     report_stage(state, app, "binarize", 0.3);
-    let mut binary = match config.mode.as_str() {
-        "edges" => sobel_edges(&raw, width as usize, height as usize, config.threshold, config.invert),
-        "dither" => floyd_steinberg(&raw, width as usize, height as usize, config.threshold, config.invert),
-        "ai" => ai_line_art(&raw, width as usize, height as usize, config),
-        _ => threshold_image(&raw, config.threshold, config.invert),
-    };
+    let (w, h) = (width as usize, height as usize);
+    let mut binary = build_ink_mask(&raw, w, h, config);
     if config.bridge_gaps {
-        binary = erode(&dilate(&binary, width as usize, height as usize), width as usize, height as usize);
+        // Plus-shaped closing: bridges one-pixel gaps without growing lines
+        // diagonally and gluing neighbours together.
+        binary = erode_plus(&dilate_plus(&binary, w, h), w, h);
     }
-    remove_small_components(&mut binary, width as usize, height as usize, config.artifact_removal);
+    despeckle(&mut binary, w, h, config.artifact_removal);
     report_stage(state, app, "skeletonize", 0.6);
-    skeletonize(&mut binary, width as usize, height as usize);
-    if config.prune_length > 0 {
-        prune_short_branches(&mut binary, width as usize, height as usize, config.prune_length);
-    }
-    report_stage(state, app, "extract", 0.8);
-    let mut strokes = extract_strokes(&binary, width as usize, height as usize, config.min_stroke_length);
+    let mut strokes = if config.mode == "dither" {
+        // Dithering means dots, not centre lines: thinning would erase them all.
+        dots(&binary, w, h)
+    } else {
+        skeletonize(&mut binary, w, h);
+        if config.prune_length > 0 {
+            prune_spurs(&mut binary, w, h, config.prune_length);
+        }
+        report_stage(state, app, "extract", 0.8);
+        extract_strokes(&binary, w, h, config.min_stroke_length)
+    };
     for stroke in &mut strokes {
         if config.smooth_window > 1 {
             stroke.points = smooth_points(&stroke.points, config.smooth_window);
@@ -414,7 +460,10 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     }
     strokes.retain(|stroke| stroke.points.len() >= 2);
     if config.merge_distance > 0.0 && strokes.len() <= 2500 {
-        strokes = merge_nearby_strokes(strokes, config.merge_distance);
+        // The gap tolerance scales with resolution so the result is the same at
+        // any processing size.
+        let resolution = (w.max(h) as f32 / 512.0).max(0.5);
+        strokes = merge_nearby_strokes(strokes, config.merge_distance * resolution);
     }
     report_stage(state, app, "optimize", 0.95);
     if config.optimize_path {
@@ -439,8 +488,232 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     Ok(plan)
 }
 
-fn remove_small_components(data: &mut [u8], width: usize, height: usize, artifact_removal: f32) {
-    let minimum = ((1.0 - artifact_removal.clamp(0.0, 1.0)) * 28.0 + 3.0) as usize;
+/// Drops tiny connected components. The limit scales with `artifact_removal` but
+/// stays small by default: the old 3..31 px range erased eyes, text and other
+/// genuine detail along with the noise.
+/// Image-level statistics used to auto-pick processing parameters.
+struct ImageStats {
+    bright_ratio: f32,
+}
+
+fn image_stats(raw: &[u8]) -> ImageStats {
+    let mut histogram = [0usize; 256];
+    for &value in raw {
+        histogram[value as usize] += 1;
+    }
+    let total = raw.len().max(1) as f32;
+    let bright: usize = histogram[240..].iter().sum();
+    ImageStats { bright_ratio: bright as f32 / total }
+}
+
+/// Edge-preserving smoothing with parameters derived from the image.
+///
+/// Removes sensor noise and surface texture (fabric, reflections, skin) without
+/// softening real edges. This is what lets the detectors below ignore photo
+/// texture while keeping the object structure -- the single biggest reason the
+/// old output was full of lines that are not in the picture.
+fn edge_preserving(raw: &[u8], width: usize, height: usize, stats: &ImageStats) -> Vec<u8> {
+    let scale = (width.max(height) as f32 / 512.0).max(0.5);
+    let radius = ((3.5 * scale).round() as usize).clamp(2, 5);
+    let sigma_color = (14.0 + (1.0 - stats.bright_ratio) * 45.0).clamp(12.0, 70.0);
+    let sigma_space = (6.0 * scale).max(2.0);
+    bilateral_filter(raw, width, height, radius, sigma_color, sigma_space)
+}
+
+fn bilateral_filter(raw: &[u8], width: usize, height: usize, radius: usize, sigma_color: f32, sigma_space: f32) -> Vec<u8> {
+    let size = radius * 2 + 1;
+    let mut spatial = vec![0.0f32; size * size];
+    for dy in 0..size {
+        for dx in 0..size {
+            let x = dx as f32 - radius as f32;
+            let y = dy as f32 - radius as f32;
+            spatial[dy * size + dx] = (-(x * x + y * y) / (2.0 * sigma_space * sigma_space)).exp();
+        }
+    }
+    // Colour weight lookup: every possible 0..255 difference, so no exp() in the loop.
+    let mut colour = [0.0f32; 511];
+    for (index, value) in colour.iter_mut().enumerate() {
+        let diff = index as f32 - 255.0;
+        *value = (-(diff * diff) / (2.0 * sigma_color * sigma_color)).exp();
+    }
+    let mut out = vec![0u8; raw.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let center = raw[y * width + x];
+            let mut sum = 0.0f32;
+            let mut weight = 0.0f32;
+            for dy in 0..size {
+                let ny = y as isize + dy as isize - radius as isize;
+                if ny < 0 || ny >= height as isize { continue; }
+                for dx in 0..size {
+                    let nx = x as isize + dx as isize - radius as isize;
+                    if nx < 0 || nx >= width as isize { continue; }
+                    let value = raw[ny as usize * width + nx as usize];
+                    let w = spatial[dy * size + dx] * colour[(value as i32 - center as i32 + 255) as usize];
+                    sum += value as f32 * w;
+                    weight += w;
+                }
+            }
+            out[y * width + x] = if weight > 0.0 { (sum / weight).round().clamp(0.0, 255.0) as u8 } else { center };
+        }
+    }
+    out
+}
+
+/// Separable Gaussian blur on a float buffer.
+fn gaussian_blur_f32(src: &[f32], width: usize, height: usize, sigma: f32) -> Vec<f32> {
+    if sigma <= 0.01 { return src.to_vec(); }
+    let radius = ((sigma * 3.0).ceil() as usize).max(1);
+    let mut kernel = vec![0.0f32; radius * 2 + 1];
+    let mut total = 0.0f32;
+    for (index, value) in kernel.iter_mut().enumerate() {
+        let x = index as f32 - radius as f32;
+        *value = (-(x * x) / (2.0 * sigma * sigma)).exp();
+        total += *value;
+    }
+    for value in kernel.iter_mut() { *value /= total; }
+
+    let mut horizontal = vec![0.0f32; src.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let mut acc = 0.0f32;
+            for (k, &weight) in kernel.iter().enumerate() {
+                let sx = (x as isize + k as isize - radius as isize).clamp(0, width as isize - 1) as usize;
+                acc += src[y * width + sx] * weight;
+            }
+            horizontal[y * width + x] = acc;
+        }
+    }
+    let mut out = vec![0.0f32; src.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let mut acc = 0.0f32;
+            for (k, &weight) in kernel.iter().enumerate() {
+                let sy = (y as isize + k as isize - radius as isize).clamp(0, height as isize - 1) as usize;
+                acc += horizontal[sy * width + x] * weight;
+            }
+            out[y * width + x] = acc;
+        }
+    }
+    out
+}
+
+/// Difference of Gaussians of the normalised image; negative at dark lines.
+fn dog_response(pre: &[u8], width: usize, height: usize, sigma: f32, k: f32) -> Vec<f32> {
+    let normalised: Vec<f32> = pre.iter().map(|&value| value as f32 / 255.0).collect();
+    let narrow = gaussian_blur_f32(&normalised, width, height, sigma);
+    let wide = gaussian_blur_f32(&normalised, width, height, sigma * k);
+    narrow.iter().zip(wide.iter()).map(|(a, b)| a - b).collect()
+}
+
+/// XDoG: ink where the DoG response falls below `-epsilon`.
+///
+/// `epsilon` is derived from the response distribution so that a fixed fraction
+/// of the image becomes ink. That single rule is what makes the operator adapt
+/// to any exposure, contrast or subject instead of needing a hand-tuned level --
+/// and it is why the same constants work on a white-background product shot and
+/// on a busy low-contrast illustration.
+fn dog_ink(response: &[f32], target: f32) -> Vec<u8> {
+    const BINS: usize = 1024;
+    let mut histogram = [0usize; BINS];
+    for &value in response {
+        let magnitude = (-value).max(0.0).min(0.999);
+        histogram[(magnitude * BINS as f32) as usize] += 1;
+    }
+    let wanted = target * response.len().max(1) as f32;
+    let mut accumulated = 0.0f32;
+    let mut epsilon = 1.0f32;
+    for index in (0..BINS).rev() {
+        accumulated += histogram[index] as f32;
+        if accumulated >= wanted {
+            epsilon = index as f32 / BINS as f32;
+            break;
+        }
+    }
+    response.iter().map(|&value| u8::from(value < -epsilon)).collect()
+}
+
+/// Multi-scale XDoG line map.
+///
+/// The large scale is deliberately more sensitive: it is the one carrying a
+/// smooth object silhouette, and at that frequency there is no noise to amplify.
+fn line_map(pre: &[u8], width: usize, height: usize) -> Vec<u8> {
+    const SCALES: [(f32, f32); 3] = [(0.8, 0.040), (1.3, 0.055), (2.2, 0.080)];
+    let mut out = vec![0u8; pre.len()];
+    for (sigma, target) in SCALES {
+        let ink = dog_ink(&dog_response(pre, width, height, sigma, 1.6), target);
+        for (slot, value) in out.iter_mut().zip(ink.iter()) {
+            *slot |= *value;
+        }
+    }
+    out
+}
+
+/// Object outline for pictures sitting on a light background.
+///
+/// A photo's silhouette against white is a low-frequency, high-contrast boundary
+/// that XDoG only responds to intermittently; without this the contour comes out
+/// dotted.
+fn silhouette(pre: &[u8], width: usize, height: usize, bright_ratio: f32, min_area: usize) -> Vec<u8> {
+    if bright_ratio < 0.30 { return vec![0u8; pre.len()]; }
+    let radius = (width.min(height) / 24).max(6);
+    let mut closed = adaptive_ink(pre, width, height, radius, 12.0, false);
+    // Two plus-shaped iterations approximate the 5x5 ellipse closing the
+    // prototype uses; the 8-connected version would over-merge.
+    for _ in 0..2 { closed = dilate_plus(&closed, width, height); }
+    for _ in 0..2 { closed = erode_plus(&closed, width, height); }
+
+    let mut visited = vec![false; closed.len()];
+    let mut keep = vec![0u8; closed.len()];
+    let minimum = (min_area * 6).max(64);
+    for start in 0..closed.len() {
+        if closed[start] == 0 || visited[start] { continue; }
+        let mut queue = vec![start];
+        let mut component = Vec::new();
+        visited[start] = true;
+        while let Some(index) = queue.pop() {
+            component.push(index);
+            for neighbor in neighbors(&closed, width, height, index % width, index / width) {
+                if !visited[neighbor] {
+                    visited[neighbor] = true;
+                    queue.push(neighbor);
+                }
+            }
+        }
+        if component.len() >= minimum {
+            for index in component { keep[index] = 1; }
+        }
+    }
+    let eroded = erode(&keep, width, height);
+    keep.iter().zip(eroded.iter()).map(|(&outer, &inner)| u8::from(outer != 0 && inner == 0)).collect()
+}
+
+/// A drawing is a mostly-light canvas covered in THIN dark strokes. A photo or a
+/// shaded illustration fails the thinness test, which routes it to the edge path.
+fn is_line_art(raw: &[u8], width: usize, height: usize) -> bool {
+    let radius = (width.min(height) / 24).max(6);
+    let ink = adaptive_ink(raw, width, height, radius, 16.0, false);
+    let inked = ink.iter().filter(|&&value| value != 0).count();
+    if inked == 0 { return false; }
+    let ratio = inked as f32 / ink.len().max(1) as f32;
+    if ratio > 0.14 { return false; }
+    let dist = distance_transform(&ink, width, height);
+    let mut thickness: Vec<f32> = ink.iter().enumerate()
+        .filter(|(_, &value)| value != 0)
+        .map(|(index, _)| dist[index] * 2.0)
+        .collect();
+    thickness.sort_by(|a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
+    let p90 = thickness[((thickness.len() - 1) as f32 * 0.90) as usize];
+    p90 <= 4.5
+}
+fn despeckle(data: &mut [u8], width: usize, height: usize, artifact_removal: f32) {
+    let strength = artifact_removal.clamp(0.0, 1.0);
+    if strength <= 0.0 { return; }
+    // Scaled with resolution so the result is the same at any processing size.
+    // Kept deliberately low: a larger floor deletes the short fragments that make
+    // up eyes, lettering and other genuine detail.
+    let scale = (width.max(height) as f32 / 512.0).max(0.5);
+    let minimum = ((1.0 + (1.0 - strength) * 12.0) * scale * scale).round().max(1.0) as usize;
     let mut visited = vec![false; data.len()];
     for start in 0..data.len() {
         if data[start] == 0 || visited[start] { continue; }
@@ -462,112 +735,213 @@ fn remove_small_components(data: &mut [u8], width: usize, height: usize, artifac
     }
 }
 
-fn sobel_magnitude(raw: &[u8], width: usize, height: usize) -> Vec<f32> {
-    let mut result = vec![0.0f32; raw.len()];
+/// Sobel gradient pair. Kept separate from the magnitude because the edge
+/// detector needs the direction to run non-maximum suppression.
+fn sobel_gradients(raw: &[u8], width: usize, height: usize) -> (Vec<f32>, Vec<f32>) {
+    let mut gx_out = vec![0.0f32; raw.len()];
+    let mut gy_out = vec![0.0f32; raw.len()];
     for y in 1..height - 1 {
         for x in 1..width - 1 {
-            let idx = |dx: isize, dy: isize| raw[((y as isize + dy) as usize) * width + (x as isize + dx) as usize] as f32;
-            let gx = -idx(-1, -1) + idx(1, -1) - 2.0 * idx(-1, 0) + 2.0 * idx(1, 0) - idx(-1, 1) + idx(1, 1);
-            let gy = -idx(-1, -1) - 2.0 * idx(0, -1) - idx(1, -1) + idx(-1, 1) + 2.0 * idx(0, 1) + idx(1, 1);
-            result[y * width + x] = gx.hypot(gy);
+            let at = |dx: isize, dy: isize| raw[((y as isize + dy) as usize) * width + (x as isize + dx) as usize] as f32;
+            gx_out[y * width + x] = -at(-1, -1) + at(1, -1) - 2.0 * at(-1, 0) + 2.0 * at(1, 0) - at(-1, 1) + at(1, 1);
+            gy_out[y * width + x] = -at(-1, -1) - 2.0 * at(0, -1) - at(1, -1) + at(-1, 1) + 2.0 * at(0, 1) + at(1, 1);
         }
     }
-    result
+    (gx_out, gy_out)
 }
 
-fn otsu_threshold(data: &[u8]) -> u8 {
-    let mut histogram = [0usize; 256];
-    for &value in data {
-        histogram[value as usize] += 1;
-    }
-    let total = data.len() as f32;
-    if total == 0.0 {
-        return 128;
-    }
-    let mut sum = 0.0f32;
-    for (index, &count) in histogram.iter().enumerate() {
-        sum += index as f32 * count as f32;
-    }
-    let mut sum_background = 0.0f32;
-    let mut weight_background = 0.0f32;
-    let mut max_variance = 0.0f32;
-    let mut threshold = 127u8;
-    for index in 0..256 {
-        weight_background += histogram[index] as f32;
-        if weight_background == 0.0 {
-            continue;
+/// Otsu's method over a 256-bin histogram.
+fn adaptive_ink(raw: &[u8], width: usize, height: usize, radius: usize, offset: f32, invert: bool) -> Vec<u8> {
+    let stride = width + 1;
+    let mut integral = vec![0u64; stride * (height + 1)];
+    for y in 0..height {
+        let mut row_sum = 0u64;
+        for x in 0..width {
+            row_sum += raw[y * width + x] as u64;
+            integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + row_sum;
         }
-        let weight_foreground = total - weight_background;
-        if weight_foreground == 0.0 {
+    }
+    let mut out = vec![0u8; raw.len()];
+    for y in 0..height {
+        let y0 = y.saturating_sub(radius);
+        let y1 = (y + radius + 1).min(height);
+        for x in 0..width {
+            let x0 = x.saturating_sub(radius);
+            let x1 = (x + radius + 1).min(width);
+            let area = ((x1 - x0) * (y1 - y0)) as f32;
+            let sum = integral[y1 * stride + x1] + integral[y0 * stride + x0]
+                - integral[y0 * stride + x1] - integral[y1 * stride + x0];
+            let mean = sum as f32 / area;
+            let value = raw[y * width + x] as f32;
+            let ink = if invert { value > mean + offset } else { value < mean - offset };
+            out[y * width + x] = u8::from(ink);
+        }
+    }
+    out
+}
+
+/// Canny-style edge detection: Sobel gradients, non-maximum suppression, then
+/// hysteresis. Unlike the previous `sobel_edges` this yields a clean one-pixel
+/// edge map, so nothing downstream has to guess the stroke width -- and no
+/// morphological opening can wipe the edges out.
+fn canny_edges(raw: &[u8], width: usize, height: usize, threshold_scale: f32, hysteresis: f32) -> Vec<u8> {
+    if width < 3 || height < 3 { return vec![0u8; raw.len()]; }
+    let (gx, gy) = sobel_gradients(raw, width, height);
+    let magnitude: Vec<f32> = gx.iter().zip(gy.iter()).map(|(x, y)| x.hypot(*y)).collect();
+    let suppressed = non_maximum_suppression(&magnitude, &gx, &gy, width, height);
+
+    let mut histogram = [0usize; 256];
+    for &value in &suppressed {
+        if value > 0.0 {
+            histogram[(value.min(255.0)) as usize] += 1;
+        }
+    }
+    // Percentile rather than Otsu. On a photo the gradient histogram is dominated
+    // by texture, so Otsu sets the bar far above the contrast of real structure
+    // and most of the picture is discarded.
+    let kept: usize = histogram.iter().sum();
+    let wanted = (kept as f32 * 0.78) as usize;
+    let mut accumulated = 0usize;
+    let mut level = 0usize;
+    for (index, &count) in histogram.iter().enumerate() {
+        accumulated += count;
+        if accumulated >= wanted {
+            level = index;
             break;
         }
-        sum_background += index as f32 * histogram[index] as f32;
-        let mean_background = sum_background / weight_background;
-        let mean_foreground = (sum - sum_background) / weight_foreground;
-        let between = weight_background * weight_foreground * (mean_background - mean_foreground) * (mean_background - mean_foreground);
-        if between > max_variance {
-            max_variance = between;
-            threshold = index as u8;
+    }
+    let high = (level as f32 * threshold_scale).max(8.0);
+    let low = (high * hysteresis).max(3.0);
+
+    let mut result = vec![0u8; raw.len()];
+    let mut queue: Vec<usize> = Vec::new();
+    for (index, &value) in suppressed.iter().enumerate() {
+        if value >= high {
+            result[index] = 1;
+            queue.push(index);
         }
     }
-    threshold
-}
-
-/// CPU approximation of a learned line-art model (image-to-line / Anime2Sketch):
-/// contrast stretch + adaptive (Otsu) edge detection + morphological opening to suppress
-/// scan artifacts. Replace this branch with a real ONNX/PyTorch inference call to use an
-/// actual model; the surrounding pipeline (skeletonize / extract / optimize / draw) is unchanged.
-fn ai_line_art(raw: &[u8], width: usize, height: usize, config: &DrawingConfig) -> Vec<u8> {
-    let contrasted: Vec<u8> = raw.iter().map(|value| {
-        let adjusted = (*value as f32 - 128.0) * config.contrast + 128.0;
-        adjusted.clamp(0.0, 255.0) as u8
-    }).collect();
-    let threshold = otsu_threshold(&contrasted);
-    let magnitude = sobel_magnitude(&contrasted, width, height);
-    let limit = if config.ai_model == "anime2sketch" {
-        (threshold as f32 / 255.0 * 540.0).max(18.0)
-    } else {
-        (threshold as f32 / 255.0 * 720.0).max(24.0)
-    };
-    let mut edges = vec![0u8; magnitude.len()];
-    for (index, value) in magnitude.iter().enumerate() {
-        edges[index] = u8::from(*value >= limit);
-    }
-    if config.invert {
-        for pixel in edges.iter_mut() {
-            *pixel = u8::from(*pixel == 0);
-        }
-    }
-    let iterations = (config.artifact_removal * 3.0).round().clamp(0.0, 4.0) as usize;
-    let mut cleaned = edges;
-    for _ in 0..iterations {
-        cleaned = erode(&cleaned, width, height);
-    }
-    for _ in 0..iterations {
-        cleaned = dilate(&cleaned, width, height);
-    }
-    cleaned
-}
-
-fn threshold_image(raw: &[u8], threshold: u8, invert: bool) -> Vec<u8> {
-    raw.iter().map(|value| u8::from(if invert { *value > threshold } else { *value < threshold })).collect()
-}
-
-fn sobel_edges(raw: &[u8], width: usize, height: usize, threshold: u8, invert: bool) -> Vec<u8> {
-    let mut result = vec![0; raw.len()];
-    let limit = (threshold as f32 / 255.0 * 720.0).max(24.0);
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            let idx = |dx: isize, dy: isize| raw[((y as isize + dy) as usize) * width + (x as isize + dx) as usize] as f32;
-            let gx = -idx(-1, -1) + idx(1, -1) - 2.0 * idx(-1, 0) + 2.0 * idx(1, 0) - idx(-1, 1) + idx(1, 1);
-            let gy = -idx(-1, -1) - 2.0 * idx(0, -1) - idx(1, -1) + idx(-1, 1) + 2.0 * idx(0, 1) + idx(1, 1);
-            let edge = gx.hypot(gy) >= limit;
-            result[y * width + x] = u8::from(if invert { !edge } else { edge });
+    // Hysteresis: keep weak edges that are 8-connected to a strong edge.
+    while let Some(index) = queue.pop() {
+        let x = index % width;
+        let y = index / width;
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                if dx == 0 && dy == 0 { continue; }
+                let nx = x as isize + dx;
+                let ny = y as isize + dy;
+                if nx < 0 || ny < 0 || nx >= width as isize || ny >= height as isize { continue; }
+                let neighbor = ny as usize * width + nx as usize;
+                if result[neighbor] == 0 && suppressed[neighbor] >= low {
+                    result[neighbor] = 1;
+                    queue.push(neighbor);
+                }
+            }
         }
     }
     result
 }
 
+/// Thins a gradient magnitude map down to its local maxima along the gradient
+/// direction, quantised into the four 45-degree sectors.
+fn non_maximum_suppression(magnitude: &[f32], gx: &[f32], gy: &[f32], width: usize, height: usize) -> Vec<f32> {
+    let mut out = vec![0.0f32; magnitude.len()];
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let index = y * width + x;
+            let value = magnitude[index];
+            if value <= 0.0 { continue; }
+            let ax = gx[index].abs();
+            let ay = gy[index].abs();
+            let (a, b) = if ax >= ay * 2.4142 {
+                (magnitude[index - 1], magnitude[index + 1])
+            } else if ax >= ay * 0.4142 {
+                if gx[index] * gy[index] > 0.0 {
+                    (magnitude[index - width - 1], magnitude[index + width + 1])
+                } else {
+                    (magnitude[index - width + 1], magnitude[index + width - 1])
+                }
+            } else {
+                (magnitude[index - width], magnitude[index + width])
+            };
+            if value >= a && value >= b { out[index] = value; }
+        }
+    }
+    out
+}
+
+/// Chamfer (3-4) distance to the nearest background pixel.
+fn distance_transform(mask: &[u8], width: usize, height: usize) -> Vec<f32> {
+    const DIAGONAL: f32 = 1.414_213_6;
+    const FAR: f32 = 1.0e9;
+    let mut dist: Vec<f32> = mask.iter().map(|&value| if value == 0 { 0.0 } else { FAR }).collect();
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            if dist[index] == 0.0 { continue; }
+            let mut best = dist[index];
+            if y > 0 {
+                best = best.min(dist[index - width] + 1.0);
+                if x > 0 { best = best.min(dist[index - width - 1] + DIAGONAL); }
+                if x + 1 < width { best = best.min(dist[index - width + 1] + DIAGONAL); }
+            }
+            if x > 0 { best = best.min(dist[index - 1] + 1.0); }
+            dist[index] = best;
+        }
+    }
+    for y in (0..height).rev() {
+        for x in (0..width).rev() {
+            let index = y * width + x;
+            if dist[index] == 0.0 { continue; }
+            let mut best = dist[index];
+            if y + 1 < height {
+                best = best.min(dist[index + width] + 1.0);
+                if x > 0 { best = best.min(dist[index + width - 1] + DIAGONAL); }
+                if x + 1 < width { best = best.min(dist[index + width + 1] + DIAGONAL); }
+            }
+            if x + 1 < width { best = best.min(dist[index + 1] + 1.0); }
+            dist[index] = best;
+        }
+    }
+    dist
+}
+
+fn dots(data: &[u8], width: usize, height: usize) -> Vec<DrawingStroke> {
+    const MAX_DOTS: usize = 4096;
+    let mut visited = vec![false; data.len()];
+    let mut centers: Vec<(f32, f32)> = Vec::new();
+    for start in 0..data.len() {
+        if data[start] == 0 || visited[start] { continue; }
+        let mut queue = vec![start];
+        let mut count = 0usize;
+        let mut sum_x = 0usize;
+        let mut sum_y = 0usize;
+        visited[start] = true;
+        while let Some(index) = queue.pop() {
+            count += 1;
+            sum_x += index % width;
+            sum_y += index / width;
+            for neighbor in neighbors(data, width, height, index % width, index / width) {
+                if !visited[neighbor] {
+                    visited[neighbor] = true;
+                    queue.push(neighbor);
+                }
+            }
+        }
+        if count > 0 && count <= 24 {
+            centers.push((sum_x as f32 / count as f32, sum_y as f32 / count as f32));
+        }
+    }
+    if centers.len() > MAX_DOTS {
+        let step = centers.len() as f32 / MAX_DOTS as f32;
+        centers = (0..MAX_DOTS)
+            .map(|index| centers[((index as f32 * step) as usize).min(centers.len() - 1)])
+            .collect();
+    }
+    centers.into_iter().map(|(x, y)| DrawingStroke {
+        points: vec![DrawingPoint { x, y }, DrawingPoint { x: x + 0.75, y }],
+    }).collect()
+}
 fn floyd_steinberg(raw: &[u8], width: usize, height: usize, threshold: u8, invert: bool) -> Vec<u8> {
     let mut work: Vec<f32> = raw.iter().map(|value| *value as f32).collect();
     let mut result = vec![0; raw.len()];
@@ -592,12 +966,37 @@ fn floyd_steinberg(raw: &[u8], width: usize, height: usize, threshold: u8, inver
     result
 }
 
-fn dilate(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+/// 4-connected dilation (plus-shaped structuring element).
+///
+/// `dilate`/`erode` above use the 8-connected neighbourhood, i.e. a 3x3 SQUARE.
+/// Applied to a one-pixel-wide edge map that also grows lines diagonally, which
+/// merges any two lines that are two pixels apart -- and on a photo that is most
+/// of them. Gap bridging wants the plus shape, which is what the reference tools
+/// use as a 3x3 ellipse.
+fn dilate_plus(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     let mut result = data.to_vec();
     for y in 1..height - 1 {
         for x in 1..width - 1 {
-            if data[y * width + x] == 0 && neighbors(data, width, height, x, y).iter().any(|&index| data[index] != 0) {
-                result[y * width + x] = 1;
+            let index = y * width + x;
+            if data[index] == 0
+                && (data[index - 1] != 0 || data[index + 1] != 0 || data[index - width] != 0 || data[index + width] != 0)
+            {
+                result[index] = 1;
+            }
+        }
+    }
+    result
+}
+
+fn erode_plus(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let mut result = data.to_vec();
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let index = y * width + x;
+            if data[index] != 0
+                && (data[index - 1] == 0 || data[index + 1] == 0 || data[index - width] == 0 || data[index + width] == 0)
+            {
+                result[index] = 0;
             }
         }
     }
@@ -661,17 +1060,51 @@ fn skeletonize(data: &mut [u8], width: usize, height: usize) {
     }
 }
 
-fn prune_short_branches(data: &mut [u8], width: usize, height: usize, min_length: usize) {
-    for _ in 0..min_length {
-        let endpoints: Vec<usize> = (0..data.len()).filter(|&index| {
-            if data[index] == 0 { return false; }
-            neighbors(data, width, height, index % width, index / width).len() <= 1
-        }).collect();
-        if endpoints.is_empty() { break; }
-        for index in endpoints { data[index] = 0; }
+/// Removes short dead-end branches (spurs) from a skeleton.
+///
+/// The previous implementation deleted every endpoint pixel `prune_length`
+/// times, which also shortened every legitimate stroke by that many pixels at
+/// both ends and could erase genuinely short strokes outright. This version only
+/// deletes a branch when it runs from an endpoint into a junction within
+/// `min_length` steps.
+fn prune_spurs(data: &mut [u8], width: usize, height: usize, min_length: usize) {
+    if min_length == 0 { return; }
+    for _ in 0..4 {
+        let mut branches: Vec<Vec<usize>> = Vec::new();
+        let mut endpoints: Vec<usize> = (0..data.len())
+            .filter(|&index| data[index] != 0 && neighbors(data, width, height, index % width, index / width).len() == 1)
+            .collect();
+        endpoints.sort_unstable();
+        for start in endpoints {
+            if data[start] == 0 { continue; }
+            let mut branch = vec![start];
+            let mut previous = usize::MAX;
+            let mut current = start;
+            let mut hit_junction = false;
+            while branch.len() <= min_length {
+                let candidates: Vec<usize> = neighbors(data, width, height, current % width, current / width)
+                    .into_iter().filter(|index| *index != previous).collect();
+                if candidates.is_empty() { break; }
+                if candidates.len() > 1 { hit_junction = true; break; }
+                previous = current;
+                current = candidates[0];
+                branch.push(current);
+                if neighbors(data, width, height, current % width, current / width).len() > 2 {
+                    hit_junction = true;
+                    break;
+                }
+            }
+            if hit_junction && branch.len() <= min_length {
+                branch.pop();
+                if !branch.is_empty() { branches.push(branch); }
+            }
+        }
+        if branches.is_empty() { break; }
+        for branch in branches {
+            for index in branch { data[index] = 0; }
+        }
     }
 }
-
 fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) -> Vec<DrawingStroke> {
     let mut visited = vec![false; data.len()];
     let mut starts: Vec<usize> = (0..data.len()).filter(|&index| data[index] != 0 && neighbors(data, width, height, index % width, index / width).len() == 1).collect();
@@ -737,57 +1170,39 @@ fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) 
     strokes
 }
 
+/// Moving average along the stroke.
+///
+/// The traced skeleton is an 8-connected pixel staircase, so without this every
+/// outline renders as a shaky potato. A radius-3 window is what turns it back
+/// into a smooth arc while keeping genuine corners.
 fn smooth_points(points: &[DrawingPoint], window: usize) -> Vec<DrawingPoint> {
-    if points.len() <= 2 || window <= 1 { return points.to_vec(); }
-    // window >= 4 enables uniform Catmull-Rom smoothing (preserves curve shape far better
-    // than a flat moving average). For smaller windows fall back to the moving average so
-    // short strokes and endpoints still get a sane result.
-    if window >= 4 { return catmull_rom_smooth(points, window); }
-    let radius = window / 2;
-    points.iter().enumerate().map(|(index, _)| {
-        if index == 0 || index + 1 == points.len() { return points[index].clone(); }
-        let start = index.saturating_sub(radius);
-        let end = (index + radius + 1).min(points.len());
-        let count = (end - start) as f32;
-        DrawingPoint {
-            x: points[start..end].iter().map(|point| point.x).sum::<f32>() / count,
-            y: points[start..end].iter().map(|point| point.y).sum::<f32>() / count,
+    if window <= 1 || points.len() <= 2 { return points.to_vec(); }
+    let radius = (window / 2).max(1);
+    let count = points.len();
+    let closed = count > 3 && point_distance(&points[0], &points[count - 1]) < 2.0;
+    let mut out = Vec::with_capacity(count);
+    for index in 0..count {
+        if !closed && (index < radius || index + radius >= count) {
+            out.push(points[index].clone());
+            continue;
         }
-    }).collect()
-}
-
-/// Uniform Catmull-Rom spline evaluation at t=0.5 across four control points. Pass-through
-/// for collinear control points, smooth blending for curved segments. Endpoints clamp the
-/// missing neighbour to keep the curve stable near the head/tail of the stroke.
-fn catmull_rom_smooth(points: &[DrawingPoint], window: usize) -> Vec<DrawingPoint> {
-    if points.len() < 4 || window < 4 { return points.to_vec(); }
-    let half: isize = (window / 2).max(1) as isize;
-    let fetch = |i: isize| -> DrawingPoint {
-        let n = points.len() as isize;
-        let idx = i.clamp(0, n - 1) as usize;
-        points[idx].clone()
-    };
-    let t: f32 = 0.5;
-    let t2 = t * t;
-    let t3 = t2 * t;
-    points.iter().enumerate().map(|(i, _)| {
-        let p0 = fetch(i as isize - half);
-        let p1 = points[i].clone();
-        let p2 = fetch(i as isize + half);
-        let p3 = fetch(i as isize + half * 2);
-        DrawingPoint {
-            x: 0.5 * ((2.0 * p1.x)
-                + (-p0.x + p2.x) * t
-                + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
-                + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3),
-            y: 0.5 * ((2.0 * p1.y)
-                + (-p0.y + p2.y) * t
-                + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
-                + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3),
+        let mut sum_x = 0.0f32;
+        let mut sum_y = 0.0f32;
+        let mut total = 0.0f32;
+        for offset in -(radius as isize)..=(radius as isize) {
+            let target = if closed {
+                (index as isize + offset).rem_euclid(count as isize) as usize
+            } else {
+                (index as isize + offset).clamp(0, count as isize - 1) as usize
+            };
+            sum_x += points[target].x;
+            sum_y += points[target].y;
+            total += 1.0;
         }
-    }).collect()
+        out.push(DrawingPoint { x: sum_x / total, y: sum_y / total });
+    }
+    out
 }
-
 fn simplify_points(points: &[DrawingPoint], epsilon: f32) -> Vec<DrawingPoint> {
     if points.len() <= 2 { return points.to_vec(); }
     let start = &points[0];
@@ -844,30 +1259,45 @@ fn merge_nearby_strokes(mut strokes: Vec<DrawingStroke>, distance: f32) -> Vec<D
     strokes
 }
 
-fn stroke_join_is_smooth(left: &DrawingStroke, right: &DrawingStroke, reverse_left: bool, reverse_right: bool) -> bool {
-    if left.points.len() < 2 || right.points.len() < 2 { return true; }
-    let left_dir = if reverse_left {
-        (left.points[0].x - left.points[1].x, left.points[0].y - left.points[1].y)
+/// Outgoing tangent at one end of a stroke, averaged over up to `SPAN` points so
+/// pixel-level noise cannot flip the direction.
+fn endpoint_tangent(points: &[DrawingPoint], at_end: bool) -> Option<(f32, f32)> {
+    const SPAN: usize = 6;
+    let count = points.len();
+    if count < 2 { return None; }
+    let span = (count - 1).min(SPAN);
+    let (dx, dy) = if at_end {
+        (points[count - 1].x - points[count - 1 - span].x, points[count - 1].y - points[count - 1 - span].y)
     } else {
-        let end = left.points.len() - 1;
-        (left.points[end].x - left.points[end - 1].x, left.points[end].y - left.points[end - 1].y)
+        (points[span].x - points[0].x, points[span].y - points[0].y)
     };
-    let right_dir = if reverse_right {
-        let end = right.points.len() - 1;
-        (right.points[end - 1].x - right.points[end].x, right.points[end - 1].y - right.points[end].y)
-    } else {
-        (right.points[1].x - right.points[0].x, right.points[1].y - right.points[0].y)
-    };
-    let left_len = left_dir.0.hypot(left_dir.1);
-    let right_len = right_dir.0.hypot(right_dir.1);
-    if left_len < f32::EPSILON || right_len < f32::EPSILON { return true; }
-    let cosine = (left_dir.0 * right_dir.0 + left_dir.1 * right_dir.1) / (left_len * right_len);
-    cosine >= 0.25
+    let length = dx.hypot(dy);
+    if length < f32::EPSILON { return None; }
+    Some((dx / length, dy / length))
 }
 
+/// True when joining `left` to `right` continues both strokes in the same
+/// direction: the outgoing heading of the left end, the heading the right stroke
+/// leaves its start with, and the actual gap direction must all agree.
+fn stroke_join_is_smooth(left: &DrawingStroke, right: &DrawingStroke, reverse_left: bool, reverse_right: bool) -> bool {
+    const MIN_COSINE: f32 = 0.82;
+    let left_end = if reverse_left { &left.points[0] } else { left.points.last().unwrap() };
+    let right_start = if reverse_right { right.points.last().unwrap() } else { &right.points[0] };
+    let gap_x = right_start.x - left_end.x;
+    let gap_y = right_start.y - left_end.y;
+    let gap_length = gap_x.hypot(gap_y);
+    if gap_length < 1e-4 { return true; }
+    let gap = (gap_x / gap_length, gap_y / gap_length);
+    let Some(left_dir) = endpoint_tangent(&left.points, !reverse_left) else { return true };
+    let Some(right_dir) = endpoint_tangent(&right.points, reverse_right) else { return true };
+    left_dir.0 * gap.0 + left_dir.1 * gap.1 >= MIN_COSINE
+        && right_dir.0 * gap.0 + right_dir.1 * gap.1 >= MIN_COSINE
+}
 fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
     let mut strokes: Vec<DrawingStroke> = strokes.into_iter().filter(|s| !s.points.is_empty()).collect();
     if strokes.len() <= 1 { return strokes; }
+    // Nearest-neighbour routing is quadratic; skip it for dither-scale counts.
+    if strokes.len() > 8000 { return strokes; }
     let first = strokes.iter().enumerate().min_by(|(_, a), (_, b)| {
         let da = a.points[0].x.hypot(a.points[0].y);
         let db = b.points[0].x.hypot(b.points[0].y);
@@ -895,7 +1325,8 @@ fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
 /// pen travel. Operates in place; `max_passes` caps iterations to keep the cost bounded.
 fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize) -> Vec<DrawingStroke> {
     tour.retain(|s| !s.points.is_empty());
-    if tour.len() < 4 { return tour; }
+    // Bounded so a dither-scale stroke count can never turn this into a stall.
+    if tour.len() < 4 || tour.len() > 1500 { return tour; }
     for _ in 0..max_passes.max(1) {
         let mut improved = false;
         let n = tour.len();
@@ -1229,6 +1660,233 @@ mod tests {
             DrawingStroke { points: vec![DrawingPoint { x: 10.5, y: 0.0 }, DrawingPoint { x: 10.5, y: 10.0 }] },
         ];
         assert_eq!(merge_nearby_strokes(strokes, 2.0).len(), 2);
+    }
+
+    /// Bresenham helper used only by the sample renderer below.
+    fn draw_line(canvas: &mut image::RgbImage, x0: f32, y0: f32, x1: f32, y1: f32) {
+        let ink = image::Rgb([84u8, 36, 15]);
+        let (mut x0, mut y0) = (x0.round() as i32, y0.round() as i32);
+        let (x1, y1) = (x1.round() as i32, y1.round() as i32);
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut error = dx + dy;
+        loop {
+            if x0 >= 0 && y0 >= 0 && (x0 as u32) < canvas.width() && (y0 as u32) < canvas.height() {
+                canvas.put_pixel(x0 as u32, y0 as u32, ink);
+            }
+            if x0 == x1 && y0 == y1 { break; }
+            let doubled = 2 * error;
+            if doubled >= dy { error += dy; x0 += sx; }
+            if doubled <= dx { error += dx; y0 += sy; }
+        }
+    }
+
+    /// Runs the real pipeline over the bundled sample images and writes the
+    /// resulting line art to `src-tauri/target/lineart-check/` so the output can
+    /// be inspected visually. Run with `--nocapture` to see the stroke counts.
+    #[test]
+    fn renders_bundled_samples_to_png() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("assets");
+        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("lineart-check");
+        std::fs::create_dir_all(&out_dir).expect("create output directory");
+        let config = DrawingConfig::default();
+        let mut produced = 0usize;
+        for name in ["helmet.jpeg", "dog.jpg", "main.png", "unknown.jpeg", "mono.jpeg"] {
+            let path = root.join(name);
+            if !path.is_file() { continue; }
+            let Ok(image) = image::open(&path) else { continue };
+            let resized = image.resize(512, 512, image::imageops::FilterType::Triangle);
+            let gray = image::imageops::blur(&resized.to_luma8(), config.blur);
+            let (width, height) = gray.dimensions();
+            let (w, h) = (width as usize, height as usize);
+
+            let raw = gray.into_raw();
+            let mut mask = build_ink_mask(&raw, w, h, &config);
+            let before = mask.iter().filter(|&&value| value != 0).count();
+            mask = erode_plus(&dilate_plus(&mask, w, h), w, h);
+            let after_close = mask.iter().filter(|&&value| value != 0).count();
+            despeckle(&mut mask, w, h, config.artifact_removal);
+            let after_despeckle = mask.iter().filter(|&&value| value != 0).count();
+            let mask_view = image::GrayImage::from_raw(w as u32, h as u32, mask.iter().map(|&value| if value == 0 { 255u8 } else { 0u8 }).collect())
+                .expect("mask view");
+            mask_view.save(out_dir.join(format!("{}.mask.png", name.replace('.', "_")))).expect("save mask");
+            println!("  DIAG {name}: lineart={} ink raw={:.2}% closed={:.2}% despeckled={:.2}%",
+                is_line_art(&raw, w, h),
+                100.0 * before as f32 / raw.len() as f32,
+                100.0 * after_close as f32 / raw.len() as f32,
+                100.0 * after_despeckle as f32 / raw.len() as f32);
+            skeletonize(&mut mask, w, h);
+            let after_skeleton = mask.iter().filter(|&&value| value != 0).count();
+            println!("  DIAG {name}: skeleton px={after_skeleton}");
+            prune_spurs(&mut mask, w, h, config.prune_length);
+            let after_prune = mask.iter().filter(|&&value| value != 0).count();
+            println!("  DIAG {name}: after prune px={after_prune}");
+            let mut strokes = extract_strokes(&mask, w, h, config.min_stroke_length);
+            // Mirror process_image's post-processing so the PNG is the real preview.
+            for stroke in &mut strokes {
+                if config.smooth_window > 1 {
+                    stroke.points = smooth_points(&stroke.points, config.smooth_window);
+                }
+                if config.simplify_epsilon > 0.0 {
+                    stroke.points = simplify_points(&stroke.points, config.simplify_epsilon);
+                }
+            }
+            strokes.retain(|stroke| stroke.points.len() >= 2);
+            if config.merge_distance > 0.0 && strokes.len() <= 2500 {
+                strokes = merge_nearby_strokes(strokes, config.merge_distance);
+            }
+            strokes = order_strokes(strokes);
+            let points: usize = strokes.iter().map(|stroke| stroke.points.len()).sum();
+
+            assert!(strokes.len() > 20, "{name}: expected a rich line drawing, got {} strokes", strokes.len());
+            assert!(points > 200, "{name}: expected a detailed path, got {points} points");
+
+            let scale = 2u32;
+            let mut canvas = image::RgbImage::from_pixel(w as u32 * scale, h as u32 * scale, image::Rgb([255, 253, 247]));
+            for stroke in &strokes {
+                for pair in stroke.points.windows(2) {
+                    draw_line(&mut canvas, pair[0].x * scale as f32, pair[0].y * scale as f32, pair[1].x * scale as f32, pair[1].y * scale as f32);
+                }
+            }
+            let target = out_dir.join(format!("{}.png", name.replace('.', "_")));
+            canvas.save(&target).expect("save preview");
+            println!("{name}: {} strokes, {points} points -> {}", strokes.len(), target.display());
+            produced += 1;
+        }
+        assert!(produced > 0, "no bundled sample images were found");
+    }
+
+    #[test]
+    fn adaptive_threshold_keeps_a_dark_line_on_a_bright_background() {
+        let (width, height) = (64usize, 64usize);
+        let mut raw = vec![220u8; width * height];
+        for x in 0..width {
+            raw[32 * width + x] = 30;
+        }
+        let ink = adaptive_ink(&raw, width, height, 8, 20.0, false);
+        assert_eq!(ink[32 * width + 32], 1, "the dark line must be ink");
+        assert_eq!(ink[5 * width + 5], 0, "the bright background must stay clear");
+    }
+
+    #[test]
+    fn canny_returns_a_thin_edge_for_a_step() {
+        let (width, height) = (48usize, 48usize);
+        let mut raw = vec![240u8; width * height];
+        for y in 0..height {
+            for x in 24..width {
+                raw[y * width + x] = 20;
+            }
+        }
+        let edges = canny_edges(&raw, width, height, 1.0, 0.4);
+        let total: usize = edges.iter().filter(|&&value| value != 0).count();
+        assert!(total > 0, "a hard step must produce edges");
+        // A one-pixel-wide vertical step must not bloom into a thick band.
+        assert!(total < height * 6, "edge map should stay thin, got {total} pixels");
+    }
+
+
+    #[test]
+    fn prune_spurs_keeps_a_long_stroke_intact() {
+        let (width, height) = (32usize, 32usize);
+        let mut mask = vec![0u8; width * height];
+        for x in 0..24 {
+            mask[16 * width + x] = 1;
+        }
+        // A two-pixel spur branching upwards off the main line.
+        mask[15 * width + 10] = 1;
+        mask[14 * width + 10] = 1;
+        prune_spurs(&mut mask, width, height, 4);
+        assert_eq!(mask[16 * width + 0], 1, "the far end of the main stroke must survive");
+        assert_eq!(mask[16 * width + 23], 1, "the near end of the main stroke must survive");
+        assert_eq!(mask[14 * width + 10], 0, "the short spur must be removed");
+    }
+
+    #[test]
+    fn dither_emits_one_stroke_per_dot() {
+        let (width, height) = (16usize, 16usize);
+        let mut mask = vec![0u8; width * height];
+        for &(x, y) in &[(2usize, 2usize), (6, 6), (10, 10)] {
+            mask[y * width + x] = 1;
+        }
+        let strokes = dots(&mask, width, height);
+        assert_eq!(strokes.len(), 3);
+        assert!(strokes.iter().all(|stroke| stroke.points.len() >= 2));
+    }
+
+    #[test]
+    fn image_type_routing_separates_a_drawing_from_a_photo() {
+        let (width, height) = (96usize, 96usize);
+        // thin dark strokes on a light canvas -> a drawing
+        let mut drawing = vec![235u8; width * height];
+        for x in 0..width {
+            drawing[48 * width + x] = 20;
+        }
+        for y in 0..height {
+            drawing[y * width + 48] = 20;
+        }
+        assert!(is_line_art(&drawing, width, height), "a thin-stroke image is line art");
+        // a large filled dark region -> not a drawing
+        let mut photo = vec![235u8; width * height];
+        for y in 20..76 {
+            for x in 20..76 {
+                photo[y * width + x] = 40;
+            }
+        }
+        assert!(!is_line_art(&photo, width, height), "a filled blob must not be treated as line art");
+    }
+
+    #[test]
+    fn bilateral_filter_keeps_an_edge_but_smooths_noise() {
+        let (width, height) = (64usize, 64usize);
+        let mut raw = vec![220u8; width * height];
+        for y in 0..height {
+            for x in 32..width {
+                raw[y * width + x] = 40;
+            }
+        }
+        // sprinkle single-pixel noise on the bright half
+        for (x, y) in [(4usize, 4usize), (10, 20), (18, 40), (6, 50)] {
+            raw[y * width + x] = 160;
+        }
+        let out = bilateral_filter(&raw, width, height, 3, 30.0, 4.0);
+        assert!(out[32 * width + 32] < 90, "the edge must survive");
+        assert!(out[4 * width + 4] > 195, "isolated noise must be smoothed away");
+    }
+
+    #[test]
+    fn dog_ink_hits_its_target_ink_fraction() {
+        let (width, height) = (64usize, 64usize);
+        let mut raw = vec![230u8; width * height];
+        for y in 8..56 {
+            for x in 8..56 {
+                raw[y * width + x] = 90;
+            }
+        }
+        let response = dog_response(&raw, width, height, 1.3, 1.6);
+        let ink = dog_ink(&response, 0.05);
+        let ratio = ink.iter().filter(|&&value| value != 0).count() as f32 / ink.len() as f32;
+        assert!(ratio > 0.005, "the square boundary must register as ink, got {ratio}");
+        assert!(ratio < 0.20, "the target must keep ink sparse, got {ratio}");
+    }
+
+    #[test]
+    fn smoothing_removes_skeleton_tremor() {
+        // A staircase, exactly what tracing an 8-connected skeleton produces for a
+        // smooth diagonal. Jaggedness is the sum of second differences, which is
+        // what a moving average is supposed to shrink.
+        let points: Vec<DrawingPoint> = (0..60)
+            .map(|i| DrawingPoint { x: i as f32, y: (i as f32 * 0.5).round() })
+            .collect();
+        let smoothed = smooth_points(&points, 7);
+        let jaggedness = |p: &[DrawingPoint]| -> f32 {
+            (1..p.len() - 1).map(|i| (p[i + 1].y - 2.0 * p[i].y + p[i - 1].y).abs()).sum()
+        };
+        let before = jaggedness(&points);
+        let after = jaggedness(&smoothed);
+        assert!(before > 1.0, "the fixture must actually be jagged, got {before}");
+        assert!(after < before * 0.35, "smoothing must remove most of the tremor: {before} -> {after}");
     }
 
     #[test]
