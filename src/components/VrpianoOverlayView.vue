@@ -16,8 +16,10 @@ import {
   Pin,
   PinOff,
   Play,
+  Radio,
   RotateCcw,
   Settings2,
+  ShieldCheck,
   X,
 } from 'lucide-vue-next';
 import { VrpianoApi, type VrpianoSong, type VrpianoStatus } from '../api';
@@ -531,10 +533,10 @@ onUnmounted(() => {
         <div class="mode-toggle-group">
           <button
             class="mode-toggle-btn"
-            :class="{ active: outputMode === 'keyboard' }"
-            @click="outputMode = 'keyboard'"
+            :class="{ active: outputMode === 'osc' }"
+            @click="outputMode = 'osc'"
           >
-            {{ t('vrpiano_overlay.mode_keyboard') }}
+            {{ t('vrpiano_overlay.mode_osc_contactless') }}
           </button>
           <button
             class="mode-toggle-btn"
@@ -545,12 +547,16 @@ onUnmounted(() => {
           </button>
           <button
             class="mode-toggle-btn"
-            :class="{ active: outputMode === 'osc' }"
-            @click="outputMode = 'osc'"
+            :class="{ active: outputMode === 'keyboard' }"
+            @click="outputMode = 'keyboard'"
           >
-            {{ t('vrpiano_overlay.mode_osc_contactless') }}
+            {{ t('vrpiano_overlay.mode_keyboard') }}
           </button>
         </div>
+      </div>
+      <div v-if="outputMode === 'keyboard'" class="overlay-anti-chatbox-tip" data-no-drag>
+        <ShieldCheck :size="12" />
+        <span>{{ t('vrpiano.anti_chatbox_active_hint') }}</span>
       </div>
     </section>
 
@@ -1007,6 +1013,20 @@ input {
 .appearance-settings b {
   color: var(--theme-text-muted);
   text-align: right;
+}
+
+.overlay-anti-chatbox-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #10b981 12%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 25%, transparent);
+  color: #10b981;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .now-playing {

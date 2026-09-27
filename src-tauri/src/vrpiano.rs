@@ -2343,6 +2343,30 @@ fn run_playback(
         #[cfg(target_os = "windows")]
         focus_vrchat_window();
 
+        let (osc_host, osc_port, osc_mode, osc_avatar_prefix) = {
+            let runtime = state.lock().ok();
+            let host = runtime
+                .as_ref()
+                .map(|r| {
+                    if r.vrchat_osc_host.trim().is_empty() {
+                        "127.0.0.1".to_string()
+                    } else {
+                        r.vrchat_osc_host.clone()
+                    }
+                })
+                .unwrap_or_else(|| "127.0.0.1".to_string());
+            let port = runtime.as_ref().map(|r| r.vrchat_osc_port).unwrap_or(9000);
+            let mode = runtime
+                .as_ref()
+                .map(|r| r.vrchat_osc_mode.clone())
+                .unwrap_or_else(|| "piano".to_string());
+            let prefix = runtime
+                .as_ref()
+                .map(|r| r.vrchat_osc_avatar_prefix.clone())
+                .unwrap_or_else(|| "/avatar/parameters/note".to_string());
+            (host, port, mode, prefix)
+        };
+
         // active_keys tracks virtual keys currently pressed: vk -> pressed_at_ms
         let mut active_keys: HashMap<u16, u64> = HashMap::new();
         let mut last_at = 0_u64;
@@ -2359,8 +2383,9 @@ fn run_playback(
             let wait_ms = at_ms.saturating_sub(last_at);
             if wait_ms > 0 {
                 sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+                    let is_vrchat = is_vrchat_foreground();
                     for (&vk, _) in active_keys.iter() {
-                        send_key(vk, true);
+                        handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
                     }
                     active_keys.clear();
                 });
@@ -2371,8 +2396,9 @@ fn run_playback(
 
             // Pause safety: release any keys held when paused
             if paused.load(Ordering::SeqCst) {
+                let is_vrchat = is_vrchat_foreground();
                 for (&vk, _) in active_keys.iter() {
-                    send_key(vk, true);
+                    handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
                 }
                 active_keys.clear();
                 while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
@@ -2391,8 +2417,9 @@ fn run_playback(
                 let ev = &events[index];
                 if let Some((cc, _)) = ev.control_change {
                     if cc == 123 || cc == 120 {
+                        let is_vrchat = is_vrchat_foreground();
                         for (&vk, _) in active_keys.iter() {
-                            send_key(vk, true);
+                            handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
                         }
                         active_keys.clear();
                     }
@@ -2433,18 +2460,20 @@ fn run_playback(
                         if held_ms < NOTE_HOLD_MS {
                             thread::sleep(Duration::from_millis(NOTE_HOLD_MS - held_ms));
                         }
-                        send_key(vk, true);
+                        let is_vrchat = is_vrchat_foreground();
+                        handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
                     }
                 }
             }
 
             // Press newly starting keys
             for vk in keys_to_press {
+                let is_vrchat = is_vrchat_foreground();
                 if active_keys.contains_key(&vk) {
-                    send_key(vk, true);
+                    handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
                     thread::sleep(Duration::from_millis(5));
                 }
-                send_key(vk, false);
+                handle_playback_key_down(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
                 active_keys.insert(vk, at_ms);
             }
 
@@ -2471,8 +2500,9 @@ fn run_playback(
         }
 
         // Release all keys when playback ends
+        let is_vrchat = is_vrchat_foreground();
         for (&vk, _) in active_keys.iter() {
-            send_key(vk, true);
+            handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
         }
         active_keys.clear();
     }));
@@ -2883,7 +2913,115 @@ fn focus_vrchat_window() {
 fn focus_vrchat_window() {}
 
 #[cfg(target_os = "windows")]
+fn is_vrchat_foreground() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowTextW};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return false;
+        }
+        let mut buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len > 0 {
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            if title.contains("VRChat") {
+                return true;
+            }
+        }
+        let mut cls_buf = [0u16; 256];
+        let cls_len = GetClassNameW(hwnd, &mut cls_buf);
+        if cls_len > 0 {
+            let class_name = String::from_utf16_lossy(&cls_buf[..cls_len as usize]);
+            if class_name.contains("UnityWndClass") && len > 0 {
+                let title = String::from_utf16_lossy(&buf[..len as usize]);
+                if title.contains("VRChat") {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_vrchat_foreground() -> bool {
+    false
+}
+
+/// Send an empty OSC chatbox message with sendImmediately = true to immediately dismiss
+/// any accidentally opened chatbox in VRChat without sending message content or sound.
+fn send_osc_close_chatbox(host: &str, port: u16) {
+    use crate::osc::{osc_send_message_multi, OscArgument};
+    let args = vec![
+        OscArgument {
+            value_type: "string".to_string(),
+            value: serde_json::json!(""),
+        },
+        OscArgument {
+            value_type: "bool".to_string(),
+            value: serde_json::json!(true),
+        },
+        OscArgument {
+            value_type: "bool".to_string(),
+            value: serde_json::json!(false),
+        },
+    ];
+    let _ = osc_send_message_multi(host.to_string(), port, "/chatbox/input".to_string(), args);
+}
+
+fn handle_playback_key_down(
+    vk: u16,
+    is_vrchat: bool,
+    host: &str,
+    port: u16,
+    osc_mode: &str,
+    avatar_prefix: &str,
+) {
+    if vk == 89 && is_vrchat {
+        // Anti-Chatbox protection:
+        // In VRChat desktop mode, 'Y' is hardcoded to open the Chatbox text input dialog.
+        // If 'Y' is injected via SendInput, VRChat opens Chatbox and blocks subsequent piano inputs.
+        // Instead of injecting 'Y' into the keyboard queue, route Note 69 directly to VRChat via OSC.
+        let address = osc_note_address(osc_mode, avatar_prefix, 69);
+        let args = vec![crate::osc::OscArgument {
+            value_type: "float".to_string(),
+            value: serde_json::json!(1.0_f64),
+        }];
+        let _ = crate::osc::osc_send_message_multi(host.to_string(), port, address, args);
+        send_osc_close_chatbox(host, port);
+    } else {
+        send_key(vk, false);
+    }
+}
+
+fn handle_playback_key_up(
+    vk: u16,
+    is_vrchat: bool,
+    host: &str,
+    port: u16,
+    osc_mode: &str,
+    avatar_prefix: &str,
+) {
+    if vk == 89 && is_vrchat {
+        let address = osc_note_address(osc_mode, avatar_prefix, 69);
+        let args = vec![crate::osc::OscArgument {
+            value_type: "float".to_string(),
+            value: serde_json::json!(0.0_f64),
+        }];
+        let _ = crate::osc::osc_send_message_multi(host.to_string(), port, address, args);
+    } else {
+        send_key(vk, true);
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn send_key(vk: u16, key_up: bool) {
+    // If vk == 89 ('Y') and VRChat is the foreground window, suppress it to prevent
+    // popping up VRChat's Chatbox text box which steals all keyboard inputs.
+    if vk == 89 && is_vrchat_foreground() {
+        return;
+    }
+
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
         KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
@@ -2919,6 +3057,7 @@ fn send_key(vk: u16, key_up: bool) {
 
 #[cfg(not(target_os = "windows"))]
 fn send_key(_vk: u16, _key_up: bool) {}
+
 
 
 fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), String> {
@@ -6055,8 +6194,18 @@ mod vrpiano_download_tests {
     fn note_to_vk_mapping_correctness() {
         assert_eq!(super::note_to_vk(36), Some(90)); // 'z'
         assert_eq!(super::note_to_vk(60), Some(81)); // 'q' (middle C)
+        assert_eq!(super::note_to_vk(69), Some(89)); // 'y' (A4, 440Hz)
         assert_eq!(super::note_to_vk(84), Some(112)); // F1
         assert_eq!(super::note_to_vk(20), None); // Out of range
+    }
+
+    #[test]
+    fn anti_chatbox_logic_verifies_y_key_and_osc_routing() {
+        // Note 69 is A4 (440Hz), mapped to 'y' (VK 89).
+        assert_eq!(super::note_to_vk(69), Some(89));
+        // In piano mode, note 69 routes to /PianoKeys/69 to avoid triggering Chatbox
+        assert_eq!(super::osc_note_address("piano", "", 69), "/PianoKeys/69");
+        assert_eq!(super::osc_note_address("avatar", "", 69), "/avatar/parameters/note069");
     }
 }
 

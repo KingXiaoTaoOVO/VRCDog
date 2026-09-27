@@ -2073,20 +2073,33 @@ onUnmounted(async () => {
           <div class="control-section output-mode-section">
             <strong>{{ t('vrpiano.output_mode') }}</strong>
             <div class="output-mode-grid">
-              <button class="output-mode-card" :class="{ active: outputMode === 'keyboard' }" @click="outputMode = 'keyboard'">
-                <Keyboard :size="16" />
-                <span>{{ t('vrpiano.pc_keyboard_mode') }}</span>
-                <small>{{ t('vrpiano.pc_keyboard_desc') }}</small>
+              <button class="output-mode-card" :class="{ active: outputMode === 'osc' }" @click="outputMode = 'osc'">
+                <div class="card-badge recommended">{{ t('vrpiano.recommended_vr') }}</div>
+                <Radio :size="16" />
+                <span>{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                <small>{{ t('vrpiano.vrchat_osc_desc') }}</small>
               </button>
               <button class="output-mode-card" :class="{ active: outputMode === 'midi' }" @click="outputMode = 'midi'">
                 <Cable :size="16" />
                 <span>{{ t('vrpiano.direct_midi_mode') }}</span>
                 <small>{{ t('vrpiano.direct_midi_desc') }}</small>
               </button>
-              <button class="output-mode-card" :class="{ active: outputMode === 'osc' }" @click="outputMode = 'osc'">
-                <Radio :size="16" />
-                <span>{{ t('vrpiano.vrchat_osc_mode') }}</span>
-                <small>{{ t('vrpiano.vrchat_osc_desc') }}</small>
+              <button class="output-mode-card" :class="{ active: outputMode === 'keyboard' }" @click="outputMode = 'keyboard'">
+                <div class="card-badge safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</div>
+                <Keyboard :size="16" />
+                <span>{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                <small>{{ t('vrpiano.pc_keyboard_desc') }}</small>
+              </button>
+            </div>
+            <div v-if="outputMode === 'keyboard'" class="keyboard-anti-chatbox-banner">
+              <ShieldCheck :size="18" class="banner-icon" />
+              <div class="banner-info">
+                <strong>{{ t('vrpiano.anti_chatbox_title') }}</strong>
+                <span>{{ t('vrpiano.anti_chatbox_desc') }}</span>
+              </div>
+              <button class="banner-switch-btn" type="button" @click="outputMode = 'osc'">
+                <Radio :size="13" />
+                <span>{{ t('vrpiano.switch_to_osc') }}</span>
               </button>
             </div>
             <button v-if="outputMode === 'midi'" class="direct-midi-action" :disabled="loading || !selectedSong || !midiOutputState.connected" @click="startDirectMidi">
@@ -3329,6 +3342,7 @@ select option {
 }
 
 .output-mode-card {
+  position: relative;
   min-width: 0;
   min-height: 104px;
   display: grid;
@@ -3342,6 +3356,84 @@ select option {
   background: var(--vp-surface);
   text-align: left;
   cursor: pointer;
+}
+
+.output-mode-card .card-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.output-mode-card .card-badge.recommended {
+  background: color-mix(in srgb, #8b5cf6 20%, transparent);
+  color: #a78bfa;
+  border: 1px solid color-mix(in srgb, #8b5cf6 40%, transparent);
+}
+
+.output-mode-card .card-badge.safe {
+  background: color-mix(in srgb, #10b981 18%, transparent);
+  color: #34d399;
+  border: 1px solid color-mix(in srgb, #10b981 35%, transparent);
+}
+
+.keyboard-anti-chatbox-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #10b981 10%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, #10b981 25%, var(--vp-border));
+}
+
+.keyboard-anti-chatbox-banner .banner-icon {
+  flex-shrink: 0;
+  color: #10b981;
+}
+
+.keyboard-anti-chatbox-banner .banner-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.keyboard-anti-chatbox-banner .banner-info strong {
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 700;
+}
+
+.keyboard-anti-chatbox-banner .banner-info span {
+  font-size: 11px;
+  color: var(--vp-muted);
+  line-height: 1.4;
+}
+
+.keyboard-anti-chatbox-banner .banner-switch-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  background: var(--vp-primary);
+  border: none;
+  cursor: pointer;
+  transition: opacity 160ms ease;
+}
+
+.keyboard-anti-chatbox-banner .banner-switch-btn:hover {
+  opacity: 0.9;
 }
 
 .output-mode-card:hover,
