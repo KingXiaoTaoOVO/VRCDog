@@ -31,7 +31,7 @@ export const useAuthStore = defineStore('auth', () => {
   const reconnectCountdown = ref(0);
   const loginGracePeriodUntil = ref(0);
 
-  const setLoginGracePeriod = (durationMs = 30_000) => {
+  const setLoginGracePeriod = (durationMs = 60_000) => {
     loginGracePeriodUntil.value = Date.now() + durationMs;
   };
 

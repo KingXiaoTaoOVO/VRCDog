@@ -176,4 +176,30 @@ describe('LoginView two-factor flow', () => {
     expect(wrapper.text()).toContain('Verification session expired');
     expect(mocks.getCurrentUser).not.toHaveBeenCalled();
   });
+
+  it('handles 401 rejection with requiresTwoFactorAuth and preserves challenge cookie', async () => {
+    const { VrcRequestError } = await import('../api/request');
+    mocks.login.mockReset().mockRejectedValue(new VrcRequestError('2FA Required', {
+      code: 'VRCHAT_HTTP_ERROR',
+      status: 401,
+      url: 'https://api.vrchat.cloud/api/1/auth/user',
+      response: { requiresTwoFactorAuth: ['totp'] },
+      auth_cookie: '["auth=challenge_token"]',
+    }));
+
+    const wrapper = mountLogin();
+    await enterTwoFactor(wrapper);
+
+    const codeInput = wrapper.get('input[autocomplete="one-time-code"]');
+    await codeInput.setValue('123456');
+    await wrapper.findAll('button').find((button) => button.text().includes('提交验证码'))!.trigger('click');
+    await flushPromises();
+
+    expect(mocks.verify2fa).toHaveBeenCalledWith({
+      code: '123456',
+      method: 'totp',
+      authCookie: '["auth=challenge_token"]',
+    });
+    expect(wrapper.emitted('login-success')).toBeTruthy();
+  });
 });

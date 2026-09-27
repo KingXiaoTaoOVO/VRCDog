@@ -193,6 +193,21 @@ fn clean_cookie_segment(segment: &str) -> Option<String> {
     }
 }
 
+fn deduplicate_cookie_list(cookies: Vec<String>) -> Vec<String> {
+    let mut map = std::collections::BTreeMap::new();
+    let mut order = Vec::new();
+    for cookie in cookies {
+        if let Some((name, _)) = cookie.split_once('=') {
+            let key = name.trim().to_ascii_lowercase();
+            if !map.contains_key(&key) {
+                order.push(key.clone());
+            }
+            map.insert(key, cookie);
+        }
+    }
+    order.into_iter().filter_map(|k| map.remove(&k)).collect()
+}
+
 fn parse_auth_cookies(raw_cookie: &str) -> Vec<String> {
     let raw = raw_cookie.trim();
     if raw.is_empty() {
@@ -201,16 +216,17 @@ fn parse_auth_cookies(raw_cookie: &str) -> Vec<String> {
 
     if raw.starts_with('[') {
         if let Ok(cookies) = serde_json::from_str::<Vec<String>>(raw) {
-            return cookies
+            let parsed = cookies
                 .iter()
                 .flat_map(|cookie| parse_auth_cookies(cookie))
                 .collect();
+            return deduplicate_cookie_list(parsed);
         }
     }
 
     let cookies: Vec<String> = raw.split(';').filter_map(clean_cookie_segment).collect();
     if !cookies.is_empty() {
-        return cookies;
+        return deduplicate_cookie_list(cookies);
     }
 
     if raw.contains('=') {
@@ -422,6 +438,12 @@ mod cookie_tests {
     fn parses_json_cookie_array() {
         let cookies = parse_auth_cookies(r#"["auth=a1","twoFactorAuth=t1"]"#);
         assert_eq!(cookies, vec!["auth=a1", "twoFactorAuth=t1"]);
+    }
+
+    #[test]
+    fn parses_and_deduplicates_duplicate_cookies_preserving_latest() {
+        let cookies = parse_auth_cookies(r#"["auth=old","twoFactorAuth=t1","auth=new"]"#);
+        assert_eq!(cookies, vec!["auth=new", "twoFactorAuth=t1"]);
     }
 
     #[test]
@@ -670,28 +692,41 @@ pub async fn vrc_execute(
         req = req.timeout(Duration::from_millis(timeout_ms.clamp(1_000, 120_000)));
     }
 
-    // Sync auth cookies into the shared jar so reqwest sends them automatically.
-    // No need to attach a manual Cookie header - the jar handles it.
-    if let Some(ref cv) = options.auth_cookie {
-        let jar = state.cookie_jar.read().await.clone();
-        if request_url.host_str() == Some("api.vrchat.cloud") {
-            let url = "https://api.vrchat.cloud"
-                .parse::<reqwest::Url>()
-                .map_err(|error| error.to_string())?;
-            let direct_cookies = parse_auth_cookies(cv);
-            for cookie in &direct_cookies {
-                jar.add_cookie_str(cookie, &url);
-            }
-        }
-    }
-
+    let mut has_explicit_cookie_header = false;
     if let Some(headers) = options.headers {
         for (k, v) in headers {
+            if k.eq_ignore_ascii_case("cookie") {
+                has_explicit_cookie_header = true;
+            }
             let h_name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
                 .map_err(|error| format!("Invalid request header name: {error}"))?;
             let h_value = reqwest::header::HeaderValue::from_str(&v)
                 .map_err(|error| format!("Invalid request header value for {k}: {error}"))?;
             req = req.header(h_name, h_value);
+        }
+    }
+
+    // Sync auth cookies into the shared jar and explicitly inject Cookie header (VRCX alignment)
+    // so reqwest sends both auth and twoFactorAuth without jar domain matching quirks.
+    if let Some(ref cv) = options.auth_cookie {
+        let is_vrc_host = request_url.host_str() == Some("api.vrchat.cloud")
+            || request_url
+                .host_str()
+                .map_or(false, |h| h.ends_with(".vrchat.cloud"));
+        if is_vrc_host {
+            let jar = state.cookie_jar.read().await.clone();
+            if let Ok(url) = "https://api.vrchat.cloud".parse::<reqwest::Url>() {
+                let direct_cookies = parse_auth_cookies(cv);
+                for cookie in &direct_cookies {
+                    jar.add_cookie_str(cookie, &url);
+                }
+                if !has_explicit_cookie_header && !direct_cookies.is_empty() {
+                    let cookie_val = direct_cookies.join("; ");
+                    if let Ok(hv) = reqwest::header::HeaderValue::from_str(&cookie_val) {
+                        req = req.header(reqwest::header::COOKIE, hv);
+                    }
+                }
+            }
         }
     }
 

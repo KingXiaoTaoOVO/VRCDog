@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { currentTheme } from '../theme';
 import { mergeCookiesAndSave, normalizeAuthCookieJson, parseCookieInput } from '../api/cookies';
+import { useAuthStore } from '../stores/authStore';
 import {
   chooseDefaultTwoFactorMethod,
   getTwoFactorErrorMessage,
@@ -21,6 +22,12 @@ import {
 } from '../api/twoFactor';
 
 const { t, locale } = useI18n({ useScope: 'global' });
+let authStore: ReturnType<typeof useAuthStore> | null = null;
+try {
+  authStore = useAuthStore();
+} catch {
+  // Fallback for standalone/test environments without Pinia installed
+}
 const appVersion = ref('');
 
 // ========== 已保存账号管理 ==========
@@ -102,6 +109,7 @@ async function loginWithSavedAccount(account: SavedAccount) {
     return;
   }
 
+  authStore?.setLoginGracePeriod(60_000);
   loading.value = true;
   errorMsg.value = '';
   try {
@@ -124,11 +132,11 @@ async function loginWithSavedAccount(account: SavedAccount) {
         errorMsg.value = msg;
       }
     } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
-      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth);
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
         await mergeCookiesAndSave(res.auth_cookie);
       }
+      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth, res.auth_cookie);
     } else if (res.id || res.currentUser || res.current_user) {
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
@@ -155,7 +163,12 @@ async function loginWithSavedAccount(account: SavedAccount) {
   } catch (err: any) {
     const methods = extractTwoFactorMethods(err);
     if (methods) {
-      beginTwoFactor(methods);
+      const challengeCookie = err?.auth_cookie || err?.response?.auth_cookie;
+      if (challengeCookie) {
+        authCookie.value = challengeCookie;
+        await mergeCookiesAndSave(challengeCookie);
+      }
+      beginTwoFactor(methods, challengeCookie);
     } else if (/missing credentials|401|unauthorized|expired|invalid/i.test(err.message || '')) {
       prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
     } else {
@@ -377,16 +390,16 @@ function extractTwoFactorMethods(err: any): TwoFactorMethod[] | null {
   return null;
 }
 
-function beginTwoFactor(methods: unknown) {
+function beginTwoFactor(methods: unknown, cookie?: string) {
   const normalized = normalizeTwoFactorMethods(methods);
   twoFactorMethods.value = normalized.length > 0 ? normalized : ['totp'];
   selectedTwoFactorMethod.value = chooseDefaultTwoFactorMethod(twoFactorMethods.value);
   twoFactorCode.value = '';
   errorMsg.value = '';
   show2FA.value = true;
-  // The 401 login response already merged the `auth` cookie into the DB; make
-  // sure we can pass it explicitly to the verify call so the session is intact
-  // even if the global auth-expired handler hasn't populated it yet.
+  if (cookie) {
+    authCookie.value = cookie;
+  }
   if (!authCookie.value) {
     DbApi.getAuth()
       .then((stored) => { if (stored && !authCookie.value) authCookie.value = stored; })
@@ -408,12 +421,16 @@ const handleLogin = async () => {
     }
   }
 
+  authStore?.setLoginGracePeriod(60_000);
   loading.value = true;
   errorMsg.value = '';
 
   try {
     await DbApi.clearAuth();
     await VrcApi.clearCookies();
+    if (username.value && password.value) {
+      authCookie.value = '';
+    }
 
     const res: any = await VrcApi.login({
       username: username.value || null,
@@ -424,12 +441,11 @@ const handleLogin = async () => {
     if (res.error) {
       errorMsg.value = res.error.message || JSON.stringify(res.error);
     } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
-      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth);
-
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
         await mergeCookiesAndSave(res.auth_cookie);
       }
+      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth, res.auth_cookie);
     } else if (res.id || res.currentUser || res.current_user) {
       if (res.auth_cookie) {
         authCookie.value = res.auth_cookie;
@@ -437,9 +453,6 @@ const handleLogin = async () => {
       }
       const user = res.currentUser || res.current_user || res;
       // 保存账号
-      // The native bridge may refresh cookies without including them in the
-      // parsed response. Read the durable DB value so saved-account login
-      // always keeps the latest auth/two-factor cookies.
       const durableCookie = await DbApi.getAuth().catch(() => null);
       await saveCurrentAccount(user, normalizeAuthCookieJson(durableCookie || res.auth_cookie || authCookie.value));
       show2FA.value = false;
@@ -453,7 +466,12 @@ const handleLogin = async () => {
   } catch (err: any) {
     const methods = extractTwoFactorMethods(err);
     if (methods) {
-      beginTwoFactor(methods);
+      const challengeCookie = err?.auth_cookie || err?.response?.auth_cookie;
+      if (challengeCookie) {
+        authCookie.value = challengeCookie;
+        await mergeCookiesAndSave(challengeCookie);
+      }
+      beginTwoFactor(methods, challengeCookie);
     } else {
       errorMsg.value = err.message || JSON.stringify(err);
     }
@@ -472,14 +490,21 @@ const handle2FA = async () => {
     return;
   }
 
+  authStore?.setLoginGracePeriod(60_000);
   loading.value = true;
   errorMsg.value = '';
 
   try {
+    let currentAuth = authCookie.value;
+    if (!currentAuth) {
+      currentAuth = (await DbApi.getAuth().catch(() => null)) || '';
+      if (currentAuth) authCookie.value = currentAuth;
+    }
+
     const verifyRes: any = await VrcApi.verify2fa({
       code,
       method: selectedTwoFactorMethod.value,
-      authCookie: authCookie.value || undefined
+      authCookie: currentAuth || undefined
     });
 
     if (isTwoFactorVerified(verifyRes)) {
@@ -491,6 +516,10 @@ const handle2FA = async () => {
 
       const finalCookie = await DbApi.getAuth().catch(() => null);
       const effectiveCookie = normalizeAuthCookieJson(finalCookie || authCookie.value);
+      try {
+        await VrcApi.applyAuthCookie({ authCookie: effectiveCookie });
+      } catch {}
+
       // Confirm the freshly-2FA-verified session without re-entering the
       // global logout pipeline. The dedicated App.vue handler already
       // validates auth on any vrc-auth-expired event from other paths.

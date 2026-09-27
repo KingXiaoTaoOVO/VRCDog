@@ -554,8 +554,7 @@ if (typeof window !== 'undefined') {
       }
     }
 
-    console.warn('[App] Auth truly expired, clearing login state...');
-    try { await DbApi.clearAuth(); } catch {}
+    console.warn('[App] Auth truly expired, logging out while preserving credentials...');
     authStore.handleLogout(true);
     // 5 秒内不再重复处理 auth-expired 事件
     if (authExpiredTimer) clearTimeout(authExpiredTimer);

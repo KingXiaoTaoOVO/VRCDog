@@ -38,10 +38,11 @@ export class VrcRequestError extends Error {
   status?: number;
   url: string;
   response?: unknown;
+  auth_cookie?: string;
 
   constructor(
     message: string,
-    details: { code: VrcRequestErrorCode; status?: number; url: string; response?: unknown }
+    details: { code: VrcRequestErrorCode; status?: number; url: string; response?: unknown; auth_cookie?: string }
   ) {
     super(message);
     this.name = 'VrcRequestError';
@@ -49,6 +50,7 @@ export class VrcRequestError extends Error {
     this.status = details.status;
     this.url = details.url;
     this.response = details.response;
+    this.auth_cookie = details.auth_cookie;
   }
 }
 
@@ -77,6 +79,7 @@ export function parseExecuteResponse<T = any>(res: any, fallbackUrl = 'vrc_execu
       status,
       url: res?.url || fallbackUrl,
       response: parsed,
+      auth_cookie: res?.auth_cookie,
     });
   }
   return parsed as T;
@@ -481,7 +484,8 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
     if (res.auth_cookie && isVrchat) {
       const isSuccess = res.status >= 200 && res.status < 300;
       const isAuthProbe = reqUrl.includes('/auth/user');
-      if (isSuccess || isAuthProbe) {
+      const isTwoFactorVerify = reqUrl.includes('/twofactorauth/');
+      if (isSuccess || isAuthProbe || isTwoFactorVerify || options.suppressAuthExpired) {
         const mergedCookie = await mergeCookiesAndSave(res.auth_cookie);
         if (mergedCookie) {
           res.auth_cookie = mergedCookie;
@@ -522,6 +526,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
           status: 429,
           url: reqUrl,
           response: parsed,
+          auth_cookie: res.auth_cookie,
         });
       }
 
@@ -615,6 +620,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
           status: res.status,
           url: reqUrl,
           response: parsed,
+          auth_cookie: res.auth_cookie,
         });
       }
       if (isVrchatAuthExpired(res.status, reqUrl, errorMessage)) {
@@ -627,6 +633,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
             status: res.status,
             url: reqUrl,
             response: parsed,
+            auth_cookie: res.auth_cookie,
           });
         }
         throw new VrcRequestError(errorMessage, {
@@ -634,6 +641,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
           status: res.status,
           url: reqUrl,
           response: parsed,
+          auth_cookie: res.auth_cookie,
         });
       }
       throw new VrcRequestError(errorMessage, {
@@ -641,6 +649,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         status: res.status,
         url: reqUrl,
         response: parsed,
+        auth_cookie: res.auth_cookie,
       });
 
     } catch (err: any) {
