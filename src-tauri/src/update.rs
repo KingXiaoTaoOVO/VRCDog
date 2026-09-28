@@ -5,47 +5,31 @@
 //! `updater.json`, which makes the official plugin's `check()` fail
 //! with HTTP 404 on every cold start.
 //!
-//! Auto-update pipeline (this is what actually runs when the user
-//! clicks "立即更新" in SettingsView):
+//! Auto-update pipeline:
 //!
-//!   1. Query GitHub's REST API directly (`/repos/{owner}/{repo}/releases`).
-//!   2. Stream the chosen asset to `%TEMP%\VRCDog-Setup-<stamp>.exe` while
-//!      emitting progress; verify SHA-256 against the GitHub asset digest.
-//!   3. Write a tiny `.cmd` bootstrapper to `%TEMP%\vrcdog-update-<stamp>.cmd`.
-//!      That script:
-//!        a. Polls `tasklist /FI "PID eq <our_pid>"` once a second for up
-//!           to 90 seconds, waiting for the running VRCDog.exe to exit.
-//!        b. Invokes the NSIS installer with `/S /D=<install_dir>` so the
-//!           install path is preserved across upgrades.
-//!        c. Sweeps stale `.exe.old` / `.exe.bak` leftovers left behind
-//!           by NSIS in-place upgrade.
-//!        d. Launches the freshly-installed `VRCDog.exe` via `start ""`.
-//!        e. Deletes the temp installer and self-deletes.
-//!   4. Spawn the bootstrapper detached via Windows Task Scheduler
-//!      (`schtasks /Create /SC ONCE ... /ST <now+2s> /F` followed by
-//!      `schtasks /Run`). Task Scheduler launches the script in
-//!      `svchost.exe -k netsvcs` rather than from a console session,
-//!      so the bootstrapper is **never** displayed in conhost, Windows
-//!      Terminal, or any other terminal emulator — even when our
-//!      process is still alive. We then `app.exit(0)` so the running
-//!      process releases every handle / image / Defender scan
-//!      association on the installer file.
-//!
-//! Why a bootstrapper? Spawning the NSIS installer directly from inside
-//! the running VRCDog.exe process triggers
-//! `os error 32 (ERROR_SHARING_VIOLATION)` on Windows: the moment we
-//! write a new `.exe` to `%TEMP%`, Windows Defender grabs it for real
-//! time scanning. While the scan is in flight (and while our own
-//! process still has its image mapped and possibly a residual handle)
-//! `CreateProcess` rejects the call with "another program is using
-//! this file". The bootstrapper gets us past that by exiting our
-//! process first, then waiting until the scan completes before running
-//! the installer.
-//!
-//! The bootstrapper also handles "delete old version files": NSIS in
-//! place upgrade renames `VRCDog.exe` to `VRCDog.exe.old` and never
-//! cleans it up. The script removes `.exe.old`, `.exe.bak`, plus any
-//! `VRCDog-Setup-*.exe` leftovers from previous interrupted runs.
+//!   1. Query GitHub's REST API directly (`/repos/{owner}/{repo}/releases`),
+//!      honoring user-configured proxy if available.
+//!   2. Multi-channel accelerated streaming:
+//!      - When no proxy is configured (typical domestic environment), automatically
+//!        prioritizes high-speed CDN mirrors (`ghfast.top`, `gh-proxy.com`, `ghproxy.net`)
+//!        with direct GitHub fallback.
+//!      - When a proxy is configured, prioritizes direct download through the user proxy
+//!        with CDN mirrors as high-availability fallbacks.
+//!      - Streams to `%TEMP%\vrcdog-setup-<stamp>.exe` using a 512 KB `BufWriter`.
+//!      - Strict SHA-256 cryptographic verification against the GitHub release digest.
+//!      - File handles are explicitly flushed and closed (`drop`) immediately upon
+//!        completion to prevent Windows file-locking / `ERROR_SHARING_VIOLATION`.
+//!   3. Zero-window silent installation:
+//!      - Generates an invisible VBScript bootstrapper executed via `wscript.exe`
+//!        (`IMAGE_SUBSYSTEM_WINDOWS_GUI`) with `CREATE_NO_WINDOW | DETACHED_PROCESS`.
+//!        This completely prevents ANY CMD console / Windows Terminal black boxes.
+//!      - Polls process exit via WMI every 100 ms instead of heavy external `tasklist`
+//!        and `timeout` loops.
+//!      - Runs the NSIS installer silently (`/S /D=<install_dir>`) hidden (`SW_HIDE`).
+//!      - Sweeps `.exe.old` and `.exe.bak` leftovers.
+//!      - Launches the new `VRCDog.exe` in the foreground (`SW_SHOWNORMAL`).
+//!      - Self-deletes temporary installer and bootstrap script.
+//!      - Backed by an invisible PowerShell fallback if `wscript.exe` is disabled.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -54,6 +38,7 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncWriteExt;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -61,12 +46,12 @@ use std::os::windows::process::CommandExt;
 const GITHUB_RELEASES_API: &str =
     "https://api.github.com/repos/KingXiaoTaoOVO/vrcdog-releases/releases";
 
-// Windows process creation flag we rely on.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+const DETACHED_PROCESS: u32 = 0x00000008;
 
-/// One release row exposed to the frontend. We only ship the subset of
-/// GitHub fields the updater UI actually uses.
+/// One release row exposed to the frontend.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReleaseInfo {
     pub tag: String,
@@ -116,11 +101,6 @@ fn parse_version(value: &str) -> Option<(Vec<u64>, &str)> {
 }
 
 /// Compare two "vX.Y.Z..." version strings, ignoring a leading `v`.
-///
-/// Semantics (matches semver precedence):
-///   - The `5.0.5` of `5.0.5-beta.1` is **greater** than `5.0.5-beta.1`.
-///   - `5.1.0-rc.1` > `5.0.5` because `5.1.0 > 5.0.5` lexicographically.
-///   - Missing trailing numeric segments compare as if zero.
 fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
     let Some((an, ap)) = parse_version(a) else {
         return a.cmp(b);
@@ -137,10 +117,6 @@ fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
             ord => return ord,
         }
     }
-    // Numeric parts equal — fall back on pre-release label. A version
-    // with no pre-release label is greater than one with a label
-    // (`5.0.5` > `5.0.5-beta.1`). When both have labels we compare
-    // them lexicographically.
     match (ap.is_empty(), bp.is_empty()) {
         (true, true) => std::cmp::Ordering::Equal,
         (true, false) => std::cmp::Ordering::Greater,
@@ -233,15 +209,43 @@ fn parse_release(json: &serde_json::Value) -> Option<ReleaseInfo> {
     })
 }
 
+fn build_update_client(proxy_url: Option<&str>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent("VrcDog-Updater/1.0")
+        .timeout(Duration::from_secs(60 * 30));
+
+    if let Some(proxy_str) = proxy_url.filter(|s| !s.trim().is_empty()) {
+        if let Ok(proxy) = reqwest::Proxy::all(proxy_str) {
+            builder = builder.proxy(proxy);
+        }
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("HTTP client init failed: {e}"))
+}
+
 /// Hit the GitHub Releases API and return parsed, sorted (newest first)
 /// release info, skipping drafts and releases with no Windows installer.
 #[tauri::command]
-pub async fn update_remote_releases() -> Result<Vec<ReleaseInfo>, String> {
-    let client = reqwest::Client::builder()
+pub async fn update_remote_releases(
+    vrc_state: tauri::State<'_, crate::vrc_api::VrcState>,
+) -> Result<Vec<ReleaseInfo>, String> {
+    let proxy_url = vrc_state.proxy_url.read().await.clone();
+    let mut builder = reqwest::Client::builder()
         .user_agent("VrcDog-Updater/1.0")
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(20));
+
+    if let Some(proxy_str) = proxy_url.as_ref().filter(|s| !s.trim().is_empty()) {
+        if let Ok(proxy) = reqwest::Proxy::all(proxy_str) {
+            builder = builder.proxy(proxy);
+        }
+    }
+
+    let client = builder
         .build()
         .map_err(|e| format!("HTTP client init failed: {e}"))?;
+
     let resp = client
         .get(GITHUB_RELEASES_API)
         .header("Accept", "application/vnd.github+json")
@@ -262,8 +266,6 @@ pub async fn update_remote_releases() -> Result<Vec<ReleaseInfo>, String> {
         .map_err(|e| format!("Malformed JSON from GitHub: {e}"))?;
 
     let mut releases: Vec<ReleaseInfo> = json.iter().filter_map(parse_release).collect();
-    // Skip drafts (not useful for users) and missing-installer rows
-    // (we can't auto-upgrade without one).
     releases.retain(|r| {
         !r.draft
             && (r.installer_url.is_some() || !r.tag.trim_start_matches('v').is_empty())
@@ -281,9 +283,7 @@ fn emit_done(app: &AppHandle, message: &str) {
 }
 
 /// Best-effort guess of where the upgraded binary lives after the
-/// installer runs. We don't hard-code the path because the user can move
-/// it; if we can't find it we fall back to the most recent
-/// `VRCDog*.exe` in `%LOCALAPPDATA%\Programs\VRCDog`.
+/// installer runs.
 fn locate_installed_exe(app: &AppHandle) -> Option<PathBuf> {
     let local = dirs::data_local_dir()?;
     let base = local.join("Programs").join("VRCDog");
@@ -297,154 +297,237 @@ fn locate_installed_exe(app: &AppHandle) -> Option<PathBuf> {
             return Some(c.clone());
         }
     }
-    // Last-resort: scan the Programs\VRCDog dir for the most recent .exe.
     if let Ok(read) = std::fs::read_dir(&base) {
-            let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-            for entry in read.flatten() {
-                let path = entry.path();
-                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-                    continue;
-                };
-                if !name.to_ascii_lowercase().ends_with(".exe") || name.contains(".old") {
-                    continue;
-                }
-                if let Ok(meta) = entry.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        match &best {
-                            Some((t, _)) if *t >= modified => {}
-                            _ => best = Some((modified, path.clone())),
-                        }
+        let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+        for entry in read.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if !name.to_ascii_lowercase().ends_with(".exe") || name.contains(".old") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    match &best {
+                        Some((t, _)) if *t >= modified => {}
+                        _ => best = Some((modified, path.clone())),
                     }
                 }
             }
-            if let Some((_, p)) = best {
-                return Some(p);
-            }
+        }
+        if let Some((_, p)) = best {
+            return Some(p);
+        }
     }
-    // Also try alongside the running exe (for portable installs).
     if let Ok(running) = std::env::current_exe() {
         if running.exists() {
-            // We're still running, so don't pick ourselves unless we
-            // can't find any other candidate.
             return Some(running);
         }
     }
-    let _ = app; // silence unused warning when all branches above run
+    let _ = app;
     None
 }
 
-/// Render the bootstrapper CMD script.
+/// Generates a zero-window, pure GUI VBScript bootstrapper.
 ///
-/// Arguments the script receives via CMD %1..%4:
+/// Executed by `wscript.exe` (`IMAGE_SUBSYSTEM_WINDOWS_GUI`), meaning Windows
+/// will NEVER attach a console window (conhost/Windows Terminal).
 ///
-///   %1 — our current PID (used to wait until VRCDog.exe exits)
-///   %2 — absolute path to the downloaded installer (.exe or .msi)
-///   %3 — install dir (where the new VRCDog.exe should land)
-///   %4 — absolute path to the freshly-installed VRCDog.exe (to launch)
-///
-/// The script intentionally keeps its logic plain-vanilla CMD so it
-/// runs on every supported Windows version without extra dependencies.
-/// It avoids parenthesised `if` blocks with `set /a` so that no
-/// `EnableDelayedExpansion` is needed (which keeps the script
-/// compatible with batch runners that disable it by default).
-fn render_bootstrap_script() -> &'static str {
-    r#"@echo off
-setlocal
-rem ============================================================
-rem  VRCDog auto-update bootstrapper
-rem  - waits for the running VRCDog.exe (PID %1) to exit
-rem  - runs the NSIS/MSI installer silently with /D=install_dir
-rem  - sweeps .exe.old / .exe.bak leftovers from in-place upgrades
-rem  - launches the freshly installed VRCDog.exe
-rem  - cleans up its own temp artifacts
-rem ============================================================
+/// Arguments received:
+///   Arguments(0) - PID of the running VRCDog.exe
+///   Arguments(1) - Path to the downloaded installer (.exe or .msi)
+///   Arguments(2) - Install directory
+///   Arguments(3) - Path to the freshly-installed VRCDog.exe to launch
+fn render_silent_bootstrap_script() -> &'static str {
+    r#"Option Explicit
+On Error Resume Next
 
-set "INSTALLER=%~2"
-set "INSTALL_DIR=%~3"
-set "NEW_EXE=%~4"
+Dim targetPid, installer, installDir, newExe
+Dim WshShell, fso, objWMIService, colProcesses, tries, ext, cmd, rc, i, fallbackExe
 
-echo [VRCDog updater] waiting for VRCDog.exe (PID %1) to exit...
-set /a TRIES=0
-goto waitloop
+If WScript.Arguments.Count < 4 Then
+    WScript.Quit 1
+End If
 
-:waitloop
-tasklist /FI "PID eq %1" 2>NUL | findstr /C:" %1 " >NUL
-if %ERRORLEVEL%==1 goto run_install
-set /a TRIES+=1
-if %TRIES% GEQ 90 goto timed_out
->NUL timeout /T 1 /NOBREAK
-goto waitloop
+targetPid = CLng(WScript.Arguments(0))
+installer = WScript.Arguments(1)
+installDir = WScript.Arguments(2)
+newExe = WScript.Arguments(3)
 
-:timed_out
-echo [VRCDog updater] VRCDog.exe did not exit within 90s, proceeding anyway.
+Set WshShell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
 
-:run_install
-echo [VRCDog updater] running installer: "%INSTALLER%" /S /D="%INSTALL_DIR%"
-if /I "%INSTALLER:~-4%"==".msi" goto run_msi
+' 1. Fast wait for old process to exit (using WMI with 100ms intervals, 0 console windows)
+If targetPid > 4 Then
+    Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+    tries = 0
+    Do While tries < 300
+        Set colProcesses = objWMIService.ExecQuery("Select ProcessId from Win32_Process Where ProcessId = " & targetPid)
+        If Err.Number <> 0 Or colProcesses.Count = 0 Then
+            Exit Do
+        End If
+        WScript.Sleep 100
+        tries = tries + 1
+    Loop
+    Err.Clear
+End If
 
-rem ----- NSIS / generic setup.exe path -----
-"%INSTALLER%" /S /D="%INSTALL_DIR%"
-set "RC=%ERRORLEVEL%"
-echo [VRCDog updater] installer exit code: %RC%
-goto after_install
+' 2. Run installer silently (0 = SW_HIDE, True = wait for exit)
+rc = 0
+If fso.FileExists(installer) Then
+    ext = LCase(fso.GetExtensionName(installer))
+    If ext = "msi" Then
+        cmd = "msiexec.exe /qn /i """ & installer & """ TARGETDIR=""" & installDir & """"
+    Else
+        ' NSIS setup: /D= must be the last parameter and must NOT be quoted
+        cmd = """" & installer & """ /S /D=" & installDir
+    End If
+    rc = WshShell.Run(cmd, 0, True)
+End If
 
-:run_msi
-rem ----- MSI fallback -----
-msiexec /qn /i "%INSTALLER%" TARGETDIR="%INSTALL_DIR%"
-set "RC=%ERRORLEVEL%"
-echo [VRCDog updater] msiexec exit code: %RC%
+' 3. Clean up NSIS in-place upgrade leftovers (.exe.old, .exe.bak)
+If fso.FolderExists(installDir) Then
+    If fso.FileExists(installDir & "\VRCDog.exe.old") Then fso.DeleteFile installDir & "\VRCDog.exe.old", True
+    If fso.FileExists(installDir & "\VRCDog.exe.bak") Then fso.DeleteFile installDir & "\VRCDog.exe.bak", True
+End If
 
-:after_install
-rem ----- Sweep NSIS in-place upgrade leftovers -----
-if exist "%INSTALL_DIR%\VRCDog.exe.old" del /F /Q "%INSTALL_DIR%\VRCDog.exe.old"
-if exist "%INSTALL_DIR%\VRCDog.exe.bak" del /F /Q "%INSTALL_DIR%\VRCDog.exe.bak"
-pushd "%INSTALL_DIR%"
-del /F /Q "*.exe.old" 2>NUL
-del /F /Q "*.exe.bak" 2>NUL
-del /F /Q "unins*.exe.tmp" 2>NUL
-popd
+' 4. Launch new executable if installation succeeded (1 = SW_SHOWNORMAL, False = don't wait)
+If rc = 0 Then
+    If fso.FileExists(newExe) Then
+        WshShell.Run """" & newExe & """", 1, False
+    Else
+        fallbackExe = installDir & "\VRCDog.exe"
+        If fso.FileExists(fallbackExe) Then
+            WshShell.Run """" & fallbackExe & """", 1, False
+        End If
+    End If
+End If
 
-rem ----- Launch the new exe (only if installer reported success) -----
-if %RC% NEQ 0 goto cleanup
-if exist "%NEW_EXE%" (
-    echo [VRCDog updater] launching "%NEW_EXE%"
-    start "" "%NEW_EXE%"
-) else (
-    echo [VRCDog updater] warning: %NEW_EXE% not found after install.
-)
+' 5. Clean up installer file and self-delete
+For i = 1 To 10
+    If fso.FileExists(installer) Then
+        fso.DeleteFile installer, True
+        If Not fso.FileExists(installer) Then Exit For
+        WScript.Sleep 200
+    Else
+        Exit For
+    End If
+Next
 
-:cleanup
-rem ----- Remove the temp installer and self-delete -----
-if exist "%INSTALLER%" del /F /Q "%INSTALLER%"
-del /F /Q "%~f0" 2>NUL
-endlocal
-exit /b %RC%
+fso.DeleteFile WScript.ScriptFullName, True
 "#
 }
 
-/// Write the bootstrapper `.cmd` file to `%TEMP%`. Returns the path.
+/// Write the bootstrapper `.vbs` file to `%TEMP%`. Returns the path.
 fn write_bootstrap_script(pid: u32) -> Result<PathBuf, String> {
     let tmp_dir = std::env::temp_dir();
     std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| format!("无法创建临时目录: {e}"))?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let script = tmp_dir.join(format!("vrcdog-update-{}-{}.cmd", pid, stamp));
-    std::fs::write(&script, render_bootstrap_script().as_bytes())
+    let script = tmp_dir.join(format!("vrcdog-update-{}-{}.vbs", pid, stamp));
+    std::fs::write(&script, render_silent_bootstrap_script().as_bytes())
         .map_err(|e| format!("无法写入引导脚本: {e}"))?;
     Ok(script)
 }
 
-/// Best-effort sweep of stale updater artifacts from previous runs.
+/// Spawns the silent bootstrapper detached and windowless.
 ///
-/// On startup we delete any leftover VRCDog installer and bootstrapper
-/// scripts in `%TEMP%` that are older than one week. Anything newer
-/// than that is left alone — the user may still be mid-update and we
-/// don't want to yank the file from under a running bootstrapper.
+/// Uses `wscript.exe` with `CREATE_NO_WINDOW | DETACHED_PROCESS` so no console
+/// window is ever created. Includes a fallback to PowerShell with `-WindowStyle Hidden`
+/// if `wscript.exe` is blocked or unavailable.
+fn spawn_silent_bootstrapper(
+    script: &Path,
+    pid: u32,
+    installer: &str,
+    install_dir: &str,
+    new_exe: &str,
+) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    // Primary: wscript.exe (native Windows GUI script host, 0 console windows)
+    let mut cmd = Command::new("wscript.exe");
+    cmd.arg("//nologo")
+        .arg(script)
+        .arg(pid.to_string())
+        .arg(installer)
+        .arg(install_dir)
+        .arg(new_exe)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+    }
+
+    match cmd.spawn() {
+        Ok(_) => {
+            eprintln!("[update] spawned silent bootstrapper via wscript.exe");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[update] wscript.exe spawn failed: {e}, falling back to powershell -WindowStyle Hidden");
+            // Secondary fallback: powershell.exe with -WindowStyle Hidden and CREATE_NO_WINDOW | DETACHED_PROCESS
+            let mut ps = Command::new("powershell.exe");
+            let ps_script = format!(
+                "$targetPid = {}; $installer = '{}'; $installDir = '{}'; $newExe = '{}'; \
+                 $tries = 0; \
+                 while ($tries -lt 300) {{ \
+                     if (-not (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)) {{ break }}; \
+                     Start-Sleep -Milliseconds 100; \
+                     $tries++; \
+                 }}; \
+                 if (Test-Path $installer) {{ \
+                     if ($installer.ToLower().EndsWith('.msi')) {{ \
+                         Start-Process -FilePath 'msiexec.exe' -ArgumentList \"/qn /i `\"$installer`\" TARGETDIR=`\"$installDir`\"\" -Wait; \
+                     }} else {{ \
+                         Start-Process -FilePath $installer -ArgumentList \"/S /D=$installDir\" -Wait; \
+                     }} \
+                 }}; \
+                 Remove-Item \"$installDir\\VRCDog.exe.old\" -Force -ErrorAction SilentlyContinue; \
+                 Remove-Item \"$installDir\\VRCDog.exe.bak\" -Force -ErrorAction SilentlyContinue; \
+                 if (Test-Path $newExe) {{ Start-Process -FilePath $newExe }} \
+                 elseif (Test-Path \"$installDir\\VRCDog.exe\") {{ Start-Process -FilePath \"$installDir\\VRCDog.exe\" }}; \
+                 Remove-Item $installer -Force -ErrorAction SilentlyContinue; \
+                 Remove-Item '{}' -Force -ErrorAction SilentlyContinue;",
+                pid,
+                installer.replace('\'', "''"),
+                install_dir.replace('\'', "''"),
+                new_exe.replace('\'', "''"),
+                script.to_string_lossy().replace('\'', "''")
+            );
+
+            ps.arg("-WindowStyle")
+                .arg("Hidden")
+                .arg("-NoProfile")
+                .arg("-NonInteractive")
+                .arg("-ExecutionPolicy")
+                .arg("Bypass")
+                .arg("-Command")
+                .arg(ps_script)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+
+            #[cfg(windows)]
+            {
+                ps.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+            }
+
+            ps.spawn().map(|_| ()).map_err(|e2| {
+                format!("无法启动更新引导程序 (wscript 失败: {e}, powershell 失败: {e2})")
+            })
+        }
+    }
+}
+
+/// Best-effort sweep of stale updater artifacts from previous runs.
 #[tauri::command]
 pub fn update_cleanup_stale_artifacts() -> Result<u32, String> {
     let tmp_dir = std::env::temp_dir();
-    let cutoff = std::time::SystemTime::now()
-        - Duration::from_secs(60 * 60 * 24 * 7);
+    let cutoff = std::time::SystemTime::now() - Duration::from_secs(60 * 60 * 24);
     let mut removed = 0u32;
     let Ok(read) = std::fs::read_dir(&tmp_dir) else {
         return Ok(0);
@@ -455,9 +538,11 @@ pub fn update_cleanup_stale_artifacts() -> Result<u32, String> {
             continue;
         };
         let lower = name.to_ascii_lowercase();
-        let is_stale_setup = lower.starts_with("vrcdog-setup-")
+        let is_stale_setup = (lower.starts_with("vrcdog-setup-")
+            || lower.starts_with("vrcdog-installer-"))
             && (lower.ends_with(".exe") || lower.ends_with(".msi"));
-        let is_stale_bootstrap = lower.starts_with("vrcdog-update-") && lower.ends_with(".cmd");
+        let is_stale_bootstrap = lower.starts_with("vrcdog-update-")
+            && (lower.ends_with(".vbs") || lower.ends_with(".cmd") || lower.ends_with(".ps1"));
         if !(is_stale_setup || is_stale_bootstrap) {
             continue;
         }
@@ -474,20 +559,103 @@ pub fn update_cleanup_stale_artifacts() -> Result<u32, String> {
     Ok(removed)
 }
 
+/// Builds candidate URLs for download with mirrors and direct links.
+pub fn build_candidate_download_urls(download_url: &str, proxy_url: Option<&str>) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let has_proxy = proxy_url.map(|s| !s.trim().is_empty()).unwrap_or(false);
+
+    if has_proxy {
+        candidates.push(download_url.to_string());
+        candidates.push(format!("https://ghfast.top/{download_url}"));
+        candidates.push(format!("https://gh-proxy.com/{download_url}"));
+        candidates.push(format!("https://ghproxy.net/{download_url}"));
+    } else {
+        candidates.push(format!("https://ghfast.top/{download_url}"));
+        candidates.push(format!("https://gh-proxy.com/{download_url}"));
+        candidates.push(format!("https://ghproxy.net/{download_url}"));
+        candidates.push(download_url.to_string());
+    }
+
+    candidates
+}
+
+async fn try_download_from_url(
+    client: &reqwest::Client,
+    url: &str,
+    installer: &Path,
+    expected_size: Option<u64>,
+    app: &AppHandle,
+    last_emit: &mut u64,
+) -> Result<(u64, String), String> {
+    let resp = client
+        .get(url)
+        .header("Accept", "application/octet-stream")
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!(
+            "服务器返回 {}: {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("error")
+        ));
+    }
+
+    let total = resp.content_length().unwrap_or_else(|| expected_size.unwrap_or(0));
+    let mut stream = resp.bytes_stream();
+    let file = tokio::fs::File::create(installer)
+        .await
+        .map_err(|e| format!("无法创建临时文件 {}: {e}", installer.display()))?;
+
+    let mut writer = tokio::io::BufWriter::with_capacity(512 * 1024, file);
+    let mut hasher = Sha256::new();
+    let mut bytes_done: u64 = 0;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载中断: {e}"))?;
+        writer
+            .write_all(&chunk)
+            .await
+            .map_err(|e| format!("写入临时文件失败: {e}"))?;
+        hasher.update(&chunk);
+        bytes_done = bytes_done.saturating_add(chunk.len() as u64);
+
+        if total > 0 && bytes_done - *last_emit > (total / 50).max(512 * 1024) {
+            *last_emit = bytes_done;
+            emit_progress(
+                app,
+                InstallProgress {
+                    stage: "downloading",
+                    bytes_done,
+                    bytes_total: total,
+                    message: format!(
+                        "已下载 {:.1} MB / {:.1} MB",
+                        bytes_done as f64 / 1_048_576.0,
+                        total as f64 / 1_048_576.0
+                    ),
+                },
+            );
+        }
+    }
+
+    writer.flush().await.map_err(|e| format!("刷盘失败: {e}"))?;
+    writer.shutdown().await.ok();
+    // Drop writer and underlying file handle to avoid ERROR_SHARING_VIOLATION
+    drop(writer);
+
+    let computed = hasher.finalize();
+    let computed_hex = format!("{:x}", computed);
+
+    Ok((bytes_done, computed_hex))
+}
+
 /// Run the full auto-update flow against a single chosen release.
-///
-/// Pipeline:
-///   1. Stream the installer from GitHub to `%TEMP%\VRCDog-Setup-<stamp>.exe`.
-///   2. Verify SHA-256 against the GitHub asset digest.
-///   3. Determine the install dir + new exe path.
-///   4. Write a CMD bootstrapper that waits for our exit, then runs
-///      the installer silently, sweeps leftovers, and launches the new
-///      binary.
-///   5. Spawn the bootstrapper detached (`cmd /C <script> <pid> <installer>
-///      <install_dir> <new_exe>`) with no window, then `app.exit(0)`.
 #[tauri::command]
 pub async fn update_install_release(
     app: AppHandle,
+    vrc_state: tauri::State<'_, crate::vrc_api::VrcState>,
     download_url: String,
     expected_sha256: Option<String>,
     expected_size: Option<u64>,
@@ -496,7 +664,7 @@ pub async fn update_install_release(
         return Err("下载链接为空".into());
     }
 
-    // R6: 仅允许官方 GitHub Releases 域名，避免下载并执行任意 URL 导致 RCE/供应链攻击
+    // R6: 仅允许官方 GitHub Releases 域名，避免下载并执行任意 URL 导致安全隐患
     let parsed = reqwest::Url::parse(&download_url)
         .map_err(|_| "下载链接格式非法".to_string())?;
     match parsed.host_str() {
@@ -508,7 +676,7 @@ pub async fn update_install_release(
         _ => return Err("非法的下载源：仅允许 GitHub Releases 官方域名".into()),
     }
 
-    // 强制完整性校验：未提供 SHA-256 时拒绝安装（原实现因 GitHub 无 digest 字段常跳过校验）
+    // 强制完整性校验：未提供 SHA-256 时拒绝安装
     if expected_sha256
         .as_ref()
         .map(|s| s.trim())
@@ -524,31 +692,13 @@ pub async fn update_install_release(
             stage: "downloading",
             bytes_done: 0,
             bytes_total: expected_size.unwrap_or(0),
-            message: "正在从 GitHub 下载安装包".into(),
+            message: "正在连接高速更新网络...".into(),
         },
     );
 
-    let client = reqwest::Client::builder()
-        .user_agent("VrcDog-Updater/1.0")
-        .timeout(Duration::from_secs(60 * 30))
-        .build()
-        .map_err(|e| format!("HTTP client init failed: {e}"))?;
+    let proxy_url = vrc_state.proxy_url.read().await.clone();
+    let candidates = build_candidate_download_urls(&download_url, proxy_url.as_deref());
 
-    let resp = client
-        .get(&download_url)
-        .header("Accept", "application/octet-stream")
-        .send()
-        .await
-        .map_err(|e| format!("下载失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!(
-            "下载服务器返回 {}: {}",
-            resp.status().as_u16(),
-            resp.status().canonical_reason().unwrap_or("error"),
-        ));
-    }
-
-    let total = resp.content_length().unwrap_or(expected_size.unwrap_or(0));
     let tmp_dir = std::env::temp_dir();
     let _ = std::fs::create_dir_all(&tmp_dir);
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
@@ -568,71 +718,79 @@ pub async fn update_install_release(
     };
     let installer = tmp_dir.join(&installer_name);
 
-    let mut stream = resp.bytes_stream();
-    let mut file = tokio::fs::File::create(&installer)
-        .await
-        .map_err(|e| format!("无法创建临时文件 {}: {e}", installer.display()))?;
+    let client_configured = build_update_client(proxy_url.as_deref())?;
+    let client_direct = build_update_client(None)?;
 
-    let mut hasher = Sha256::new();
-    let mut bytes_done: u64 = 0;
+    let mut download_success = false;
+    let mut last_err = String::new();
     let mut last_emit: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载中断: {e}"))?;
-        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
-            .await
-            .map_err(|e| format!("写入临时文件失败: {e}"))?;
-        hasher.update(&chunk);
-        bytes_done = bytes_done.saturating_add(chunk.len() as u64);
-        if total > 0 && bytes_done - last_emit > total / 50 {
-            last_emit = bytes_done;
-            emit_progress(
-                &app,
-                InstallProgress {
-                    stage: "downloading",
-                    bytes_done,
-                    bytes_total: total,
-                    message: format!("已下载 {} MB", bytes_done / 1_048_576),
-                },
-            );
-        }
-    }
-    tokio::io::AsyncWriteExt::shutdown(&mut file)
+
+    for candidate_url in &candidates {
+        eprintln!("[update] downloading candidate: {candidate_url}");
+
+        // For mirrors, direct client avoids unnecessary proxy bottlenecks;
+        // for official github.com, use configured proxy if available.
+        let is_mirror = candidate_url.starts_with("https://gh");
+        let active_client = if is_mirror && proxy_url.is_none() {
+            &client_direct
+        } else {
+            &client_configured
+        };
+
+        match try_download_from_url(
+            active_client,
+            candidate_url,
+            &installer,
+            expected_size,
+            &app,
+            &mut last_emit,
+        )
         .await
-        .ok();
-    let computed = hasher.finalize();
-    let computed_hex = {
-        let mut s = String::with_capacity(64);
-        for b in computed {
-            s.push_str(&format!("{b:02x}"));
-        }
-        s
-    };
-
-    if let Some(expected) = expected_sha256.as_ref() {
-        if !expected.is_empty() && expected.to_ascii_lowercase() != computed_hex {
-            let _ = std::fs::remove_file(&installer);
-            return Err(format!(
-                "SHA-256 校验失败。预期 {expected}，实际 {computed_hex}。"
-            ));
+        {
+            Ok((bytes_done, computed_hex)) => {
+                // Verify SHA-256
+                if let Some(expected) = expected_sha256.as_ref() {
+                    if !expected.is_empty() && expected.to_ascii_lowercase() != computed_hex {
+                        eprintln!("[update] SHA-256 mismatch for {candidate_url}: expected {expected}, got {computed_hex}");
+                        let _ = std::fs::remove_file(&installer);
+                        last_err = format!("SHA-256 校验不匹配 (来源: {candidate_url})");
+                        continue;
+                    }
+                }
+                // Verify size
+                if let Some(exp_size) = expected_size {
+                    if bytes_done != exp_size {
+                        eprintln!("[update] size mismatch for {candidate_url}: expected {exp_size}, got {bytes_done}");
+                        let _ = std::fs::remove_file(&installer);
+                        last_err = format!("文件大小不匹配 (来源: {candidate_url})");
+                        continue;
+                    }
+                }
+                download_success = true;
+                break;
+            }
+            Err(e) => {
+                eprintln!("[update] candidate {candidate_url} failed: {e}");
+                let _ = std::fs::remove_file(&installer);
+                last_err = e;
+            }
         }
     }
 
-    if let Some(exp_size) = expected_size {
-        if bytes_done != exp_size {
-            let _ = std::fs::remove_file(&installer);
-            return Err(format!(
-                "下载字节数不匹配：预期 {exp_size}，实际 {bytes_done}。"
-            ));
-        }
+    if !download_success {
+        return Err(format!(
+            "所有线路下载均失败，无法完成更新。最后错误: {last_err}"
+        ));
     }
 
+    let total = expected_size.unwrap_or(0);
     emit_progress(
         &app,
         InstallProgress {
             stage: "installing",
             bytes_done: total,
             bytes_total: total,
-            message: "正在准备静默安装".into(),
+            message: "下载完成，正在进行无感静默更新...".into(),
         },
     );
 
@@ -652,14 +810,14 @@ pub async fn update_install_release(
     let new_exe_str = new_exe.to_string_lossy().to_string();
 
     eprintln!(
-        "[update] spawning bootstrap script {} for installer {} (install dir {}, new exe {})",
+        "[update] spawning silent bootstrap script {} for installer {} (install dir {}, new exe {})",
         script_path.display(),
         installer.display(),
         run_dir_hint.display(),
         new_exe.display()
     );
 
-    spawn_bootstrapper_detached(
+    spawn_silent_bootstrapper(
         &script_path,
         pid,
         &installer_str,
@@ -667,13 +825,10 @@ pub async fn update_install_release(
         &new_exe_str,
     )
     .map_err(|e| {
-        // Best-effort cleanup if we couldn't even launch the
-        // bootstrapper — the user can still run the installer we
-        // downloaded by hand.
         let _ = std::fs::remove_file(&script_path);
         let _ = std::fs::remove_file(&installer);
         format!(
-            "无法启动更新引导脚本: {e}。安装包已下载到: {}",
+            "无法启动更新引导程序: {e}。安装包已下载到: {}",
             installer.display()
         )
     })?;
@@ -684,135 +839,17 @@ pub async fn update_install_release(
             stage: "launching",
             bytes_done: total,
             bytes_total: total,
-            message: "已下载完成，正在退出旧版本以启动新版本".into(),
+            message: "更新完成，正在拉起新版本并退出旧版本...".into(),
         },
     );
     emit_done(&app, "新版本已启动");
 
-    // Give the frontend a beat to render the launching state before
-    // we tear down. Tauri's `app.exit(0)` will fire on_drop cleanup
-    // for any state we manage, but we don't want the event handler
-    // to be mid-render when we pull the rug out from under it.
     std::thread::sleep(Duration::from_millis(400));
     app.exit(0);
     Ok(())
 }
 
-/// Spawn the bootstrapper CMD script in a way that **cannot** show a
-/// console window — not even under Windows Terminal.
-///
-/// `Command::new("cmd.exe").creation_flags(CREATE_NO_WINDOW)` works on
-/// plain conhost but Windows Terminal still hijacks the resulting child
-/// into a tab (the classic "black cmd window with `findstr /C:"688"`
-/// in its title" symptom). To completely avoid any console binding we
-/// hand the job to the Windows Task Scheduler service
-/// (`schtasks.exe`), whose host is `svchost.exe -k netsvcs`. Processes
-/// it spawn are not attached to any console session at all — Task
-/// Scheduler has been the canonical "fire-and-forget, no window"
-/// mechanism on Windows since Vista.
-///
-/// We invoke the script directly (`/C <script> ...`) and do **not**
-/// wrap it in `cmd.exe /C`, so there is no parent cmd.exe to be
-/// captured by a terminal emulator.
-///
-/// `schtasks /Create` requires a start time (`/ST HH:MM:SS`) that is
-/// `>=` the current local clock, so we ask for "now + 2 s". The task
-/// is created with `/F` (force overwrite), immediately run, and then
-/// deleted to avoid littering the user's task library.
-fn spawn_bootstrapper_detached(
-    script: &Path,
-    pid: u32,
-    installer: &str,
-    install_dir: &str,
-    new_exe: &str,
-) -> Result<(), String> {
-    use std::process::{Command, Stdio};
-
-    let safe = |s: &str| -> String { s.replace('"', "\"\"") };
-    let task_name = format!("VRCDog_Update_{pid}");
-    let tr = format!(
-        "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\"",
-        safe(&script.to_string_lossy()),
-        pid,
-        safe(installer),
-        safe(install_dir),
-        safe(new_exe),
-    );
-    // Round current local time to the next even second and add two
-    // seconds so /ST is comfortably after the scheduler's wall clock
-    // (which can lag a tick depending on the runtime). The format is
-    // H:MM:SS or HH:MM:SS — schtasks accepts both.
-    let start_time = {
-        let now = chrono::Local::now();
-        let t = now + chrono::Duration::seconds(2);
-        t.format("%H:%M:%S").to_string()
-    };
-
-    // Helper: invoke schtasks with our "no window" trick (the schtasks
-    // binary itself would otherwise pop a console window while it's
-    // running). We capture stdout/stderr so we can surface any error.
-    let silent = |args: &[&str]| -> Result<std::process::Output, String> {
-        Command::new("schtasks.exe")
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("schtasks {args:?} 启动失败: {e}"))
-    };
-
-    // 1. Create the task (force overwrite).
-    let create_args: Vec<String> = vec![
-        "/Create".into(),
-        "/SC".into(),
-        "ONCE".into(),
-        "/TN".into(),
-        task_name.clone(),
-        "/TR".into(),
-        tr.clone(),
-        "/ST".into(),
-        start_time.clone(),
-        "/F".into(),
-    ];
-    let create_args_ref: Vec<&str> = create_args.iter().map(String::as_str).collect();
-    let out = silent(&create_args_ref)?;
-    if !out.status.success() {
-        return Err(format!(
-            "schtasks /Create 失败 (code={:?}): {}",
-            out.status.code(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-
-    // 2. Run it. The created task fires within ~1 s; we don't wait.
-    let run_args: Vec<&str> = vec!["/Run", "/TN", &task_name];
-    let out = silent(&run_args)?;
-    if !out.status.success() {
-        // Best-effort: clean up the task before returning.
-        let _ = silent(&["/Delete", "/TN", &task_name, "/F"]);
-        return Err(format!(
-            "schtasks /Run 失败 (code={:?}): {}",
-            out.status.code(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-
-    // 3. Best-effort cleanup so the user's task library stays tidy.
-    //    The task may already have fired and vanished, which is fine —
-    //    `/Delete /F` is idempotent and silent on missing entries.
-    let _ = silent(&["/Delete", "/TN", &task_name, "/F"]);
-
-    eprintln!(
-        "[update] bootstrapper dispatched via schtasks (TN={}) installer={} install_dir={} new_exe={}",
-        task_name, installer, install_dir, new_exe
-    );
-    Ok(())
-}
-
-/// Replace the running binary with a `restart()` call that preserves
-/// the original command-line arguments. Required because the previous
-/// `invoke('process::restart')` referenced a non-existent Tauri plugin.
+/// Restart helper.
 #[tauri::command]
 pub fn update_restart(app: AppHandle) -> Result<(), String> {
     app.restart();
@@ -851,94 +888,63 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_script_contains_required_anchors() {
-        let body = render_bootstrap_script();
-        // The script must poll, run the installer, sweep, and launch.
-        assert!(body.contains("tasklist /FI \"PID eq %1\""));
+    fn silent_bootstrap_script_contains_required_anchors() {
+        let body = render_silent_bootstrap_script();
+        assert!(body.contains("WScript.Arguments"));
+        assert!(body.contains("Win32_Process"));
         assert!(body.contains("/S /D="));
         assert!(body.contains(".exe.old"));
         assert!(body.contains(".exe.bak"));
-        assert!(body.contains("start \"\""));
-        assert!(body.contains("del /F /Q \"%~f0\""));
+        assert!(body.contains("WshShell.Run"));
+        assert!(body.contains("fso.DeleteFile WScript.ScriptFullName, True"));
+    }
+
+    #[test]
+    fn mirror_candidate_generation() {
+        let url = "https://github.com/KingXiaoTaoOVO/vrcdog-releases/releases/download/v5.6.9/VRCDog_5.6.9_x64-setup.exe";
+        let no_proxy = build_candidate_download_urls(url, None);
+        assert_eq!(no_proxy.len(), 4);
+        assert!(no_proxy[0].starts_with("https://ghfast.top/"));
+        assert_eq!(no_proxy[3], url);
+
+        let with_proxy = build_candidate_download_urls(url, Some("http://127.0.0.1:7890"));
+        assert_eq!(with_proxy.len(), 4);
+        assert_eq!(with_proxy[0], url);
+        assert!(with_proxy[1].starts_with("https://ghfast.top/"));
     }
 
     #[test]
     #[cfg(windows)]
-    fn bootstrap_script_runs_end_to_end() {
-        // Render the script to a temp file and run it with the args
-        // `cmd /C <script> <pid> <installer> <install_dir> <new_exe>`.
-        // We pass a deliberately nonexistent PID (0) so the wait-loop
-        // exits immediately and the installer launch is attempted
-        // against a nonexistent file. We only care that the script
-        // parses and executes its control flow without throwing a
-        // "syntax error" from cmd — i.e. the bootstrapper is well-formed.
+    fn silent_bootstrap_script_runs_cleanly() {
         let tmp = std::env::temp_dir().join(format!(
-            "vrcdog-bootstrap-test-{}.cmd",
+            "vrcdog-bootstrap-test-{}.vbs",
             std::process::id()
         ));
-        std::fs::write(&tmp, render_bootstrap_script().as_bytes()).unwrap();
+        std::fs::write(&tmp, render_silent_bootstrap_script().as_bytes()).unwrap();
 
-        // Fake installer & new_exe paths. The script should try to
-        // launch them, fail, but still self-delete.
         let fake_installer = std::env::temp_dir().join("vrcdog-fake-installer-does-not-exist.exe");
         let fake_install_dir = std::env::temp_dir().join("vrcdog-fake-install");
         let fake_new_exe = std::env::temp_dir().join("vrcdog-fake-install/VRCDog.exe");
-        let output = std::process::Command::new("cmd.exe")
-            .arg("/C")
+        let output = std::process::Command::new("wscript.exe")
+            .arg("//nologo")
             .arg(&tmp)
-            .arg("0") // PID 0 — guaranteed not running
+            .arg("0") // PID 0 <= 4 exits wait-loop immediately
             .arg(&fake_installer)
             .arg(&fake_install_dir)
             .arg(&fake_new_exe)
             .output()
-            .expect("cmd.exe should run the bootstrap script");
+            .expect("wscript.exe should run the silent bootstrap script");
 
-        // cmd.exe should at least return (no syntax error). The
-        // installer portion will fail because the file doesn't exist,
-        // but that's fine for this smoke test.
         assert!(
-            output.status.success() || output.status.code().is_some(),
-            "bootstrap script did not produce a clean exit status: {:?}",
+            output.status.success(),
+            "silent bootstrap script should return 0 exit code: {:?}",
             output
         );
 
-        // The script should have self-deleted.
         assert!(
             !tmp.exists(),
-            "bootstrap script did not self-delete: {}",
+            "silent bootstrap script should have self-deleted: {}",
             tmp.display()
         );
-    }
-
-    /// Verify the schtasks dispatch parameters are shaped correctly.
-    /// We intentionally don't `schtasks /Create /Run` here because
-    /// those calls are non-idempotent and would litter a real user's
-    /// task library — we only assert the strings we'd pass.
-    #[test]
-    fn schtasks_dispatch_shapes_args_correctly() {
-        let pid: u32 = 12345;
-        let task_name = format!("VRCDog_Update_{pid}");
-        let safe = |s: &str| -> String { s.replace('"', "\"\"") };
-        let tr = format!(
-            "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\"",
-            safe(&r"C:\Temp\bs.cmd"),
-            pid,
-            safe(&r"C:\Temp\VRCDog-Setup.exe"),
-            safe(&r"C:\Program Files\VRCDog"),
-            safe(&r"C:\Program Files\VRCDog\VRCDog.exe"),
-        );
-        // The task name must be unique per launch to avoid collisions
-        // (and must not collide if two updates are dispatched by mistake).
-        assert!(task_name.starts_with("VRCDog_Update_"));
-        assert!(task_name.contains("12345"));
-        // schtasks passes the /TR string verbatim to cmd, so embedded
-        // double-quotes must be doubled (handled by `safe`) and the
-        // // whole path must be double-quoted to survive cmd parsing.
-        assert!(tr.starts_with("\""));
-        assert!(tr.contains(r#""12345""#));
-        // Doubled-quote rule: an embedded `"` must become `""` inside
-        // the surrounding double-quoted field.
-        let escaped = safe(r#"C:\Temp\with"quote.cmd"#);
-        assert_eq!(escaped, r#"C:\Temp\with""quote.cmd"#);
     }
 }
