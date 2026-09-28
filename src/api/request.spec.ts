@@ -170,4 +170,48 @@ describe('request GET coalescing', () => {
     expect(expired).not.toHaveBeenCalled();
     window.removeEventListener('vrc-auth-expired', expired);
   });
+
+  it('does not fire auth-expired on 401 with Missing Credentials from data endpoint', async () => {
+    const expired = vi.fn();
+    window.addEventListener('vrc-auth-expired', expired);
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'vrc_execute') {
+        return {
+          status: 401,
+          data: JSON.stringify({ error: { message: '"Missing Credentials"', status_code: 401 } }),
+        };
+      }
+      if (command === 'db_get_auth') return null;
+      return null;
+    });
+
+    await expect(request('/worlds/wrld_123', { method: 'GET', dedupe: false })).rejects.toMatchObject({
+      code: 'VRCHAT_HTTP_ERROR',
+      status: 401,
+    });
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('vrc-auth-expired', expired);
+  });
+
+  it('fires auth-expired when canonical /auth/user returns 401', async () => {
+    const expired = vi.fn();
+    window.addEventListener('vrc-auth-expired', expired);
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'vrc_execute') {
+        return {
+          status: 401,
+          data: JSON.stringify({ error: { message: '"Missing Credentials"', status_code: 401 } }),
+        };
+      }
+      if (command === 'db_get_auth') return null;
+      return null;
+    });
+
+    await expect(request('/auth/user', { method: 'GET', dedupe: false })).rejects.toMatchObject({
+      code: 'VRCHAT_AUTH_EXPIRED',
+      status: 401,
+    });
+    expect(expired).toHaveBeenCalled();
+    window.removeEventListener('vrc-auth-expired', expired);
+  });
 });

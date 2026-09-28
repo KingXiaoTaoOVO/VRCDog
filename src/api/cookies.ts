@@ -10,7 +10,7 @@ const COOKIE_ATTR_NAMES = new Set([
   'secure'
 ]);
 
-function cleanCookieSegment(segment: string): string | null {
+export function cleanCookieSegment(segment: string): string | null {
   const part = segment.trim().replace(/^(set-cookie|cookie):\s*/i, '');
   if (!part) return null;
 
@@ -18,8 +18,17 @@ function cleanCookieSegment(segment: string): string | null {
   if (equals <= 0) return null;
 
   const name = part.slice(0, equals).trim();
-  const value = part.slice(equals + 1).trim();
+  // Cookie names must be valid token characters (no brackets, quotes, braces, whitespace)
+  if (!/^[a-zA-Z0-9_\-]+$/.test(name)) return null;
+
+  let value = part.slice(equals + 1).trim();
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1).trim();
+  }
   if (!name || !value || COOKIE_ATTR_NAMES.has(name.toLowerCase())) return null;
+
+  const lowerVal = value.toLowerCase();
+  if (['deleted', 'null', 'undefined', 'none'].includes(lowerVal)) return null;
 
   return `${name}=${value}`;
 }
@@ -37,7 +46,9 @@ export function parseCookieInput(rawCookie: string | null | undefined): string[]
         return parsed.flatMap((item) => parseCookieInput(String(item)));
       }
     } catch {
-      // Fall through and treat it as a raw cookie string.
+      // If it looks like a JSON array but failed parsing (e.g. malformed JSON),
+      // do not treat the whole array string as a single cookie segment.
+      return [];
     }
   }
 
@@ -52,7 +63,14 @@ export function parseCookieInput(rawCookie: string | null | undefined): string[]
 
   // If no valid key=value cookies were parsed, check if it's a bare token (no '=')
   // and wrap it as auth=<token>. If it contains '=' but failed parsing, it's corrupt - return empty.
-  return raw.includes('=') ? [] : [`auth=${raw}`];
+  if (raw.includes('=')) {
+    return [];
+  }
+  const cleanBare = raw.replace(/^["']|["']$/g, '').trim();
+  if (!cleanBare || ['deleted', 'null', 'undefined', 'none'].includes(cleanBare.toLowerCase())) {
+    return [];
+  }
+  return [`auth=${cleanBare}`];
 }
 
 export function normalizeAuthCookieJson(rawCookie: string | null | undefined): string {
@@ -97,13 +115,32 @@ export async function mergeCookiesAndSave(newCookieJson: string | null | undefin
     existing = [];
   }
 
-  // Merge: new cookies overwrite existing ones with the same name
+  // Merge: new cookies overwrite existing ones with the same name,
+  // BUT do NOT let an invalid/empty/corrupted token overwrite an existing valid auth/twoFactorAuth token!
   const cookieMap = new Map<string, string>();
-  for (const cookie of [...existing, ...newCookies]) {
+  for (const cookie of existing) {
     const equalsIdx = cookie.indexOf('=');
     if (equalsIdx > 0) {
       const name = cookie.slice(0, equalsIdx).trim().toLowerCase();
       if (name) cookieMap.set(name, cookie);
+    }
+  }
+
+  for (const cookie of newCookies) {
+    const equalsIdx = cookie.indexOf('=');
+    if (equalsIdx > 0) {
+      const name = cookie.slice(0, equalsIdx).trim().toLowerCase();
+      const val = cookie.slice(equalsIdx + 1).trim().replace(/^["']|["']$/g, '');
+      if (name) {
+        if (name === 'auth' || name === 'twofactorauth') {
+          const lowerVal = val.toLowerCase();
+          if (val.length >= 8 && !['deleted', 'null', 'undefined', 'none'].includes(lowerVal)) {
+            cookieMap.set(name, `${cookie.slice(0, equalsIdx).trim()}=${val}`);
+          }
+        } else {
+          cookieMap.set(name, cookie);
+        }
+      }
     }
   }
 

@@ -118,13 +118,15 @@ pub async fn vrc_apply_auth_cookie(
     state: tauri::State<'_, VrcState>,
     auth_cookie: String,
 ) -> Result<(), String> {
-    let jar = state.cookie_jar.read().await.clone();
-    let url = "https://api.vrchat.cloud"
-        .parse::<reqwest::Url>()
-        .map_err(|e| e.to_string())?;
-    for cookie in parse_auth_cookies(&auth_cookie) {
-        jar.add_cookie_str(&cookie, &url);
-    }
+    let proxy_url = state.proxy_url.read().await.clone();
+    let jar = Arc::new(reqwest::cookie::Jar::default());
+    let next_client = build_vrc_client(proxy_url, Some(auth_cookie), jar.clone())?;
+
+    let mut jar_lock = state.cookie_jar.write().await;
+    *jar_lock = jar;
+
+    let mut client = state.client.write().await;
+    *client = next_client;
     Ok(())
 }
 
@@ -139,35 +141,33 @@ pub async fn vrc_load_cookies_on_startup(
     if auth_cookie.is_empty() {
         return Ok(());
     }
-    let jar = state.cookie_jar.read().await.clone();
-    let url = "https://api.vrchat.cloud"
-        .parse::<reqwest::Url>()
-        .map_err(|e| e.to_string())?;
-    let cookies = parse_auth_cookies(&auth_cookie);
-    for cookie in &cookies {
-        jar.add_cookie_str(cookie, &url);
-    }
-    eprintln!(
-        "[VrcApi] Loaded {} cookies into jar on startup",
-        cookies.len()
-    );
+    let proxy_url = state.proxy_url.read().await.clone();
+    let jar = Arc::new(reqwest::cookie::Jar::default());
+    let next_client = build_vrc_client(proxy_url, Some(auth_cookie), jar.clone())?;
+
+    let mut jar_lock = state.cookie_jar.write().await;
+    *jar_lock = jar;
+
+    let mut client = state.client.write().await;
+    *client = next_client;
+    eprintln!("[VrcApi] Cleaned cookie jar and loaded cookies for new session on startup");
     Ok(())
 }
 
-fn extract_auth_cookie(res: &reqwest::Response) -> Option<String> {
-    let mut cookies = Vec::new();
-    for val in res.headers().get_all(header::SET_COOKIE).iter() {
-        if let Ok(s) = val.to_str() {
-            let end = s.find(';').unwrap_or(s.len());
-            cookies.push(s[0..end].to_string());
-        }
+fn is_valid_cookie_value(name: &str, value: &str) -> bool {
+    let clean = value.trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
     }
-
-    if cookies.is_empty() {
-        None
-    } else {
-        Some(serde_json::to_string(&cookies).unwrap_or_default())
+    let lower = clean.to_ascii_lowercase();
+    if matches!(lower.as_str(), "deleted" | "null" | "undefined" | "none") {
+        return false;
     }
+    let lower_name = name.to_ascii_lowercase();
+    if (lower_name == "auth" || lower_name == "twofactorauth") && clean.is_empty() {
+        return false;
+    }
+    true
 }
 
 fn clean_cookie_segment(segment: &str) -> Option<String> {
@@ -189,7 +189,32 @@ fn clean_cookie_segment(segment: &str) -> Option<String> {
 
     match name.to_ascii_lowercase().as_str() {
         "domain" | "expires" | "httponly" | "max-age" | "path" | "samesite" | "secure" => None,
-        _ => Some(format!("{}={}", name, value)),
+        _ => {
+            let clean_val = value.trim_matches('"').trim_matches('\'').trim();
+            if !is_valid_cookie_value(name, clean_val) {
+                return None;
+            }
+            Some(format!("{}={}", name, clean_val))
+        }
+    }
+}
+
+fn extract_auth_cookie(res: &reqwest::Response) -> Option<String> {
+    let mut cookies = Vec::new();
+    for val in res.headers().get_all(header::SET_COOKIE).iter() {
+        if let Ok(s) = val.to_str() {
+            let end = s.find(';').unwrap_or(s.len());
+            let segment = &s[0..end];
+            if let Some(clean) = clean_cookie_segment(segment) {
+                cookies.push(clean);
+            }
+        }
+    }
+
+    if cookies.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&cookies).unwrap_or_default())
     }
 }
 
@@ -232,7 +257,12 @@ fn parse_auth_cookies(raw_cookie: &str) -> Vec<String> {
     if raw.contains('=') {
         Vec::new()
     } else {
-        vec![format!("auth={}", raw)]
+        let clean = raw.trim_matches('"').trim_matches('\'').trim();
+        if is_valid_cookie_value("auth", clean) {
+            vec![format!("auth={}", clean)]
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -488,6 +518,21 @@ mod cookie_tests {
         eprintln!("[TEST] Cookie header val: {}", val);
         assert!(val.contains("auth=a1"));
         assert!(val.contains("twoFactorAuth=t1"));
+    }
+
+    #[test]
+    fn rejects_empty_and_deleted_cookies() {
+        let cookies = parse_auth_cookies(r#"["auth=\"\"","auth=deleted","twoFactorAuth=valid_token"]"#);
+        assert_eq!(cookies, vec!["twoFactorAuth=valid_token"]);
+
+        let raw = parse_auth_cookies("auth=\"\"; Path=/; HttpOnly; twoFactorAuth=valid_token");
+        assert_eq!(raw, vec!["twoFactorAuth=valid_token"]);
+
+        let empty_raw = parse_auth_cookies("");
+        assert!(empty_raw.is_empty());
+
+        let quotes_only = parse_auth_cookies(r#""""#);
+        assert!(quotes_only.is_empty());
     }
 }
 

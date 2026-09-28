@@ -129,20 +129,23 @@ function isVrchatAuthExpired(status: number, url: string, message: string): bool
   if (status !== 401 || !isVrchatUrl(url)) return false;
   if (isVrchatPermissionError(status, url, message)) return false;
 
+  // ONLY canonical auth endpoints can expire a session!
+  // Data endpoints (friends, worlds, avatars, users, instances, etc.) returning 401
+  // are permission/privacy/rate-limit issues and must NEVER kill the user's session!
+  let isAuthEndpoint = false;
   try {
     const parsedUrl = new URL(url);
-    if (parsedUrl.pathname.endsWith('/auth/user')) return true;
+    isAuthEndpoint = parsedUrl.pathname.endsWith('/auth/user') || parsedUrl.pathname.endsWith('/auth');
   } catch {
-    if (url.includes('/auth/user')) return true;
+    isAuthEndpoint = url.includes('/auth/user') || url.includes('/auth');
+  }
+
+  if (!isAuthEndpoint) {
+    return false;
   }
 
   const lower = message.toLowerCase();
-  // An empty 401 from a data endpoint is often a privacy/permission response
-  // (friends, groups, avatars, worlds). Treating every such response as a
-  // dead session logs the user out as soon as they switch menus. Only the
-  // canonical auth probe above may expire a session without an explicit
-  // authentication error message.
-  if (!lower || lower === 'http 401' || lower === 'unauthorized') return false;
+  if (!lower || lower === 'http 401' || lower === 'unauthorized') return true;
   return /(missing credentials|invalid credentials|unauthorized user|cookie expired|session expired|login required|not logged in)/i.test(lower);
 }
 
@@ -483,9 +486,13 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
     }
     if (res.auth_cookie && isVrchat) {
       const isSuccess = res.status >= 200 && res.status < 300;
-      const isAuthProbe = reqUrl.includes('/auth/user');
-      const isTwoFactorVerify = reqUrl.includes('/twofactorauth/');
-      if (isSuccess || isAuthProbe || isTwoFactorVerify || options.suppressAuthExpired) {
+      const parsedData = parseResponseData(res.data);
+      const isTwoFactorChallenge = res.status === 401 && Boolean(
+        parsedData?.requiresTwoFactorAuth ||
+        parsedData?.requires_two_factor_auth ||
+        reqUrl.includes('/twofactorauth/')
+      );
+      if (isSuccess || isTwoFactorChallenge) {
         const mergedCookie = await mergeCookiesAndSave(res.auth_cookie);
         if (mergedCookie) {
           res.auth_cookie = mergedCookie;
@@ -549,7 +556,8 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         isVrchat &&
         !reqUrl.includes('/config') &&
         !isVrchatPermissionError(res.status, reqUrl, errorMessage) &&
-        !options.suppressAuthExpired
+        !options.suppressAuthExpired &&
+        isVrchatAuthExpired(res.status, reqUrl, errorMessage)
       ) {
         const fireAuthExpired = () => {
           if (!options.suppressAuthExpired) {

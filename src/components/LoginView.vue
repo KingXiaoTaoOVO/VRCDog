@@ -58,7 +58,13 @@ async function persistSavedAccounts() {
 }
 
 function hasUsableAuthCookie(rawCookie: string | null | undefined): boolean {
-  return parseCookieInput(rawCookie).some(cookie => /^auth=.+/i.test(cookie));
+  return parseCookieInput(rawCookie).some(cookie => {
+    const equalsIdx = cookie.indexOf('=');
+    if (equalsIdx <= 0) return false;
+    const name = cookie.slice(0, equalsIdx).trim().toLowerCase();
+    const val = cookie.slice(equalsIdx + 1).trim().replace(/^["']|["']$/g, '');
+    return name === 'auth' && val.length >= 8 && !['deleted', 'null', 'undefined', 'none'].includes(val.toLowerCase());
+  });
 }
 
 function prepareManualLoginFromSavedAccount(account: SavedAccount, messageKey: string) {
@@ -109,12 +115,12 @@ async function loginWithSavedAccount(account: SavedAccount) {
     return;
   }
 
-  authStore?.setLoginGracePeriod(60_000);
+  authStore?.setLoginGracePeriod(120_000);
   loading.value = true;
   errorMsg.value = '';
   try {
-    // 先把该账号保存的 cookie 注入本地 auth 存储和后端 cookie jar。
-    // 不清空、不调用 /config，避免覆盖掉可用的保存会话。
+    // 关键：在注入新账号前，先重置清空 Rust 端的 CookieJar，确保新会话纯净独立
+    try { await VrcApi.clearCookies(); } catch {}
     await DbApi.saveAuth({ cookie: savedCookie });
     try { await VrcApi.applyAuthCookie({ authCookie: savedCookie }); } catch {}
 
@@ -127,6 +133,35 @@ async function loginWithSavedAccount(account: SavedAccount) {
     if (res.error) {
       const msg = res.error.message || JSON.stringify(res.error);
       if (/missing credentials|401|unauthorized|expired|invalid/i.test(msg)) {
+        try {
+          const verify: any = await VrcApi.request('/auth/user', {
+            method: 'GET',
+            authCookie: savedCookie,
+            suppressAuthExpired: true,
+            timeoutMs: 10000,
+          });
+          const user = verify?.currentUser || verify?.current_user || (verify?.id ? verify : null);
+          if (user) {
+            if (verify.auth_cookie) {
+              authCookie.value = verify.auth_cookie;
+              await mergeCookiesAndSave(verify.auth_cookie);
+            }
+            const idx = savedAccounts.value.findIndex(a => a.userId === account.userId);
+            if (idx >= 0) {
+              savedAccounts.value[idx].displayName = user.displayName || user.display_name || account.displayName;
+              savedAccounts.value[idx].username = user.username || account.username;
+              savedAccounts.value[idx].avatarUrl = user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || account.avatarUrl;
+              const durableCookie = await DbApi.getAuth().catch(() => null);
+              savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || verify.auth_cookie || savedCookie);
+              await persistSavedAccounts();
+            }
+            show2FA.value = false;
+            twoFactorCode.value = '';
+            errorMsg.value = '';
+            emit('login-success', user);
+            return;
+          }
+        } catch { /* proceed to expired */ }
         prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
       } else {
         errorMsg.value = msg;
@@ -170,6 +205,28 @@ async function loginWithSavedAccount(account: SavedAccount) {
       }
       beginTwoFactor(methods, challengeCookie);
     } else if (/missing credentials|401|unauthorized|expired|invalid/i.test(err.message || '')) {
+      try {
+        const verify: any = await VrcApi.request('/auth/user', {
+          method: 'GET',
+          authCookie: savedCookie,
+          suppressAuthExpired: true,
+          timeoutMs: 10000,
+        });
+        const user = verify?.currentUser || verify?.current_user || (verify?.id ? verify : null);
+        if (user) {
+          const idx = savedAccounts.value.findIndex(a => a.userId === account.userId);
+          if (idx >= 0) {
+            const durableCookie = await DbApi.getAuth().catch(() => null);
+            savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || verify.auth_cookie || savedCookie);
+            await persistSavedAccounts();
+          }
+          show2FA.value = false;
+          twoFactorCode.value = '';
+          errorMsg.value = '';
+          emit('login-success', user);
+          return;
+        }
+      } catch {}
       prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
     } else {
       errorMsg.value = err.message || JSON.stringify(err);

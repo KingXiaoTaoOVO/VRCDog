@@ -536,7 +536,12 @@ if (typeof window !== 'undefined') {
     // 验证：用当前 cookie 再试一次 /auth/user，确认 auth 确实失效
     // 防止 WebSocket 断开等误触发导致用户被强制登出
     try {
-      const verifyUser: any = await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true });
+      const verifyUser: any = await VrcApi.request('/auth/user', {
+        method: 'GET',
+        suppressAuthExpired: true,
+        timeoutMs: 15000,
+        maxRetries: 1,
+      });
       if (verifyUser && (verifyUser.id || verifyUser.displayName || verifyUser.username || verifyUser.currentUser || verifyUser.current_user)) {
         // auth 仍然有效，忽略本次事件
         console.log('[App] Auth still valid, ignoring auth-expired event');

@@ -31,7 +31,7 @@ export const useAuthStore = defineStore('auth', () => {
   const reconnectCountdown = ref(0);
   const loginGracePeriodUntil = ref(0);
 
-  const setLoginGracePeriod = (durationMs = 60_000) => {
+  const setLoginGracePeriod = (durationMs = 120_000) => {
     loginGracePeriodUntil.value = Date.now() + durationMs;
   };
 
@@ -40,6 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let vrcKeepaliveTimer: ReturnType<typeof setInterval> | null = null;
   let consecutiveFailures = 0;
   let isFetchingHeartbeat = false;
   let serverEventsRegistered = false;
@@ -144,12 +145,13 @@ export const useAuthStore = defineStore('auth', () => {
       try { await DbApi.clearAuth(); } catch {}
     }
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    if (vrcKeepaliveTimer) { clearInterval(vrcKeepaliveTimer); vrcKeepaliveTimer = null; }
     serverConnected.value = true; // reset
     consecutiveFailures = 0;
     currentUser.value = null;
     isLoggedIn.value = false;
     resolveSurveyPrompt();
-    // ⚠️ Key fix: only return to role selection on full user logout (keepVrcAuth=false)
+    // Key fix: only return to role selection on full user logout (keepVrcAuth=false)
     // Auth expiry/kick/ban (keepVrcAuth=true) only returns to login page, preserving role choice
     if (!keepVrcAuth) {
       appRole.value = null;
@@ -279,9 +281,29 @@ export const useAuthStore = defineStore('auth', () => {
     return registered;
   };
 
+  const startVrcKeepalive = () => {
+    if (vrcKeepaliveTimer) clearInterval(vrcKeepaliveTimer);
+    // VRChat API keepalive: ping /auth/user periodically (every 5 minutes)
+    // This keeps the VRChat session alive for both standalone and server-connected users.
+    vrcKeepaliveTimer = setInterval(async () => {
+      if (!currentUser.value || !isLoggedIn.value) return;
+      try {
+        await VrcApi.request('/auth/user', {
+          method: 'GET',
+          suppressAuthExpired: true,
+          timeoutMs: 15000,
+        });
+      } catch (e) {
+        console.warn('[VrcKeepalive] Session keepalive ping failed (will retry next interval):', e);
+      }
+    }, 5 * 60 * 1000);
+  };
+
   const startHeartbeat = () => {
+    startVrcKeepalive();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
-    let vrcKeepaliveTick = 0;
+    if (!clientServerUrl.value) return;
+
     // 心跳以 15s 为间隔直接运行，去掉原先 1s 空转 + 计数跳过的做法，减少无谓定时器唤醒
     heartbeatTimer = setInterval(async () => {
       if (!clientServerUrl.value || !currentUser.value) return;
@@ -293,15 +315,6 @@ export const useAuthStore = defineStore('auth', () => {
           return;
         }
         reconnectCountdown.value = 0;
-      }
-
-      // VRChat API keepalive: call /auth/user every 5 min to prevent session expiry
-      vrcKeepaliveTick++;
-      if (vrcKeepaliveTick >= 20) { // 20 * 15s = 300s = 5min
-        vrcKeepaliveTick = 0;
-        try {
-          await VrcApi.request('/auth/user', { method: 'GET', suppressAuthExpired: true, timeoutMs: 10000 });
-        } catch { /* ignore keepalive errors */ }
       }
 
       isFetchingHeartbeat = true;
@@ -406,7 +419,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const handleLoginSuccess = async (user: any) => {
-    setLoginGracePeriod(30_000);
+    setLoginGracePeriod(120_000);
     currentUser.value = user;
 
     DbApi.saveSetting({
@@ -440,7 +453,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const tryAutoLogin = async () => {
-    setLoginGracePeriod(30_000);
+    setLoginGracePeriod(120_000);
     autoLoginLoading.value = true;
     try {
       if (!isTauri()) { autoLoginLoading.value = false; return; }
