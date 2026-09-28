@@ -1520,6 +1520,8 @@ fn begin_vrchat_osc(
         let port = runtime.vrchat_osc_port;
         let osc_mode = runtime.vrchat_osc_mode.clone();
         let avatar_prefix = runtime.vrchat_osc_avatar_prefix.clone();
+        runtime.active_engine = "osc".to_string();
+        runtime.hotkey_song_path = path.to_string_lossy().to_string();
         runtime.status = VrpianoStatus {
             running: true,
             paused: false,
@@ -1639,22 +1641,14 @@ pub async fn vrpiano_test_osc_note(
     avatar_prefix: Option<String>,
     note: Option<u8>,
 ) -> Result<(), String> {
-    use crate::osc::{osc_send_message_multi, OscArgument};
     let note = note.unwrap_or(60).min(127);
     let mode = mode.unwrap_or_else(default_osc_mode);
     let prefix = avatar_prefix.unwrap_or_else(default_osc_avatar_prefix);
-    let address = osc_note_address(&mode, &prefix, note);
-    let pressed = vec![OscArgument {
-        value_type: "float".to_string(),
-        value: serde_json::json!(0.8_f64),
-    }];
-    osc_send_message_multi(host.clone(), port, address.clone(), pressed).map_err(|e| e.message)?;
+    send_osc_enable_handshake(&host, port);
+    send_osc_note_event(&host, port, &mode, &prefix, note, 100, true);
     std::thread::sleep(Duration::from_millis(180));
-    let released = vec![OscArgument {
-        value_type: "float".to_string(),
-        value: serde_json::json!(0.0_f64),
-    }];
-    osc_send_message_multi(host, port, address, released).map_err(|e| e.message)
+    send_osc_note_event(&host, port, &mode, &prefix, note, 0, false);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1749,7 +1743,19 @@ fn start_playback(
             _ => "keyboard",
         };
         if output_mode == "osc" {
-            return Err("请使用 VRChat OSC 专用启动命令进入 OSC 直连模式".to_string());
+            {
+                let mut runtime = state
+                    .lock()
+                    .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+                runtime.active_engine = "osc".to_string();
+                runtime.hotkey_song_path = request.song_path.trim().to_string();
+                if runtime.playlist.is_empty() {
+                    runtime.playlist = vec![request.song_path.trim().to_string()];
+                    runtime.current_index = 0;
+                }
+            }
+            begin_vrchat_osc(&app, &state, &request.song_path, request.delay_secs, speed)?;
+            return status_snapshot(&app, &state);
         }
         if output_mode == "midi" {
             let device_id = request
@@ -1774,7 +1780,7 @@ fn start_playback(
         if midi_events.is_empty() {
             return Err("This MIDI has no playable events".to_string());
         }
-        if output_mode != "midi" {
+        if output_mode == "keyboard" {
             let has_keyboard_keys = midi_events.iter().any(|ev| ev.is_note_on && note_to_vk(ev.note).is_some());
             if !has_keyboard_keys {
                 return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
@@ -2707,8 +2713,6 @@ fn run_vrchat_osc_playback(
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
 ) {
-    use crate::osc::{osc_send_message_multi, OscArgument};
-
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _timer_guard = MultimediaTimerGuard::new();
         for remaining in (1..=delay_secs).rev() {
@@ -2726,6 +2730,9 @@ fn run_vrchat_osc_playback(
         let mut last_at = 0_u64;
         let mut played = 0_usize;
         let mut index = 0_usize;
+        let mut last_emit_at = 0_u64;
+
+        send_osc_enable_handshake(&host, port);
 
         while index < events.len() {
             if stop.load(Ordering::SeqCst) {
@@ -2749,9 +2756,7 @@ fn run_vrchat_osc_playback(
             while index < events.len() && events[index].at_ms == at_ms {
                 let ev = &events[index];
                 if let Some((cc, _value)) = ev.control_change {
-                    // VRChat's native keyboard piano has no sustain OSC parameter,
-                    // so CC64 is ignored. All-notes-off (CC123/CC120) still releases
-                    // every held key to avoid stuck notes (粘键).
+                    // All-notes-off (CC123/CC120) releases every held key
                     if cc == 123 || cc == 120 {
                         send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
                         active_notes.clear();
@@ -2788,57 +2793,33 @@ fn run_vrchat_osc_playback(
                 index += 1;
             }
 
-            // A NoteOff and NoteOn may share a timestamp. Release old pitches
-            // first, but never release a pitch that is re-pressed in this group.
+            // Release pitches finishing at this timestamp
             for (note, _channel) in notes_to_release {
-                let args = vec![OscArgument {
-                    value_type: "float".to_string(),
-                    value: serde_json::json!(0.0_f64),
-                }];
-                let address = osc_note_address(&osc_mode, &avatar_prefix, note);
-                if let Err(e) = osc_send_message_multi(host.clone(), port, address, args) {
-                    update_runtime(&state, |status| {
-                        status.last_error = format!("VRChat OSC error: {}", e.message);
-                        status.running = false;
-                    });
-                    send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
-                    emit_status(&app, &state);
-                    return;
-                }
+                send_osc_note_event(&host, port, &osc_mode, &avatar_prefix, note, 0, false);
             }
 
+            // Press newly starting pitches
             for (note, velocity, _channel) in notes_to_send {
-                // VRChat's native keyboard piano listens on /PianoKeys/<midi note>
-                // with a float 0..1 press value (velocity / 127), exactly like
-                // VRChat_MIDI_Player. Note-off (0.0) is sent by send_osc_all_notes_off.
-                let args = vec![OscArgument {
-                    value_type: "float".to_string(),
-                    value: serde_json::json!((velocity as f64) / 127.0),
-                }];
-                let address = osc_note_address(&osc_mode, &avatar_prefix, note);
-                if let Err(e) = osc_send_message_multi(host.clone(), port, address, args) {
-                    update_runtime(&state, |status| {
-                        status.last_error = format!("VRChat OSC error: {}", e.message);
-                        status.running = false;
-                    });
-                    send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
-                    emit_status(&app, &state);
-                    return;
-                }
+                send_osc_note_event(&host, port, &osc_mode, &avatar_prefix, note, velocity, true);
             }
-            let playback_speed = current_speed(&state);
-            update_runtime(&state, |status| {
-                status.elapsed_ms = at_ms;
-                status.played_notes = played;
-                status.progress = if duration_ms == 0 {
-                    1.0
-                } else {
-                    (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
-                };
-                status.speed = playback_speed;
-                status.last_event = format!("VRChat OSC Playing {} at {:.2}x", song_name, status.speed);
-            });
-            emit_status(&app, &state);
+
+            let now_ms = at_ms;
+            if now_ms.saturating_sub(last_emit_at) >= 100 || index >= events.len() {
+                last_emit_at = now_ms;
+                let playback_speed = current_speed(&state);
+                update_runtime(&state, |status| {
+                    status.elapsed_ms = at_ms;
+                    status.played_notes = played;
+                    status.progress = if duration_ms == 0 {
+                        1.0
+                    } else {
+                        (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                    };
+                    status.speed = playback_speed;
+                    status.last_event = format!("VRChat OSC Playing {} at {:.2}x", song_name, status.speed);
+                });
+                emit_status(&app, &state);
+            }
             last_at = at_ms;
         }
         send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
@@ -2950,6 +2931,7 @@ fn is_vrchat_foreground() -> bool {
 
 /// Send an empty OSC chatbox message with sendImmediately = true to immediately dismiss
 /// any accidentally opened chatbox in VRChat without sending message content or sound.
+#[allow(dead_code)]
 fn send_osc_close_chatbox(host: &str, port: u16) {
     use crate::osc::{osc_send_message_multi, OscArgument};
     let args = vec![
@@ -2971,56 +2953,28 @@ fn send_osc_close_chatbox(host: &str, port: u16) {
 
 fn handle_playback_key_down(
     vk: u16,
-    is_vrchat: bool,
-    host: &str,
-    port: u16,
-    osc_mode: &str,
-    avatar_prefix: &str,
+    _is_vrchat: bool,
+    _host: &str,
+    _port: u16,
+    _osc_mode: &str,
+    _avatar_prefix: &str,
 ) {
-    if vk == 89 && is_vrchat {
-        // Anti-Chatbox protection:
-        // In VRChat desktop mode, 'Y' is hardcoded to open the Chatbox text input dialog.
-        // If 'Y' is injected via SendInput, VRChat opens Chatbox and blocks subsequent piano inputs.
-        // Instead of injecting 'Y' into the keyboard queue, route Note 69 directly to VRChat via OSC.
-        let address = osc_note_address(osc_mode, avatar_prefix, 69);
-        let args = vec![crate::osc::OscArgument {
-            value_type: "float".to_string(),
-            value: serde_json::json!(1.0_f64),
-        }];
-        let _ = crate::osc::osc_send_message_multi(host.to_string(), port, address, args);
-        send_osc_close_chatbox(host, port);
-    } else {
-        send_key(vk, false);
-    }
+    send_key(vk, false);
 }
 
 fn handle_playback_key_up(
     vk: u16,
-    is_vrchat: bool,
-    host: &str,
-    port: u16,
-    osc_mode: &str,
-    avatar_prefix: &str,
+    _is_vrchat: bool,
+    _host: &str,
+    _port: u16,
+    _osc_mode: &str,
+    _avatar_prefix: &str,
 ) {
-    if vk == 89 && is_vrchat {
-        let address = osc_note_address(osc_mode, avatar_prefix, 69);
-        let args = vec![crate::osc::OscArgument {
-            value_type: "float".to_string(),
-            value: serde_json::json!(0.0_f64),
-        }];
-        let _ = crate::osc::osc_send_message_multi(host.to_string(), port, address, args);
-    } else {
-        send_key(vk, true);
-    }
+    send_key(vk, true);
 }
 
 #[cfg(target_os = "windows")]
 fn send_key(vk: u16, key_up: bool) {
-    // If vk == 89 ('Y') and VRChat is the foreground window, suppress it to prevent
-    // popping up VRChat's Chatbox text box which steals all keyboard inputs.
-    if vk == 89 && is_vrchat_foreground() {
-        return;
-    }
 
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
@@ -3430,6 +3384,127 @@ fn is_channel_routed(state: &Arc<Mutex<VrpianoRuntime>>, channel: u8) -> bool {
         .unwrap_or(true)
 }
 
+pub fn midi_note_to_name(note: u8) -> Option<&'static str> {
+    match note {
+        21 => Some("A0"),
+        22 => Some("A0+"),
+        23 => Some("B0"),
+        24 => Some("C1"),
+        25 => Some("C1+"),
+        26 => Some("D1"),
+        27 => Some("D1+"),
+        28 => Some("E1"),
+        29 => Some("F1"),
+        30 => Some("F1+"),
+        31 => Some("G1"),
+        32 => Some("G1+"),
+        33 => Some("A1"),
+        34 => Some("A1+"),
+        35 => Some("B1"),
+        36 => Some("C2"),
+        37 => Some("C2+"),
+        38 => Some("D2"),
+        39 => Some("D2+"),
+        40 => Some("E2"),
+        41 => Some("F2"),
+        42 => Some("F2+"),
+        43 => Some("G2"),
+        44 => Some("G2+"),
+        45 => Some("A2"),
+        46 => Some("A2+"),
+        47 => Some("B2"),
+        48 => Some("C3"),
+        49 => Some("C3+"),
+        50 => Some("D3"),
+        51 => Some("D3+"),
+        52 => Some("E3"),
+        53 => Some("F3"),
+        54 => Some("F3+"),
+        55 => Some("G3"),
+        56 => Some("G3+"),
+        57 => Some("A3"),
+        58 => Some("A3+"),
+        59 => Some("B3"),
+        60 => Some("C4"),
+        61 => Some("C4+"),
+        62 => Some("D4"),
+        63 => Some("D4+"),
+        64 => Some("E4"),
+        65 => Some("F4"),
+        66 => Some("F4+"),
+        67 => Some("G4"),
+        68 => Some("G4+"),
+        69 => Some("A4"),
+        70 => Some("A4+"),
+        71 => Some("B4"),
+        72 => Some("C5"),
+        73 => Some("C5+"),
+        74 => Some("D5"),
+        75 => Some("D5+"),
+        76 => Some("E5"),
+        77 => Some("F5"),
+        78 => Some("F5+"),
+        79 => Some("G5"),
+        80 => Some("G5+"),
+        81 => Some("A5"),
+        82 => Some("A5+"),
+        83 => Some("B5"),
+        84 => Some("C6"),
+        85 => Some("C6+"),
+        86 => Some("D6"),
+        87 => Some("D6+"),
+        88 => Some("E6"),
+        89 => Some("F6"),
+        90 => Some("F6+"),
+        91 => Some("G6"),
+        92 => Some("G6+"),
+        93 => Some("A6"),
+        94 => Some("A6+"),
+        95 => Some("B6"),
+        96 => Some("C7"),
+        97 => Some("C7+"),
+        98 => Some("D7"),
+        99 => Some("D7+"),
+        100 => Some("E7"),
+        101 => Some("F7"),
+        102 => Some("F7+"),
+        103 => Some("G7"),
+        104 => Some("G7+"),
+        105 => Some("A7"),
+        106 => Some("A7+"),
+        107 => Some("B7"),
+        108 => Some("C8"),
+        _ => None,
+    }
+}
+
+pub fn note_name_to_sharp(name: &str) -> String {
+    if let Some(pos) = name.find('+') {
+        let note_letter = &name[0..1];
+        let octave = &name[1..pos];
+        format!("{}#{}", note_letter, octave)
+    } else {
+        name.to_string()
+    }
+}
+
+/// Send OSCDisable 0 handshake to activate world & avatar OSC piano input
+fn send_osc_enable_handshake(host: &str, port: u16) {
+    use crate::osc::{osc_send_message_multi, OscArgument};
+    let arg_zero = vec![OscArgument {
+        value_type: "int".to_string(),
+        value: serde_json::json!(0),
+    }];
+    let arg_false = vec![OscArgument {
+        value_type: "bool".to_string(),
+        value: serde_json::json!(false),
+    }];
+    let _ = osc_send_message_multi(host.to_string(), port, "/PianoKeys/OSCDisable".to_string(), arg_zero.clone());
+    let _ = osc_send_message_multi(host.to_string(), port, "/PianoKeys/OSCDisable".to_string(), arg_false.clone());
+    let _ = osc_send_message_multi(host.to_string(), port, "/avatar/parameters/PianoKeys/OSCDisable".to_string(), arg_zero);
+    let _ = osc_send_message_multi(host.to_string(), port, "/avatar/parameters/PianoKeys/OSCDisable".to_string(), arg_false);
+}
+
 /// Release every currently-held note on VRChat's native keyboard piano so it
 /// never gets stuck holding keys (prevents "粘键").
 fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
@@ -3441,6 +3516,8 @@ fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
             trimmed
                 .replace("{03d}", &format!("{:03}", note))
                 .replace("{note:03}", &format!("{:03}", note))
+        } else if trimmed.contains("{name}") {
+            trimmed.replace("{name}", midi_note_to_name(note).unwrap_or(""))
         } else {
             let base = if trimmed.is_empty() {
                 "/avatar/parameters/note".to_string()
@@ -3454,9 +3531,130 @@ fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
             }
         }
     } else {
-        // Piano-avatar / world piano mode (e.g. ShadowForests, Kade's Piano, Reimajo):
-        // /PianoKeys/<raw MIDI note>, matching VRChat_MIDI_Player exactly.
-        format!("/PianoKeys/{}", note)
+        // Standard VRChat World Piano address (ShadowForests / Udon standard):
+        // Note name like /PianoKeys/C4, /PianoKeys/C4+, /PianoKeys/A0, /PianoKeys/C8
+        if let Some(name) = midi_note_to_name(note) {
+            format!("/PianoKeys/{}", name)
+        } else {
+            format!("/PianoKeys/{}", note)
+        }
+    }
+}
+
+fn send_osc_note_event(
+    host: &str,
+    port: u16,
+    mode: &str,
+    avatar_prefix: &str,
+    note: u8,
+    velocity: u8,
+    is_note_on: bool,
+) {
+    use crate::osc::{osc_send_message_multi, OscArgument};
+
+    let name = midi_note_to_name(note);
+    let key_idx = if (21..=108).contains(&note) {
+        Some(note - 21 + 1)
+    } else {
+        None
+    };
+
+    let int_val = if is_note_on { 1 } else { 0 };
+    let bool_val = is_note_on;
+    let float_val = if is_note_on {
+        (velocity as f64) / 127.0
+    } else {
+        0.0_f64
+    };
+
+    let arg_int = vec![OscArgument {
+        value_type: "int".to_string(),
+        value: serde_json::json!(int_val),
+    }];
+    let arg_float = vec![OscArgument {
+        value_type: "float".to_string(),
+        value: serde_json::json!(float_val),
+    }];
+    let arg_bool = vec![OscArgument {
+        value_type: "bool".to_string(),
+        value: serde_json::json!(bool_val),
+    }];
+
+    if mode.eq_ignore_ascii_case("avatar") {
+        let trimmed = avatar_prefix.trim();
+        if !trimmed.is_empty() {
+            let addr = if trimmed.contains("{note}") {
+                trimmed.replace("{note}", &note.to_string())
+            } else if trimmed.contains("{03d}") || trimmed.contains("{note:03}") {
+                trimmed
+                    .replace("{03d}", &format!("{:03}", note))
+                    .replace("{note:03}", &format!("{:03}", note))
+            } else if trimmed.contains("{name}") {
+                trimmed.replace("{name}", name.unwrap_or(""))
+            } else if trimmed.contains("{index}") {
+                trimmed.replace("{index}", &key_idx.unwrap_or(note).to_string())
+            } else {
+                let base = trimmed.trim_end_matches('/');
+                if base.ends_with('_') || base.ends_with('-') {
+                    format!("{}{}", base, note)
+                } else {
+                    format!("{}{:03}", base, note)
+                }
+            };
+            let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_bool.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr, arg_float.clone());
+        }
+
+        // Mathieu52 / standard avatar parameters fallback
+        if let Some(idx) = key_idx {
+            let addr = format!("/avatar/parameters/{}", idx);
+            let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr, arg_bool.clone());
+        }
+        if let Some(n) = name {
+            let addr = format!("/avatar/parameters/PianoKeys/{}", n);
+            let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr, arg_bool.clone());
+            let addr_world = format!("/PianoKeys/{}", n);
+            let _ = osc_send_message_multi(host.to_string(), port, addr_world.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr_world, arg_float.clone());
+        }
+    } else {
+        // Piano mode (World Piano Udon / ShadowForests / Kade / Jojos / IZPiano)
+        if let Some(n) = name {
+            // Primary ShadowForests standard (/PianoKeys/C4, /PianoKeys/C4+)
+            let addr = format!("/PianoKeys/{}", n);
+            let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr, arg_float.clone());
+
+            // Sharp alias if sharp (/PianoKeys/C#4)
+            if n.contains('+') {
+                let sharp_addr = format!("/PianoKeys/{}", note_name_to_sharp(n));
+                let _ = osc_send_message_multi(host.to_string(), port, sharp_addr.clone(), arg_int.clone());
+                let _ = osc_send_message_multi(host.to_string(), port, sharp_addr, arg_float.clone());
+            }
+
+            // Avatar PianoKeys parameter
+            let avatar_addr = format!("/avatar/parameters/PianoKeys/{}", n);
+            let _ = osc_send_message_multi(host.to_string(), port, avatar_addr.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, avatar_addr, arg_bool.clone());
+        }
+
+        // Raw MIDI number (/PianoKeys/60)
+        let num_addr = format!("/PianoKeys/{}", note);
+        let _ = osc_send_message_multi(host.to_string(), port, num_addr.clone(), arg_int.clone());
+        let _ = osc_send_message_multi(host.to_string(), port, num_addr, arg_float.clone());
+
+        // Avatar numeric / index fallback
+        if let Some(idx) = key_idx {
+            let addr = format!("/avatar/parameters/{}", idx);
+            let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_int.clone());
+            let _ = osc_send_message_multi(host.to_string(), port, addr, arg_bool.clone());
+        }
+        let def_avatar = format!("/avatar/parameters/note{:03}", note);
+        let _ = osc_send_message_multi(host.to_string(), port, def_avatar.clone(), arg_int.clone());
+        let _ = osc_send_message_multi(host.to_string(), port, def_avatar, arg_bool.clone());
     }
 }
 
@@ -3467,26 +3665,17 @@ fn send_osc_all_notes_off(
     mode: &str,
     avatar_prefix: &str,
 ) {
-    use crate::osc::{osc_send_message_multi, OscArgument};
-
     if !notes.is_empty() {
         for (note, _channel) in notes {
-            let args = vec![OscArgument {
-                value_type: "float".to_string(),
-                value: serde_json::json!(0.0_f64),
-            }];
-            let _ = osc_send_message_multi(host.to_string(), port, osc_note_address(mode, avatar_prefix, *note), args);
+            send_osc_note_event(host, port, mode, avatar_prefix, *note, 0, false);
         }
-    } else if !mode.eq_ignore_ascii_case("avatar") {
-        // When stopping or resetting in world piano mode, release all 88 standard piano keys (A0=21 to C8=108)
-        // to guarantee no keys remain stuck down in VRChat worlds
+    } else {
+        // When stopping or resetting, release all 88 standard piano keys (A0=21 to C8=108)
+        // to guarantee no keys remain stuck down in VRChat worlds or avatars
         for note in 21..=108 {
-            let args = vec![OscArgument {
-                value_type: "float".to_string(),
-                value: serde_json::json!(0.0_f64),
-            }];
-            let _ = osc_send_message_multi(host.to_string(), port, osc_note_address(mode, avatar_prefix, note), args);
+            send_osc_note_event(host, port, mode, avatar_prefix, note, 0, false);
         }
+        send_osc_enable_handshake(host, port);
     }
 }
 
@@ -6154,11 +6343,20 @@ mod vrpiano_download_tests {
 
     #[test]
     fn osc_piano_mode_address_matches_reference_tool() {
-        // VRChat_MIDI_Player convention: /PianoKeys/<raw MIDI note>, no offset,
-        // no zero-padding. The avatar prefix must be ignored in piano mode.
-        assert_eq!(osc_note_address("piano", "", 60), "/PianoKeys/60");
-        assert_eq!(osc_note_address("piano", "/avatar/parameters/note", 21), "/PianoKeys/21");
-        assert_eq!(osc_note_address("PIANO", "", 108), "/PianoKeys/108");
+        // ShadowForests & standard VRChat world Udon piano convention:
+        // /PianoKeys/<NoteName> (e.g. C4, A0, C8)
+        assert_eq!(osc_note_address("piano", "", 60), "/PianoKeys/C4");
+        assert_eq!(osc_note_address("piano", "/avatar/parameters/note", 21), "/PianoKeys/A0");
+        assert_eq!(osc_note_address("PIANO", "", 108), "/PianoKeys/C8");
+
+        // Verify standard note mapping and sharp conversions
+        assert_eq!(super::midi_note_to_name(21), Some("A0"));
+        assert_eq!(super::midi_note_to_name(60), Some("C4"));
+        assert_eq!(super::midi_note_to_name(61), Some("C4+"));
+        assert_eq!(super::midi_note_to_name(69), Some("A4"));
+        assert_eq!(super::midi_note_to_name(108), Some("C8"));
+        assert_eq!(super::note_name_to_sharp("C4+"), "C#4");
+        assert_eq!(super::note_name_to_sharp("A0+"), "A#0");
     }
 
     #[test]
@@ -6200,11 +6398,11 @@ mod vrpiano_download_tests {
     }
 
     #[test]
-    fn anti_chatbox_logic_verifies_y_key_and_osc_routing() {
+    fn vrpiano_note_69_and_osc_address_test() {
         // Note 69 is A4 (440Hz), mapped to 'y' (VK 89).
         assert_eq!(super::note_to_vk(69), Some(89));
-        // In piano mode, note 69 routes to /PianoKeys/69 to avoid triggering Chatbox
-        assert_eq!(super::osc_note_address("piano", "", 69), "/PianoKeys/69");
+        // In piano mode, note 69 routes to /PianoKeys/A4 matching ShadowForests
+        assert_eq!(super::osc_note_address("piano", "", 69), "/PianoKeys/A4");
         assert_eq!(super::osc_note_address("avatar", "", 69), "/avatar/parameters/note069");
     }
 }
