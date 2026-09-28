@@ -3507,6 +3507,7 @@ fn send_osc_enable_handshake(host: &str, port: u16) {
 
 /// Release every currently-held note on VRChat's native keyboard piano so it
 /// never gets stuck holding keys (prevents "粘键").
+#[allow(dead_code)]
 fn osc_note_address(mode: &str, avatar_prefix: &str, note: u8) -> String {
     if mode.eq_ignore_ascii_case("avatar") {
         let trimmed = avatar_prefix.trim();
