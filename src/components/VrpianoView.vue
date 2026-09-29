@@ -194,8 +194,16 @@ const playlist = useStorage<string[]>('vrcdog.vrpiano.playlist.v1', []);
 const midiDevices = ref<Array<{ id: string; name: string; kind: string }>>([]);
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const midiOutputState = ref<{ connected: boolean; device_id?: string; device_name?: string }>({ connected: false });
-const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v1', 'keyboard');
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v2', 'osc');
+const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
 const channelRouted = ref<boolean[]>(Array.from({ length: 16 }, () => true));
+
+const keyboardLayoutOptions = [
+  { value: 'virtual_piano', label: () => t('vrpiano.layout_virtual_piano') },
+  { value: 'cnbar_b', label: () => t('vrpiano.layout_cnbar_b') },
+  { value: 'safe_no_numpad', label: () => t('vrpiano.layout_safe_no_numpad') },
+  { value: 'cnbar_a', label: () => t('vrpiano.layout_cnbar_a') },
+];
 
 const playModeOptions = [
   { value: 'sequential', label: () => t('vrpiano.play_mode_sequential') },
@@ -1118,6 +1126,7 @@ const applyHotkeys = async (announce = false) => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
       outputMode: outputMode.value,
+      keyboardLayout: keyboardLayout.value,
       midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
       oscHost: vrchatOscHost.value,
       oscPort: vrchatOscPort.value,
@@ -1168,6 +1177,7 @@ const start = async () => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
       outputMode: 'keyboard',
+      keyboardLayout: keyboardLayout.value,
     });
     addLog(t('vrpiano.preparing_to_play', { name: selectedSong.value.name }));
   } catch (e: any) {
@@ -1304,6 +1314,7 @@ const restartPlayback = async () => {
       delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
       speed: clampSpeed(speed.value),
       outputMode: outputMode.value === 'midi' ? 'midi' : 'keyboard',
+      keyboardLayout: keyboardLayout.value,
       midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
     });
     addLog(t('vrpiano.restarted_song', { name: selectedSong.value.name }));
@@ -1625,6 +1636,7 @@ const applyPlaylist = async () => {
         delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
         speed: clampSpeed(speed.value),
         outputMode: 'keyboard',
+        keyboardLayout: keyboardLayout.value,
       });
     }
     addLog(t('vrpiano.playing_playlist', { count: playlist.value.length, label: t(`vrpiano.play_mode_${playModeLabelKey(playMode.value)}`) }));
@@ -1696,7 +1708,7 @@ watch([selectedPath, delaySecs], () => {
   if (hotkeysEnabled.value) scheduleHotkeyApply();
 });
 
-watch([outputMode, selectedMidiDevice, vrchatOscHost, vrchatOscPort], () => {
+watch([outputMode, keyboardLayout, selectedMidiDevice, vrchatOscHost, vrchatOscPort], () => {
   if (hotkeysEnabled.value) scheduleHotkeyApply();
 });
 
@@ -2101,6 +2113,17 @@ onUnmounted(async () => {
                 <Radio :size="13" />
                 <span>{{ t('vrpiano.switch_to_osc') }}</span>
               </button>
+            </div>
+            <div v-if="outputMode === 'keyboard'" class="keyboard-layout-selector">
+              <label for="keyboard-layout-select" class="layout-label">
+                <Sliders :size="14" />
+                <span>{{ t('vrpiano.keyboard_layout_label') }}</span>
+              </label>
+              <select id="keyboard-layout-select" v-model="keyboardLayout" class="keyboard-layout-dropdown">
+                <option v-for="opt in keyboardLayoutOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label() }}
+                </option>
+              </select>
             </div>
             <button v-if="outputMode === 'midi'" class="direct-midi-action" :disabled="loading || !selectedSong || !midiOutputState.connected" @click="startDirectMidi">
               <Cable :size="14" /> {{ t('vrpiano.start_direct_midi') }}
@@ -3434,6 +3457,43 @@ select option {
 
 .keyboard-anti-chatbox-banner .banner-switch-btn:hover {
   opacity: 0.9;
+}
+
+.keyboard-layout-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--vp-primary) 6%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 20%, var(--vp-border));
+  border-radius: 8px;
+}
+
+.keyboard-layout-selector .layout-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--vp-text);
+  white-space: nowrap;
+}
+
+.keyboard-layout-dropdown {
+  flex: 1;
+  background: var(--vp-bg);
+  color: var(--vp-text);
+  border: 1px solid var(--vp-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 160ms ease;
+}
+
+.keyboard-layout-dropdown:focus {
+  border-color: var(--vp-primary);
 }
 
 .output-mode-card:hover,

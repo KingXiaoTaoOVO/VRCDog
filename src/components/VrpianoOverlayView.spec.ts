@@ -222,7 +222,7 @@ describe('VrpianoOverlayView appearance controls', () => {
 
     await primary.trigger('click');
     await flushPromises();
-    expect(mocks.start).toHaveBeenCalledOnce();
+    expect(mocks.startVrchatOsc).toHaveBeenCalledOnce();
     expect(primary.text()).toContain('暂停');
     expect(wrapper.find('button[title="重新开始"]').exists()).toBe(true);
 
@@ -246,11 +246,11 @@ describe('VrpianoOverlayView appearance controls', () => {
 
     await songButton.trigger('click');
     await flushPromises();
-    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
+    expect(mocks.startVrchatOsc).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
     expect(mocks.emit).not.toHaveBeenCalled();
 
     // Toggle preview mode on
-    mocks.start.mockClear();
+    mocks.startVrchatOsc.mockClear();
     await wrapper.get('[data-testid="preview-toggle"]').trigger('click');
     expect(wrapper.get('[data-testid="preview-toggle"]').text()).toContain('试听模式');
 
@@ -259,14 +259,14 @@ describe('VrpianoOverlayView appearance controls', () => {
     await vi.advanceTimersByTimeAsync(230);
     await flushPromises();
     expect(mocks.emit).toHaveBeenCalledWith(VRPIANO_PREVIEW_SONG_EVENT, { songPath: 'C:/songs/test.mid' });
-    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.startVrchatOsc).not.toHaveBeenCalled();
 
     // Double click still plays in game immediately
     mocks.emit.mockClear();
-    mocks.start.mockClear();
+    mocks.startVrchatOsc.mockClear();
     await songButton.trigger('dblclick');
     await flushPromises();
-    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
+    expect(mocks.startVrchatOsc).toHaveBeenCalledWith(expect.objectContaining({ songPath: 'C:/songs/test.mid' }));
 
     wrapper.unmount();
   });

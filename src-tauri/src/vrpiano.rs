@@ -321,6 +321,7 @@ pub struct VrpianoStatus {
     vrchat_osc_running: bool,
     vrchat_osc_last_error: String,
     vrchat_osc_connected: bool,
+    keyboard_layout: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Copy)]
@@ -348,6 +349,8 @@ pub struct VrpianoStartRequest {
     #[serde(default)]
     output_mode: String,
     midi_output_device: Option<String>,
+    #[serde(default)]
+    keyboard_layout: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -378,6 +381,8 @@ pub struct VrpianoHotkeyConfig {
     osc_host: String,
     #[serde(default = "default_osc_port")]
     osc_port: u16,
+    #[serde(default)]
+    keyboard_layout: Option<String>,
 }
 
 fn default_osc_port() -> u16 {
@@ -469,6 +474,8 @@ struct VrpianoRuntime {
     active_engine: String,
     /// Stop flag for the standalone OSC heartbeat (set when disconnecting).
     osc_heartbeat_stop: Option<Arc<AtomicBool>>,
+    /// Active keyboard layout scheme for PC keyboard mode ("virtual_piano" | "cnbar_b" | "cnbar_a" | "safe_no_numpad")
+    keyboard_layout: String,
     status: VrpianoStatus,
 }
 
@@ -688,6 +695,7 @@ impl Default for VrpianoState {
                 current_index: 0,
                 active_engine: String::new(),
                 osc_heartbeat_stop: None,
+                keyboard_layout: "virtual_piano".to_string(),
                 status: VrpianoStatus {
                     running: false,
                     paused: false,
@@ -717,10 +725,11 @@ impl Default for VrpianoState {
                     vrchat_osc_enabled: false,
                     vrchat_osc_host: String::new(),
                     vrchat_osc_port: 9000,
-                vrchat_osc_running: false,
-                vrchat_osc_last_error: String::new(),
-                vrchat_osc_connected: false,
-            },
+                    vrchat_osc_running: false,
+                    vrchat_osc_last_error: String::new(),
+                    vrchat_osc_connected: false,
+                    keyboard_layout: "virtual_piano".to_string(),
+                },
             })),
             midi_backend: Arc::new(Mutex::new(MidiOutputBackend::new())),
             recorder: Arc::new(Mutex::new(MidiRecorder::new())),
@@ -1454,6 +1463,7 @@ fn maybe_advance_playlist(
                         speed,
                         output_mode: "midi".into(),
                         midi_output_device: device_id,
+                        keyboard_layout: None,
                     };
                     let _ = start_playback(app.clone(), state.clone(), mb, rec, req);
                 }
@@ -1466,6 +1476,7 @@ fn maybe_advance_playlist(
                         speed,
                         output_mode: "keyboard".into(),
                         midi_output_device: None,
+                        keyboard_layout: None,
                     };
                     let _ = start_playback(app.clone(), state.clone(), mb, rec, req);
                 }
@@ -1554,6 +1565,7 @@ fn begin_vrchat_osc(
             vrchat_osc_running: true,
             vrchat_osc_last_error: String::new(),
             vrchat_osc_connected: runtime.status.vrchat_osc_connected,
+            keyboard_layout: runtime.keyboard_layout.clone(),
         };
         (host, port, osc_mode, avatar_prefix)
     };
@@ -1781,7 +1793,8 @@ fn start_playback(
             return Err("This MIDI has no playable events".to_string());
         }
         if output_mode == "keyboard" {
-            let has_keyboard_keys = midi_events.iter().any(|ev| ev.is_note_on && note_to_vk(ev.note).is_some());
+            let layout_choice = request.keyboard_layout.as_deref().unwrap_or("virtual_piano");
+            let has_keyboard_keys = midi_events.iter().any(|ev| ev.is_note_on && map_midi_note_to_action(ev.note, layout_choice).is_some());
             if !has_keyboard_keys {
                 return Err("This MIDI has no notes that can be mapped to VRPiano keys".to_string());
             }
@@ -1811,6 +1824,12 @@ fn start_playback(
             pause_flag = runtime.paused.clone();
             if let Ok(mut current) = runtime.speed.lock() {
                 *current = speed;
+            }
+            if let Some(ref layout) = request.keyboard_layout {
+                let trimmed = layout.trim();
+                if !trimmed.is_empty() {
+                    runtime.keyboard_layout = trimmed.to_string();
+                }
             }
             runtime.status = VrpianoStatus {
                 running: true,
@@ -1844,6 +1863,7 @@ fn start_playback(
                 vrchat_osc_running: false,
                 vrchat_osc_last_error: String::new(),
                 vrchat_osc_connected: false,
+                keyboard_layout: runtime.keyboard_layout.clone(),
             };
         }
 
@@ -2007,6 +2027,13 @@ fn set_hotkeys(
             runtime.vrchat_osc_host = config.osc_host.trim().to_string();
         }
         runtime.vrchat_osc_port = config.osc_port.clamp(1, 65535);
+        if let Some(ref layout) = config.keyboard_layout {
+            let trimmed = layout.trim();
+            if !trimmed.is_empty() {
+                runtime.keyboard_layout = trimmed.to_string();
+                runtime.status.keyboard_layout = trimmed.to_string();
+            }
+        }
         if let Ok(mut current) = runtime.speed.lock() {
             *current = speed;
         }
@@ -2181,7 +2208,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
     thread::spawn(move || {
         match vk {
             112 => {
-                let (running, song_path, delay_secs, output_mode) = match context.state.lock() {
+                let (running, song_path, delay_secs, output_mode, keyboard_layout) = match context.state.lock() {
                     Ok(runtime) => {
                         let path = if !runtime.hotkey_song_path.is_empty() {
                             runtime.hotkey_song_path.clone()
@@ -2197,6 +2224,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                             path,
                             runtime.hotkey_delay_secs,
                             runtime.active_engine.clone(),
+                            runtime.keyboard_layout.clone(),
                         )
                     }
                     Err(_) => return,
@@ -2220,6 +2248,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                                 speed: current_speed(&context.state),
                                 output_mode: output_mode.clone(),
                                 midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
+                                keyboard_layout: Some(keyboard_layout),
                             };
                             let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
                         }
@@ -2227,7 +2256,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                 }
             }
             113 => {
-                let (running, song_path, delay_secs, output_mode) = match context.state.lock() {
+                let (running, song_path, delay_secs, output_mode, keyboard_layout) = match context.state.lock() {
                     Ok(runtime) => {
                         let path = if !runtime.status.song_path.is_empty() {
                             runtime.status.song_path.clone()
@@ -2243,6 +2272,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                             path,
                             runtime.hotkey_delay_secs,
                             runtime.active_engine.clone(),
+                            runtime.keyboard_layout.clone(),
                         )
                     }
                     Err(_) => return,
@@ -2284,6 +2314,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
                                 speed: current_speed(&context.state),
                                 output_mode: output_mode.clone(),
                                 midi_output_device: if output_mode == "midi" { context.midi_backend.lock().ok().and_then(|backend| backend.state().lock().ok().and_then(|status| status.device_id.clone())) } else { None },
+                                keyboard_layout: Some(keyboard_layout),
                             };
                             let _ = start_playback(context.app.clone(), context.state.clone(), context.midi_backend.clone(), context.recorder.clone(), request);
                         }
@@ -2349,36 +2380,31 @@ fn run_playback(
         #[cfg(target_os = "windows")]
         focus_vrchat_window();
 
-        let (osc_host, osc_port, osc_mode, osc_avatar_prefix) = {
-            let runtime = state.lock().ok();
-            let host = runtime
-                .as_ref()
-                .map(|r| {
-                    if r.vrchat_osc_host.trim().is_empty() {
-                        "127.0.0.1".to_string()
-                    } else {
-                        r.vrchat_osc_host.clone()
-                    }
-                })
-                .unwrap_or_else(|| "127.0.0.1".to_string());
-            let port = runtime.as_ref().map(|r| r.vrchat_osc_port).unwrap_or(9000);
-            let mode = runtime
-                .as_ref()
-                .map(|r| r.vrchat_osc_mode.clone())
-                .unwrap_or_else(|| "piano".to_string());
-            let prefix = runtime
-                .as_ref()
-                .map(|r| r.vrchat_osc_avatar_prefix.clone())
-                .unwrap_or_else(|| "/avatar/parameters/note".to_string());
-            (host, port, mode, prefix)
-        };
+        let keyboard_layout = state.lock().ok().map(|r| r.keyboard_layout.clone()).unwrap_or_else(|| "virtual_piano".to_string());
 
-        // active_keys tracks virtual keys currently pressed: vk -> pressed_at_ms
-        let mut active_keys: HashMap<u16, u64> = HashMap::new();
+        // active_actions tracks keys currently held: vk -> (pressed_at_ms, shift)
+        let mut active_actions: HashMap<u16, (u64, bool)> = HashMap::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
         let mut index = 0_usize;
         let mut last_emit_at = 0_u64;
+
+        let do_press_action = |action: PianoKeyAction| {
+            if action.shift {
+                send_key(160, false); // VK_LSHIFT down
+                thread::sleep(Duration::from_millis(5));
+            }
+            send_key(action.vk, false);
+        };
+
+        let do_release_action = |vk: u16, shift: bool| {
+            send_key(vk, true);
+            if shift {
+                thread::sleep(Duration::from_millis(3));
+                send_key(160, true); // VK_LSHIFT up
+                thread::sleep(Duration::from_millis(5));
+            }
+        };
 
         while index < events.len() {
             if stop.load(Ordering::SeqCst) {
@@ -2389,11 +2415,11 @@ fn run_playback(
             let wait_ms = at_ms.saturating_sub(last_at);
             if wait_ms > 0 {
                 sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
-                    let is_vrchat = is_vrchat_foreground();
-                    for (&vk, _) in active_keys.iter() {
-                        handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
+                    for (&vk, &(_, shift)) in active_actions.iter() {
+                        do_release_action(vk, shift);
                     }
-                    active_keys.clear();
+                    active_actions.clear();
+                    send_key(160, true);
                 });
                 if stop.load(Ordering::SeqCst) {
                     break;
@@ -2402,11 +2428,11 @@ fn run_playback(
 
             // Pause safety: release any keys held when paused
             if paused.load(Ordering::SeqCst) {
-                let is_vrchat = is_vrchat_foreground();
-                for (&vk, _) in active_keys.iter() {
-                    handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
+                for (&vk, &(_, shift)) in active_actions.iter() {
+                    do_release_action(vk, shift);
                 }
-                active_keys.clear();
+                active_actions.clear();
+                send_key(160, true);
                 while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
                     thread::sleep(Duration::from_millis(20));
                 }
@@ -2416,18 +2442,18 @@ fn run_playback(
             }
 
             let transpose = current_transpose(&state);
-            let mut keys_to_press: Vec<u16> = Vec::new();
-            let mut keys_to_release: Vec<u16> = Vec::new();
+            let mut keys_to_press: Vec<PianoKeyAction> = Vec::new();
+            let mut keys_to_release: Vec<PianoKeyAction> = Vec::new();
 
             while index < events.len() && events[index].at_ms == at_ms {
                 let ev = &events[index];
                 if let Some((cc, _)) = ev.control_change {
                     if cc == 123 || cc == 120 {
-                        let is_vrchat = is_vrchat_foreground();
-                        for (&vk, _) in active_keys.iter() {
-                            handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
+                        for (&vk, &(_, shift)) in active_actions.iter() {
+                            do_release_action(vk, shift);
                         }
-                        active_keys.clear();
+                        active_actions.clear();
+                        send_key(160, true);
                     }
                     played += 1;
                     index += 1;
@@ -2439,14 +2465,14 @@ fn run_playback(
                 let solo_active = is_solo_active(&state);
                 let sent_note = apply_transpose(ev.note, ev.channel, transpose);
 
-                if let Some(vk) = note_to_vk(sent_note) {
+                if let Some(action) = map_midi_note_to_action(sent_note, &keyboard_layout) {
                     if ev.is_note_on {
                         let should_play = routed && !channel_state.muted && (!solo_active || channel_state.solo);
                         if should_play {
-                            keys_to_press.push(vk);
+                            keys_to_press.push(action);
                         }
                     } else {
-                        keys_to_release.push(vk);
+                        keys_to_release.push(action);
                     }
                 }
 
@@ -2459,28 +2485,26 @@ fn run_playback(
             }
 
             // Release keys that are finishing (unless being struck again at this timestamp)
-            for vk in keys_to_release {
-                if !keys_to_press.contains(&vk) {
-                    if let Some(pressed_at) = active_keys.remove(&vk) {
+            for action in keys_to_release {
+                if !keys_to_press.iter().any(|p| p.vk == action.vk) {
+                    if let Some((pressed_at, shift)) = active_actions.remove(&action.vk) {
                         let held_ms = at_ms.saturating_sub(pressed_at);
                         if held_ms < NOTE_HOLD_MS {
                             thread::sleep(Duration::from_millis(NOTE_HOLD_MS - held_ms));
                         }
-                        let is_vrchat = is_vrchat_foreground();
-                        handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
+                        do_release_action(action.vk, shift);
                     }
                 }
             }
 
-            // Press newly starting keys
-            for vk in keys_to_press {
-                let is_vrchat = is_vrchat_foreground();
-                if active_keys.contains_key(&vk) {
-                    handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
+            // Press newly starting keys (handle re-strikes)
+            for action in keys_to_press {
+                if let Some((_, old_shift)) = active_actions.remove(&action.vk) {
+                    do_release_action(action.vk, old_shift);
                     thread::sleep(Duration::from_millis(5));
                 }
-                handle_playback_key_down(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
-                active_keys.insert(vk, at_ms);
+                do_press_action(action);
+                active_actions.insert(action.vk, (at_ms, action.shift));
             }
 
             last_at = at_ms;
@@ -2506,11 +2530,11 @@ fn run_playback(
         }
 
         // Release all keys when playback ends
-        let is_vrchat = is_vrchat_foreground();
-        for (&vk, _) in active_keys.iter() {
-            handle_playback_key_up(vk, is_vrchat, &osc_host, osc_port, &osc_mode, &osc_avatar_prefix);
+        for (&vk, &(_, shift)) in active_actions.iter() {
+            do_release_action(vk, shift);
         }
-        active_keys.clear();
+        active_actions.clear();
+        send_key(160, true); // Ensure Shift is clean
     }));
 
     if result.is_err() {
@@ -2893,6 +2917,7 @@ fn focus_vrchat_window() {
 #[cfg(not(target_os = "windows"))]
 fn focus_vrchat_window() {}
 
+#[allow(dead_code)]
 #[cfg(target_os = "windows")]
 fn is_vrchat_foreground() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowTextW};
@@ -2951,6 +2976,7 @@ fn send_osc_close_chatbox(host: &str, port: u16) {
     let _ = osc_send_message_multi(host.to_string(), port, "/chatbox/input".to_string(), args);
 }
 
+#[allow(dead_code)]
 fn handle_playback_key_down(
     vk: u16,
     _is_vrchat: bool,
@@ -2962,6 +2988,7 @@ fn handle_playback_key_down(
     send_key(vk, false);
 }
 
+#[allow(dead_code)]
 fn handle_playback_key_up(
     vk: u16,
     _is_vrchat: bool,
@@ -2988,7 +3015,10 @@ fn send_key(vk: u16, key_up: bool) {
     } else {
         KEYBD_EVENT_FLAGS(0)
     };
-    if vk == 111 || (vk >= 33 && vk <= 46) {
+    // Numpad numeric keys (VK 96..=110) MUST NEVER have KEYEVENTF_EXTENDEDKEY.
+    // If flagged as extended, Windows interprets them as Arrow keys, causing camera yaw/pitch rotation in VRChat!
+    // Only numpad slash (111) and standalone navigation keys (33..=46) are extended.
+    if vk == 111 || (vk >= 33 && vk <= 46 && (vk < 96 || vk > 110)) {
         flags |= KEYEVENTF_EXTENDEDKEY;
     }
 
@@ -3151,71 +3181,266 @@ fn tick_to_micros(tick: u64, tempo_map: &[(u64, u64)], ticks_per_beat: u64) -> u
     )
 }
 
-fn note_to_vk(note: u8) -> Option<u16> {
-    let key = match note {
-        36 => "z",
-        37 => ",",
-        38 => "x",
-        39 => ".",
-        40 => "c",
-        41 => "v",
-        42 => "/",
-        43 => "b",
-        44 => "b0",
-        45 => "n",
-        46 => "b.",
-        47 => "m",
-        48 => "a",
-        49 => "k",
-        50 => "s",
-        51 => "l",
-        52 => "d",
-        53 => "f",
-        54 => ";",
-        55 => "g",
-        56 => "b2",
-        57 => "h",
-        58 => "b3",
-        59 => "j",
-        60 => "q",
-        61 => "i",
-        62 => "w",
-        63 => "o",
-        64 => "e",
-        65 => "r",
-        66 => "p",
-        67 => "t",
-        68 => "b5",
-        69 => "y",
-        70 => "b6",
-        71 => "u",
-        72 => "1",
-        73 => "8",
-        74 => "2",
-        75 => "9",
-        76 => "3",
-        77 => "4",
-        78 => "0",
-        79 => "5",
-        80 => "b8",
-        81 => "6",
-        82 => "b9",
-        83 => "7",
-        84 => "F1",
-        85 => "F8",
-        86 => "F2",
-        87 => "F9",
-        88 => "F3",
-        89 => "F4",
-        90 => "F10",
-        91 => "F5",
-        92 => "b/",
-        93 => "F6",
-        94 => "b*",
-        95 => "F7",
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PianoKeyAction {
+    pub vk: u16,
+    pub shift: bool,
+}
+
+/// Standard 61-key Virtual Piano layout (User9426 standard, virtualpiano.net)
+/// White keys: 1-0, q-p, a-l, z-m. Black keys: Shift + corresponding white key.
+/// Zero numpad keys used -> 100% immune to camera turning/view rotation!
+fn map_virtual_piano(mut note: u8) -> Option<PianoKeyAction> {
+    while note < 36 {
+        note += 12;
+    }
+    while note > 96 {
+        note -= 12;
+    }
+    let (vk, shift) = match note {
+        36 => (49, false), // '1'
+        37 => (49, true),  // Shift + '1'
+        38 => (50, false), // '2'
+        39 => (50, true),  // Shift + '2'
+        40 => (51, false), // '3'
+        41 => (52, false), // '4'
+        42 => (52, true),  // Shift + '4'
+        43 => (53, false), // '5'
+        44 => (53, true),  // Shift + '5'
+        45 => (54, false), // '6'
+        46 => (54, true),  // Shift + '6'
+        47 => (55, false), // '7'
+        48 => (56, false), // '8'
+        49 => (56, true),  // Shift + '8'
+        50 => (57, false), // '9'
+        51 => (57, true),  // Shift + '9'
+        52 => (48, false), // '0'
+        53 => (81, false), // 'q'
+        54 => (81, true),  // Shift + 'q'
+        55 => (87, false), // 'w'
+        56 => (87, true),  // Shift + 'w'
+        57 => (69, false), // 'e'
+        58 => (69, true),  // Shift + 'e'
+        59 => (82, false), // 'r'
+        60 => (84, false), // 't' (Middle C)
+        61 => (84, true),  // Shift + 't'
+        62 => (89, false), // 'y'
+        63 => (89, true),  // Shift + 'y'
+        64 => (85, false), // 'u'
+        65 => (73, false), // 'i'
+        66 => (73, true),  // Shift + 'i'
+        67 => (79, false), // 'o'
+        68 => (79, true),  // Shift + 'o'
+        69 => (80, false), // 'p'
+        70 => (80, true),  // Shift + 'p'
+        71 => (65, false), // 'a'
+        72 => (83, false), // 's'
+        73 => (83, true),  // Shift + 's'
+        74 => (68, false), // 'd'
+        75 => (68, true),  // Shift + 'd'
+        76 => (70, false), // 'f'
+        77 => (71, false), // 'g'
+        78 => (71, true),  // Shift + 'g'
+        79 => (72, false), // 'h'
+        80 => (72, true),  // Shift + 'h'
+        81 => (74, false), // 'j'
+        82 => (74, true),  // Shift + 'j'
+        83 => (75, false), // 'k'
+        84 => (76, false), // 'l'
+        85 => (76, true),  // Shift + 'l'
+        86 => (90, false), // 'z'
+        87 => (90, true),  // Shift + 'z'
+        88 => (88, false), // 'x'
+        89 => (67, false), // 'c'
+        90 => (67, true),  // Shift + 'c'
+        91 => (86, false), // 'v'
+        92 => (86, true),  // Shift + 'v'
+        93 => (66, false), // 'b'
+        94 => (66, true),  // Shift + 'b'
+        95 => (78, false), // 'n'
+        96 => (77, false), // 'm'
         _ => return None,
     };
-    key_to_vk(key)
+    Some(PianoKeyAction { vk, shift })
+}
+
+/// CN Bar Layout B: avoids VRChat game hotkeys (skips 'r' menu, 'y' chatbox, 'v' mic)
+fn map_cnbar_b(mut note: u8) -> Option<PianoKeyAction> {
+    while note < 36 {
+        note += 12;
+    }
+    while note > 95 {
+        note -= 12;
+    }
+    let vk = match note {
+        36 => 90,  // 'z'
+        37 => 190, // '.'
+        38 => 88,  // 'x'
+        39 => 191, // '/'
+        40 => 67,  // 'c'
+        41 => 66,  // 'b' (skips 'v' to avoid mic toggling)
+        42 => 161, // Right Shift
+        43 => 78,  // 'n'
+        44 => 96,  // NUM_0
+        45 => 77,  // 'm'
+        46 => 110, // NUM_DOT
+        47 => 188, // ','
+        48 => 65,  // 'a'
+        49 => 75,  // 'k'
+        50 => 83,  // 's'
+        51 => 76,  // 'l'
+        52 => 68,  // 'd'
+        53 => 70,  // 'f'
+        54 => 186, // ';'
+        55 => 71,  // 'g'
+        56 => 98,  // NUM_2
+        57 => 72,  // 'h'
+        58 => 99,  // NUM_3
+        59 => 74,  // 'j'
+        60 => 81,  // 'q'
+        61 => 80,  // 'p'
+        62 => 87,  // 'w'
+        63 => 219, // '['
+        64 => 69,  // 'e'
+        65 => 84,  // 't' (skips 'r' to avoid action wheel)
+        66 => 221, // ']'
+        67 => 85,  // 'u'
+        68 => 101, // NUM_5
+        69 => 73,  // 'i' (skips 'y' to avoid chatbox)
+        70 => 102, // NUM_6
+        71 => 79,  // 'o'
+        72 => 49,  // '1'
+        73 => 56,  // '8'
+        74 => 50,  // '2'
+        75 => 57,  // '9'
+        76 => 51,  // '3'
+        77 => 52,  // '4'
+        78 => 48,  // '0'
+        79 => 53,  // '5'
+        80 => 104, // NUM_8
+        81 => 54,  // '6'
+        82 => 105, // NUM_9
+        83 => 55,  // '7'
+        84 => 112, // F1
+        85 => 119, // F8
+        86 => 113, // F2
+        87 => 120, // F9
+        88 => 114, // F3
+        89 => 115, // F4
+        90 => 121, // F10
+        91 => 116, // F5
+        92 => 111, // NUM_SLASH
+        93 => 117, // F6
+        94 => 106, // NUM_STAR
+        95 => 118, // F7
+        _ => return None,
+    };
+    Some(PianoKeyAction { vk, shift: false })
+}
+
+/// Safe No-Numpad Layout: replaces all numpad keys with main keyboard symbols
+/// completely preventing camera pitch/yaw view rotation even without numlock
+fn map_safe_no_numpad(mut note: u8) -> Option<PianoKeyAction> {
+    while note < 36 {
+        note += 12;
+    }
+    while note > 95 {
+        note -= 12;
+    }
+    let vk = match note {
+        36 => 90,  // 'z'
+        37 => 190, // '.'
+        38 => 88,  // 'x'
+        39 => 191, // '/'
+        40 => 67,  // 'c'
+        41 => 66,  // 'b' (skips 'v')
+        42 => 161, // Right Shift
+        43 => 78,  // 'n'
+        44 => 189, // '-'
+        45 => 77,  // 'm'
+        46 => 187, // '='
+        47 => 188, // ','
+        48 => 65,  // 'a'
+        49 => 75,  // 'k'
+        50 => 83,  // 's'
+        51 => 76,  // 'l'
+        52 => 68,  // 'd'
+        53 => 70,  // 'f'
+        54 => 186, // ';'
+        55 => 71,  // 'g'
+        56 => 219, // '['
+        57 => 72,  // 'h'
+        58 => 221, // ']'
+        59 => 74,  // 'j'
+        60 => 81,  // 'q'
+        61 => 80,  // 'p'
+        62 => 87,  // 'w'
+        63 => 222, // '\''
+        64 => 69,  // 'e'
+        65 => 84,  // 't' (skips 'r')
+        66 => 192, // '`'
+        67 => 85,  // 'u'
+        68 => 220, // '\\'
+        69 => 73,  // 'i' (skips 'y')
+        70 => 45,  // Insert
+        71 => 79,  // 'o'
+        72 => 49,  // '1'
+        73 => 56,  // '8'
+        74 => 50,  // '2'
+        75 => 57,  // '9'
+        76 => 51,  // '3'
+        77 => 52,  // '4'
+        78 => 48,  // '0'
+        79 => 53,  // '5'
+        80 => 122, // F11
+        81 => 54,  // '6'
+        82 => 123, // F12
+        83 => 55,  // '7'
+        84 => 112, // F1
+        85 => 119, // F8
+        86 => 113, // F2
+        87 => 120, // F9
+        88 => 114, // F3
+        89 => 115, // F4
+        90 => 121, // F10
+        91 => 116, // F5
+        92 => 36,  // Home
+        93 => 117, // F6
+        94 => 35,  // End
+        95 => 118, // F7
+        _ => return None,
+    };
+    Some(PianoKeyAction { vk, shift: false })
+}
+
+/// CN Bar Layout A: original continuous layout
+fn map_cnbar_a(note: u8) -> Option<PianoKeyAction> {
+    let key = match note {
+        36 => "z", 37 => ",", 38 => "x", 39 => ".", 40 => "c", 41 => "v", 42 => "/", 43 => "b",
+        44 => "b0", 45 => "n", 46 => "b.", 47 => "m", 48 => "a", 49 => "k", 50 => "s", 51 => "l",
+        52 => "d", 53 => "f", 54 => ";", 55 => "g", 56 => "b2", 57 => "h", 58 => "b3", 59 => "j",
+        60 => "q", 61 => "i", 62 => "w", 63 => "o", 64 => "e", 65 => "r", 66 => "p", 67 => "t",
+        68 => "b5", 69 => "y", 70 => "b6", 71 => "u", 72 => "1", 73 => "8", 74 => "2", 75 => "9",
+        76 => "3", 77 => "4", 78 => "0", 79 => "5", 80 => "b8", 81 => "6", 82 => "b9", 83 => "7",
+        84 => "F1", 85 => "F8", 86 => "F2", 87 => "F9", 88 => "F3", 89 => "F4", 90 => "F10", 91 => "F5",
+        92 => "b/", 93 => "F6", 94 => "b*", 95 => "F7",
+        _ => return None,
+    };
+    key_to_vk(key).map(|vk| PianoKeyAction { vk, shift: false })
+}
+
+fn map_midi_note_to_action(note: u8, layout: &str) -> Option<PianoKeyAction> {
+    match layout.trim().to_ascii_lowercase().as_str() {
+        "virtual_piano" | "vp" | "standard" => map_virtual_piano(note),
+        "cnbar_b" | "cnbar_safe" | "safe" => map_cnbar_b(note),
+        "safe_no_numpad" | "no_numpad" => map_safe_no_numpad(note),
+        _ => map_cnbar_a(note),
+    }
+}
+
+#[allow(dead_code)]
+fn note_to_vk(note: u8) -> Option<u16> {
+    map_cnbar_a(note).map(|a| a.vk)
 }
 
 fn key_to_vk(key: &str) -> Option<u16> {
@@ -3742,6 +3967,7 @@ fn status_snapshot(
         status.hotkeys_enabled = runtime.hotkeys_enabled;
         status.hotkeys_available = cfg!(target_os = "windows");
         status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+        status.keyboard_layout = runtime.keyboard_layout.clone();
     }
     // 实时反映本机是否运行着 VRChat（OSC 接收端），让前端能明确告知用户
     // “无接触”演奏为何没有声音（UDP 发往无人监听的端口会静默成功）。
@@ -3782,6 +4008,7 @@ fn status_with_dir(app: &tauri::AppHandle, event: &str) -> Result<VrpianoStatus,
         vrchat_osc_running: false,
         vrchat_osc_last_error: String::new(),
         vrchat_osc_connected: false,
+        keyboard_layout: "virtual_piano".to_string(),
     })
 }
 
@@ -6400,11 +6627,54 @@ mod vrpiano_download_tests {
 
     #[test]
     fn vrpiano_note_69_and_osc_address_test() {
-        // Note 69 is A4 (440Hz), mapped to 'y' (VK 89).
         assert_eq!(super::note_to_vk(69), Some(89));
-        // In piano mode, note 69 routes to /PianoKeys/A4 matching ShadowForests
         assert_eq!(super::osc_note_address("piano", "", 69), "/PianoKeys/A4");
         assert_eq!(super::osc_note_address("avatar", "", 69), "/avatar/parameters/note069");
+    }
+
+    #[test]
+    fn test_virtual_piano_layout_no_numpad() {
+        // C4 (Middle C) in Virtual Piano is 't' without shift
+        let middle_c = super::map_midi_note_to_action(60, "virtual_piano").unwrap();
+        assert_eq!(middle_c.vk, 84); // 't'
+        assert_eq!(middle_c.shift, false);
+
+        // C#4 in Virtual Piano is 't' WITH shift (i.e. 'T')
+        let c_sharp_4 = super::map_midi_note_to_action(61, "virtual_piano").unwrap();
+        assert_eq!(c_sharp_4.vk, 84); // 't'
+        assert_eq!(c_sharp_4.shift, true);
+
+        // Every note across 0..=127 must NEVER map to any numpad key (96..=111)
+        for note in 0..=127 {
+            if let Some(action) = super::map_midi_note_to_action(note, "virtual_piano") {
+                assert!(action.vk < 96 || action.vk > 111, "note {} mapped to numpad key {}", note, action.vk);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cnbar_b_skips_game_hotkeys() {
+        // Verify R (82), Y (89), and V (86) are completely avoided
+        for note in 36..=95 {
+            if let Some(action) = super::map_midi_note_to_action(note, "cnbar_b") {
+                assert_ne!(action.vk, 82, "note {} mapped to 'r' (VK 82)", note);
+                assert_ne!(action.vk, 89, "note {} mapped to 'y' (VK 89)", note);
+                assert_ne!(action.vk, 86, "note {} mapped to 'v' (VK 86)", note);
+            }
+        }
+    }
+
+    #[test]
+    fn test_safe_no_numpad_avoids_all_numpad() {
+        // Verify safe_no_numpad never produces numpad keys
+        for note in 36..=95 {
+            if let Some(action) = super::map_midi_note_to_action(note, "safe_no_numpad") {
+                assert!(action.vk < 96 || action.vk > 111, "note {} mapped to numpad {}", note, action.vk);
+                assert_ne!(action.vk, 82, "note {} mapped to 'r' (VK 82)", note);
+                assert_ne!(action.vk, 89, "note {} mapped to 'y' (VK 89)", note);
+                assert_ne!(action.vk, 86, "note {} mapped to 'v' (VK 86)", note);
+            }
+        }
     }
 }
 

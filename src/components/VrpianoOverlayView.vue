@@ -83,7 +83,8 @@ const overlayBlur = useStorage(VRPIANO_OVERLAY_BLUR_KEY, DEFAULT_VRPIANO_OVERLAY
 const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
 const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', false);
 const previewingPath = ref('');
-const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v1', 'keyboard');
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v2', 'osc');
+const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const vrchatOscHost = useStorage('vrcdog.vrpiano.vrchatOscHost.v1', '127.0.0.1');
 const vrchatOscPort = useStorage('vrcdog.vrpiano.vrchatOscPort.v1', 9000);
@@ -260,6 +261,7 @@ const playSong = async (song: VrpianoSong) => {
         delaySecs: 0,
         speed: currentSpeed,
         outputMode: 'keyboard',
+        keyboardLayout: keyboardLayout.value,
       }));
     }
   } catch (cause) {
@@ -344,6 +346,7 @@ const toggleHotkeys = async () => {
       delaySecs: 0,
       speed: status.value.speed || 1,
       outputMode: outputMode.value === 'osc' ? 'osc' : outputMode.value === 'midi' ? 'midi' : 'keyboard',
+      keyboardLayout: keyboardLayout.value,
       midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
       oscHost: vrchatOscHost.value,
       oscPort: vrchatOscPort.value,
@@ -383,7 +386,7 @@ watch(overlayBlur, (value) => {
   });
 });
 
-watch(outputMode, async (newMode) => {
+watch([outputMode, keyboardLayout], async ([newMode, newLayout]) => {
   if (status.value.hotkeys_enabled) {
     const targetSongPath = currentSong.value?.path || status.value.song_path || songs.value[0]?.path || '';
     try {
@@ -393,6 +396,7 @@ watch(outputMode, async (newMode) => {
         delaySecs: 0,
         speed: status.value.speed || 1,
         outputMode: newMode,
+        keyboardLayout: newLayout,
         midiDeviceId: newMode === 'midi' ? selectedMidiDevice.value : undefined,
         oscHost: vrchatOscHost.value,
         oscPort: vrchatOscPort.value,
@@ -436,6 +440,7 @@ onMounted(async () => {
         delaySecs: 0,
         speed: nextStatus.speed || 1,
         outputMode: outputMode.value === 'osc' ? 'osc' : outputMode.value === 'midi' ? 'midi' : 'keyboard',
+        keyboardLayout: keyboardLayout.value,
         midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
         oscHost: vrchatOscHost.value,
         oscPort: vrchatOscPort.value,
@@ -553,6 +558,15 @@ onUnmounted(() => {
             {{ t('vrpiano_overlay.mode_keyboard') }}
           </button>
         </div>
+      </div>
+      <div v-if="outputMode === 'keyboard'" class="setting-row keyboard-layout-row" data-no-drag>
+        <span>{{ t('vrpiano.keyboard_layout_label') }}</span>
+        <select v-model="keyboardLayout" class="overlay-layout-select" data-no-drag>
+          <option value="virtual_piano">{{ t('vrpiano.layout_virtual_piano') }}</option>
+          <option value="cnbar_b">{{ t('vrpiano.layout_cnbar_b') }}</option>
+          <option value="safe_no_numpad">{{ t('vrpiano.layout_safe_no_numpad') }}</option>
+          <option value="cnbar_a">{{ t('vrpiano.layout_cnbar_a') }}</option>
+        </select>
       </div>
       <div v-if="outputMode === 'keyboard'" class="overlay-anti-chatbox-tip" data-no-drag>
         <ShieldCheck :size="12" />
@@ -1027,6 +1041,23 @@ input {
   color: #10b981;
   font-size: 11px;
   line-height: 1.3;
+}
+
+.overlay-layout-select {
+  max-width: 170px;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--theme-text, #fff);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+}
+
+.overlay-layout-select option {
+  background: #18181b;
+  color: #fff;
 }
 
 .now-playing {

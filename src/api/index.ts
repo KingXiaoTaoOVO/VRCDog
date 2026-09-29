@@ -1361,13 +1361,14 @@ export const VrpianoApi = {
   }),
   openSongsDir: () => safeInvoke<void>('vrpiano_open_songs_dir'),
   getStatus: () => safeInvoke<VrpianoStatus>('vrpiano_get_status'),
-  start: (params: { songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi'; midiDeviceId?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start', {
+  start: (params: { songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; keyboardLayout?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start', {
     request: {
       song_path: params.songPath,
       delay_secs: params.delaySecs,
       speed: params.speed,
-      output_mode: params.outputMode || 'keyboard',
+      output_mode: params.outputMode || 'osc',
       midi_output_device: params.midiDeviceId || null,
+      keyboard_layout: params.keyboardLayout || 'virtual_piano',
     }
   }),
   startVrchatOsc: (params: { songPath: string; delaySecs: number; speed: number; host: string; port: number; mode?: 'piano' | 'avatar'; avatarPrefix?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start_vrchat_osc', {
@@ -1391,16 +1392,17 @@ export const VrpianoApi = {
   stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),
   togglePause: () => safeInvoke<VrpianoStatus>('vrpiano_toggle_pause'),
   setSpeed: (params: { speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_speed', params),
-  setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; oscHost?: string; oscPort?: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
+  setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; oscHost?: string; oscPort?: number; keyboardLayout?: string }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
     config: {
       enabled: params.enabled,
       song_path: params.songPath,
       delay_secs: params.delaySecs,
       speed: params.speed,
-      output_mode: params.outputMode || 'keyboard',
+      output_mode: params.outputMode || 'osc',
       midi_output_device: params.midiDeviceId || null,
       osc_host: params.oscHost || '',
       osc_port: params.oscPort || 9000,
+      keyboard_layout: params.keyboardLayout || 'virtual_piano',
     },
   }),
   listMidiDevices: () => safeInvoke<Array<{ id: string; name: string; kind: string }>>('vrpiano_list_midi_devices'),
