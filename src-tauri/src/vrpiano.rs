@@ -1657,9 +1657,9 @@ pub async fn vrpiano_test_osc_note(
     let mode = mode.unwrap_or_else(default_osc_mode);
     let prefix = avatar_prefix.unwrap_or_else(default_osc_avatar_prefix);
     send_osc_enable_handshake(&host, port);
-    send_osc_note_event(&host, port, &mode, &prefix, note, 100, true);
+    send_osc_note_event(&host, port, &mode, &prefix, note, 0, 100, true);
     std::thread::sleep(Duration::from_millis(180));
-    send_osc_note_event(&host, port, &mode, &prefix, note, 0, false);
+    send_osc_note_event(&host, port, &mode, &prefix, note, 0, 0, false);
     Ok(())
 }
 
@@ -2818,13 +2818,13 @@ fn run_vrchat_osc_playback(
             }
 
             // Release pitches finishing at this timestamp
-            for (note, _channel) in notes_to_release {
-                send_osc_note_event(&host, port, &osc_mode, &avatar_prefix, note, 0, false);
+            for (note, channel) in notes_to_release {
+                send_osc_note_event(&host, port, &osc_mode, &avatar_prefix, note, channel, 0, false);
             }
 
             // Press newly starting pitches
-            for (note, velocity, _channel) in notes_to_send {
-                send_osc_note_event(&host, port, &osc_mode, &avatar_prefix, note, velocity, true);
+            for (note, velocity, channel) in notes_to_send {
+                send_osc_note_event(&host, port, &osc_mode, &avatar_prefix, note, channel, velocity, true);
             }
 
             let now_ms = at_ms;
@@ -3773,6 +3773,7 @@ fn send_osc_note_event(
     mode: &str,
     avatar_prefix: &str,
     note: u8,
+    channel: u8,
     velocity: u8,
     is_note_on: bool,
 ) {
@@ -3831,6 +3832,11 @@ fn send_osc_note_event(
             let _ = osc_send_message_multi(host.to_string(), port, addr.clone(), arg_bool.clone());
             let _ = osc_send_message_multi(host.to_string(), port, addr, arg_float.clone());
         }
+
+        // Rainsan86 multi-channel avatar parameter convention (/avatar/parameters/note_ch00_060)
+        let ch_addr = format!("/avatar/parameters/note_ch{:02}_{:03}", channel, note);
+        let _ = osc_send_message_multi(host.to_string(), port, ch_addr.clone(), arg_int.clone());
+        let _ = osc_send_message_multi(host.to_string(), port, ch_addr, arg_float.clone());
 
         // Mathieu52 / standard avatar parameters fallback
         if let Some(idx) = key_idx {
@@ -3892,14 +3898,14 @@ fn send_osc_all_notes_off(
     avatar_prefix: &str,
 ) {
     if !notes.is_empty() {
-        for (note, _channel) in notes {
-            send_osc_note_event(host, port, mode, avatar_prefix, *note, 0, false);
+        for (note, channel) in notes {
+            send_osc_note_event(host, port, mode, avatar_prefix, *note, *channel, 0, false);
         }
     } else {
         // When stopping or resetting, release all 88 standard piano keys (A0=21 to C8=108)
         // to guarantee no keys remain stuck down in VRChat worlds or avatars
         for note in 21..=108 {
-            send_osc_note_event(host, port, mode, avatar_prefix, note, 0, false);
+            send_osc_note_event(host, port, mode, avatar_prefix, note, 0, 0, false);
         }
         send_osc_enable_handshake(host, port);
     }
