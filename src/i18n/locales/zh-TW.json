@@ -1355,6 +1355,8 @@
     "error_verify_failed": "驗證成功但獲取用戶信息失敗",
     "error_code_wrong": "驗證碼未通過，請確認驗證方式和代碼是否匹配",
     "error_code_format": "請輸入 6 位數字驗證碼",
+    "warning_username_non_ascii": "請注意：VRChat 登錄必須使用註冊郵箱或英文用戶名，不支持遊戲內中文暱稱",
+    "error_username_non_ascii": "VRChat 登錄不支持中文暱稱，請輸入註冊郵箱或英文用戶名",
     "title": "VRC 狗狗管家",
     "subtitle": "您的全能 VRChat 社交樞紐",
     "username": "VRChat 用戶名或郵箱",

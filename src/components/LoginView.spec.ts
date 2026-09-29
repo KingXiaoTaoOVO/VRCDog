@@ -54,6 +54,7 @@ vi.mock('../api', () => ({
 }));
 
 vi.mock('../api/cookies', () => ({
+  getCookieValue: vi.fn(() => null),
   mergeCookiesAndSave: mocks.mergeCookiesAndSave,
   normalizeAuthCookieJson: (value: string | null | undefined) => value || '[]',
   parseCookieInput: () => [],
@@ -201,5 +202,22 @@ describe('LoginView two-factor flow', () => {
       authCookie: '["auth=challenge_token"]',
     });
     expect(wrapper.emitted('login-success')).toBeTruthy();
+  });
+
+  it('blocks login and warns when username contains non-ASCII characters', async () => {
+    const wrapper = mountLogin();
+    const inputs = wrapper.findAll('input');
+    await inputs[0].setValue('king小韬');
+    await inputs[1].setValue('test-password');
+
+    // Warning is visible under the input
+    expect(wrapper.text()).toContain('不支持游戏内中文昵称');
+
+    // Clicking login halts and shows error without calling VrcApi.login
+    await wrapper.find('button.bg-primary').trigger('click');
+    await flushPromises();
+
+    expect(mocks.login).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('VRChat 登录不支持中文昵称');
   });
 });

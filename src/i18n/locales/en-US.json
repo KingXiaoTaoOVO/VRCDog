@@ -1355,6 +1355,8 @@
     "error_verify_failed": "Verification succeeded but failed to get user info",
     "error_code_wrong": "Verification failed. Check that the method matches the code.",
     "error_code_format": "Enter a 6-digit verification code",
+    "warning_username_non_ascii": "Note: VRChat login requires account email or English username, display names are not supported",
+    "error_username_non_ascii": "VRChat login does not support display names. Please enter your account email or username",
     "title": "VrcDog",
     "subtitle": "Your All-in-one VRChat Social Hub",
     "username": "VRChat Username or Email",

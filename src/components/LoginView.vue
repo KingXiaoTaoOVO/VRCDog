@@ -8,7 +8,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { currentTheme } from '../theme';
-import { mergeCookiesAndSave, normalizeAuthCookieJson, parseCookieInput } from '../api/cookies';
+import { getCookieValue, mergeCookiesAndSave, normalizeAuthCookieJson, parseCookieInput } from '../api/cookies';
 import { useAuthStore } from '../stores/authStore';
 import {
   chooseDefaultTwoFactorMethod,
@@ -29,6 +29,13 @@ try {
   // Fallback for standalone/test environments without Pinia installed
 }
 const appVersion = ref('');
+
+function formatCookieForDisplay(rawCookie: string | null | undefined): string {
+  if (!rawCookie) return '';
+  const cookies = parseCookieInput(rawCookie);
+  if (cookies.length === 0) return String(rawCookie).trim();
+  return cookies.join('; ');
+}
 
 // ========== 已保存账号管理 ==========
 interface SavedAccount {
@@ -68,9 +75,12 @@ function hasUsableAuthCookie(rawCookie: string | null | undefined): boolean {
 }
 
 function prepareManualLoginFromSavedAccount(account: SavedAccount, messageKey: string) {
-  username.value = account.username || account.displayName || '';
+  const candidate = account.username || '';
+  const isAscii = Boolean(candidate && !/[^\x00-\x7F]/.test(candidate) && candidate !== account.displayName);
+  username.value = isAscii ? candidate : '';
   password.value = '';
-  authCookie.value = '';
+  const twoFa = getCookieValue(account.authCookie, 'twoFactorAuth');
+  authCookie.value = twoFa ? `twoFactorAuth=${twoFa}` : '';
   saveCredentials.value = true;
   errorMsg.value = t(messageKey);
 }
@@ -86,11 +96,15 @@ async function saveCurrentAccount(user: any, cookie: string) {
   if (!saveCredentials.value) return;
   if (!user?.id) return;
 
+  const rawUser = user.username;
+  const isAscii = Boolean(rawUser && !/[^\x00-\x7F]/.test(rawUser));
+  const safeUsername = isAscii ? rawUser : (user.email && !/[^\x00-\x7F]/.test(user.email) ? user.email : '');
+
   const existing = savedAccounts.value.findIndex(a => a.userId === user.id);
   const account: SavedAccount = {
     userId: user.id,
     displayName: user.displayName || user.display_name || user.username || 'Unknown',
-    username: user.username || user.id,
+    username: safeUsername,
     avatarUrl: user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '',
     authCookie: cookie
   };
@@ -419,6 +433,11 @@ const authCookie = ref('');
 const loading = ref(false);
 const errorMsg = ref('');
 
+const isNonAsciiUsername = computed(() => {
+  const u = username.value.trim();
+  return u.length > 0 && /[^\x00-\x7F]/.test(u);
+});
+
 const show2FA = ref(false);
 const twoFactorMethods = ref<TwoFactorMethod[]>([]);
 const selectedTwoFactorMethod = ref<TwoFactorMethod>('totp');
@@ -455,11 +474,11 @@ function beginTwoFactor(methods: unknown, cookie?: string) {
   errorMsg.value = '';
   show2FA.value = true;
   if (cookie) {
-    authCookie.value = cookie;
+    authCookie.value = formatCookieForDisplay(cookie);
   }
   if (!authCookie.value) {
     DbApi.getAuth()
-      .then((stored) => { if (stored && !authCookie.value) authCookie.value = stored; })
+      .then((stored) => { if (stored && !authCookie.value) authCookie.value = formatCookieForDisplay(stored); })
       .catch(() => {});
   }
 }
@@ -471,11 +490,21 @@ function twoFactorMethodLabel(method: TwoFactorMethod): string {
 const handleLogin = async () => {
   if (loading.value) return;
 
-  if (!username.value || !password.value) {
-    if (!authCookie.value) {
+  const rawUser = username.value.trim();
+  const rawPass = password.value;
+  const rawCookie = authCookie.value.trim();
+
+  if (!rawUser || !rawPass) {
+    if (!rawCookie) {
       errorMsg.value = t('login.error_require_credentials');
       return;
     }
+  }
+
+  // Intercept Chinese characters in username to prevent confusing "Missing Credentials" error from VRChat API
+  if (isNonAsciiUsername.value) {
+    errorMsg.value = t('login.error_username_non_ascii');
+    return;
   }
 
   authStore?.setLoginGracePeriod(60_000);
@@ -483,29 +512,36 @@ const handleLogin = async () => {
   errorMsg.value = '';
 
   try {
-    await DbApi.clearAuth();
-    await VrcApi.clearCookies();
-    if (username.value && password.value) {
-      authCookie.value = '';
+    let effectiveCookieToSend: string | null = null;
+    if (rawUser && rawPass) {
+      // If logging in with username and password:
+      // Preserve any existing twoFactorAuth cookie so VRChat recognizes this computer and skips the 2FA prompt
+      const currentStored = await DbApi.getAuth().catch(() => null);
+      const twoFaToken = getCookieValue(rawCookie, 'twoFactorAuth') || getCookieValue(currentStored, 'twoFactorAuth');
+      if (twoFaToken) {
+        effectiveCookieToSend = `twoFactorAuth=${twoFaToken}`;
+      }
+    } else if (rawCookie) {
+      effectiveCookieToSend = normalizeAuthCookieJson(rawCookie);
     }
 
     const res: any = await VrcApi.login({
-      username: username.value || null,
-      password: password.value || null,
-      authCookie: authCookie.value || null
+      username: rawUser || null,
+      password: rawPass || null,
+      authCookie: effectiveCookieToSend
     });
 
     if (res.error) {
       errorMsg.value = res.error.message || JSON.stringify(res.error);
     } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
       if (res.auth_cookie) {
-        authCookie.value = res.auth_cookie;
+        authCookie.value = formatCookieForDisplay(res.auth_cookie);
         await mergeCookiesAndSave(res.auth_cookie);
       }
       beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth, res.auth_cookie);
     } else if (res.id || res.currentUser || res.current_user) {
       if (res.auth_cookie) {
-        authCookie.value = res.auth_cookie;
+        authCookie.value = formatCookieForDisplay(res.auth_cookie);
         await mergeCookiesAndSave(res.auth_cookie);
       }
       const user = res.currentUser || res.current_user || res;
@@ -525,7 +561,7 @@ const handleLogin = async () => {
     if (methods) {
       const challengeCookie = err?.auth_cookie || err?.response?.auth_cookie;
       if (challengeCookie) {
-        authCookie.value = challengeCookie;
+        authCookie.value = formatCookieForDisplay(challengeCookie);
         await mergeCookiesAndSave(challengeCookie);
       }
       beginTwoFactor(methods, challengeCookie);
@@ -568,7 +604,7 @@ const handle2FA = async () => {
       const responseCookie = getTwoFactorResponseCookie(verifyRes);
       if (responseCookie) {
         const merged = await mergeCookiesAndSave(responseCookie);
-        authCookie.value = merged || responseCookie;
+        authCookie.value = formatCookieForDisplay(merged || responseCookie);
       }
 
       const finalCookie = await DbApi.getAuth().catch(() => null);
@@ -618,7 +654,7 @@ onMounted(async () => {
     appVersion.value = await getVersion();
     const cookie = await DbApi.getAuth();
     if (cookie) {
-      authCookie.value = cookie;
+      authCookie.value = formatCookieForDisplay(cookie);
     }
   } catch (e) {}
   await loadSavedAccounts();
@@ -758,6 +794,10 @@ onUnmounted(() => {
               :placeholder="t('login.username')"
               class="w-full px-4 py-3 rounded-xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)]"
             >
+            <p v-if="isNonAsciiUsername" class="mt-1.5 text-xs text-amber-500 font-medium flex items-center gap-1">
+              <AlertCircle :size="14" class="flex-shrink-0" />
+              <span>{{ t('login.warning_username_non_ascii') }}</span>
+            </p>
           </div>
           <div>
             <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1">
