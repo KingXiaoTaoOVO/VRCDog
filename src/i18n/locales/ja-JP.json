@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "公式インストーラーを展開中...",
     "loopmidi_launching_installer": "Windows インストールウィザードを起動中...",
     "loopmidi_install_ready": "インストールウィザードが起動しました。ポート検出を待機中...",
-    "loopmidi_installing": "loopMIDI のインストールを準備中..."
+    "loopmidi_installing": "loopMIDI のインストールを準備中...",
+    "loopmidi_running_no_port": "loopMIDI はバックグラウンドで実行中（ポートの追加が必要）",
+    "loopmidi_running_badge": "実行中 · ポート追加が必要",
+    "loopmidi_running_no_port_desc": "loopMIDI プロセスは実行中ですが、仮想ポートが検出されませんでした。loopMIDI ウィンドウを開き、左下の「+」ボタンをクリックして仮想ポートを追加してください。",
+    "loopmidi_step_1": "下の【loopMIDI ウィンドウを表示】をクリックして設定画面を開きます",
+    "loopmidi_step_2": "左下の「New port-name」入力欄の横にある「+」をクリックしてポートを作成します",
+    "loopmidi_focus_window": "loopMIDI ウィンドウを表示",
+    "loopmidi_refresh_and_connect": "再検出して接続",
+    "loopmidi_launching": "起動中..."
   },
   "danmaku": {
     "streamer_theme": "配信者テーマ",

@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "Đang giải nén trình cài đặt...",
     "loopmidi_launching_installer": "Đang khởi chạy trình hướng dẫn cài đặt Windows...",
     "loopmidi_install_ready": "Trình cài đặt đã mở, đang đợi cổng...",
-    "loopmidi_installing": "Đang chuẩn bị cài đặt loopMIDI..."
+    "loopmidi_installing": "Đang chuẩn bị cài đặt loopMIDI...",
+    "loopmidi_running_no_port": "loopMIDI đang chạy nền (cần thêm cổng ảo)",
+    "loopmidi_running_badge": "Đang chạy · Cần thêm cổng",
+    "loopmidi_running_no_port_desc": "loopMIDI đang chạy ở chế độ nền nhưng chưa tìm thấy cổng ảo. Vui lòng mở cửa sổ loopMIDI và nhấp vào '+' ở góc dưới bên trái để tạo cổng.",
+    "loopmidi_step_1": "Nhấp vào [Hiển thị cửa sổ loopMIDI] bên dưới để mở cửa sổ cấu hình",
+    "loopmidi_step_2": "Nhấp vào nút '+' cạnh ô 'New port-name' để tạo cổng ảo",
+    "loopmidi_focus_window": "Hiển thị cửa sổ loopMIDI",
+    "loopmidi_refresh_and_connect": "Quét lại và kết nối",
+    "loopmidi_launching": "Đang khởi chạy..."
   },
   "danmaku": {
     "streamer_theme": "Giao diện người phát",

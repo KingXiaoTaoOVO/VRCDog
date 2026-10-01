@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "กำลังแตกไฟล์ตัวติดตั้ง...",
     "loopmidi_launching_installer": "กำลังเปิดตัวช่วยสร้างการติดตั้ง Windows...",
     "loopmidi_install_ready": "เปิดตัวติดตั้งแล้ว กำลังรอพอร์ตเสมือน...",
-    "loopmidi_installing": "กำลังเตรียมการติดตั้ง loopMIDI..."
+    "loopmidi_installing": "กำลังเตรียมการติดตั้ง loopMIDI...",
+    "loopmidi_running_no_port": "loopMIDI กำลังทำงานอยู่เบื้องหลัง (ต้องเพิ่มพอร์ตเสมือน)",
+    "loopmidi_running_badge": "กำลังทำงาน · ต้องเพิ่มพอร์ต",
+    "loopmidi_running_no_port_desc": "ตรวจพบว่า loopMIDI กำลังทำงานอยู่ แต่ไม่พบพอร์ตเสมือน โปรดเปิดหน้าต่าง loopMIDI และคลิก '+' ที่มุมซ้ายล่างเพื่อสร้างพอร์ต",
+    "loopmidi_step_1": "คลิก [เรียกหน้าต่าง loopMIDI ขึ้นมา] ด้านล่างเพื่อเปิดการกำหนดค่า",
+    "loopmidi_step_2": "คลิกปุ่ม '+' ข้างช่อง 'New port-name' เพื่อสร้างพอร์ตเสมือน",
+    "loopmidi_focus_window": "เรียกหน้าต่าง loopMIDI ขึ้นมา",
+    "loopmidi_refresh_and_connect": "ตรวจหาใหม่และเชื่อมต่อ",
+    "loopmidi_launching": "กำลังเริ่มทำงาน..."
   },
   "danmaku": {
     "streamer_theme": "ธีมสตรีมเมอร์",

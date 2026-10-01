@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "Extrayendo el instalador...",
     "loopmidi_launching_installer": "Iniciando el asistente de instalación de Windows...",
     "loopmidi_install_ready": "Asistente iniciado, esperando detección de puerto...",
-    "loopmidi_installing": "Preparando la instalación de loopMIDI..."
+    "loopmidi_installing": "Preparando la instalación de loopMIDI...",
+    "loopmidi_running_no_port": "loopMIDI está en ejecución en segundo plano (requiere puerto)",
+    "loopmidi_running_badge": "En ejecución · Requiere puerto",
+    "loopmidi_running_no_port_desc": "loopMIDI está en ejecución, pero no se detectó ningún puerto virtual. Abra loopMIDI y haga clic en '+' en la esquina inferior izquierda para crear uno.",
+    "loopmidi_step_1": "Haga clic en [Traer loopMIDI al frente] para abrir la ventana de configuración",
+    "loopmidi_step_2": "Haga clic en el botón '+' junto a 'New port-name' para crear el puerto virtual",
+    "loopmidi_focus_window": "Traer loopMIDI al frente",
+    "loopmidi_refresh_and_connect": "Volver a detectar y conectar",
+    "loopmidi_launching": "Iniciando..."
   },
   "danmaku": {
     "streamer_theme": "Streamer theme",

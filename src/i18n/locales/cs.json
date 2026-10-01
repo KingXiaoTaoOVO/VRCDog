@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "Rozbalování instalátoru...",
     "loopmidi_launching_installer": "Spouštění průvodce instalací Windows...",
     "loopmidi_install_ready": "Instalátor spuštěn, čeká se na port...",
-    "loopmidi_installing": "Příprava instalace loopMIDI..."
+    "loopmidi_installing": "Příprava instalace loopMIDI...",
+    "loopmidi_running_no_port": "loopMIDI běží na pozadí (vyžaduje přidání portu)",
+    "loopmidi_running_badge": "Běží · Vyžaduje port",
+    "loopmidi_running_no_port_desc": "loopMIDI běží na pozadí, ale nebyl nalezen žádný virtuální port. Otevřete loopMIDI a klikněte na '+' v levém dolním rohu pro vytvoření portu.",
+    "loopmidi_step_1": "Klikněte níže na [Zobrazit okno loopMIDI] pro otevření nastavení",
+    "loopmidi_step_2": "Klikněte na tlačítko '+' vedle 'New port-name' pro vytvoření virtuálního portu",
+    "loopmidi_focus_window": "Zobrazit okno loopMIDI",
+    "loopmidi_refresh_and_connect": "Znovu detekovat a připojit",
+    "loopmidi_launching": "Spouštění..."
   },
   "danmaku": {
     "streamer_theme": "Téma streameru",

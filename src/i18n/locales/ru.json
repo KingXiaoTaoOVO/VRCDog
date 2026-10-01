@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "Распаковка установщика...",
     "loopmidi_launching_installer": "Запуск мастера установки Windows...",
     "loopmidi_install_ready": "Установщик запущен, ожидание порта...",
-    "loopmidi_installing": "Подготовка к установке loopMIDI..."
+    "loopmidi_installing": "Подготовка к установке loopMIDI...",
+    "loopmidi_running_no_port": "loopMIDI запущен в фоне (требуется создать порт)",
+    "loopmidi_running_badge": "Работает · Требуется порт",
+    "loopmidi_running_no_port_desc": "Процесс loopMIDI запущен, но виртуальный порт не обнаружен. Откройте окно loopMIDI и нажмите «+» в левом нижнем углу для создания порта.",
+    "loopmidi_step_1": "Нажмите [Открыть окно loopMIDI] ниже для перехода к настройке",
+    "loopmidi_step_2": "Нажмите кнопку «+» рядом с 'New port-name' для создания виртуального порта",
+    "loopmidi_focus_window": "Открыть окно loopMIDI",
+    "loopmidi_refresh_and_connect": "Обновить и подключить",
+    "loopmidi_launching": "Запуск..."
   },
   "danmaku": {
     "streamer_theme": "Streamer тема",

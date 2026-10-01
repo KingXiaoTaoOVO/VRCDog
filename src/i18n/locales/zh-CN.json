@@ -3423,7 +3423,15 @@
     "loopmidi_extracting": "正在解压官方安装程序...",
     "loopmidi_launching_installer": "正在启动 Windows 安装向导...",
     "loopmidi_install_ready": "安装向导已就绪，等待端口识别...",
-    "loopmidi_installing": "正在准备安装 loopMIDI..."
+    "loopmidi_installing": "正在准备安装 loopMIDI...",
+    "loopmidi_running_no_port": "loopMIDI 驱动已在后台运行，请添加虚拟端口",
+    "loopmidi_running_badge": "进程运行中 · 需添加端口",
+    "loopmidi_running_no_port_desc": "已检测到 loopMIDI 正在后台运行，但在系统中未检测到虚拟端口。请呼出 loopMIDI 窗口，在左下方添加虚拟端口，添加后系统将自动识别对接！",
+    "loopmidi_step_1": "点击下方【呼出 loopMIDI 界面】打开配置窗口",
+    "loopmidi_step_2": "在窗口左下角 New port-name 输入框旁，点击「+」按钮即可创建虚拟端口",
+    "loopmidi_focus_window": "呼出 loopMIDI 界面",
+    "loopmidi_refresh_and_connect": "重新检测对接",
+    "loopmidi_launching": "正在启动..."
   },
   "danmaku": {
     "streamer_theme": "直播姬风格",

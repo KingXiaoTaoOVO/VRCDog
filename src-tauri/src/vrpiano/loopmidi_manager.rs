@@ -55,6 +55,20 @@ fn emit_progress(
 pub fn detect_installed_loopmidi() -> Option<(PathBuf, Option<String>)> {
     #[cfg(target_os = "windows")]
     {
+        // 1. Check running processes first for exact executable path
+        let mut sys = System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        for p in sys.processes().values() {
+            let name = p.name().to_string_lossy().to_lowercase();
+            if name.contains("loopmidi") {
+                if let Some(exe) = p.exe() {
+                    if exe.exists() {
+                        return Some((exe.to_path_buf(), None));
+                    }
+                }
+            }
+        }
+
         use winreg::enums::*;
         use winreg::RegKey;
 
@@ -130,7 +144,7 @@ pub fn get_active_loopmidi_ports() -> Vec<String> {
         .into_iter()
         .filter(|d| {
             let name_lower = d.name.to_lowercase();
-            name_lower.contains("loopmidi") || name_lower.contains("virtual")
+            name_lower.contains("loopmidi") || name_lower.contains("virtual") || name_lower.contains("vrc")
         })
         .map(|d| d.name)
         .collect()
@@ -200,12 +214,15 @@ fn is_version_up_to_date(installed: &str, latest: &str) -> bool {
 pub async fn get_loopmidi_status() -> LoopMidiStatus {
     let (latest_version, download_url) = check_official_latest_loopmidi().await;
     let installed_info = detect_installed_loopmidi();
-    let installed = installed_info.is_some();
-    let installed_path = installed_info.as_ref().map(|(p, _)| p.to_string_lossy().to_string());
-    let installed_version = installed_info.as_ref().and_then(|(_, v)| v.clone());
-    let running = is_loopmidi_process_running();
     let port_names = get_active_loopmidi_ports();
     let has_virtual_port = !port_names.is_empty();
+    let mut running = is_loopmidi_process_running();
+    if has_virtual_port {
+        running = true;
+    }
+    let installed = installed_info.is_some() || running || has_virtual_port;
+    let installed_path = installed_info.as_ref().map(|(p, _)| p.to_string_lossy().to_string());
+    let installed_version = installed_info.as_ref().and_then(|(_, v)| v.clone());
 
     let is_latest = if let Some(ref inst_ver) = installed_version {
         is_version_up_to_date(inst_ver, &latest_version)
@@ -365,16 +382,52 @@ pub async fn download_and_install_loopmidi(app: AppHandle) -> Result<(), String>
     Ok(())
 }
 
-/// Automatically launches loopMIDI.exe if installed.
+/// Automatically launches loopMIDI.exe if installed and brings its window to the foreground.
 pub fn launch_loopmidi() -> Result<(), String> {
     let (exe_path, _) = detect_installed_loopmidi()
         .ok_or_else(|| "未在系统中找到 loopMIDI 安装路径，请先执行安装".to_string())?;
 
-    let cmd = format!("Start-Process -FilePath '{}'", exe_path.to_string_lossy());
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &cmd])
-        .spawn()
-        .map_err(|e| format!("启动 loopMIDI 进程失败: {e}"))?;
+    let parent_dir = exe_path.parent();
+    let mut cmd = std::process::Command::new(&exe_path);
+    if let Some(dir) = parent_dir {
+        cmd.current_dir(dir);
+    }
+
+    let spawn_res = cmd.spawn();
+    if spawn_res.is_err() {
+        let ps_cmd = format!("Start-Process -FilePath '{}'", exe_path.to_string_lossy());
+        std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .spawn()
+            .map_err(|e| format!("启动 loopMIDI 进程失败: {e}"))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetWindowTextW, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+        };
+
+        unsafe extern "system" fn enum_window_proc(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+            let mut title = [0u16; 256];
+            let len = GetWindowTextW(hwnd, &mut title);
+            if len > 0 {
+                let title_str = String::from_utf16_lossy(&title[..len as usize]);
+                if title_str.to_lowercase().contains("loopmidi") {
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    let _ = SetForegroundWindow(hwnd);
+                    return BOOL(0);
+                }
+            }
+            BOOL(1)
+        }
+
+        unsafe {
+            let _ = EnumWindows(Some(enum_window_proc), LPARAM(0));
+        }
+    }
 
     Ok(())
 }

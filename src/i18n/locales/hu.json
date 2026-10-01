@@ -3329,7 +3329,15 @@
     "loopmidi_extracting": "Telepítő kicsomagolása...",
     "loopmidi_launching_installer": "Windows telepítővarázsló indítása...",
     "loopmidi_install_ready": "A telepítő elindult, várakozás a portra...",
-    "loopmidi_installing": "loopMIDI telepítés előkészítése..."
+    "loopmidi_installing": "loopMIDI telepítés előkészítése...",
+    "loopmidi_running_no_port": "A loopMIDI fut a háttérben (virtuális port szükséges)",
+    "loopmidi_running_badge": "Fut · Port szükséges",
+    "loopmidi_running_no_port_desc": "A loopMIDI fut a háttérben, de nem található virtuális port. Nyissa meg a loopMIDI-t, és kattintson a bal alsó sarokban található '+' gombra a port létrehozásához.",
+    "loopmidi_step_1": "Kattintson az alábbi [loopMIDI ablak előtérbe hozása] gombra a beállításhoz",
+    "loopmidi_step_2": "Kattintson a '+' gombra a 'New port-name' mellett a virtuális port létrehozásához",
+    "loopmidi_focus_window": "loopMIDI ablak előtérbe hozása",
+    "loopmidi_refresh_and_connect": "Újraészlelés és csatlakozás",
+    "loopmidi_launching": "Indítás..."
   },
   "danmaku": {
     "streamer_theme": "Streamer téma",
