@@ -2129,7 +2129,9 @@
     "close": "Close menu",
     "show_main": "Show dashboard",
     "open_settings": "Open settings",
-    "quit": "Quit {app}"
+    "quit": "Quit {app}",
+    "status_ready": "Ready in Background",
+    "switch_mode": "Switch Mode"
   },
   "role": {
     "select_mode": "Select Run Mode (Server/Client)",

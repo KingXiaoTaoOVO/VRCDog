@@ -2086,7 +2086,9 @@
     "close": "fechar menu",
     "show_main": "mostrar painel",
     "open_settings": "abrir configurações",
-    "quit": "Sair do {app}"
+    "quit": "Sair do {app}",
+    "status_ready": "Pronto em segundo plano",
+    "switch_mode": "Alternar modo"
   },
   "role": {
     "select_mode": "selecionar Run modo (Server/Client)",

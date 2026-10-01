@@ -6,6 +6,32 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VrcDog</title>
+    <script>
+      (function() {
+        try {
+          if (window.location.search.indexOf('mode=tray-menu') !== -1) {
+            document.documentElement.classList.add('tray-menu-mode');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html.tray-menu-mode,
+      html.tray-menu-mode body,
+      html.tray-menu-mode #app {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 100% !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        overflow: hidden !important;
+      }
+      html.tray-menu-mode #initial-loader {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }
+    </style>
   </head>
 
   <body>

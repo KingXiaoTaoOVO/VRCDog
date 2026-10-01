@@ -2086,7 +2086,9 @@
     "close": "Fermer menu",
     "show_main": "Afficher dashboard",
     "open_settings": "Ouvrir les paramètres",
-    "quit": "Quitter {app}"
+    "quit": "Quitter {app}",
+    "status_ready": "Prêt en arrière-plan",
+    "switch_mode": "Changer de mode"
   },
   "role": {
     "select_mode": "Sélectionner Run Mode (Serveur/Client)",

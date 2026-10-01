@@ -2130,7 +2130,9 @@
     "close": "关闭菜单",
     "show_main": "显示主面板",
     "open_settings": "打开设置",
-    "quit": "退出 {app}"
+    "quit": "退出 {app}",
+    "status_ready": "后台已就绪",
+    "switch_mode": "切换运行模式"
   },
   "role": {
     "select_mode": "选择运行模式",

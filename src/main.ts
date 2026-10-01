@@ -72,16 +72,26 @@ if (import.meta.env.PROD) {
 
 const bootstrap = async () => {
   if (isTrayMenuMode) {
-    const [{ default: TrayMenuView }, { default: i18n }] = await withStartupRetry(
-      () => Promise.all([
+    try {
+      const [{ default: TrayMenuView }, { default: i18n }] = await Promise.all([
         import("./components/TrayMenuView.vue"),
         import("./i18n"),
-      ]),
-      'tray menu',
-    );
-    const trayApp = createApp(TrayMenuView);
-    trayApp.use(i18n);
-    trayApp.mount("#app");
+      ]);
+      const trayApp = createApp(TrayMenuView);
+      trayApp.use(i18n);
+      trayApp.mount("#app");
+    } catch (error) {
+      console.error('[Startup] Failed to mount tray menu:', error);
+      const root = document.getElementById('app');
+      if (root) {
+        root.innerHTML = `
+          <div style="box-sizing:border-box;padding:14px;height:100%;display:flex;flex-direction:column;justify-content:center;background:rgba(255,255,255,0.92);border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,0.18);font-family:system-ui,sans-serif;user-select:none;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#1c1917;text-align:center;">VrcDog</div>
+            <button onclick="window.__TAURI_INTERNALS__ ? window.__TAURI_INTERNALS__.invoke('tray_show_main_window') : window.location.reload()" style="width:100%;height:36px;margin-bottom:8px;border-radius:8px;border:none;background:#d97706;color:white;font-weight:700;font-size:13px;cursor:pointer;">显示主界面</button>
+            <button onclick="window.__TAURI_INTERNALS__ ? window.__TAURI_INTERNALS__.invoke('tray_quit_app') : window.close()" style="width:100%;height:34px;border-radius:8px;border:1px solid rgba(220,38,38,0.25);background:rgba(254,242,242,0.9);color:#dc2626;font-weight:600;font-size:12px;cursor:pointer;">退出</button>
+          </div>`;
+      }
+    }
     return;
   }
 
@@ -100,6 +110,7 @@ const bootstrap = async () => {
 };
 
 bootstrap().catch((error) => {
+  if (isTrayMenuMode) return;
   console.error('[Startup] VrcDog failed to boot:', error);
   const root = document.getElementById('app');
   if (root) {

@@ -2086,7 +2086,9 @@
     "close": "Zamknij menu",
     "show_main": "Pokaż panel",
     "open_settings": "Otwórz ustawienia",
-    "quit": "Zakończ {app}"
+    "quit": "Zakończ {app}",
+    "status_ready": "Gotowy w tle",
+    "switch_mode": "Przełącz tryb"
   },
   "role": {
     "select_mode": "Wybierz tryb działania (Serwer/Klient)",

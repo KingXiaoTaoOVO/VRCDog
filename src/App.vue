@@ -432,6 +432,10 @@ onMounted(async () => {
       uiStore.activeTab = 'settings';
     });
 
+    await listen('tray_reselect_mode', () => {
+      uiStore.appMode = null;
+    });
+
     try {
       const allSettings = await DbApi.getAllSettings();
       minimizeToTrayEnabled.value = allSettings?.minimizeToTray !== false && allSettings?.minimizeToTray !== 'false';

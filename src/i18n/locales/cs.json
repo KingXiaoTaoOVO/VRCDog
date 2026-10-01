@@ -2086,7 +2086,9 @@
     "close": "Zavřít nabídka",
     "show_main": "Zobrazit nástěnka",
     "open_settings": "Otevřít nastavení",
-    "quit": "Quit {app}"
+    "quit": "Quit {app}",
+    "status_ready": "Připraveno na pozadí",
+    "switch_mode": "Přepnout režim"
   },
   "role": {
     "select_mode": "Vybrat Spustit Režim (Server/Klient)",

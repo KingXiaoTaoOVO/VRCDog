@@ -2086,7 +2086,9 @@
     "close": "đóng thực đơn",
     "show_main": "hiện bảng điều khiển",
     "open_settings": "mở cài đặt",
-    "quit": "Thoát {app}"
+    "quit": "Thoát {app}",
+    "status_ready": "Sẵn sàng trong nền",
+    "switch_mode": "Chuyển chế độ"
   },
   "role": {
     "select_mode": "chọn chạy chế độ (máy chủ/máy khách)",

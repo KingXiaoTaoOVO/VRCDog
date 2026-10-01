@@ -164,22 +164,42 @@ fn show_tray_menu_window(
     cursor_x: f64,
     cursor_y: f64,
 ) -> Result<(), String> {
-    const MENU_WIDTH: f64 = 288.0;
-    const MENU_HEIGHT: f64 = 272.0;
-    const OFFSET: f64 = 12.0;
+    const MENU_WIDTH: f64 = 280.0;
+    const MENU_HEIGHT: f64 = 296.0;
+    const OFFSET: f64 = 10.0;
 
     let position_window = |window: &tauri::WebviewWindow| -> Result<(), String> {
-        let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
         let physical_width = MENU_WIDTH * scale_factor;
         let physical_height = MENU_HEIGHT * scale_factor;
-        let x = (cursor_x - physical_width + OFFSET * scale_factor).max(0.0) as i32;
-        let y = (cursor_y - physical_height - OFFSET * scale_factor).max(0.0) as i32;
+        let mut x = cursor_x - physical_width + OFFSET * scale_factor;
+        let mut y = cursor_y - physical_height - OFFSET * scale_factor;
+
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let m_pos = monitor.position();
+            let m_size = monitor.size();
+            let min_x = m_pos.x as f64;
+            let max_x = (m_pos.x + m_size.width as i32) as f64 - physical_width;
+            let min_y = m_pos.y as f64;
+            let max_y = (m_pos.y + m_size.height as i32) as f64 - physical_height;
+
+            x = x.clamp(min_x, max_x);
+            y = y.clamp(min_y, max_y);
+        } else {
+            x = x.max(0.0);
+            y = y.max(0.0);
+        }
+
         window
-            .set_position(tauri::PhysicalPosition::new(x, y))
+            .set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
             .map_err(|e| e.to_string())
     };
 
     if let Some(window) = app.get_webview_window("tray-menu") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+            return Ok(());
+        }
         window
             .set_size(tauri::LogicalSize::new(MENU_WIDTH, MENU_HEIGHT))
             .map_err(|e| e.to_string())?;
@@ -225,6 +245,14 @@ fn tray_open_settings(app: tauri::AppHandle) -> Result<(), String> {
     hide_tray_menu_window(&app);
     show_main_window(&app);
     let _ = app.emit("tray_open_settings", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn tray_reselect_mode(app: tauri::AppHandle) -> Result<(), String> {
+    hide_tray_menu_window(&app);
+    show_main_window(&app);
+    let _ = app.emit("tray_reselect_mode", ());
     Ok(())
 }
 
@@ -308,6 +336,23 @@ pub fn run() {
 
             let _ = tray.build(app);
 
+            // 预加载托盘菜单窗口（静默隐藏），确保用户点击右键托盘时 0 毫秒秒开，彻底杜绝转圈
+            let _ = tauri::WebviewWindowBuilder::new(
+                app,
+                "tray-menu",
+                tauri::WebviewUrl::App("index.html?mode=tray-menu".into()),
+            )
+            .title("VrcDog Menu")
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .visible(false)
+            .inner_size(280.0, 296.0)
+            .build();
+
             Ok(())
         })
         .manage(vrc_api::VrcState::new())
@@ -322,6 +367,7 @@ pub fn run() {
             scan_local_project_dependencies,
             tray_show_main_window,
             tray_open_settings,
+            tray_reselect_mode,
             tray_close_menu,
             tray_quit_app,
             toolchain::check_system_status,

@@ -2086,7 +2086,9 @@
     "close": "メニューを閉じる",
     "show_main": "ダッシュボードを表示",
     "open_settings": "設定を開く",
-    "quit": "{app} を終了"
+    "quit": "{app} を終了",
+    "status_ready": "バックグラウンドで準備完了",
+    "switch_mode": "モード切り替え"
   },
   "role": {
     "select_mode": "実行モードを選択 (Server/Client)",

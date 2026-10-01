@@ -2086,7 +2086,9 @@
     "close": "Cerrar menú",
     "show_main": "Mostrar panel",
     "open_settings": "Abrir configuración",
-    "quit": "Salir {app}"
+    "quit": "Salir {app}",
+    "status_ready": "Listo en segundo plano",
+    "switch_mode": "Cambiar modo"
   },
   "role": {
     "select_mode": "Seleccionar Run Modo (Servidor/Cliente)",

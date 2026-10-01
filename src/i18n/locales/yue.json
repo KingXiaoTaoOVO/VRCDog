@@ -2086,7 +2086,9 @@
     "close": "關閉菜單",
     "show_main": "顯示主面板",
     "open_settings": "打開設置",
-    "quit": "退出 {app}"
+    "quit": "退出 {app}",
+    "status_ready": "後台已就緒",
+    "switch_mode": "切換運行模式"
   },
   "role": {
     "select_mode": "揀運行模式",

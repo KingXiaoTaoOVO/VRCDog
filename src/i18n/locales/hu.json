@@ -2086,7 +2086,9 @@
     "close": "Bezárás menu",
     "show_main": "Megjelenítés dashboard",
     "open_settings": "Megnyitás beállítások",
-    "quit": "{app} bezárása"
+    "quit": "{app} bezárása",
+    "status_ready": "Készen áll a háttérben",
+    "switch_mode": "Mód váltása"
   },
   "role": {
     "select_mode": "Kiválasztás Run Mode (Server/Client)",

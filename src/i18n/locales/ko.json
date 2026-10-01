@@ -2088,7 +2088,9 @@
     "close": "닫기 menu",
     "show_main": "표시 dashboard",
     "open_settings": "열기 설정",
-    "quit": "종료 {app}"
+    "quit": "종료 {app}",
+    "status_ready": "백그라운드에서 준비됨",
+    "switch_mode": "모드 전환"
   },
   "role": {
     "select_mode": "선택 실행 모드 (Server/Client)",
