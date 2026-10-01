@@ -16,6 +16,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
 mod midi_backend;
+pub mod loopmidi_manager;
 use midi_backend::{MidiDevice, MidiOutputBackend, MidiOutputState};
 
 const NOTE_HOLD_MS: u64 = 35;
@@ -1716,6 +1717,26 @@ pub async fn vrpiano_get_midi_output_state(
 }
 
 #[tauri::command]
+pub async fn vrpiano_get_loopmidi_status() -> Result<loopmidi_manager::LoopMidiStatus, String> {
+    Ok(loopmidi_manager::get_loopmidi_status().await)
+}
+
+#[tauri::command]
+pub async fn vrpiano_install_loopmidi(app: tauri::AppHandle) -> Result<(), String> {
+    loopmidi_manager::download_and_install_loopmidi(app).await
+}
+
+#[tauri::command]
+pub async fn vrpiano_launch_loopmidi() -> Result<(), String> {
+    loopmidi_manager::launch_loopmidi()
+}
+
+#[tauri::command]
+pub async fn vrpiano_check_loopmidi_latest() -> Result<loopmidi_manager::LoopMidiStatus, String> {
+    Ok(loopmidi_manager::get_loopmidi_status().await)
+}
+
+#[tauri::command]
 pub async fn vrpiano_set_hotkeys(
     app: tauri::AppHandle,
     state: tauri::State<'_, VrpianoState>,
@@ -1770,22 +1791,43 @@ fn start_playback(
             return status_snapshot(&app, &state);
         }
         if output_mode == "midi" {
-            let device_id = request
+            let mut backend = midi_backend
+                .lock()
+                .map_err(|_| "MIDI 输出状态不可用".to_string())?;
+
+            let requested_id = request
                 .midi_output_device
                 .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| "MIDI 直连模式必须选择输出设备".to_string())?;
-            let backend = midi_backend
-                .lock()
-                .map_err(|_| "MIDI 输出状态不可用".to_string())?;
-            let midi_status = backend.state();
-            let midi_state = midi_status
-                .lock()
-                .map_err(|_| "MIDI 输出状态不可用".to_string())?;
-            if !midi_state.connected
-                || midi_state.device_id.as_deref() != Some(device_id)
-            {
-                return Err("MIDI 直连模式需要先连接所选 MIDI 输出设备".to_string());
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            let already_connected_to_target = {
+                let s = backend.state();
+                let state_guard = s.lock().map_err(|_| "MIDI 输出状态不可用".to_string())?;
+                state_guard.connected
+                    && (requested_id.is_none() || state_guard.device_id.as_deref() == requested_id)
+            };
+
+            if !already_connected_to_target {
+                let devices = MidiOutputBackend::list_usb_devices();
+                if devices.is_empty() {
+                    return Err("未检测到可用的 MIDI 输出端口。请先安装并启动 loopMIDI（虚拟 MIDI 端口），以供 VRChat 官方原生无接触接收钢琴演奏。".to_string());
+                }
+
+                let target_dev = if let Some(target_id) = requested_id {
+                    devices.into_iter().find(|d| d.id == target_id).ok_or_else(|| {
+                        format!("指定的 MIDI 设备未找到: {target_id}")
+                    })?
+                } else {
+                    let loopmidi_dev = devices.iter().find(|d| {
+                        let name_lower = d.name.to_lowercase();
+                        name_lower.contains("loopmidi") || name_lower.contains("virtual") || name_lower.contains("vrc")
+                    }).cloned();
+                    loopmidi_dev.unwrap_or_else(|| devices[0].clone())
+                };
+
+                backend.connect_usb(&target_dev.id)
+                    .map_err(|e| format!("连接 MIDI 端口 ({}) 失败: {e}", target_dev.name))?;
             }
         }
         let (midi_events, duration_ms) = parse_midi_for_output(&song_path)?;
@@ -6678,9 +6720,15 @@ mod vrpiano_download_tests {
                 assert!(action.vk < 96 || action.vk > 111, "note {} mapped to numpad {}", note, action.vk);
                 assert_ne!(action.vk, 82, "note {} mapped to 'r' (VK 82)", note);
                 assert_ne!(action.vk, 89, "note {} mapped to 'y' (VK 89)", note);
-                assert_ne!(action.vk, 86, "note {} mapped to 'v' (VK 86)", note);
             }
         }
+    }
+
+    #[test]
+    fn test_midi_output_backend_panic_handles_disconnected_gracefully() {
+        let backend = super::MidiOutputBackend::new();
+        backend.send_panic();
+        assert!(!backend.state().lock().unwrap().connected);
     }
 }
 

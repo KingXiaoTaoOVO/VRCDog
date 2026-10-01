@@ -282,6 +282,18 @@ const groupedFriends = computed(() => {
   };
 });
 
+const filteredActiveFriends = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return activeFriends.value;
+  return activeFriends.value.filter(f => (f.displayName || '').toLowerCase().includes(q));
+});
+
+const filteredOfflineFriends = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return offlineFriends.value;
+  return offlineFriends.value.filter(f => (f.displayName || '').toLowerCase().includes(q));
+});
+
 const filteredGroups = computed(() => {
   const q = groupSearchQuery.value.trim().toLowerCase();
   if (!q) return groups.value;
@@ -544,18 +556,18 @@ const resolveWorldNames = async () => {
           </div>
 
           <!-- 活跃中 (Active on website) -->
-          <div v-if="activeFriends.length > 0 && !searchQuery" class="mb-2">
+          <div v-if="filteredActiveFriends.length > 0" class="mb-2">
             <div 
               class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5"
               @click="toggleSection('active')"
             >
               <component :is="collapsedSections.has('active') ? ChevronRight : ChevronDown" class="w-4 h-4 text-primary" />
               {{ t('friends.active_web') }}
-              <span class="ml-auto bg-primary text-white px-2.5 py-0.5 rounded-full text-[11px] border-2 border-primary/20">{{ activeFriends.length }}</span>
+              <span class="ml-auto bg-primary text-white px-2.5 py-0.5 rounded-full text-[11px] border-2 border-primary/20">{{ filteredActiveFriends.length }}</span>
             </div>
-            <div v-show="!collapsedSections.has('active')" class="mt-1 pl-1 pr-1">
+            <div v-show="!collapsedSections.has('active') || searchQuery" class="mt-1 pl-1 pr-1">
               <FriendItem 
-                v-for="friend in activeFriends" 
+                v-for="friend in filteredActiveFriends" 
                 :key="friend.id"
                 :friend="friend" 
                 :statusColor="getStatusColor(friend.status)" 
@@ -567,18 +579,18 @@ const resolveWorldNames = async () => {
           </div>
 
           <!-- 离线 (Offline) -->
-          <div v-if="offlineFriends.length > 0 && !searchQuery" class="mb-4">
+          <div v-if="filteredOfflineFriends.length > 0" class="mb-4">
             <div 
               class="flex items-center gap-2 py-2 px-4 cursor-pointer bg-[var(--theme-surface)] border-2 border-transparent hover:border-border-soft rounded-2xl transition-all text-[14px] font-black text-[var(--theme-text-muted)] select-none mx-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 opacity-80"
               @click="toggleSection('offline')"
             >
               <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-4 h-4" />
               {{ t('friends.offline') }}
-              <span class="ml-auto bg-[var(--theme-surface)]-hover px-2.5 py-0.5 rounded-full text-[11px] border-2 border-border-soft">{{ offlineFriends.length }}</span>
+              <span class="ml-auto bg-[var(--theme-surface)]-hover px-2.5 py-0.5 rounded-full text-[11px] border-2 border-border-soft">{{ filteredOfflineFriends.length }}</span>
             </div>
-            <div v-show="!collapsedSections.has('offline')" class="mt-1 pl-1 pr-1 opacity-80 hover:opacity-100 transition-opacity">
+            <div v-show="!collapsedSections.has('offline') || searchQuery" class="mt-1 pl-1 pr-1 opacity-80 hover:opacity-100 transition-opacity">
               <FriendItem 
-                v-for="friend in offlineFriends" 
+                v-for="friend in filteredOfflineFriends" 
                 :key="friend.id"
                 :friend="friend" 
                 :statusColor="''" 

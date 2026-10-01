@@ -171,9 +171,19 @@ impl MidiOutputBackend {
 
     pub fn send_panic(&self) {
         for channel in 0..16u8 {
+            // Pedal Off: CC 64 (Damper/Sustain), CC 66 (Sostenuto), CC 67 (Soft)
+            let _ = self.send_control_change(channel, 64, 0);
+            let _ = self.send_control_change(channel, 66, 0);
+            let _ = self.send_control_change(channel, 67, 0);
             let _ = self.send_all_notes_off(channel);
             let _ = self.send_reset_all_controllers(channel);
             let _ = self.send_all_sound_off(channel);
+            if let Some(conn) = &self.connection {
+                if let Ok(mut c) = conn.lock() {
+                    let pb_status = 0xE0 | (channel & 0x0F);
+                    let _ = c.send(&[pb_status, 0x00, 0x40]);
+                }
+            }
         }
         // CC123/CC120 are the device-level panic messages. Avoid sending
         // 2,048 individual NoteOff packets here: slow MIDI endpoints can

@@ -19,6 +19,7 @@ import {
   Gauge,
   Headphones,
   ImagePlus,
+  Info,
   LogIn,
   LogOut,
   Link2,
@@ -43,7 +44,7 @@ import {
   Keyboard,
   Cable,
 } from 'lucide-vue-next';
-import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoMidishowLoginStatus, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus } from '../api';
+import { VrpianoApi, type VrpianoMidiData, type VrpianoMidishowAccount, type VrpianoMidishowLoginStatus, type VrpianoOnlineSong, type VrpianoSong, type VrpianoStatus, type LoopMidiStatus, type LoopMidiInstallProgress } from '../api';
 import { SysApi } from '../api';
 import {
   GENERAL_MIDI_GROUPS,
@@ -194,7 +195,10 @@ const playlist = useStorage<string[]>('vrcdog.vrpiano.playlist.v1', []);
 const midiDevices = ref<Array<{ id: string; name: string; kind: string }>>([]);
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const midiOutputState = ref<{ connected: boolean; device_id?: string; device_name?: string }>({ connected: false });
-const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v2', 'osc');
+const loopMidiStatus = ref<LoopMidiStatus | null>(null);
+const loopMidiInstalling = ref(false);
+const loopMidiProgress = ref<LoopMidiInstallProgress | null>(null);
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v3', 'midi');
 const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
 const channelRouted = ref<boolean[]>(Array.from({ length: 16 }, () => true));
 
@@ -232,6 +236,7 @@ let unlistenOverlayClosed: (() => void) | null = null;
 let unlistenMidishowLogin: (() => void) | null = null;
 let unlistenPreviewSong: (() => void) | null = null;
 let unlistenVrAction: (() => void) | null = null;
+let unlistenLoopMidiProgress: (() => void) | null = null;
 let pollTimer: number | null = null;
 let midishowLoginPollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
@@ -816,7 +821,7 @@ const init = async () => {
     } else {
       hotkeysEnabled.value = Boolean(status.value.hotkeys_enabled);
     }
-    await Promise.all([refreshSongs(), loadMidishowAccounts(), refreshMidiDevices()]);
+    await Promise.all([refreshSongs(), loadMidishowAccounts(), refreshMidiDevices(), refreshLoopMidiStatus()]);
     if (playlist.value.length > 0) {
       void VrpianoApi.setPlaylist({ songs: playlist.value }).catch(() => {});
     }
@@ -1236,17 +1241,30 @@ const testOscNote = async () => {
 };
 
 const startDirectMidi = async () => {
-  if (!selectedSong.value || !selectedMidiDevice.value) {
-    error.value = t('vrpiano.select_midi_device_for_direct_playback');
-    return;
-  }
-  if (!midiOutputState.value.connected || midiOutputState.value.device_id !== selectedMidiDevice.value) {
-    error.value = t('vrpiano.connect_midi_device_before_direct_playback');
-    return;
-  }
+  if (!selectedSong.value) return;
   loading.value = true;
   error.value = '';
   try {
+    if (!midiDevices.value.length) {
+      await refreshMidiDevices();
+    }
+    if (!midiOutputState.value.connected || !selectedMidiDevice.value) {
+      if (midiDevices.value.length > 0) {
+        const target = selectedMidiDevice.value
+          ? midiDevices.value.find(d => d.id === selectedMidiDevice.value)
+          : (midiDevices.value.find(d => /loopmidi|virtual|vrc/i.test(d.name)) || midiDevices.value[0]);
+        if (target) {
+          selectedMidiDevice.value = target.id;
+          await connectMidiDevice();
+        }
+      }
+    }
+
+    if (!selectedMidiDevice.value) {
+      error.value = t('vrpiano.no_midi_devices_hint');
+      addLog(t('vrpiano.no_midi_devices_hint'));
+      return;
+    }
     if (status.value.running) {
       await VrpianoApi.stop();
       await waitUntilPlaybackStops();
@@ -1658,7 +1676,12 @@ const refreshMidiDevices = async () => {
   try {
     midiDevices.value = await VrpianoApi.listMidiDevices();
     midiOutputState.value = await VrpianoApi.getMidiOutputState();
-    if (midiOutputState.value.device_id) selectedMidiDevice.value = midiOutputState.value.device_id;
+    if (midiOutputState.value.device_id) {
+      selectedMidiDevice.value = midiOutputState.value.device_id;
+    } else if (!selectedMidiDevice.value && midiDevices.value.length > 0) {
+      const loopDevice = midiDevices.value.find(d => /loopmidi|virtual|vrc/i.test(d.name));
+      selectedMidiDevice.value = (loopDevice || midiDevices.value[0]).id;
+    }
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -1679,6 +1702,95 @@ const disconnectMidiDevice = async () => {
   try {
     midiOutputState.value = await VrpianoApi.disconnectMidiDevice();
     addLog(t('vrpiano.midi_device_disconnected'));
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const refreshLoopMidiStatus = async () => {
+  if (!isTauri()) return;
+  try {
+    const res = await VrpianoApi.getLoopMidiStatus();
+    if (res) {
+      loopMidiStatus.value = res;
+      if (res.has_virtual_port) {
+        await refreshMidiDevices();
+        if (!selectedMidiDevice.value) {
+          const found = midiDevices.value.find(d => /loopmidi/i.test(d.name));
+          if (found) {
+            selectedMidiDevice.value = found.id;
+            await connectMidiDevice();
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    console.error('Failed to get loopMIDI status:', e);
+  }
+};
+
+const checkLoopMidiUpdate = async () => {
+  if (!isTauri()) return;
+  try {
+    addLog(t('vrpiano.checking_loopmidi_latest'));
+    const res = await VrpianoApi.checkLoopMidiLatest();
+    if (res) {
+      loopMidiStatus.value = res;
+      addLog(t('vrpiano.detected_loopmidi_latest', { version: res.latest_version }));
+    }
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const installLoopMidi = async () => {
+  if (!isTauri() || loopMidiInstalling.value) return;
+  loopMidiInstalling.value = true;
+  loopMidiProgress.value = {
+    phase: 'checking',
+    progress: 0.05,
+    bytes_downloaded: 0,
+    total_bytes: 0,
+    message: t('vrpiano.connecting_official_server'),
+  };
+  addLog(t('vrpiano.start_installing_loopmidi', { version: loopMidiStatus.value?.latest_version || '最新版' }));
+  try {
+    await VrpianoApi.installLoopMidi();
+    let attempts = 0;
+    const pollInterval = window.setInterval(async () => {
+      attempts++;
+      await refreshLoopMidiStatus();
+      if (loopMidiStatus.value?.installed || attempts >= 30) {
+        clearInterval(pollInterval);
+        loopMidiInstalling.value = false;
+        if (loopMidiStatus.value?.installed) {
+          addLog(t('vrpiano.loopmidi_installed_success'));
+        }
+      }
+    }, 3000);
+  } catch (e: any) {
+    loopMidiInstalling.value = false;
+    error.value = e.message || String(e);
+    addLog(t('vrpiano.loopmidi_install_failed', { error: error.value }));
+  }
+};
+
+const launchLoopMidi = async () => {
+  if (!isTauri()) return;
+  try {
+    addLog(t('vrpiano.launching_loopmidi'));
+    await VrpianoApi.launchLoopMidi();
+    let attempts = 0;
+    const poll = window.setInterval(async () => {
+      attempts++;
+      await refreshLoopMidiStatus();
+      if (loopMidiStatus.value?.has_virtual_port || attempts >= 6) {
+        clearInterval(poll);
+        if (loopMidiStatus.value?.has_virtual_port) {
+          addLog(t('vrpiano.loopmidi_port_detected_auto_connected'));
+        }
+      }
+    }, 1500);
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -1712,15 +1824,10 @@ watch([outputMode, keyboardLayout, selectedMidiDevice, vrchatOscHost, vrchatOscP
   if (hotkeysEnabled.value) scheduleHotkeyApply();
 });
 
-// 切换到「无接触 VRChat OSC」模式时，若已选曲且未在播放，则自动开始远程演奏，
-// 满足用户“开启即自动弹”的预期。仅在该模式被“主动切换”到时触发（watch 不会在
-// 组件挂载/持久化恢复时立即触发），避免在 App 启动时就自动开播。
-watch(outputMode, (newMode, oldMode) => {
-  if (newMode === 'osc' && oldMode !== 'osc' && !vrpianoDisposed) {
-    if (selectedSong.value && !status.value.running && !loading.value) {
-      addLog(t('vrpiano.auto_start_vrchat_osc'));
-      void start();
-    }
+// 切换到 MIDI 直连模式时，自动刷新并探测可用虚拟/硬件 MIDI 设备
+watch(outputMode, (newMode) => {
+  if (newMode === 'midi' && !vrpianoDisposed) {
+    void refreshMidiDevices();
   }
 });
 
@@ -1757,6 +1864,14 @@ onMounted(async () => {
     });
     unlistenMidishowLogin = await listen<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status', (event) => {
       void applyMidishowLoginStatus(event.payload);
+    });
+    unlistenLoopMidiProgress = await listen<LoopMidiInstallProgress>('vrpiano_loopmidi_progress', (event) => {
+      loopMidiProgress.value = event.payload;
+      if (event.payload.phase === 'completed' || event.payload.phase === 'launching') {
+        void refreshLoopMidiStatus();
+      } else if (event.payload.phase === 'error') {
+        loopMidiInstalling.value = false;
+      }
     });
     unlistenStatus = await listen<VrpianoStatus>('vrpiano_status', (event) => {
       status.value = event.payload;
@@ -1812,6 +1927,7 @@ onUnmounted(async () => {
   if (unlistenMidishowLogin) unlistenMidishowLogin();
   if (unlistenPreviewSong) unlistenPreviewSong();
   if (unlistenVrAction) unlistenVrAction();
+  if (unlistenLoopMidiProgress) unlistenLoopMidiProgress();
   stopMidishowLoginPolling();
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (speedApplyTimer !== null) window.clearTimeout(speedApplyTimer);
@@ -2085,13 +2201,8 @@ onUnmounted(async () => {
           <div class="control-section output-mode-section">
             <strong>{{ t('vrpiano.output_mode') }}</strong>
             <div class="output-mode-grid">
-              <button class="output-mode-card" :class="{ active: outputMode === 'osc' }" @click="outputMode = 'osc'">
-                <div class="card-badge recommended">{{ t('vrpiano.recommended_vr') }}</div>
-                <Radio :size="16" />
-                <span>{{ t('vrpiano.vrchat_osc_mode') }}</span>
-                <small>{{ t('vrpiano.vrchat_osc_desc') }}</small>
-              </button>
               <button class="output-mode-card" :class="{ active: outputMode === 'midi' }" @click="outputMode = 'midi'">
+                <div class="card-badge recommended">{{ t('vrpiano.recommended_vrc_native') }}</div>
                 <Cable :size="16" />
                 <span>{{ t('vrpiano.direct_midi_mode') }}</span>
                 <small>{{ t('vrpiano.direct_midi_desc') }}</small>
@@ -2102,16 +2213,123 @@ onUnmounted(async () => {
                 <span>{{ t('vrpiano.pc_keyboard_mode') }}</span>
                 <small>{{ t('vrpiano.pc_keyboard_desc') }}</small>
               </button>
+              <button class="output-mode-card" :class="{ active: outputMode === 'osc' }" @click="outputMode = 'osc'">
+                <div class="card-badge avatar-only">{{ t('vrpiano.avatar_osc_tag') }}</div>
+                <Radio :size="16" />
+                <span>{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                <small>{{ t('vrpiano.vrchat_osc_desc') }}</small>
+              </button>
             </div>
+
+            <!-- MIDI Mode Config & Device Selector -->
+            <div v-if="outputMode === 'midi'" class="midi-config-box">
+              <div class="midi-device-selector-inline">
+                <label for="midi-device-select-inline" class="layout-label">
+                  <Cable :size="14" />
+                  <span>{{ t('vrpiano.midi_device') }}</span>
+                </label>
+                <div class="control-row">
+                  <select id="midi-device-select-inline" v-model="selectedMidiDevice" class="midi-device-select">
+                    <option v-if="!midiDevices.length" value="" disabled>{{ t('vrpiano.no_midi_devices') }}</option>
+                    <option v-for="device in midiDevices" :key="device.id" :value="device.id">{{ device.name }}</option>
+                  </select>
+                  <button class="small-action" :disabled="!selectedMidiDevice || midiOutputState.connected" @click="connectMidiDevice">
+                    <Link2 :size="14" /> {{ t('vrpiano.connect') }}
+                  </button>
+                  <button class="small-action ghost" :disabled="!midiOutputState.connected" @click="disconnectMidiDevice">
+                    <X :size="14" /> {{ t('vrpiano.disconnect') }}
+                  </button>
+                  <button class="small-action ghost" :title="t('vrpiano.refresh_devices')" @click="refreshMidiDevices">
+                    <RefreshCcw :size="14" />
+                  </button>
+                </div>
+              </div>
+              <!-- 1. loopMIDI 未安装：一键自动从官方源下载最新版并安装 -->
+              <div v-if="loopMidiStatus && !loopMidiStatus.installed" class="loopmidi-auto-install-card">
+                <div class="install-header">
+                  <div class="install-title-group">
+                    <Info :size="16" class="banner-icon" />
+                    <strong>{{ t('vrpiano.loopmidi_not_installed_title') }}</strong>
+                    <span class="version-badge">v{{ loopMidiStatus.latest_version }} ({{ t('vrpiano.official_latest') }})</span>
+                  </div>
+                  <button class="check-update-btn" :title="t('vrpiano.check_official_latest')" @click="checkLoopMidiUpdate">
+                    <RefreshCcw :size="12" /> {{ t('vrpiano.detect_latest') }}
+                  </button>
+                </div>
+                <p class="install-desc">{{ t('vrpiano.loopmidi_auto_install_desc') }}</p>
+                <div v-if="loopMidiInstalling && loopMidiProgress" class="install-progress-box">
+                  <div class="progress-track">
+                    <div class="progress-fill" :style="{ width: `${Math.round(loopMidiProgress.progress * 100)}%` }"></div>
+                  </div>
+                  <div class="progress-meta">
+                    <Loader2 :size="13" class="spin-icon" />
+                    <span>{{ loopMidiProgress.message }}</span>
+                    <span class="progress-pct">{{ Math.round(loopMidiProgress.progress * 100) }}%</span>
+                  </div>
+                </div>
+                <div v-else class="install-action-row">
+                  <button class="install-btn primary" :disabled="loopMidiInstalling" @click="installLoopMidi">
+                    <Download :size="14" /> {{ t('vrpiano.one_click_install_loopmidi', { version: loopMidiStatus.latest_version }) }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 2. loopMIDI 已安装但未启动：一键启动 -->
+              <div v-else-if="loopMidiStatus && loopMidiStatus.installed && !loopMidiStatus.has_virtual_port" class="loopmidi-launch-card">
+                <div class="install-header">
+                  <div class="install-title-group">
+                    <Cable :size="16" class="banner-icon" />
+                    <strong>{{ t('vrpiano.loopmidi_installed_not_running') }}</strong>
+                    <span v-if="loopMidiStatus.installed_version" class="version-badge subtle">v{{ loopMidiStatus.installed_version }}</span>
+                  </div>
+                  <button class="check-update-btn" :title="t('vrpiano.check_official_latest')" @click="checkLoopMidiUpdate">
+                    <RefreshCcw :size="12" /> {{ t('vrpiano.detect_latest') }}
+                  </button>
+                </div>
+                <p class="install-desc">{{ t('vrpiano.loopmidi_launch_desc') }}</p>
+                <div class="install-action-row">
+                  <button class="install-btn primary" @click="launchLoopMidi">
+                    <Play :size="14" /> {{ t('vrpiano.one_click_launch_loopmidi') }}
+                  </button>
+                  <button v-if="!loopMidiStatus.is_latest" class="install-btn secondary" :disabled="loopMidiInstalling" @click="installLoopMidi">
+                    <Download :size="14" /> {{ t('vrpiano.update_to_latest', { version: loopMidiStatus.latest_version }) }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 3. 已就绪/已连接 -->
+              <div v-else-if="midiOutputState.connected || (loopMidiStatus && loopMidiStatus.has_virtual_port)" class="midi-status-banner connected">
+                <span class="status-dot online"></span>
+                <span>{{ t('vrpiano.connected_device', { device: midiOutputState.device_name || loopMidiStatus?.port_names[0] || selectedMidiDevice }) }}</span>
+                <span class="status-sub">（{{ t('vrpiano.midi_ready_hint') }} · {{ t('vrpiano.version_label', { version: loopMidiStatus?.latest_version || '1.0.16.27' }) }}）</span>
+                <button class="check-update-btn ghost" :title="t('vrpiano.check_official_latest')" @click="checkLoopMidiUpdate">
+                  <RefreshCcw :size="12" />
+                </button>
+              </div>
+
+              <!-- 4. 兜底引导 -->
+              <div v-else-if="!midiDevices.length" class="midi-setup-banner">
+                <Info :size="16" class="banner-icon" />
+                <div class="banner-info">
+                  <strong>{{ t('vrpiano.midi_loopmidi_guide_title') }}</strong>
+                  <span>{{ t('vrpiano.midi_loopmidi_guide_desc') }}</span>
+                </div>
+              </div>
+              <button class="direct-midi-action" :disabled="loading || !selectedSong" @click="startDirectMidi">
+                <Cable :size="14" /> {{ t('vrpiano.start_direct_midi') }}
+              </button>
+            </div>
+
+            <!-- Keyboard Mode Anti-Conflict Banner & Layout Selector -->
             <div v-if="outputMode === 'keyboard'" class="keyboard-anti-chatbox-banner">
               <ShieldCheck :size="18" class="banner-icon" />
               <div class="banner-info">
                 <strong>{{ t('vrpiano.anti_chatbox_title') }}</strong>
                 <span>{{ t('vrpiano.anti_chatbox_desc') }}</span>
               </div>
-              <button class="banner-switch-btn" type="button" @click="outputMode = 'osc'">
-                <Radio :size="13" />
-                <span>{{ t('vrpiano.switch_to_osc') }}</span>
+              <button class="banner-switch-btn" type="button" @click="outputMode = 'midi'">
+                <Cable :size="13" />
+                <span>{{ t('vrpiano.switch_to_midi') }}</span>
               </button>
             </div>
             <div v-if="outputMode === 'keyboard'" class="keyboard-layout-selector">
@@ -2125,9 +2343,6 @@ onUnmounted(async () => {
                 </option>
               </select>
             </div>
-            <button v-if="outputMode === 'midi'" class="direct-midi-action" :disabled="loading || !selectedSong || !midiOutputState.connected" @click="startDirectMidi">
-              <Cable :size="14" /> {{ t('vrpiano.start_direct_midi') }}
-            </button>
           </div>
 
           <div class="control-section">
@@ -2207,28 +2422,6 @@ onUnmounted(async () => {
               </li>
             </ul>
             <p v-else class="playlist-empty">{{ t('vrpiano.playlist_empty') }}</p>
-          </div>
-
-          <div class="control-section">
-            <strong>{{t('vrpiano.midi_device') }}</strong>
-            <div class="control-row">
-              <select v-model="selectedMidiDevice" class="midi-device-select">
-                <option v-if="!midiDevices.length" value="" disabled>{{t('vrpiano.no_midi_devices') }}</option>
-                <option v-for="device in midiDevices" :key="device.id" :value="device.id">{{ device.name }}</option>
-              </select>
-              <button class="small-action" :disabled="!selectedMidiDevice || midiOutputState.connected" @click="connectMidiDevice">
-                <Link2 :size="14" /> {{t('vrpiano.connect') }}
-              </button>
-              <button class="small-action ghost" :disabled="!midiOutputState.connected" @click="disconnectMidiDevice">
-                <X :size="14" /> {{t('vrpiano.disconnect') }}
-              </button>
-              <button class="small-action ghost" :title="t('vrpiano.refresh_devices')" @click="refreshMidiDevices">
-                <RefreshCcw :size="14" />
-              </button>
-            </div>
-            <p v-if="midiOutputState.connected" class="osc-status">
-              {{ t('vrpiano.connected_device', { device: midiOutputState.device_name || '' }) }}
-            </p>
           </div>
 
           <div class="control-section">
@@ -3402,6 +3595,264 @@ select option {
   background: color-mix(in srgb, #10b981 18%, transparent);
   color: #34d399;
   border: 1px solid color-mix(in srgb, #10b981 35%, transparent);
+}
+
+.output-mode-card .card-badge.avatar-only {
+  background: color-mix(in srgb, #64748b 20%, transparent);
+  color: #94a3b8;
+  border: 1px solid color-mix(in srgb, #64748b 35%, transparent);
+}
+
+.midi-config-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vp-primary) 6%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 20%, var(--vp-border));
+}
+
+.midi-device-selector-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.midi-device-selector-inline .layout-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--vp-text);
+  white-space: nowrap;
+}
+
+.loopmidi-auto-install-card {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #3b82f6 10%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, #3b82f6 25%, var(--vp-border));
+}
+
+.loopmidi-launch-card {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 10%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, #f59e0b 25%, var(--vp-border));
+}
+
+.install-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.install-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.install-title-group strong {
+  color: var(--vp-text);
+  font-weight: 700;
+}
+
+.version-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #3b82f6 20%, transparent);
+  border: 1px solid color-mix(in srgb, #3b82f6 40%, transparent);
+  color: #60a5fa;
+}
+
+.version-badge.subtle {
+  background: color-mix(in srgb, var(--vp-muted) 15%, transparent);
+  border-color: var(--vp-border);
+  color: var(--vp-muted);
+}
+
+.check-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--vp-surface);
+  border: 1px solid var(--vp-border);
+  color: var(--vp-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.check-update-btn:hover {
+  color: var(--vp-text);
+  border-color: var(--vp-primary);
+}
+
+.check-update-btn.ghost {
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+}
+
+.install-desc {
+  font-size: 11px;
+  color: var(--vp-muted);
+  margin: 6px 0 8px 0;
+  line-height: 1.4;
+}
+
+.install-progress-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--vp-border) 60%, transparent);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.2s ease;
+}
+
+.progress-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--vp-muted);
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+.progress-pct {
+  margin-left: auto;
+  font-weight: 700;
+  color: #60a5fa;
+}
+
+.install-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.install-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.install-btn.primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.install-btn.primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.install-btn.secondary {
+  background: var(--vp-surface);
+  border: 1px solid var(--vp-border);
+  color: var(--vp-text);
+}
+
+.install-btn.secondary:hover:not(:disabled) {
+  border-color: var(--vp-primary);
+}
+
+.install-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.midi-setup-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #3b82f6 10%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, #3b82f6 25%, var(--vp-border));
+}
+
+.midi-setup-banner .banner-icon {
+  flex-shrink: 0;
+  color: #3b82f6;
+  margin-top: 2px;
+}
+
+.midi-setup-banner .banner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.midi-setup-banner .banner-info strong {
+  font-size: 12px;
+  color: #60a5fa;
+  font-weight: 700;
+}
+
+.midi-setup-banner .banner-info span {
+  font-size: 11px;
+  color: var(--vp-muted);
+  line-height: 1.4;
+}
+
+.midi-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #10b981;
+}
+
+.midi-status-banner .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+.midi-status-banner .status-sub {
+  font-size: 11px;
+  color: var(--vp-dim);
+  font-weight: normal;
 }
 
 .keyboard-anti-chatbox-banner {

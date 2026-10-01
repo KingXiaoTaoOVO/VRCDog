@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, UserPlus, UserCheck, Clock3, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2, Crown, Lock } from "lucide-vue-next";
+import { X, MoreHorizontal, Star, Copy, RefreshCcw, Share2, ExternalLink, ShieldBan, UserMinus, UserPlus, UserCheck, Clock3, VolumeX, MessageSquareOff, Eye, EyeOff, User, Users, UsersRound, Globe, Map, Cuboid, History, Code, Info, LogIn, Mail, Hand, Download, ZoomIn, ZoomOut, RotateCw, RotateCcw, Shield, Monitor, Smartphone, Flag, Check, MapPin, Clock, Calendar, AlignLeft, PencilLine, Save, ChevronDown, Languages, Loader2, Trash2, Crown, Lock, Sparkles, Palette } from "lucide-vue-next";
 import { useUserProfileStore } from "../stores/userProfile";
 import { useAuthStore } from "../stores/authStore";
 import { useEntityModalStore } from "../stores/entityModal";
@@ -1271,6 +1271,29 @@ const avatarImageUrl = computed(() =>
   profileStore.baseInfo?.currentAvatarThumbnailImageUrl || ""
 );
 
+const userBannerUrl = computed(() => {
+  const base = profileStore.baseInfo as any;
+  if (!base) return '';
+  return base.profileBanner || base.bannerUrl || base.bannerImageUrl || '';
+});
+
+const userIconFrame = computed(() => {
+  const base = profileStore.baseInfo as any;
+  if (!base) return '';
+  return base.iconFrame || base.profileIconFrame || '';
+});
+
+const userCosmetics = computed(() => {
+  const base = profileStore.baseInfo as any;
+  if (!base) return null;
+  return {
+    iconFrame: base.iconFrame || base.profileIconFrame,
+    nameplateEffect: base.nameplateEffect || base.nameplate,
+    profileEffect: base.profileEffect,
+    hasOverride: Boolean(base.profilePicOverride),
+  };
+});
+
 const openGroupDetail = async (group: any) => {
   const groupId = group?.id || group?.groupId || group?.group?.id;
   if (!groupId) return;
@@ -1805,14 +1828,30 @@ watch(activeTab, (tab) => {
             <span class="font-bold truncate max-w-[150px]" style="color: var(--theme-text-strong);">{{ profileStore.baseInfo?.displayName }}</span>
           </div>
 
+          <!-- ── HERO BANNER (VRChat / VRCX Profile Cosmetics) ── -->
+          <div v-if="userBannerUrl" class="w-full h-32 relative overflow-hidden shrink-0 border-b border-border-soft">
+            <img :src="userBannerUrl" class="w-full h-full object-cover" loading="lazy" />
+            <div class="absolute inset-0 bg-gradient-to-t from-[var(--theme-surface)]/90 via-transparent to-transparent" />
+            <div v-if="userCosmetics?.profileEffect" class="absolute top-2 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/25 text-purple-300 border border-purple-500/40 backdrop-blur-md flex items-center gap-1">
+              <Sparkles :size="10" /> {{ userCosmetics.profileEffect }}
+            </div>
+          </div>
+
           <!-- ── HEADER ─────────────────────────────────────────── -->
           <div class="flex gap-4 p-4 shrink-0" style="border-bottom: 1px solid var(--theme-border-soft);">
             <!-- Avatar -->
             <div class="shrink-0 cursor-pointer" @click="toggleImagePreview">
-              <div class="relative" style="width:160px; height:120px; border-radius:12px; overflow:hidden; background: var(--theme-surface);">
+              <div 
+                class="relative transition-all" 
+                :class="{ 'ring-2 ring-amber-400 ring-offset-2 ring-offset-[var(--theme-bg-main)] shadow-lg shadow-amber-400/20': userIconFrame }"
+                style="width:160px; height:120px; border-radius:12px; overflow:hidden; background: var(--theme-surface);"
+              >
                 <img v-if="avatarImageUrl" :src="avatarImageUrl" class="w-full h-full object-cover" loading="lazy" />
                 <div v-else class="w-full h-full flex items-center justify-center" style="color: var(--theme-text-muted);">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                </div>
+                <div v-if="userIconFrame" class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/80 text-black backdrop-blur-md" :title="`Icon Frame: ${userIconFrame}`">
+                  FRAME
                 </div>
               </div>
             </div>
@@ -1878,6 +1917,16 @@ watch(activeTab, (tab) => {
                 <span v-if="ageVerificationLabel" class="badge" style="color:#3b82f6; border-color:#3b82f6; background:#3b82f615;" title="Age Verified">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/></svg>
                   {{ ageVerificationLabel }}
+                </span>
+                <!-- Profile Cosmetics: Nameplate Effect -->
+                <span v-if="userCosmetics?.nameplateEffect" class="badge" style="color:#c084fc; border-color:#c084fc; background:#c084fc15;" :title="`Nameplate: ${userCosmetics.nameplateEffect}`">
+                  <Sparkles :size="11" class="inline mr-1 text-purple-400" />
+                  {{ userCosmetics.nameplateEffect }}
+                </span>
+                <!-- Custom Profile Picture Override -->
+                <span v-if="userCosmetics?.hasOverride" class="badge" style="color:#06b6d4; border-color:#06b6d4; background:#06b6d415;" title="Custom Avatar Photo Override">
+                  <Palette :size="11" class="inline mr-1 text-cyan-400" />
+                  VRC+ Icon
                 </span>
                 <!-- 好友序号 (Friend Number) -->
                 <span v-if="!isSelf && friendNumber > 0" class="badge" style="color:#fbbf24; border-color:#fbbf24; background:#fbbf2415;" :title="t('user_profile.info.friend_number')">

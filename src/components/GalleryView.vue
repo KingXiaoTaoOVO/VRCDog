@@ -3,14 +3,14 @@ import { useToast } from "../composables/useToast";
 
 const toast = useToast();
 import { ref, onMounted, computed } from 'vue';
-import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2, X } from 'lucide-vue-next';
+import { Image as ImageIcon, Images, RefreshCcw, Clock, FileWarning, Eye, Download, Copy, FolderOpen, Trash2, X, Star, Search } from 'lucide-vue-next';
 import { GalleryApi, SysApi } from '../api';
 import { isTauri } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import BaseModal from './BaseModal.vue';
 import { useI18n } from 'vue-i18n';
 import type { GalleryImage } from '../types/vrc';
-import { useVirtualList, useElementSize } from '@vueuse/core';
+import { useVirtualList, useElementSize, useStorage } from '@vueuse/core';
 
 const { t } = useI18n();
 
@@ -81,10 +81,39 @@ const cols = computed(() => {
   return 2;
 });
 
+const searchQuery = ref('');
+const onlyFavorites = ref(false);
+const favoritePaths = useStorage<string[]>('vrcdog_gallery_favorites_v1', []);
+
+const isFavorite = (path: string) => favoritePaths.value.includes(path);
+const toggleFavorite = (path: string, e?: Event) => {
+  if (e) e.stopPropagation();
+  if (isFavorite(path)) {
+    favoritePaths.value = favoritePaths.value.filter(p => p !== path);
+    toast.info(t('gallery.unfavorited'));
+  } else {
+    favoritePaths.value = [...favoritePaths.value, path];
+    toast.success(t('gallery.favorited'));
+  }
+};
+
+const filteredImages = computed(() => {
+  let list = images.value;
+  if (onlyFavorites.value) {
+    list = list.filter(img => isFavorite(img.path));
+  }
+  const q = searchQuery.value.trim().toLowerCase();
+  if (q) {
+    list = list.filter(img => String(img.name || '').toLowerCase().includes(q) || (img.dateStr && String(img.dateStr).toLowerCase().includes(q)));
+  }
+  return list;
+});
+
 const rowImages = computed(() => {
   const rows = [];
-  for (let i = 0; i < images.value.length; i += cols.value) {
-    rows.push({ id: i, items: images.value.slice(i, i + cols.value) });
+  const currentList = filteredImages.value;
+  for (let i = 0; i < currentList.length; i += cols.value) {
+    rows.push({ id: i, items: currentList.slice(i, i + cols.value) });
   }
   return rows;
 });
@@ -177,7 +206,7 @@ const uploadToVrcPlus = async () => {
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
 
-    <header class="mb-8 flex justify-between items-end shrink-0 z-10">
+    <header class="mb-6 flex flex-wrap justify-between items-center gap-4 shrink-0 z-10">
       <div>
         <h1 class="text-3xl font-extrabold text-text tracking-tight flex items-center gap-3">
           <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary">
@@ -186,15 +215,39 @@ const uploadToVrcPlus = async () => {
           {{ t('gallery.title') }}
         </h1>
       </div>
-      <button
-        class="px-5 py-2.5 bg-surface rounded-xl text-text-muted font-bold border-border-soft shadow-sm hover:shadow-md hover:text-primary hover:border-primary transition-all flex items-center gap-2"
-        @click="fetchImages(true)"
-      >
-        <RefreshCcw
-          class="w-5 h-5"
-          :class="{'animate-spin text-primary': loading}"
-        /> {{ t('gallery.refresh') }}
-      </button>
+      <div class="flex items-center gap-3 flex-wrap">
+        <!-- Search -->
+        <div class="relative">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t('gallery.search_placeholder')"
+            class="pl-9 pr-8 py-2 bg-surface rounded-xl border border-border-soft text-sm text-text font-medium outline-none focus:border-primary w-48 transition-all"
+          />
+          <button v-if="searchQuery" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text" @click="searchQuery = ''">
+            <X :size="14" />
+          </button>
+        </div>
+        <!-- Favorites Filter -->
+        <button
+          class="px-3.5 py-2 rounded-xl text-sm font-bold border transition-all flex items-center gap-1.5"
+          :class="onlyFavorites ? 'bg-amber-500/15 border-amber-500 text-amber-500 shadow-sm' : 'bg-surface border-border-soft text-text-muted hover:text-text'"
+          @click="onlyFavorites = !onlyFavorites"
+        >
+          <Star :size="15" :fill="onlyFavorites ? 'currentColor' : 'none'" />
+          {{ t('gallery.favorites') }} ({{ favoritePaths.length }})
+        </button>
+        <button
+          class="px-4 py-2 bg-surface rounded-xl text-text-muted font-bold border border-border-soft shadow-sm hover:shadow-md hover:text-primary hover:border-primary transition-all flex items-center gap-2 text-sm"
+          @click="fetchImages(true)"
+        >
+          <RefreshCcw
+            class="w-4 h-4"
+            :class="{'animate-spin text-primary': loading}"
+          /> {{ t('gallery.refresh') }}
+        </button>
+      </div>
     </header>
 
     <div
@@ -263,6 +316,21 @@ const uploadToVrcPlus = async () => {
                 class="w-full h-full object-cover transform group-hover:scale-[1.03] transition-transform duration-500"
               >
               
+              <!-- Top Star Favorite Button -->
+              <div 
+                class="absolute top-3 left-3 z-10 transition-opacity" 
+                :class="isFavorite(img.path) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+              >
+                <button 
+                  class="p-2 rounded-xl backdrop-blur-md transition-all flex items-center justify-center"
+                  :class="isFavorite(img.path) ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30' : 'bg-slate-900/60 text-white hover:bg-slate-900/90'"
+                  :title="isFavorite(img.path) ? t('gallery.unfavorite') : t('gallery.favorite')"
+                  @click.stop="toggleFavorite(img.path, $event)"
+                >
+                  <Star :size="15" :fill="isFavorite(img.path) ? 'currentColor' : 'none'" />
+                </button>
+              </div>
+              
               <div class="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
                 <h4 class="text-white font-bold text-xs truncate drop-shadow-md mb-1.5">
                   {{ img.name }}
@@ -328,6 +396,14 @@ const uploadToVrcPlus = async () => {
           </div>
           
           <div class="flex items-center justify-end gap-3 flex-wrap">
+            <button
+              class="px-4 py-2.5 rounded-xl font-bold transition-colors flex items-center gap-2"
+              :class="isFavorite(previewImage.path) ? 'bg-amber-500 text-black shadow-sm' : 'bg-surface hover:bg-background/20 text-text-muted'"
+              @click="toggleFavorite(previewImage.path)"
+            >
+              <Star :size="16" :fill="isFavorite(previewImage.path) ? 'currentColor' : 'none'" />
+              {{ isFavorite(previewImage.path) ? t('gallery.unfavorite') : t('gallery.favorite') }}
+            </button>
             <button
               class="px-5 py-2.5 bg-primary text-white hover:brightness-110 font-bold rounded-xl transition-colors flex items-center gap-2 shadow-sm"
               :disabled="uploadingToVrcPlus"

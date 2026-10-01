@@ -193,6 +193,9 @@ const correctionEnabled = useStorage('vrc_translator_correction_enabled', false)
 const minSegmentS = useStorage('vrc_translator_min_segment_s', 0.45);
 const maxSegmentS = useStorage('vrc_translator_max_segment_s', 8.0);
 const partialInterval = useStorage('vrc_translator_partial_interval', 1.2);
+const keepSpeakerContext = useStorage('vrc_translator_keep_speaker_context', true);
+const speakerContextIdleSec = useStorage('vrc_translator_speaker_context_idle_sec', 60);
+const micIdleDisconnectSec = useStorage('vrc_translator_mic_idle_disconnect_sec', 15);
 const captureMode = useStorage('vrc_translator_capture_mode', 'loopback');
 const targetProcess = useStorage('vrc_translator_target_process', 'VRChat.exe');
 const selfSuppress = useStorage('vrc_translator_self_suppress', false);
@@ -960,6 +963,9 @@ const startCapture = async (source: AudioSource) => {
       captureMode: captureMode.value,
       targetProcess: targetProcess.value,
       selfSuppressSeconds: Number(selfSuppressSeconds.value),
+      silenceTimeout: keepSpeakerContext.value ? Number(speakerContextIdleSec.value) : 0.6,
+      speakerContextIdleSec: Number(speakerContextIdleSec.value),
+      micIdleDisconnectSec: Number(micIdleDisconnectSec.value),
     });
     setStatus(t('translator.starting_audio_recognition_service'));
   } catch (error) {
@@ -2006,6 +2012,28 @@ onUnmounted(async () => {
               <label class="min-w-0">
                 <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.partial_interval') }} (s)</span>
                 <input v-model.number="partialInterval" type="number" min="0" max="5" step="0.2" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+              </label>
+
+              <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
+                <span class="text-xs font-bold text-text">{{ tt('translator.keep_speaker_context', '保持说话人上下文') }}</span>
+                <button
+                  type="button"
+                  :class="keepSpeakerContext ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
+                  class="relative w-11 h-6 rounded-full transition-colors shrink-0"
+                  @click="keepSpeakerContext = !keepSpeakerContext"
+                >
+                  <span :class="keepSpeakerContext ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
+                </button>
+              </div>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.speaker_context_idle', '静音重置超时 (s)') }}</span>
+                <input v-model.number="speakerContextIdleSec" type="number" min="5" max="600" step="5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
+              </label>
+
+              <label class="min-w-0">
+                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.mic_idle_disconnect', '麦克风休眠超时 (s)') }}</span>
+                <input v-model.number="micIdleDisconnectSec" type="number" min="5" max="300" step="5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
               </label>
             </div>
 

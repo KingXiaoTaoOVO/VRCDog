@@ -302,6 +302,9 @@ pub fn vrct_start_audio_capture(
     realtime_provider: Option<String>,
     realtime_config: Option<serde_json::Value>,
     sherpa_config: Option<serde_json::Value>,
+    silence_timeout: Option<f32>,
+    speaker_context_idle_sec: Option<f32>,
+    mic_idle_disconnect_sec: Option<f32>,
 ) -> AppResult<()> {
     if !matches!(source.as_str(), "mic" | "speaker") {
         return Err(AppError::from("Audio source must be `mic` or `speaker`"));
@@ -347,6 +350,12 @@ pub fn vrct_start_audio_capture(
                 .clamp(2.0, 30.0)
                 .to_string(),
         )
+        .arg("--silence-timeout")
+        .arg(silence_timeout.unwrap_or(0.6).to_string())
+        .arg("--speaker-context-idle-sec")
+        .arg(speaker_context_idle_sec.unwrap_or(60.0).to_string())
+        .arg("--mic-idle-disconnect-sec")
+        .arg(mic_idle_disconnect_sec.unwrap_or(15.0).to_string())
         .arg("--whisper-model")
         .arg(whisper_model.unwrap_or_else(|| "tiny".into()))
         .arg("--vad-type")

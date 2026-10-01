@@ -896,6 +896,9 @@ export interface AudioCaptureConfig {
   targetProcess?: string;
   selfSuppressSeconds?: number;
   passthroughDevice?: number;
+  silenceTimeout?: number;
+  speakerContextIdleSec?: number;
+  micIdleDisconnectSec?: number;
 }
 
 export interface AudioCaptureStatus {
@@ -1298,6 +1301,27 @@ export interface VrpianoMidishowAccount {
   login_type?: string;
 }
 
+export interface LoopMidiStatus {
+  installed: boolean;
+  running: boolean;
+  has_virtual_port: boolean;
+  port_names: string[];
+  installed_path?: string | null;
+  installed_version?: string | null;
+  latest_version: string;
+  download_url: string;
+  is_latest: boolean;
+  last_checked_at?: string | null;
+}
+
+export interface LoopMidiInstallProgress {
+  phase: 'checking' | 'downloading' | 'extracting' | 'launching' | 'completed' | 'error';
+  progress: number;
+  bytes_downloaded: number;
+  total_bytes: number;
+  message: string;
+}
+
 export interface VrpianoMidishowLoginStatus {
   state: 'idle' | 'opening' | 'waiting' | 'needs_confirmation' | 'signed_in' | 'failed';
   message: string;
@@ -1409,6 +1433,10 @@ export const VrpianoApi = {
   connectMidiDevice: (params: { deviceId: string }) => safeInvoke<{ connected: boolean; device_id?: string; device_name?: string; kind?: string; messages_sent: number; last_error?: string }>('vrpiano_connect_midi_device', { deviceId: params.deviceId }),
   disconnectMidiDevice: () => safeInvoke<{ connected: boolean }>('vrpiano_disconnect_midi_device'),
   getMidiOutputState: () => safeInvoke<{ connected: boolean; device_id?: string; device_name?: string; kind?: string; messages_sent: number; last_error?: string }>('vrpiano_get_midi_output_state'),
+  getLoopMidiStatus: () => safeInvoke<LoopMidiStatus>('vrpiano_get_loopmidi_status'),
+  installLoopMidi: () => safeInvoke<void>('vrpiano_install_loopmidi'),
+  launchLoopMidi: () => safeInvoke<void>('vrpiano_launch_loopmidi'),
+  checkLoopMidiLatest: () => safeInvoke<LoopMidiStatus>('vrpiano_check_loopmidi_latest'),
   startRecording: () => safeInvoke<string>('vrpiano_start_recording'),
   stopRecording: () => safeInvoke<string | null>('vrpiano_stop_recording'),
   getRecordingStatus: () => safeInvoke<VrpianoRecordingStatus>('vrpiano_get_recording_status'),

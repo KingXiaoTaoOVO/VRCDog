@@ -972,6 +972,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capture-mode", choices=("loopback", "process"), default="loopback")
     parser.add_argument("--target-process", default="VRChat.exe")
     parser.add_argument("--self-suppress-seconds", type=float, default=0.0)
+    # VRCLT-aligned context retention & idle disconnect
+    parser.add_argument("--speaker-context-idle-sec", type=float, default=60.0)
+    parser.add_argument("--mic-idle-disconnect-sec", type=float, default=15.0)
     # Audio session enumeration & playback
     parser.add_argument("--list-sessions", action="store_true")
     parser.add_argument("--play-audio", type=str, default="")
