@@ -1743,6 +1743,16 @@ const checkLoopMidiUpdate = async () => {
   }
 };
 
+const formatLoopMidiProgress = (p: LoopMidiInstallProgress): string => {
+  if (p.phase === 'checking') return t('vrpiano.loopmidi_checking');
+  if (p.phase === 'downloading') return t('vrpiano.loopmidi_downloading');
+  if (p.phase === 'extracting') return t('vrpiano.loopmidi_extracting');
+  if (p.phase === 'launching') return t('vrpiano.loopmidi_launching_installer');
+  if (p.phase === 'completed') return t('vrpiano.loopmidi_install_ready');
+  if (p.phase === 'error') return p.message || t('vrpiano.loopmidi_install_failed', { error: '' });
+  return p.message || t('vrpiano.loopmidi_installing');
+};
+
 const installLoopMidi = async () => {
   if (!isTauri() || loopMidiInstalling.value) return;
   loopMidiInstalling.value = true;
@@ -2199,25 +2209,54 @@ onUnmounted(async () => {
           </div>
 
           <div class="control-section output-mode-section">
-            <strong>{{ t('vrpiano.output_mode') }}</strong>
+            <strong class="section-title">{{ t('vrpiano.output_mode') }}</strong>
             <div class="output-mode-grid">
-              <button class="output-mode-card" :class="{ active: outputMode === 'midi' }" @click="outputMode = 'midi'">
-                <div class="card-badge recommended">{{ t('vrpiano.recommended_vrc_native') }}</div>
-                <Cable :size="16" />
-                <span>{{ t('vrpiano.direct_midi_mode') }}</span>
-                <small>{{ t('vrpiano.direct_midi_desc') }}</small>
+              <button
+                class="output-mode-card"
+                :class="{ active: outputMode === 'midi' }"
+                type="button"
+                @click="outputMode = 'midi'"
+              >
+                <div class="mode-card-header">
+                  <div class="mode-card-title-group">
+                    <Cable :size="16" class="mode-card-icon" />
+                    <span class="mode-card-title">{{ t('vrpiano.direct_midi_mode') }}</span>
+                  </div>
+                  <span class="card-badge recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
+                </div>
+                <small class="mode-card-desc">{{ t('vrpiano.direct_midi_desc') }}</small>
               </button>
-              <button class="output-mode-card" :class="{ active: outputMode === 'keyboard' }" @click="outputMode = 'keyboard'">
-                <div class="card-badge safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</div>
-                <Keyboard :size="16" />
-                <span>{{ t('vrpiano.pc_keyboard_mode') }}</span>
-                <small>{{ t('vrpiano.pc_keyboard_desc') }}</small>
+
+              <button
+                class="output-mode-card"
+                :class="{ active: outputMode === 'keyboard' }"
+                type="button"
+                @click="outputMode = 'keyboard'"
+              >
+                <div class="mode-card-header">
+                  <div class="mode-card-title-group">
+                    <Keyboard :size="16" class="mode-card-icon" />
+                    <span class="mode-card-title">{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                  </div>
+                  <span class="card-badge safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</span>
+                </div>
+                <small class="mode-card-desc">{{ t('vrpiano.pc_keyboard_desc') }}</small>
               </button>
-              <button class="output-mode-card" :class="{ active: outputMode === 'osc' }" @click="outputMode = 'osc'">
-                <div class="card-badge avatar-only">{{ t('vrpiano.avatar_osc_tag') }}</div>
-                <Radio :size="16" />
-                <span>{{ t('vrpiano.vrchat_osc_mode') }}</span>
-                <small>{{ t('vrpiano.vrchat_osc_desc') }}</small>
+
+              <button
+                class="output-mode-card"
+                :class="{ active: outputMode === 'osc' }"
+                type="button"
+                @click="outputMode = 'osc'"
+              >
+                <div class="mode-card-header">
+                  <div class="mode-card-title-group">
+                    <Radio :size="16" class="mode-card-icon" />
+                    <span class="mode-card-title">{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                  </div>
+                  <span class="card-badge avatar-only">{{ t('vrpiano.avatar_osc_tag') }}</span>
+                </div>
+                <small class="mode-card-desc">{{ t('vrpiano.vrchat_osc_desc') }}</small>
               </button>
             </div>
 
@@ -2228,22 +2267,25 @@ onUnmounted(async () => {
                   <Cable :size="14" />
                   <span>{{ t('vrpiano.midi_device') }}</span>
                 </label>
-                <div class="control-row">
+                <div class="midi-device-toolbar">
                   <select id="midi-device-select-inline" v-model="selectedMidiDevice" class="midi-device-select">
                     <option v-if="!midiDevices.length" value="" disabled>{{ t('vrpiano.no_midi_devices') }}</option>
                     <option v-for="device in midiDevices" :key="device.id" :value="device.id">{{ device.name }}</option>
                   </select>
-                  <button class="small-action" :disabled="!selectedMidiDevice || midiOutputState.connected" @click="connectMidiDevice">
-                    <Link2 :size="14" /> {{ t('vrpiano.connect') }}
+                  <button class="small-action midi-btn" :disabled="!selectedMidiDevice || midiOutputState.connected" @click="connectMidiDevice">
+                    <Link2 :size="14" />
+                    <span>{{ t('vrpiano.connect') }}</span>
                   </button>
-                  <button class="small-action ghost" :disabled="!midiOutputState.connected" @click="disconnectMidiDevice">
-                    <X :size="14" /> {{ t('vrpiano.disconnect') }}
+                  <button class="small-action midi-btn ghost" :disabled="!midiOutputState.connected" @click="disconnectMidiDevice">
+                    <X :size="14" />
+                    <span>{{ t('vrpiano.disconnect') }}</span>
                   </button>
-                  <button class="small-action ghost" :title="t('vrpiano.refresh_devices')" @click="refreshMidiDevices">
+                  <button class="small-action midi-refresh-btn ghost" :title="t('vrpiano.refresh_devices')" @click="refreshMidiDevices">
                     <RefreshCcw :size="14" />
                   </button>
                 </div>
               </div>
+
               <!-- 1. loopMIDI 未安装：一键自动从官方源下载最新版并安装 -->
               <div v-if="loopMidiStatus && !loopMidiStatus.installed" class="loopmidi-auto-install-card">
                 <div class="install-header">
@@ -2253,7 +2295,8 @@ onUnmounted(async () => {
                     <span class="version-badge">v{{ loopMidiStatus.latest_version }} ({{ t('vrpiano.official_latest') }})</span>
                   </div>
                   <button class="check-update-btn" :title="t('vrpiano.check_official_latest')" @click="checkLoopMidiUpdate">
-                    <RefreshCcw :size="12" /> {{ t('vrpiano.detect_latest') }}
+                    <RefreshCcw :size="12" />
+                    <span>{{ t('vrpiano.detect_latest') }}</span>
                   </button>
                 </div>
                 <p class="install-desc">{{ t('vrpiano.loopmidi_auto_install_desc') }}</p>
@@ -2263,13 +2306,17 @@ onUnmounted(async () => {
                   </div>
                   <div class="progress-meta">
                     <Loader2 :size="13" class="spin-icon" />
-                    <span>{{ loopMidiProgress.message }}</span>
+                    <span class="progress-msg">{{ formatLoopMidiProgress(loopMidiProgress) }}</span>
+                    <span v-if="loopMidiProgress.total_bytes > 0" class="progress-bytes">
+                      {{ (loopMidiProgress.bytes_downloaded / (1024 * 1024)).toFixed(1) }} MB / {{ (loopMidiProgress.total_bytes / (1024 * 1024)).toFixed(1) }} MB
+                    </span>
                     <span class="progress-pct">{{ Math.round(loopMidiProgress.progress * 100) }}%</span>
                   </div>
                 </div>
                 <div v-else class="install-action-row">
                   <button class="install-btn primary" :disabled="loopMidiInstalling" @click="installLoopMidi">
-                    <Download :size="14" /> {{ t('vrpiano.one_click_install_loopmidi', { version: loopMidiStatus.latest_version }) }}
+                    <Download :size="14" />
+                    <span>{{ t('vrpiano.one_click_install_loopmidi', { version: loopMidiStatus.latest_version }) }}</span>
                   </button>
                 </div>
               </div>
@@ -2283,16 +2330,19 @@ onUnmounted(async () => {
                     <span v-if="loopMidiStatus.installed_version" class="version-badge subtle">v{{ loopMidiStatus.installed_version }}</span>
                   </div>
                   <button class="check-update-btn" :title="t('vrpiano.check_official_latest')" @click="checkLoopMidiUpdate">
-                    <RefreshCcw :size="12" /> {{ t('vrpiano.detect_latest') }}
+                    <RefreshCcw :size="12" />
+                    <span>{{ t('vrpiano.detect_latest') }}</span>
                   </button>
                 </div>
                 <p class="install-desc">{{ t('vrpiano.loopmidi_launch_desc') }}</p>
                 <div class="install-action-row">
                   <button class="install-btn primary" @click="launchLoopMidi">
-                    <Play :size="14" /> {{ t('vrpiano.one_click_launch_loopmidi') }}
+                    <Play :size="14" />
+                    <span>{{ t('vrpiano.one_click_launch_loopmidi') }}</span>
                   </button>
                   <button v-if="!loopMidiStatus.is_latest" class="install-btn secondary" :disabled="loopMidiInstalling" @click="installLoopMidi">
-                    <Download :size="14" /> {{ t('vrpiano.update_to_latest', { version: loopMidiStatus.latest_version }) }}
+                    <Download :size="14" />
+                    <span>{{ t('vrpiano.update_to_latest', { version: loopMidiStatus.latest_version }) }}</span>
                   </button>
                 </div>
               </div>
@@ -2315,8 +2365,10 @@ onUnmounted(async () => {
                   <span>{{ t('vrpiano.midi_loopmidi_guide_desc') }}</span>
                 </div>
               </div>
+
               <button class="direct-midi-action" :disabled="loading || !selectedSong" @click="startDirectMidi">
-                <Cable :size="14" /> {{ t('vrpiano.start_direct_midi') }}
+                <Cable :size="16" />
+                <span>{{ t('vrpiano.start_direct_midi') }}</span>
               </button>
             </div>
 
@@ -3560,29 +3612,65 @@ select option {
 .output-mode-card {
   position: relative;
   min-width: 0;
-  min-height: 104px;
-  display: grid;
-  align-content: start;
-  justify-items: start;
-  gap: 7px;
+  min-height: 106px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px;
   border: 1px solid var(--vp-border);
-  border-radius: 9px;
+  border-radius: 10px;
   color: var(--vp-muted);
   background: var(--vp-surface);
   text-align: left;
   cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.output-mode-card:hover,
+.output-mode-card.active {
+  color: var(--vp-text);
+  border-color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 12%, var(--vp-surface));
+}
+
+.mode-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.mode-card-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mode-card-icon {
+  flex-shrink: 0;
+  color: var(--vp-primary);
+}
+
+.mode-card-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--vp-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .output-mode-card .card-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 2px 6px;
+  flex-shrink: 0;
+  padding: 2px 7px;
   border-radius: 4px;
   font-size: 10px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .output-mode-card .card-badge.recommended {
@@ -3603,32 +3691,86 @@ select option {
   border: 1px solid color-mix(in srgb, #64748b 35%, transparent);
 }
 
+.mode-card-desc {
+  color: var(--vp-dim);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .midi-config-box {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 8px;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--vp-primary) 6%, var(--vp-surface));
   border: 1px solid color-mix(in srgb, var(--vp-primary) 20%, var(--vp-border));
 }
 
 .midi-device-selector-inline {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
 }
 
 .midi-device-selector-inline .layout-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--vp-text);
   white-space: nowrap;
+}
+
+.midi-device-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.midi-device-select {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-surface);
+  color: var(--vp-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.midi-btn {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.midi-refresh-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  flex: 0 0 36px;
+  padding: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .loopmidi-auto-install-card {
@@ -3653,29 +3795,36 @@ select option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
 }
 
 .install-title-group {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
 }
 
 .install-title-group strong {
   color: var(--vp-text);
+  font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .version-badge {
   font-size: 11px;
   font-weight: 600;
-  padding: 1px 7px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: color-mix(in srgb, #3b82f6 20%, transparent);
   border: 1px solid color-mix(in srgb, #3b82f6 40%, transparent);
   color: #60a5fa;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .version-badge.subtle {
@@ -3687,14 +3836,19 @@ select option {
 .check-update-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 4px;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 3px 9px;
+  border-radius: 6px;
   font-size: 11px;
+  font-weight: 600;
   background: var(--vp-surface);
   border: 1px solid var(--vp-border);
   color: var(--vp-muted);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
@@ -3713,13 +3867,13 @@ select option {
   font-size: 11px;
   color: var(--vp-muted);
   margin: 6px 0 8px 0;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .install-progress-box {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   margin-top: 4px;
 }
 
@@ -3745,14 +3899,24 @@ select option {
   color: var(--vp-muted);
 }
 
-.spin-icon {
-  animation: spin 1s linear infinite;
+.progress-msg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-bytes {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--vp-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .progress-pct {
-  margin-left: auto;
   font-weight: 700;
   color: #60a5fa;
+  font-variant-numeric: tabular-nums;
+  margin-left: 6px;
 }
 
 .install-action-row {
@@ -3765,29 +3929,32 @@ select option {
 .install-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 7px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  border: none;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .install-btn.primary {
-  background: #2563eb;
-  color: #ffffff;
+  background: #3b82f6;
+  color: white;
+  border: none;
 }
 
 .install-btn.primary:hover:not(:disabled) {
-  background: #1d4ed8;
+  filter: brightness(1.1);
 }
 
 .install-btn.secondary {
   background: var(--vp-surface);
-  border: 1px solid var(--vp-border);
   color: var(--vp-text);
+  border: 1px solid var(--vp-border);
 }
 
 .install-btn.secondary:hover:not(:disabled) {
@@ -3797,6 +3964,42 @@ select option {
 .install-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.direct-midi-action {
+  min-height: 42px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--vp-primary);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--vp-primary) 25%, transparent);
+}
+
+.direct-midi-action:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--vp-primary) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+.direct-midi-action:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.direct-midi-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
 .midi-setup-banner {
@@ -3947,40 +4150,6 @@ select option {
   border-color: var(--vp-primary);
 }
 
-.output-mode-card:hover,
-.output-mode-card.active {
-  color: var(--vp-text);
-  border-color: var(--vp-primary);
-  background: color-mix(in srgb, var(--vp-primary) 12%, var(--vp-surface));
-}
-
-.output-mode-card span {
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.output-mode-card small {
-  color: var(--vp-dim);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.direct-midi-action {
-  min-height: 40px;
-  justify-self: start;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 8px;
-  color: white;
-  background: var(--vp-primary);
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.direct-midi-action:disabled {
-  opacity: .55;
-  cursor: not-allowed;
-}
 
 .osc-config {
   min-width: 0;

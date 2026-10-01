@@ -288,14 +288,14 @@ pub async fn download_and_install_loopmidi(app: AppHandle) -> Result<(), String>
             .map_err(|e| format!("写入文件失败: {e}"))?;
         downloaded += chunk.len() as u64;
         let pct = (downloaded as f64 / total_bytes as f64).clamp(0.0, 1.0);
-        let prog = 0.10 + pct * 0.70; // 10% to 80%
+        let prog = (0.05 + pct * 0.85).clamp(0.0, 1.0);
         emit_progress(
             &app,
             "downloading",
             prog,
             downloaded,
             total_bytes,
-            &format!("正在从官方源高速下载: {:.1}%", pct * 100.0),
+            "正在从官方源高速下载安装包...",
         );
     }
     file.flush().await.ok();
