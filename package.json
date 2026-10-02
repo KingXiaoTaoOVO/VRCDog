@@ -1,7 +1,7 @@
 {
     "name":  "vrcdog",
     "private":  true,
-    "version": "5.7.6",
+    "version": "5.7.7",
     "type":  "module",
     "engines":  {
                     "node":  "\u003e=22"

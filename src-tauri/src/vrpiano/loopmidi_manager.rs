@@ -4,11 +4,32 @@ use serde::{Deserialize, Serialize};
 use sysinfo::System;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
+use std::sync::Mutex;
 use super::midi_backend::MidiOutputBackend;
 
 const FALLBACK_VERSION: &str = "1.0.16.27";
 const FALLBACK_DOWNLOAD_URL: &str = "https://www.tobias-erichsen.de/wp-content/uploads/2020/01/loopMIDISetup_1_0_16_27.zip";
 const OFFICIAL_PAGE_URL: &str = "https://www.tobias-erichsen.de/software/loopmidi.html";
+
+lazy_static::lazy_static! {
+    static ref CACHED_OFFICIAL_LOOPMIDI_INFO: Mutex<Option<(String, String)>> = Mutex::new(None);
+    static ref SYS_PROCESS_TRACKER: Mutex<System> = Mutex::new(System::new());
+}
+
+pub fn get_cached_or_default_official_info() -> (String, String) {
+    if let Ok(guard) = CACHED_OFFICIAL_LOOPMIDI_INFO.lock() {
+        if let Some(ref info) = *guard {
+            return info.clone();
+        }
+    }
+    (FALLBACK_VERSION.to_string(), FALLBACK_DOWNLOAD_URL.to_string())
+}
+
+pub fn set_cached_official_info(ver: String, url: String) {
+    if let Ok(mut guard) = CACHED_OFFICIAL_LOOPMIDI_INFO.lock() {
+        *guard = Some((ver, url));
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoopMidiStatus {
@@ -129,12 +150,27 @@ pub fn detect_installed_loopmidi() -> Option<(PathBuf, Option<String>)> {
 
 /// Checks if the loopMIDI process is actively running on Windows.
 pub fn is_loopmidi_process_running() -> bool {
-    let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    sys.processes().values().any(|p| {
-        let name = p.name().to_string_lossy().to_lowercase();
-        name.contains("loopmidi")
-    })
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::w;
+        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        unsafe {
+            if let Ok(hwnd) = FindWindowW(None, w!("loopMIDI")) {
+                if !hwnd.is_invalid() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    if let Ok(mut sys) = SYS_PROCESS_TRACKER.lock() {
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        return sys.processes().values().any(|p| {
+            let name = p.name().to_string_lossy().to_lowercase();
+            name.contains("loopmidi")
+        });
+    }
+    false
 }
 
 /// Lists all MIDI output ports that belong to loopMIDI or virtual MIDI cables.
@@ -153,22 +189,22 @@ pub fn get_active_loopmidi_ports() -> Vec<String> {
 /// Checks the official Tobias Erichsen website for the latest loopMIDI version and download URL.
 pub async fn check_official_latest_loopmidi() -> (String, String) {
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
+        .timeout(std::time::Duration::from_secs(3))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .build()
     {
         Ok(c) => c,
-        Err(_) => return (FALLBACK_VERSION.to_string(), FALLBACK_DOWNLOAD_URL.to_string()),
+        Err(_) => return get_cached_or_default_official_info(),
     };
 
     let resp = match client.get(OFFICIAL_PAGE_URL).send().await {
         Ok(r) if r.status().is_success() => r,
-        _ => return (FALLBACK_VERSION.to_string(), FALLBACK_DOWNLOAD_URL.to_string()),
+        _ => return get_cached_or_default_official_info(),
     };
 
     let body = match resp.text().await {
         Ok(t) => t,
-        Err(_) => return (FALLBACK_VERSION.to_string(), FALLBACK_DOWNLOAD_URL.to_string()),
+        Err(_) => return get_cached_or_default_official_info(),
     };
 
     // Regex match: https://www.tobias-erichsen.de/wp-content/uploads/2020/01/loopMIDISetup_1_0_16_27.zip
@@ -177,10 +213,11 @@ pub async fn check_official_latest_loopmidi() -> (String, String) {
         let full_url = caps.get(0).map(|m| m.as_str().to_string()).unwrap_or_else(|| FALLBACK_DOWNLOAD_URL.to_string());
         let raw_ver = caps.get(1).map(|m| m.as_str()).unwrap_or("1_0_16_27");
         let ver = raw_ver.replace('_', ".");
+        set_cached_official_info(ver.clone(), full_url.clone());
         return (ver, full_url);
     }
 
-    (FALLBACK_VERSION.to_string(), FALLBACK_DOWNLOAD_URL.to_string())
+    get_cached_or_default_official_info()
 }
 
 /// Compares two version strings (e.g. "1.0.16.27" vs "1.0.16.27").
@@ -210,9 +247,9 @@ fn is_version_up_to_date(installed: &str, latest: &str) -> bool {
     inst_parts.len() >= late_parts.len()
 }
 
-/// Gets the complete current loopMIDI status, querying latest official version.
+/// Gets the complete current loopMIDI status, using cached or fallback official info (instant, 0 network blocking).
 pub async fn get_loopmidi_status() -> LoopMidiStatus {
-    let (latest_version, download_url) = check_official_latest_loopmidi().await;
+    let (latest_version, download_url) = get_cached_or_default_official_info();
     let installed_info = detect_installed_loopmidi();
     let port_names = get_active_loopmidi_ports();
     let has_virtual_port = !port_names.is_empty();

@@ -1733,6 +1733,7 @@ pub async fn vrpiano_launch_loopmidi() -> Result<(), String> {
 
 #[tauri::command]
 pub async fn vrpiano_check_loopmidi_latest() -> Result<loopmidi_manager::LoopMidiStatus, String> {
+    let _ = loopmidi_manager::check_official_latest_loopmidi().await;
     Ok(loopmidi_manager::get_loopmidi_status().await)
 }
 
