@@ -607,9 +607,11 @@ const closeEditDialog = () => {
   editSongName.value = '';
 };
 
-const setSongEmojiIcon = () => {
-  if (!selectedSong.value) return;
-  const current = songIcon(selectedSong.value);
+const setSongEmojiIcon = (song?: VrpianoSong) => {
+  const target = song || selectedSong.value;
+  if (!target) return;
+  selectedPath.value = target.path;
+  const current = songIcon(target);
   editIconText.value = current && !isImageIcon(current) ? current : '';
   editIconUrl.value = current && isImageIcon(current) ? current : '';
   editDialogMode.value = 'icon';
@@ -635,9 +637,11 @@ const saveSongIconEditor = () => {
   closeEditDialog();
 };
 
-const chooseSongImageIcon = () => {
-  if (!selectedSong.value || !iconFileInput.value) return;
-  iconTargetPath.value = selectedSong.value.path;
+const chooseSongImageIcon = (song?: VrpianoSong) => {
+  const target = song || selectedSong.value;
+  if (!target || !iconFileInput.value) return;
+  selectedPath.value = target.path;
+  iconTargetPath.value = target.path;
   iconFileInput.value.value = '';
   iconFileInput.value.click();
 };
@@ -886,9 +890,11 @@ const importMidi = async () => {
   }
 };
 
-const renameSong = () => {
-  if (!selectedSong.value) return;
-  editSongName.value = selectedSong.value.name;
+const renameSong = (song?: VrpianoSong) => {
+  const target = song || selectedSong.value;
+  if (!target) return;
+  selectedPath.value = target.path;
+  editSongName.value = target.name;
   editDialogMode.value = 'rename';
 };
 
@@ -932,20 +938,23 @@ const submitEditDialog = async () => {
   }
 };
 
-const deleteSong = async () => {
-  if (!selectedSong.value) return;
-  if (!window.confirm(t('vrpiano.confirm_delete_song', { name: selectedSong.value.name }))) return;
+const deleteSong = async (song?: VrpianoSong) => {
+  const target = song || selectedSong.value;
+  if (!target) return;
+  if (!window.confirm(t('vrpiano.confirm_delete_song', { name: target.name }))) return;
   loading.value = true;
   error.value = '';
   try {
-    await VrpianoApi.deleteSong({ songPath: selectedSong.value.path });
-    if (songIcons.value[selectedSong.value.path]) {
+    await VrpianoApi.deleteSong({ songPath: target.path });
+    if (songIcons.value[target.path]) {
       const nextIcons = { ...songIcons.value };
-      delete nextIcons[selectedSong.value.path];
+      delete nextIcons[target.path];
       songIcons.value = nextIcons;
     }
-    addLog(t('vrpiano.deleted_song', { name: selectedSong.value.name }));
-    selectedPath.value = '';
+    addLog(t('vrpiano.deleted_song', { name: target.name }));
+    if (selectedPath.value === target.path) {
+      selectedPath.value = '';
+    }
     await refreshSongs();
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -2052,28 +2061,31 @@ onUnmounted(async () => {
       <div class="title-block">
         <div class="title-icon"><Music :size="22" /></div>
         <div>
-          <h1>{{t('vrpiano.vrpiano_autoplay') }}</h1>
-          <p>{{t('vrpiano.local_library_online_downloads_previews_') }}</p>
+          <h1>{{ t('vrpiano.vrpiano_autoplay') }}</h1>
+          <p>{{ t('vrpiano.local_library_online_downloads_previews_') }}</p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="overlay-toggle" :class="{ active: overlayOpen }" @click="toggleVrpianoOverlay">
-          <PictureInPicture2 :size="16" />
-          {{ overlayOpen ?t('vrpiano.close_overlay') :t('vrpiano.open_overlay') }}
+        <button
+          class="hotkey-header-pill"
+          :class="{ active: hotkeysEnabled }"
+          :disabled="!status.hotkeys_available"
+          :title="t('vrpiano.f1_starts_pauses_or_resumes_after_playba')"
+          @click="toggleHotkeys"
+        >
+          <ShieldCheck :size="15" />
+          <span>F1 {{ hotkeysEnabled ? t('vrpiano.enabled') : t('vrpiano.disabled') }}</span>
+        </button>
+        <button class="overlay-toggle" :class="{ active: overlayOpen }" :title="overlayOpen ? t('vrpiano.close_overlay') : t('vrpiano.open_overlay')" @click="toggleVrpianoOverlay">
+          <PictureInPicture2 :size="15" />
+          <span>{{ overlayOpen ? t('vrpiano.close_overlay') : t('vrpiano.open_overlay') }}</span>
         </button>
         <div class="status-pill" :class="{ active: status.running && !status.paused }">
           <span class="status-dot" />
-          {{ status.paused ?t('vrpiano.paused') : status.running ?t('vrpiano.playing') :t('vrpiano.ready') }}
+          <span>{{ status.paused ? t('vrpiano.paused') : status.running ? t('vrpiano.playing') : t('vrpiano.ready') }}</span>
         </div>
       </div>
     </header>
-
-    <section class="quick-stats">
-        <div><Music :size="16" /><span>{{ songs.length }} {{ t('vrpiano.songs_unit', { count: songs.length }) }}</span></div>
-      <div><Clock3 :size="16" /><span>{{ formatTime(status.elapsed_ms) }} / {{ formatTime(status.duration_ms) }}</span></div>
-      <div><Gauge :size="16" /><span>{{ speedText }} {{t('vrpiano.speed') }}</span></div>
-      <div><ShieldCheck :size="16" /><span>{{ hotkeyStatusText }}</span></div>
-    </section>
 
     <div v-if="error || status.last_error" class="error-banner">
       <AlertTriangle :size="16" />
@@ -2083,48 +2095,63 @@ onUnmounted(async () => {
     <main class="vrpiano-main">
       <section class="library-pane">
         <div class="pane-toolbar">
-          <strong>{{t('vrpiano.local_library') }}</strong>
-          <div class="library-search">
-            <Search :size="15" />
-            <input
-              v-model="localSongQuery"
-              :placeholder="t('vrpiano.search_local_library')"
-              @keydown.enter.prevent="selectFirstFilteredSong"
-            >
-            <button
-              v-if="localSongQuery"
-              class="clear-search-btn"
-              type="button"
-              :title="t('vrpiano.clear_search')"
-              @click="clearLocalSongQuery"
-            >
-              <X :size="14" />
-            </button>
+          <div class="toolbar-header-row">
+            <div class="toolbar-title-group">
+              <strong>{{ t('vrpiano.local_library') }}</strong>
+              <span class="count-badge">{{ songs.length }}</span>
+            </div>
+            <div class="toolbar-utility-group">
+              <button class="icon-btn-sm" :title="t('vrpiano.refresh_library')" :disabled="loading" @click="refreshSongs">
+                <RefreshCcw :size="14" :class="{ spin: loading }" />
+              </button>
+              <button class="icon-btn-sm" :title="t('vrpiano.open_library_folder')" @click="openSongsDir">
+                <FolderOpen :size="14" />
+              </button>
+            </div>
           </div>
-          <div class="tool-buttons">
-            <button class="icon-btn" :title="t('vrpiano.import_midi')" :disabled="loading" @click="importMidi"><Upload :size="16" /></button>
-            <button class="icon-btn" :title="t('vrpiano.preview_song')" :disabled="!selectedSong" @click="previewLocalSong"><Headphones :size="16" /></button>
-            <button class="icon-btn" :title="t('vrpiano.set_text_icon')" :disabled="!selectedSong" @click="setSongEmojiIcon"><Music :size="16" /></button>
-            <button class="icon-btn" :title="t('vrpiano.choose_image_icon')" :disabled="!selectedSong" @click="chooseSongImageIcon"><ImagePlus :size="16" /></button>
-            <button class="icon-btn" :title="t('vrpiano.rename')" :disabled="!selectedSong || loading" @click="renameSong"><Edit3 :size="16" /></button>
-            <button class="icon-btn danger" :title="t('vrpiano.delete')" :disabled="!selectedSong || loading" @click="deleteSong"><Trash2 :size="16" /></button>
-            <button class="icon-btn" :title="t('vrpiano.refresh_library')" :disabled="loading" @click="refreshSongs">
-              <RefreshCcw :size="16" :class="{ spin: loading }" />
+
+          <div class="toolbar-action-row">
+            <button class="import-primary-btn" :disabled="loading" @click="importMidi">
+              <Upload :size="14" />
+              <span>{{ t('vrpiano.import_midi') }}</span>
             </button>
-            <button class="icon-btn" :title="t('vrpiano.open_library_folder')" @click="openSongsDir"><FolderOpen :size="16" /></button>
+            <div class="library-search">
+              <Search :size="14" />
+              <input
+                v-model="localSongQuery"
+                :placeholder="t('vrpiano.search_local_library')"
+                @keydown.enter.prevent="selectFirstFilteredSong"
+              >
+              <button
+                v-if="localSongQuery"
+                class="clear-search-btn"
+                type="button"
+                :title="t('vrpiano.clear_search')"
+                @click="clearLocalSongQuery"
+              >
+                <X :size="13" />
+              </button>
+            </div>
           </div>
         </div>
 
         <div class="song-list">
-          <button
+          <div
             v-for="song in filteredSongs"
             :key="song.path"
             class="song-row"
             :class="{ selected: selectedPath === song.path }"
+            tabindex="0"
             @click="selectedPath = song.path"
             @dblclick="previewSong(song)"
+            @keydown.enter="selectedPath = song.path"
           >
-            <span class="song-note" :class="{ custom: Boolean(songIcon(song) || songCover(song)) }">
+            <span
+              class="song-note"
+              :class="{ custom: Boolean(songIcon(song) || songCover(song)) }"
+              :title="t('vrpiano.edit_song_icon')"
+              @click.stop="setSongEmojiIcon(song)"
+            >
               <img v-if="isImageIcon(songIcon(song))" :src="songIcon(song)" alt="">
               <img v-else-if="songCover(song)" :src="songCover(song)" :title="t('vrpiano.cover_from_midishow')" alt="">
               <span v-else-if="songIcon(song)">{{ songIcon(song) }}</span>
@@ -2134,10 +2161,36 @@ onUnmounted(async () => {
               <strong>{{ song.name }}</strong>
               <small>{{ formatBytes(song.size) }}</small>
             </span>
-          </button>
+            <div class="song-hover-actions">
+              <button
+                class="song-action-icon"
+                type="button"
+                :title="t('vrpiano.preview_song')"
+                @click.stop="previewSong(song)"
+              >
+                <Headphones :size="13" />
+              </button>
+              <button
+                class="song-action-icon"
+                type="button"
+                :title="t('vrpiano.rename')"
+                @click.stop="renameSong(song)"
+              >
+                <Edit3 :size="13" />
+              </button>
+              <button
+                class="song-action-icon danger"
+                type="button"
+                :title="t('vrpiano.delete')"
+                @click.stop="deleteSong(song)"
+              >
+                <Trash2 :size="13" />
+              </button>
+            </div>
+          </div>
           <div v-if="!songs.length" class="empty-state">
             <Music :size="24" />
-            <span>{{t('vrpiano.no_midi_songs_yet_import_search_or_paste') }}</span>
+            <span>{{ t('vrpiano.no_midi_songs_yet_import_search_or_paste') }}</span>
           </div>
           <div v-else-if="!filteredSongs.length" class="empty-state">
             <Search :size="24" />
@@ -2309,56 +2362,46 @@ onUnmounted(async () => {
 
         <!-- TAB 1: 演奏模式设置 (Play Settings) -->
         <div v-show="activeTab === 'play'" class="tab-pane-container">
-          <!-- Output Mode 3-Card Grid -->
+          <!-- Output Mode Segmented Bar -->
           <div class="control-section output-mode-section">
-            <strong class="section-title">{{ t('vrpiano.output_mode') }}</strong>
-            <div class="output-mode-grid">
+            <div class="section-title-row">
+              <strong>{{ t('vrpiano.output_mode') }}</strong>
+              <small class="section-sub">
+                {{ outputMode === 'midi' ? t('vrpiano.direct_midi_desc') : outputMode === 'keyboard' ? t('vrpiano.pc_keyboard_desc') : t('vrpiano.vrchat_osc_desc') }}
+              </small>
+            </div>
+            <div class="mode-segmented-bar">
               <button
-                class="output-mode-card"
+                class="mode-segment-btn"
                 :class="{ active: outputMode === 'midi' }"
                 type="button"
                 @click="outputMode = 'midi'"
               >
-                <div class="mode-card-title-row">
-                  <Cable :size="16" class="mode-card-icon" />
-                  <span class="mode-card-title">{{ t('vrpiano.direct_midi_mode') }}</span>
-                </div>
-                <div class="mode-card-badge-row">
-                  <span class="card-badge recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
-                </div>
-                <small class="mode-card-desc">{{ t('vrpiano.direct_midi_desc') }}</small>
+                <Cable :size="15" />
+                <span class="mode-seg-label">{{ t('vrpiano.direct_midi_mode') }}</span>
+                <span class="mode-seg-tag recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
               </button>
 
               <button
-                class="output-mode-card"
+                class="mode-segment-btn"
                 :class="{ active: outputMode === 'keyboard' }"
                 type="button"
                 @click="outputMode = 'keyboard'"
               >
-                <div class="mode-card-title-row">
-                  <Keyboard :size="16" class="mode-card-icon" />
-                  <span class="mode-card-title">{{ t('vrpiano.pc_keyboard_mode') }}</span>
-                </div>
-                <div class="mode-card-badge-row">
-                  <span class="card-badge safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</span>
-                </div>
-                <small class="mode-card-desc">{{ t('vrpiano.pc_keyboard_desc') }}</small>
+                <Keyboard :size="15" />
+                <span class="mode-seg-label">{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                <span class="mode-seg-tag safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</span>
               </button>
 
               <button
-                class="output-mode-card"
+                class="mode-segment-btn"
                 :class="{ active: outputMode === 'osc' }"
                 type="button"
                 @click="outputMode = 'osc'"
               >
-                <div class="mode-card-title-row">
-                  <Radio :size="16" class="mode-card-icon" />
-                  <span class="mode-card-title">{{ t('vrpiano.vrchat_osc_mode') }}</span>
-                </div>
-                <div class="mode-card-badge-row">
-                  <span class="card-badge avatar-only">{{ t('vrpiano.avatar_osc_tag') }}</span>
-                </div>
-                <small class="mode-card-desc">{{ t('vrpiano.vrchat_osc_desc') }}</small>
+                <Radio :size="15" />
+                <span class="mode-seg-label">{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                <span class="mode-seg-tag avatar">{{ t('vrpiano.avatar_osc_tag') }}</span>
               </button>
             </div>
 
@@ -2560,17 +2603,6 @@ onUnmounted(async () => {
                 <p v-else class="osc-warn" style="margin-top:8px">{{ t('vrpiano.vrchat_osc_not_connected') }}</p>
               </div>
             </div>
-          </div>
-
-          <!-- Global Hotkeys Card -->
-          <div class="hotkey-panel" :class="{ enabled: hotkeysEnabled }">
-            <div>
-              <strong>{{ t('vrpiano.global_shortcuts') }}</strong>
-              <span>{{ t('vrpiano.f1_starts_pauses_or_resumes_after_playba') }}</span>
-            </div>
-            <button class="toggle-btn" :class="{ enabled: hotkeysEnabled }" :disabled="!status.hotkeys_available" @click="toggleHotkeys">
-              {{ hotkeysEnabled ? t('vrpiano.enabled') : t('vrpiano.disabled') }}
-            </button>
           </div>
         </div>
 
@@ -2975,6 +3007,40 @@ h1 {
   gap: 8px;
 }
 
+.hotkey-header-pill {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--vp-border);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vp-muted);
+  background: var(--vp-panel);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hotkey-header-pill:hover:not(:disabled) {
+  color: var(--vp-primary);
+  border-color: color-mix(in srgb, var(--vp-primary) 38%, transparent);
+  background: var(--vp-hover);
+}
+
+.hotkey-header-pill.active {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.hotkey-header-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .overlay-toggle {
   min-height: 36px;
   padding: 0 11px;
@@ -3024,29 +3090,6 @@ h1 {
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
 }
 
-.quick-stats {
-  min-height: 52px;
-  border-radius: 8px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-}
-
-.quick-stats div {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--vp-muted);
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.quick-stats div + div {
-  box-shadow: inset 1px 0 0 var(--vp-border);
-}
-
 .error-banner {
   min-height: 42px;
   display: flex;
@@ -3085,22 +3128,115 @@ h1 {
   flex-direction: column;
   align-items: stretch;
   box-shadow: inset 0 -1px 0 var(--vp-border);
-  gap: 9px;
+  gap: 10px;
 }
 
-.pane-toolbar strong {
+.toolbar-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.toolbar-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-title-group strong {
   flex-shrink: 0;
   white-space: nowrap;
+  font-size: 14px;
+}
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 25%, transparent);
+}
+
+.toolbar-utility-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-btn-sm {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--vp-muted);
+  background: var(--vp-panel);
+  box-shadow: inset 0 0 0 1px var(--vp-border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-btn-sm:hover:not(:disabled) {
+  color: var(--vp-text);
+  background: var(--vp-hover);
+}
+
+.icon-btn-sm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.import-primary-btn {
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  background: var(--vp-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.import-primary-btn:hover:not(:disabled) {
+  background: var(--vp-primary-hover);
+}
+
+.import-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .library-search {
+  flex: 1;
   min-width: 0;
   min-height: 34px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
-  padding: 7px 9px;
+  padding: 0 9px;
   border-radius: 8px;
   color: var(--vp-muted);
   background: var(--vp-panel);
@@ -3113,13 +3249,14 @@ h1 {
   outline: none;
   color: var(--vp-text);
   background: transparent;
+  font-size: 12px;
 }
 
 .clear-search-btn {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   display: grid;
   place-items: center;
   color: var(--vp-muted);
@@ -3132,19 +3269,10 @@ h1 {
   background: var(--vp-hover);
 }
 
-.tool-buttons,
 .action-row,
 .speed-actions {
   display: flex;
   gap: 8px;
-}
-
-.tool-buttons {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(28px, 32px));
-  justify-content: start;
-  gap: 6px;
-  width: 100%;
 }
 
 button,
@@ -3231,7 +3359,7 @@ select option {
 .song-row {
   width: 100%;
   min-width: 0;
-  min-height: 62px;
+  min-height: 60px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -3242,6 +3370,8 @@ select option {
   background: color-mix(in srgb, var(--vp-panel) 72%, transparent);
   text-align: left;
   cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
 }
 
 .song-row:hover,
@@ -3250,10 +3380,50 @@ select option {
   background: var(--vp-hover);
 }
 
+.song-hover-actions {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.song-row:hover .song-hover-actions,
+.song-row.selected .song-hover-actions {
+  display: flex;
+}
+
+.song-action-icon {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--vp-muted);
+  background: color-mix(in srgb, var(--vp-panel) 90%, transparent);
+  box-shadow: inset 0 0 0 1px var(--vp-border);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.song-action-icon:hover {
+  color: var(--vp-text);
+  background: var(--vp-surface);
+  box-shadow: inset 0 0 0 1px var(--vp-border-strong);
+}
+
+.song-action-icon.danger:hover {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.3);
+}
+
 .song-note {
   width: 34px;
   height: 34px;
   border-radius: 8px;
+  cursor: pointer;
 }
 
 .song-meta {
@@ -4127,103 +4297,80 @@ select option {
 }
 
 .output-mode-section {
-  display: grid;
-  gap: 10px;
-}
-
-.output-mode-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.output-mode-card {
-  position: relative;
-  min-width: 0;
-  min-height: 118px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--vp-border);
-  border-radius: 10px;
-  color: var(--vp-muted);
-  background: var(--vp-surface);
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  gap: 12px;
 }
 
-.output-mode-card:hover,
-.output-mode-card.active {
-  color: var(--vp-text);
-  border-color: var(--vp-primary);
-  background: color-mix(in srgb, var(--vp-primary) 12%, var(--vp-surface));
-}
-
-.mode-card-title-row {
+.mode-segmented-bar {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-width: 0;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--vp-panel) 60%, transparent);
+  border: 1px solid var(--vp-border);
 }
 
-.mode-card-icon {
-  flex-shrink: 0;
-  color: var(--vp-primary);
-}
-
-.mode-card-title {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--vp-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.mode-segment-btn {
   flex: 1;
   min-width: 0;
-}
-
-.mode-card-badge-row {
-  display: flex;
+  height: 38px;
+  display: inline-flex;
   align-items: center;
-  width: 100%;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  color: var(--vp-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.output-mode-card .card-badge {
+.mode-segment-btn:hover {
+  color: var(--vp-text);
+  background: color-mix(in srgb, var(--vp-hover) 35%, transparent);
+}
+
+.mode-segment-btn.active {
+  color: var(--vp-text);
+  background: var(--vp-surface);
+  border-color: var(--vp-border-strong);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.mode-seg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mode-seg-tag {
   display: inline-block;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 4px;
   font-size: 10px;
   font-weight: 700;
-  line-height: 1.3;
-  white-space: nowrap;
+  line-height: 1.2;
 }
 
-.output-mode-card .card-badge.recommended {
+.mode-seg-tag.recommended {
   background: color-mix(in srgb, #8b5cf6 20%, transparent);
-  color: #a78bfa;
-  border: 1px solid color-mix(in srgb, #8b5cf6 40%, transparent);
+  color: #8b5cf6;
 }
 
-.output-mode-card .card-badge.safe {
+.mode-seg-tag.safe {
   background: color-mix(in srgb, #10b981 18%, transparent);
-  color: #34d399;
-  border: 1px solid color-mix(in srgb, #10b981 35%, transparent);
+  color: #10b981;
 }
 
-.output-mode-card .card-badge.avatar-only {
+.mode-seg-tag.avatar {
   background: color-mix(in srgb, #64748b 20%, transparent);
-  color: #94a3b8;
-  border: 1px solid color-mix(in srgb, #64748b 35%, transparent);
-}
-
-.mode-card-desc {
-  color: var(--vp-dim);
-  font-size: 11px;
-  line-height: 1.45;
-  margin: 0;
+  color: #64748b;
 }
 
 .midi-config-box {
@@ -5494,25 +5641,20 @@ select option:hover {
 }
 
 @media (max-width: 980px) {
-  .quick-stats,
   .vrpiano-main,
   .control-grid {
     grid-template-columns: 1fr;
-  }
-
-  .quick-stats div + div {
-    box-shadow: inset 0 1px 0 var(--vp-border);
   }
 
   .library-pane {
     min-height: 260px;
   }
 
-  .channel-grid {
-    grid-template-columns: 1fr;
+  .mode-segmented-bar {
+    flex-direction: column;
   }
 
-  .output-mode-grid {
+  .channel-grid {
     grid-template-columns: 1fr;
   }
 

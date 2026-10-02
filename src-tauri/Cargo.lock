@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "VrcDog"
-version = "5.7.7"
+version = "5.7.9"
 dependencies = [
  "ab_glyph",
  "axum",

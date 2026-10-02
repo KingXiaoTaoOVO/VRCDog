@@ -215,6 +215,10 @@ static HOTKEY_CONTEXT: OnceLock<GlobalHotkeyContext> = OnceLock::new();
 #[cfg(target_os = "windows")]
 static HOTKEY_HOOK_STARTED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
+static HOTKEYS_GLOBAL_ENABLED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static LAST_HOTKEY_TIMESTAMP_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(target_os = "windows")]
 struct HotkeyHook(windows::Win32::UI::WindowsAndMessaging::HHOOK);
 // HHOOK wraps a raw pointer and is !Sync; we only touch it from the hook thread
 // and the stop path behind a Mutex, so it is safe to share across threads.
@@ -1990,7 +1994,7 @@ fn toggle_playback_pause(
     app: tauri::AppHandle,
     state: Arc<Mutex<VrpianoRuntime>>,
 ) -> Result<VrpianoStatus, String> {
-    {
+    let status = {
         let mut runtime = state
             .lock()
             .map_err(|_| "VRPiano state lock poisoned".to_string())?;
@@ -2007,9 +2011,16 @@ fn toggle_playback_pause(
                 "Playback resumed".to_string()
             };
         }
-    }
-    emit_status(&app, &state);
-    status_snapshot(&app, &state)
+        let mut status = runtime.status.clone();
+        status.speed = runtime.speed.lock().map(|s| *s).unwrap_or(status.speed);
+        status.hotkeys_enabled = runtime.hotkeys_enabled;
+        status.hotkeys_available = cfg!(target_os = "windows");
+        status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+        status.keyboard_layout = runtime.keyboard_layout.clone();
+        status
+    };
+    let _ = app.emit("vrpiano_status", &status);
+    Ok(status)
 }
 
 fn set_playback_speed(
@@ -2018,7 +2029,7 @@ fn set_playback_speed(
     speed: f64,
 ) -> Result<VrpianoStatus, String> {
     let next_speed = normalize_speed(speed);
-    {
+    let status = {
         let mut runtime = state
             .lock()
             .map_err(|_| "VRPiano state lock poisoned".to_string())?;
@@ -2027,9 +2038,16 @@ fn set_playback_speed(
         }
         runtime.status.speed = next_speed;
         runtime.status.last_event = format!("Playback speed {:.2}x", next_speed);
-    }
-    emit_status(&app, &state);
-    status_snapshot(&app, &state)
+        let mut status = runtime.status.clone();
+        status.speed = next_speed;
+        status.hotkeys_enabled = runtime.hotkeys_enabled;
+        status.hotkeys_available = cfg!(target_os = "windows");
+        status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+        status.keyboard_layout = runtime.keyboard_layout.clone();
+        status
+    };
+    let _ = app.emit("vrpiano_status", &status);
+    Ok(status)
 }
 
 fn set_hotkeys(
@@ -2040,10 +2058,13 @@ fn set_hotkeys(
     config: VrpianoHotkeyConfig,
 ) -> Result<VrpianoStatus, String> {
     #[cfg(target_os = "windows")]
-    if config.enabled {
-        start_global_hotkey_hook(app.clone(), state.clone(), midi_backend.clone(), recorder.clone())?;
-    } else {
-        stop_global_hotkey_hook();
+    {
+        HOTKEYS_GLOBAL_ENABLED.store(config.enabled, Ordering::SeqCst);
+        if config.enabled {
+            start_global_hotkey_hook(app.clone(), state.clone(), midi_backend.clone(), recorder.clone())?;
+        } else {
+            stop_global_hotkey_hook();
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -2052,7 +2073,7 @@ fn set_hotkeys(
     }
 
     let speed = normalize_speed(config.speed);
-    {
+    let status = {
         let mut runtime = state
             .lock()
             .map_err(|_| "VRPiano state lock poisoned".to_string())?;
@@ -2088,9 +2109,16 @@ fn set_hotkeys(
         } else {
             "Global VRPiano hotkeys disabled".to_string()
         };
-    }
-    emit_status(&app, &state);
-    status_snapshot(&app, &state)
+        let mut status = runtime.status.clone();
+        status.speed = speed;
+        status.hotkeys_enabled = config.enabled;
+        status.hotkeys_available = cfg!(target_os = "windows");
+        status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+        status.keyboard_layout = runtime.keyboard_layout.clone();
+        status
+    };
+    let _ = app.emit("vrpiano_status", &status);
+    Ok(status)
 }
 
 #[cfg(target_os = "windows")]
@@ -2217,18 +2245,23 @@ unsafe extern "system" fn vrpiano_keyboard_proc(
         return unsafe { CallNextHookEx(None, ncode, wparam, lparam) };
     }
 
+    if !HOTKEYS_GLOBAL_ENABLED.load(Ordering::Relaxed) {
+        return unsafe { CallNextHookEx(None, ncode, wparam, lparam) };
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let last = LAST_HOTKEY_TIMESTAMP_MS.load(Ordering::Relaxed);
+    if now_ms.saturating_sub(last) < 220 {
+        return LRESULT(1);
+    }
+    LAST_HOTKEY_TIMESTAMP_MS.store(now_ms, Ordering::Relaxed);
+
     let Some(context) = HOTKEY_CONTEXT.get().cloned() else {
         return unsafe { CallNextHookEx(None, ncode, wparam, lparam) };
     };
-
-    let enabled = context
-        .state
-        .lock()
-        .map(|runtime| runtime.hotkeys_enabled)
-        .unwrap_or(false);
-    if !enabled {
-        return unsafe { CallNextHookEx(None, ncode, wparam, lparam) };
-    }
 
     dispatch_hotkey(context, vk);
     LRESULT(1)
@@ -2382,7 +2415,7 @@ fn dispatch_hotkey(context: GlobalHotkeyContext, vk: u32) {
 }
 
 #[cfg(target_os = "windows")]
-fn record_hotkey(app: &tauri::AppHandle, state: &Arc<Mutex<VrpianoRuntime>>, vk: u32) {
+fn record_hotkey(_app: &tauri::AppHandle, state: &Arc<Mutex<VrpianoRuntime>>, vk: u32) {
     update_runtime(state, |status| {
         status.last_hotkey = format!("F{}", vk.saturating_sub(111));
         status.last_hotkey_at_ms = SystemTime::now()
@@ -2390,7 +2423,6 @@ fn record_hotkey(app: &tauri::AppHandle, state: &Arc<Mutex<VrpianoRuntime>>, vk:
             .unwrap_or_default()
             .as_millis() as u64;
     });
-    emit_status(app, state);
 }
 
 #[cfg(target_os = "windows")]
@@ -2424,6 +2456,7 @@ fn run_playback(
         focus_vrchat_window();
 
         let keyboard_layout = state.lock().ok().map(|r| r.keyboard_layout.clone()).unwrap_or_else(|| "virtual_piano".to_string());
+        let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
 
         // active_actions tracks keys currently held: vk -> (pressed_at_ms, shift)
         let mut active_actions: HashMap<u16, (u64, bool)> = HashMap::new();
@@ -2454,10 +2487,25 @@ fn run_playback(
                 break;
             }
 
+            // Pause safety: release any keys held when paused and suspend
+            if paused.load(Ordering::SeqCst) {
+                for (&vk, &(_, shift)) in active_actions.iter() {
+                    do_release_action(vk, shift);
+                }
+                active_actions.clear();
+                send_key(160, true);
+                while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
             if wait_ms > 0 {
-                sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, &speed_arc, || {
                     for (&vk, &(_, shift)) in active_actions.iter() {
                         do_release_action(vk, shift);
                     }
@@ -2633,6 +2681,7 @@ fn run_midi_playback(
             sleep_unscaled_interruptible(1_000, &stop, &paused);
         }
 
+        let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
         let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
@@ -2643,16 +2692,32 @@ fn run_midi_playback(
                 break;
             }
 
-            let at_ms = events[index].at_ms;
-            let wait_ms = at_ms.saturating_sub(last_at);
-            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+            // APS NoteCast principle: Immediate panic / silence notes on pause
+            if paused.load(Ordering::SeqCst) {
                 if let Ok(backend) = midi_backend.lock() {
                     let _ = backend.send_panic();
                 }
                 active_notes.clear();
-            });
-            if stop.load(Ordering::SeqCst) {
-                break;
+                while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+
+            let at_ms = events[index].at_ms;
+            let wait_ms = at_ms.saturating_sub(last_at);
+            if wait_ms > 0 {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, &speed_arc, || {
+                    if let Ok(backend) = midi_backend.lock() {
+                        let _ = backend.send_panic();
+                    }
+                    active_notes.clear();
+                });
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
             }
 
             let backend = midi_backend.lock().unwrap();
@@ -2793,6 +2858,7 @@ fn run_vrchat_osc_playback(
             sleep_unscaled_interruptible(1_000, &stop, &paused);
         }
 
+        let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
         let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
@@ -2806,14 +2872,28 @@ fn run_vrchat_osc_playback(
                 break;
             }
 
-            let at_ms = events[index].at_ms;
-            let wait_ms = at_ms.saturating_sub(last_at);
-            sleep_scaled_interruptible(wait_ms, &stop, &paused, &state, || {
+            // APS NoteCast principle: Immediate note release on pause
+            if paused.load(Ordering::SeqCst) {
                 send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
                 active_notes.clear();
-            });
-            if stop.load(Ordering::SeqCst) {
-                break;
+                while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+
+            let at_ms = events[index].at_ms;
+            let wait_ms = at_ms.saturating_sub(last_at);
+            if wait_ms > 0 {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, &speed_arc, || {
+                    send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
+                    active_notes.clear();
+                });
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
             }
 
             let transpose = current_transpose(&state);
@@ -3105,8 +3185,13 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
         for event in track {
             tick = tick.saturating_add(u64::from(event.delta.as_int()));
             if let TrackEventKind::Midi { channel, message } = event.kind {
+                let ch = channel.as_int();
                 match message {
                     MidiMessage::NoteOn { key, vel } => {
+                        // APS NoteCast principle: exclude drum channel (GM Channel 10, index 9) from piano note mapping
+                        if ch == 9 {
+                            continue;
+                        }
                         let note = key.as_int();
                         let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
                         let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
@@ -3117,12 +3202,15 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note,
                                 velocity: vel.as_int(),
-                                channel: channel.as_int(),
+                                channel: ch,
                                 is_note_on: vel.as_int() != 0,
                                 control_change: None,
                             });
                     }
                     MidiMessage::NoteOff { key, .. } => {
+                        if ch == 9 {
+                            continue;
+                        }
                         let note = key.as_int();
                         let micros = tick_to_micros(tick, &tempo_map, ticks_per_beat);
                         let at_ms = (micros as f64 / 1000.0).round().max(0.0) as u64;
@@ -3133,7 +3221,7 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note,
                                 velocity: 0,
-                                channel: channel.as_int(),
+                                channel: ch,
                                 is_note_on: false,
                                 control_change: None,
                             });
@@ -3148,7 +3236,7 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note: program.as_int(),
                                 velocity: 0,
-                                channel: channel.as_int(),
+                                channel: ch,
                                 is_note_on: false,
                                 control_change: None,
                             });
@@ -3163,7 +3251,7 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
                                 at_ms,
                                 note: 0,
                                 velocity: value.as_int(),
-                                channel: channel.as_int(),
+                                channel: ch,
                                 is_note_on: false,
                                 control_change: Some((controller.as_int(), value.as_int())),
                             });
@@ -3176,7 +3264,22 @@ fn parse_midi_for_output(path: &Path) -> Result<(Vec<MidiPlayEvent>, u64), Strin
 
     let mut events = Vec::new();
     for (_at, mut group) in grouped {
-        group.sort_by_key(|event| event.note);
+        // APS NoteCast principle:
+        // Prioritize: CC / All-Notes-Off (0) -> Pedals / CCs (1) -> NoteOff (2) -> NoteOn (3)
+        // When NoteOff and NoteOn coincide at the same tick/ms, NoteOff MUST precede NoteOn
+        // to avoid instantly cancelling the newly struck note!
+        group.sort_by(|a, b| {
+            let rank = |e: &MidiPlayEvent| -> u8 {
+                if let Some((cc, _)) = e.control_change {
+                    if cc == 120 || cc == 123 { 0 } else { 1 }
+                } else if !e.is_note_on {
+                    2
+                } else {
+                    3
+                }
+            };
+            rank(a).cmp(&rank(b)).then_with(|| a.note.cmp(&b.note))
+        });
         events.extend(group);
     }
     let duration_ms = events.last().map(|event| event.at_ms).unwrap_or(0);
@@ -3556,14 +3659,17 @@ fn sleep_scaled_interruptible<F>(
     music_ms: u64,
     stop: &AtomicBool,
     paused: &AtomicBool,
-    state: &Arc<Mutex<VrpianoRuntime>>,
+    speed_arc: &Arc<Mutex<f64>>,
     mut on_pause: F,
 ) where
     F: FnMut(),
 {
     let mut remaining = music_ms as f64;
     let mut was_paused = false;
-    while remaining > 0.0 && !stop.load(Ordering::SeqCst) {
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
         if paused.load(Ordering::SeqCst) {
             if !was_paused {
                 was_paused = true;
@@ -3572,8 +3678,13 @@ fn sleep_scaled_interruptible<F>(
             thread::sleep(Duration::from_millis(20));
             continue;
         }
-        was_paused = false;
-        let speed = current_speed(state).max(0.25);
+        if was_paused {
+            was_paused = false;
+        }
+        if remaining <= 0.0 {
+            break;
+        }
+        let speed = speed_arc.lock().map(|s| *s).unwrap_or(1.0).clamp(0.25, 3.0);
         let real_chunk = (remaining / speed).ceil().clamp(1.0, 20.0) as u64;
         thread::sleep(Duration::from_millis(real_chunk));
         remaining -= real_chunk as f64 * speed;
@@ -3582,10 +3693,16 @@ fn sleep_scaled_interruptible<F>(
 
 fn sleep_unscaled_interruptible(millis: u64, stop: &AtomicBool, paused: &AtomicBool) {
     let mut remaining = millis;
-    while remaining > 0 && !stop.load(Ordering::SeqCst) {
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
         if paused.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(20));
             continue;
+        }
+        if remaining == 0 {
+            break;
         }
         let chunk = remaining.min(20);
         thread::sleep(Duration::from_millis(chunk));
@@ -3627,7 +3744,11 @@ fn is_solo_active(state: &Arc<Mutex<VrpianoRuntime>>) -> bool {
 
 fn adjust_velocity(velocity: u8, channel_volume: u8) -> u8 {
     let scaled = (velocity as u16 * channel_volume as u16) / 127;
-    scaled.min(127).max(0) as u8
+    if channel_volume > 0 && velocity > 0 {
+        scaled.clamp(24, 127) as u8
+    } else {
+        0
+    }
 }
 
 /// Apply global transposition. The drum channel (index 9) is never transposed so
@@ -4002,25 +4123,18 @@ fn emit_status_with_midi(
 }
 
 fn status_snapshot(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     state: &Arc<Mutex<VrpianoRuntime>>,
 ) -> Result<VrpianoStatus, String> {
-    let mut status = state
+    let runtime = state
         .lock()
-        .map_err(|_| "VRPiano state lock poisoned".to_string())?
-        .status
-        .clone();
-    status.songs_dir = ensure_songs_dir(app)?.to_string_lossy().to_string();
-    status.speed = current_speed(state);
-    if let Ok(runtime) = state.lock() {
-        status.hotkeys_enabled = runtime.hotkeys_enabled;
-        status.hotkeys_available = cfg!(target_os = "windows");
-        status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
-        status.keyboard_layout = runtime.keyboard_layout.clone();
-    }
-    // 实时反映本机是否运行着 VRChat（OSC 接收端），让前端能明确告知用户
-    // “无接触”演奏为何没有声音（UDP 发往无人监听的端口会静默成功）。
-    status.vrchat_osc_connected = crate::osc::system_snapshot(false).vrc_running;
+        .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+    let mut status = runtime.status.clone();
+    status.speed = runtime.speed.lock().map(|s| *s).unwrap_or(status.speed);
+    status.hotkeys_enabled = runtime.hotkeys_enabled;
+    status.hotkeys_available = cfg!(target_os = "windows");
+    status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+    status.keyboard_layout = runtime.keyboard_layout.clone();
     Ok(status)
 }
 
