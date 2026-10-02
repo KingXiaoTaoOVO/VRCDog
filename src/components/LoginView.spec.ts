@@ -204,20 +204,19 @@ describe('LoginView two-factor flow', () => {
     expect(wrapper.emitted('login-success')).toBeTruthy();
   });
 
-  it('blocks login and warns when username contains non-ASCII characters', async () => {
+  it('supports login when username contains Chinese / non-ASCII characters', async () => {
     const wrapper = mountLogin();
     const inputs = wrapper.findAll('input');
     await inputs[0].setValue('king小韬');
     await inputs[1].setValue('test-password');
 
-    // Warning is visible under the input
-    expect(wrapper.text()).toContain('不支持游戏内中文昵称');
-
-    // Clicking login halts and shows error without calling VrcApi.login
+    // Clicking login calls VrcApi.login with Chinese username
     await wrapper.find('button.bg-primary').trigger('click');
     await flushPromises();
 
-    expect(mocks.login).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('VRChat 登录不支持中文昵称');
+    expect(mocks.login).toHaveBeenCalledWith(expect.objectContaining({
+      username: 'king小韬',
+      password: 'test-password',
+    }));
   });
 });

@@ -75,9 +75,7 @@ function hasUsableAuthCookie(rawCookie: string | null | undefined): boolean {
 }
 
 function prepareManualLoginFromSavedAccount(account: SavedAccount, messageKey: string) {
-  const candidate = account.username || '';
-  const isAscii = Boolean(candidate && !/[^\x00-\x7F]/.test(candidate) && candidate !== account.displayName);
-  username.value = isAscii ? candidate : '';
+  username.value = account.username || account.displayName || '';
   password.value = '';
   const twoFa = getCookieValue(account.authCookie, 'twoFactorAuth');
   authCookie.value = twoFa ? `twoFactorAuth=${twoFa}` : '';
@@ -96,15 +94,13 @@ async function saveCurrentAccount(user: any, cookie: string) {
   if (!saveCredentials.value) return;
   if (!user?.id) return;
 
-  const rawUser = user.username;
-  const isAscii = Boolean(rawUser && !/[^\x00-\x7F]/.test(rawUser));
-  const safeUsername = isAscii ? rawUser : (user.email && !/[^\x00-\x7F]/.test(user.email) ? user.email : '');
+  const accountUsername = user.username || user.email || user.id || '';
 
   const existing = savedAccounts.value.findIndex(a => a.userId === user.id);
   const account: SavedAccount = {
     userId: user.id,
     displayName: user.displayName || user.display_name || user.username || 'Unknown',
-    username: safeUsername,
+    username: accountUsername,
     avatarUrl: user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '',
     authCookie: cookie
   };
@@ -433,11 +429,6 @@ const authCookie = ref('');
 const loading = ref(false);
 const errorMsg = ref('');
 
-const isNonAsciiUsername = computed(() => {
-  const u = username.value.trim();
-  return u.length > 0 && /[^\x00-\x7F]/.test(u);
-});
-
 const show2FA = ref(false);
 const twoFactorMethods = ref<TwoFactorMethod[]>([]);
 const selectedTwoFactorMethod = ref<TwoFactorMethod>('totp');
@@ -499,12 +490,6 @@ const handleLogin = async () => {
       errorMsg.value = t('login.error_require_credentials');
       return;
     }
-  }
-
-  // Intercept Chinese characters in username to prevent confusing "Missing Credentials" error from VRChat API
-  if (isNonAsciiUsername.value) {
-    errorMsg.value = t('login.error_username_non_ascii');
-    return;
   }
 
   authStore?.setLoginGracePeriod(60_000);
@@ -794,10 +779,6 @@ onUnmounted(() => {
               :placeholder="t('login.username')"
               class="w-full px-4 py-3 rounded-xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)]"
             >
-            <p v-if="isNonAsciiUsername" class="mt-1.5 text-xs text-amber-500 font-medium flex items-center gap-1">
-              <AlertCircle :size="14" class="flex-shrink-0" />
-              <span>{{ t('login.warning_username_non_ascii') }}</span>
-            </p>
           </div>
           <div>
             <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1">
