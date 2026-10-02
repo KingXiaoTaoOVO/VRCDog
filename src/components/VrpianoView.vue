@@ -203,6 +203,7 @@ const isRefreshingMidi = ref(false);
 const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v3', 'midi');
 const activeTab = useStorage<'play' | 'online' | 'advanced'>('vrcdog.vrpiano.activeTab.v2', 'play');
 let launchPollTimer: number | null = null;
+let isStarting = false; // re-entrancy guard: prevent concurrent start() calls
 const clearLogs = () => {
   logs.value = [];
 };
@@ -272,7 +273,13 @@ const filteredSongs = computed(() => {
   });
 });
 const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status.value.progress || 0)) * 100));
-const canTogglePlayback = computed(() => Boolean(selectedSong.value) && !loading.value);
+const canTogglePlayback = computed(() => {
+  if (!selectedSong.value) return false;
+  // When already playing, pause/resume is always allowed (it doesn't set loading).
+  if (status.value.running) return true;
+  // When not yet playing, block if a start is already in progress.
+  return !loading.value;
+});
 const isPlaying = computed(() => Boolean(status.value.running));
 const stopAll = async () => {
   if (!status.value.running || loading.value) return;
@@ -1168,37 +1175,43 @@ const toggleHotkeys = async () => {
 };
 
 const start = async () => {
-  if (!selectedSong.value) return;
-  if (outputMode.value === 'osc') {
-    await startVrchatOsc();
-    return;
-  }
-  if (outputMode.value === 'midi') {
-    await startDirectMidi();
-    return;
-  }
-  loading.value = true;
-  error.value = '';
+  if (!selectedSong.value || isStarting) return;
+  isStarting = true;
   try {
-    if (status.value.running) {
-      await VrpianoApi.stop();
-      await waitUntilPlaybackStops();
+    if (outputMode.value === 'osc') {
+      await startVrchatOsc();
+      return;
     }
-    status.value = await VrpianoApi.start({
-      songPath: selectedSong.value.path,
-      delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
-      speed: clampSpeed(speed.value),
-      outputMode: 'keyboard',
-      keyboardLayout: keyboardLayout.value,
-    });
-    addLog(t('vrpiano.preparing_to_play', { name: selectedSong.value.name }));
-  } catch (e: any) {
-    error.value = e.message || String(e);
-    addLog(t('vrpiano.start_failed', { error: error.value }));
+    if (outputMode.value === 'midi') {
+      await startDirectMidi();
+      return;
+    }
+    loading.value = true;
+    error.value = '';
+    try {
+      if (status.value.running) {
+        await VrpianoApi.stop();
+        await waitUntilPlaybackStops();
+      }
+      status.value = await VrpianoApi.start({
+        songPath: selectedSong.value.path,
+        delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+        speed: clampSpeed(speed.value),
+        outputMode: 'keyboard',
+        keyboardLayout: keyboardLayout.value,
+      });
+      addLog(t('vrpiano.preparing_to_play', { name: selectedSong.value.name }));
+    } catch (e: any) {
+      error.value = e.message || String(e);
+      addLog(t('vrpiano.start_failed', { error: error.value }));
+    } finally {
+      loading.value = false;
+    }
   } finally {
-    loading.value = false;
+    isStarting = false;
   }
 };
+
 
 const startVrchatOsc = async () => {
   if (!selectedSong.value) return;
@@ -1252,6 +1265,7 @@ const startDirectMidi = async () => {
   loading.value = true;
   error.value = '';
   try {
+    // Refresh device list only if empty to avoid blocking network calls on every start.
     if (!midiDevices.value.length) {
       await refreshMidiDevices();
     }
@@ -1261,7 +1275,12 @@ const startDirectMidi = async () => {
     } else if (!selectedMidiDevice.value && midiDevices.value.length > 0) {
       selectedMidiDevice.value = midiDevices.value[0].id;
     }
-    if (!midiOutputState.value.connected && selectedMidiDevice.value) {
+
+    // Only connect if: no connection at all, OR connected to a different device.
+    const alreadyConnectedToTarget = midiOutputState.value.connected
+      && selectedMidiDevice.value
+      && midiOutputState.value.device_id === selectedMidiDevice.value;
+    if (!alreadyConnectedToTarget && selectedMidiDevice.value) {
       await connectMidiDevice();
     }
 
@@ -1287,36 +1306,49 @@ const startDirectMidi = async () => {
     addLog(t('vrpiano.start_failed', { error: error.value }));
   } finally {
     loading.value = false;
+    // isStarting is managed by the caller start()
   }
 };
 
 const togglePlayback = async () => {
   if (!status.value.running) {
+    // Guard: only one start() may run at a time. Extra F1 presses are ignored.
+    if (isStarting) return;
     await start();
     return;
   }
 
-  loading.value = true;
+  // Pause/resume: intentionally does NOT set loading=true.
+  // This keeps the UI fully responsive and prevents F1 from appearing "stuck".
   error.value = '';
   try {
     const wasPaused = status.value.paused;
     status.value = await VrpianoApi.togglePause();
-    addLog(wasPaused ?t('vrpiano.playback_resumed') :t('vrpiano.playback_paused'));
+    addLog(wasPaused ? t('vrpiano.playback_resumed') : t('vrpiano.playback_paused'));
   } catch (e: any) {
     error.value = e.message || String(e);
-  } finally {
-    loading.value = false;
   }
+
 };
 
 const waitUntilPlaybackStops = async () => {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const next = await VrpianoApi.getStatus();
-    status.value = next;
-    if (!next.running) return;
-    await new Promise((resolve) => window.setTimeout(resolve, 40));
+  // Poll getStatus() up to 25 times at 50ms intervals.
+  // Each individual getStatus() call is wrapped in a 600ms timeout so that a
+  // hung Rust mutex can never block the JS event loop indefinitely.
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const result = await Promise.race([
+      VrpianoApi.getStatus().then((s) => ({ timedOut: false as const, status: s })),
+      new Promise<{ timedOut: true }>((resolve) =>
+        window.setTimeout(() => resolve({ timedOut: true }), 600),
+      ),
+    ]);
+    if (!result.timedOut) {
+      status.value = result.status;
+      if (!result.status.running) return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
   }
-  throw new Error(t('vrpiano.timed_out_waiting_for_the_current_song_t'));
+  // Timed out - don't throw, just continue so the UI unblocks.
 };
 
 const restartPlayback = async () => {
@@ -1978,6 +2010,9 @@ onMounted(async () => {
 
 onUnmounted(async () => {
   vrpianoDisposed = true;
+  isStarting = false; // reset re-entrancy guard on teardown
+  loading.value = false; // ensure loading spinner doesn't get stuck on navigation
+
   // 关闭钢琴面板时，若悬浮窗未打开则停止后端播放；若悬浮窗仍打开，则允许继续演奏。
   const overlayWindow = isTauri() ? await WebviewWindow.getByLabel('vrpiano-overlay').catch(() => null) : null;
   if (!overlayWindow && status.value.running) {
