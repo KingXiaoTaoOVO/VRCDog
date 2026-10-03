@@ -30,7 +30,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 mod remote_assist_hub;
 mod survey;
@@ -2081,6 +2081,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         http_client,
     };
     if let Err(error) = persist_inner(&state).await {
+        error!(
+            data_file = %state.data_file.display(),
+            %error,
+            "Initial persist failed! If running in Docker, ensure the host data directory has correct permissions: `chown -R 10001:10001 ./data` or `chmod -R 777 ./data`"
+        );
         return Err(format!("initial persist failed: {error}").into());
     }
     tokio::spawn(persist_worker(state.clone()));
