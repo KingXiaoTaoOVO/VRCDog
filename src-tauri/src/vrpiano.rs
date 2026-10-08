@@ -2720,8 +2720,15 @@ fn run_midi_playback(
                 }
             }
 
-            let backend = midi_backend.lock().unwrap();
-            if !backend.state().lock().unwrap().connected {
+            let Ok(backend) = midi_backend.lock() else {
+                break;
+            };
+            let is_connected = backend
+                .state()
+                .lock()
+                .map(|s| s.connected)
+                .unwrap_or(false);
+            if !is_connected {
                 drop(backend);
                 update_runtime(&state, |status| {
                     status.last_error = "MIDI device disconnected".to_string();

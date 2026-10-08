@@ -245,6 +245,7 @@ let unlistenMidishowLogin: (() => void) | null = null;
 let unlistenPreviewSong: (() => void) | null = null;
 let unlistenVrAction: (() => void) | null = null;
 let unlistenLoopMidiProgress: (() => void) | null = null;
+let unlistenModeSync: (() => void) | null = null;
 let pollTimer: number | null = null;
 let midishowLoginPollTimer: number | null = null;
 let speedApplyTimer: number | null = null;
@@ -535,20 +536,26 @@ const toggleVrpianoOverlay = async () => {
   } catch {
     savedPosition = {};
   }
+  let savedSize: { width?: number; height?: number } = {};
+  try {
+    savedSize = JSON.parse(localStorage.getItem('vrcdog.vrpiano.overlay.size') || '{}');
+  } catch {
+    savedSize = {};
+  }
 
   const backdropEnabled = isVrpianoOverlayBlurEnabled(localStorage.getItem(VRPIANO_OVERLAY_BLUR_KEY));
 
   const overlay = new WebviewWindow('vrpiano-overlay', {
     url: '/?mode=vrpiano-overlay',
-    title:t('vrpiano.vrpiano_overlay_controller'),
+    title: t('vrpiano.vrpiano_overlay_controller'),
     transparent: true,
     decorations: false,
     shadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
-    width: 500,
-    height: 620,
+    width: (savedSize.width && savedSize.width >= 320) ? savedSize.width : 500,
+    height: (savedSize.height && savedSize.height >= 400) ? savedSize.height : 620,
     minWidth: 320,
     minHeight: 420,
     ...(backdropEnabled ? {
@@ -1967,6 +1974,13 @@ onMounted(async () => {
     unlistenMidishowLogin = await listen<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status', (event) => {
       void applyMidishowLoginStatus(event.payload);
     });
+    unlistenModeSync = await listen<{ mode: 'keyboard' | 'midi' | 'osc' }>('vrpiano-output-mode-sync', (event) => {
+      if (event.payload?.mode && ['keyboard', 'midi', 'osc'].includes(event.payload.mode)) {
+        if (outputMode.value !== event.payload.mode) {
+          outputMode.value = event.payload.mode;
+        }
+      }
+    });
     unlistenLoopMidiProgress = await listen<LoopMidiInstallProgress>('vrpiano_loopmidi_progress', (event) => {
       loopMidiProgress.value = event.payload;
       if (event.payload.phase === 'completed' || event.payload.phase === 'launching') {
@@ -2006,6 +2020,7 @@ onMounted(async () => {
     if (unlistenStatus) { unlistenStatus(); unlistenStatus = null; }
     if (unlistenOverlayClosed) { unlistenOverlayClosed(); unlistenOverlayClosed = null; }
     if (unlistenMidishowLogin) { unlistenMidishowLogin(); unlistenMidishowLogin = null; }
+    if (unlistenModeSync) { unlistenModeSync(); unlistenModeSync = null; }
     if (unlistenPreviewSong) { unlistenPreviewSong(); unlistenPreviewSong = null; }
     if (unlistenVrAction) { unlistenVrAction(); unlistenVrAction = null; }
     return;
@@ -2015,6 +2030,10 @@ onMounted(async () => {
   }
   // F1–F5 global hotkeys are owned by the Rust WH_KEYBOARD_LL hook (system-wide,
   // works without VRCDog being focused) — no JS keydown listener needed here.
+});
+
+watch(outputMode, (newMode) => {
+  void emit('vrpiano-output-mode-sync', { mode: newMode }).catch(() => {});
 });
 
 onUnmounted(async () => {
@@ -2030,6 +2049,7 @@ onUnmounted(async () => {
   if (unlistenStatus) unlistenStatus();
   if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (unlistenMidishowLogin) unlistenMidishowLogin();
+  if (unlistenModeSync) unlistenModeSync();
   if (unlistenPreviewSong) unlistenPreviewSong();
   if (unlistenVrAction) unlistenVrAction();
   if (unlistenLoopMidiProgress) unlistenLoopMidiProgress();
@@ -2559,15 +2579,14 @@ onUnmounted(async () => {
                 </div>
               </div>
               <div class="keyboard-layout-selector">
-                <label for="keyboard-layout-select" class="layout-label">
+                <label class="layout-label">
                   <Sliders :size="14" />
                   <span>{{ t('vrpiano.keyboard_layout_label') }}</span>
                 </label>
-                <select id="keyboard-layout-select" v-model="keyboardLayout" class="keyboard-layout-dropdown">
-                  <option v-for="opt in keyboardLayoutOptions" :key="opt.value" :value="opt.value">
-                    {{ opt.label() }}
-                  </option>
-                </select>
+                <div class="universal-layout-chip">
+                  <span class="chip-title">{{ t('vrpiano.universal_piano_standard') }}</span>
+                  <small class="chip-desc">{{ t('vrpiano.universal_map_hint') }}</small>
+                </div>
               </div>
             </div>
 
@@ -4857,21 +4876,27 @@ select option {
   white-space: nowrap;
 }
 
-.keyboard-layout-dropdown {
-  flex: 1;
-  background: var(--vp-bg);
-  color: var(--vp-text);
-  border: 1px solid var(--vp-border);
+.universal-layout-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, #10b981 10%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 25%, transparent);
   border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12px;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 160ms ease;
+  flex: 1;
 }
 
-.keyboard-layout-dropdown:focus {
-  border-color: var(--vp-primary);
+.universal-layout-chip .chip-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.universal-layout-chip .chip-desc {
+  font-size: 11px;
+  color: var(--vp-text-muted, #9ca3af);
+  line-height: 1.3;
 }
 
 

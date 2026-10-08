@@ -3354,6 +3354,8 @@
     "anti_chatbox_title": "键盘防转动与防游戏冲突保护",
     "anti_chatbox_desc": "已对标 User9426 优化：支持 Virtual Piano 免小键盘方案（杜绝视角旋转）、CN Bar 避让方案（跳过 R 轮盘/Y 聊天框/V 麦克风），以及 Shift 缓冲防粘键机制。",
     "keyboard_layout_label": "键盘方案",
+    "universal_piano_standard": "全地图通用标准键位 (Virtual Piano 兼容)",
+    "universal_map_hint": "通用标准 61/88 键虚拟键盘布局，任意有钢琴的地图均可直接弹奏，无需手动切换地图",
     "layout_virtual_piano": "Virtual Piano (标准 61 键网页钢琴，无小键盘防视角旋转)",
     "layout_cnbar_b": "CN Bar 钢琴吧 (方案 B - 避开 R/Y/V 游戏快捷键)",
     "layout_safe_no_numpad": "主键盘安全方案 (免小键盘防转动)",

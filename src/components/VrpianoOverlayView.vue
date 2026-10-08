@@ -83,7 +83,7 @@ const overlayBlur = useStorage(VRPIANO_OVERLAY_BLUR_KEY, DEFAULT_VRPIANO_OVERLAY
 const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
 const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', false);
 const previewingPath = ref('');
-const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v2', 'osc');
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v3', 'osc');
 const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const vrchatOscHost = useStorage('vrcdog.vrpiano.vrchatOscHost.v1', '127.0.0.1');
@@ -109,6 +109,8 @@ let hotkeyTimer: number | null = null;
 let unlistenStatus: UnlistenFn | null = null;
 let unlistenClose: UnlistenFn | null = null;
 let unlistenMoved: UnlistenFn | null = null;
+let unlistenResized: UnlistenFn | null = null;
+let unlistenModeSync: UnlistenFn | null = null;
 let unlistenFocus: UnlistenFn | null = null;
 let nativeBackdropEnabled: boolean | null = null;
 let appearanceRefreshTimer: number | null = null;
@@ -423,6 +425,15 @@ onMounted(async () => {
       const position = (event as any).payload || event;
       localStorage.setItem('vrcdog.vrpiano.overlay.position', JSON.stringify({ x: position.x, y: position.y }));
     });
+    unlistenResized = await appWindow.onResized?.((event) => {
+      if (positionLocked.value) return;
+      const size = (event as any).payload || event;
+      if (size && Number.isFinite(size.width) && Number.isFinite(size.height)) {
+        if (size.width >= 320 && size.height >= 400) {
+          localStorage.setItem('vrcdog.vrpiano.overlay.size', JSON.stringify({ width: size.width, height: size.height }));
+        }
+      }
+    });
     unlistenFocus = await appWindow.onFocusChanged(() => reapplySavedAppearance());
   }
 
@@ -452,8 +463,19 @@ onMounted(async () => {
 
   unlistenStatus = await listen<VrpianoStatus>('vrpiano_status', (event) => applyStatus(event.payload));
   unlistenClose = await listen('cmd-close-vrpiano-overlay', closeOverlay);
+  unlistenModeSync = await listen<{ mode: 'keyboard' | 'midi' | 'osc' }>('vrpiano-output-mode-sync', (event) => {
+    if (event.payload?.mode && ['keyboard', 'midi', 'osc'].includes(event.payload.mode)) {
+      if (outputMode.value !== event.payload.mode) {
+        outputMode.value = event.payload.mode;
+      }
+    }
+  });
   pollTimer = window.setInterval(refresh, 1_000);
 
+});
+
+watch(outputMode, (newMode) => {
+  void emit('vrpiano-output-mode-sync', { mode: newMode }).catch(() => {});
 });
 
 onUnmounted(() => {
@@ -465,6 +487,8 @@ onUnmounted(() => {
   unlistenStatus?.();
   unlistenClose?.();
   unlistenMoved?.();
+  unlistenResized?.();
+  unlistenModeSync?.();
   unlistenFocus?.();
 });
 </script>
@@ -561,12 +585,7 @@ onUnmounted(() => {
       </div>
       <div v-if="outputMode === 'keyboard'" class="setting-row keyboard-layout-row" data-no-drag>
         <span>{{ t('vrpiano.keyboard_layout_label') }}</span>
-        <select v-model="keyboardLayout" class="overlay-layout-select" data-no-drag>
-          <option value="virtual_piano">{{ t('vrpiano.layout_virtual_piano') }}</option>
-          <option value="cnbar_b">{{ t('vrpiano.layout_cnbar_b') }}</option>
-          <option value="safe_no_numpad">{{ t('vrpiano.layout_safe_no_numpad') }}</option>
-          <option value="cnbar_a">{{ t('vrpiano.layout_cnbar_a') }}</option>
-        </select>
+        <span class="universal-layout-text">{{ t('vrpiano.universal_piano_standard') }}</span>
       </div>
       <div v-if="outputMode === 'keyboard'" class="overlay-anti-chatbox-tip" data-no-drag>
         <ShieldCheck :size="12" />
@@ -1043,21 +1062,14 @@ input {
   line-height: 1.3;
 }
 
-.overlay-layout-select {
-  max-width: 170px;
-  background: rgba(0, 0, 0, 0.4);
-  color: var(--theme-text, #fff);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
-  padding: 3px 6px;
+.universal-layout-text {
   font-size: 11px;
-  outline: none;
-  cursor: pointer;
-}
-
-.overlay-layout-select option {
-  background: #18181b;
-  color: #fff;
+  color: #10b981;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 25%, transparent);
 }
 
 .now-playing {

@@ -474,16 +474,37 @@ export const useAuthStore = defineStore('auth', () => {
         await VrcApi.loadCookiesOnStartup({ authCookie: savedCookie });
       } catch { /* ignore */ }
 
-      await VrcApi.fetchConfig();
+      try {
+        await VrcApi.fetchConfig();
+      } catch {
+        /* best-effort config fetch; ignore network hiccups */
+      }
 
-      const res = await VrcApi.login({
-        username: null,
-        password: null,
-        authCookie: savedCookie
-      });
+      let res: any = null;
+      let lastLoginError: any = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          res = await VrcApi.login({
+            username: null,
+            password: null,
+            authCookie: savedCookie
+          });
+          lastLoginError = null;
+          break;
+        } catch (loginErr: any) {
+          lastLoginError = loginErr;
+          const errMsg = String(loginErr?.message || loginErr || '').toLowerCase();
+          const isNet = /network|timeout|timed out|fetch|connect|abort/i.test(errMsg);
+          if (isNet && attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+            continue;
+          }
+          throw loginErr;
+        }
+      }
 
       // Normalize: VRChat API may return user as current_user, currentUser, or directly as res (with res.id)
-      const autoLoginUser = res.current_user || res.currentUser || (res.id ? res : null);
+      const autoLoginUser = res?.current_user || res?.currentUser || (res?.id ? res : null);
       if (autoLoginUser) {
         currentUser.value = autoLoginUser;
 
@@ -509,38 +530,33 @@ export const useAuthStore = defineStore('auth', () => {
         void syncInitialNotifications();
         await friendsSyncPromise;
         await initWebsocket();
-      } else if (res.error) {
-        // A cached profile is display data only. Never promote it to an
-        // authenticated session without a successful /auth/user response.
-        // Doing so makes the first menu request fail with 401 and appear as a
-        // random logout after startup.
+      } else if (res?.error) {
         const errMsg = typeof res.error === 'string'
           ? res.error
           : String(res.error?.message || res.error?.details || '');
-        if (/missing credentials|invalid credentials|expired|login required|not logged in/i.test(errMsg)) {
+        if (/missing credentials|invalid credentials|session expired|cookie expired/i.test(errMsg)) {
           await DbApi.clearAuth();
         }
       }
     } catch (err: any) {
-      // A 401 from /auth/user means the saved session is dead; without
-      // clearing it the login screen will keep popping back to the role
-      // picker on every launch (and global listeners may treat the stale
-      // cookie as live).
       const status = err?.status;
       const respMsg = String(
         err?.response?.error?.message ||
         err?.response?.message ||
         err?.response?.details ||
+        err?.message ||
         '',
       ).toLowerCase();
+      const isNetworkOrTimeout = /network|timeout|timed out|fetch|connect|abort/i.test(respMsg) || !status || status >= 500;
       const looksExpired =
-        status === 401 ||
-        /missing credentials|invalid credentials|expired|login required|not logged in/.test(respMsg);
+        !isNetworkOrTimeout &&
+        status === 401 &&
+        !err?.response?.requiresTwoFactorAuth &&
+        !err?.response?.requires_two_factor_auth &&
+        /missing credentials|invalid credentials|cookie expired|session expired/i.test(respMsg);
       if (looksExpired) {
         try { await DbApi.clearAuth(); } catch { /* ignore */ }
       }
-      // Network failures leave the app on the login screen. A cached user is
-      // not sufficient to start authenticated API traffic.
       console.warn('[Auth] automatic login verification failed', err);
     } finally {
       autoLoginLoading.value = false;

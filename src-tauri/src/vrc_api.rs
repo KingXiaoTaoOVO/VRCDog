@@ -61,8 +61,8 @@ fn build_vrc_client(
     let mut builder = Client::builder()
         .cookie_provider(jar)
         .default_headers(headers)
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(60))
         .tcp_keepalive(Duration::from_secs(30))
         .pool_max_idle_per_host(10);
 

@@ -147,5 +147,38 @@ export async function mergeCookiesAndSave(newCookieJson: string | null | undefin
   const merged = Array.from(cookieMap.values());
   const mergedJson = JSON.stringify(merged);
   await invoke('db_save_auth', { cookie: mergedJson });
+
+  try {
+    const rawAccounts = await invoke<string | null>('db_get_setting', { key: 'savedAccounts' });
+    if (rawAccounts) {
+      let accounts: any[] = [];
+      try {
+        const parsed = JSON.parse(rawAccounts);
+        accounts = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+      } catch {}
+      if (Array.isArray(accounts) && accounts.length > 0) {
+        let currentUserId: string | null = null;
+        try {
+          const cachedUserStr = await invoke<string | null>('db_get_setting', { key: 'cached_vrc_user' });
+          if (cachedUserStr) {
+            const cu = typeof cachedUserStr === 'string' ? JSON.parse(cachedUserStr) : cachedUserStr;
+            currentUserId = cu?.user?.id || cu?.id || null;
+          }
+        } catch {}
+
+        let updated = false;
+        for (const acc of accounts) {
+          if (!currentUserId || acc.userId === currentUserId || accounts.length === 1) {
+            acc.authCookie = mergedJson;
+            updated = true;
+          }
+        }
+        if (updated) {
+          await invoke('db_save_setting', { key: 'savedAccounts', value: JSON.stringify(accounts) });
+        }
+      }
+    }
+  } catch {}
+
   return mergedJson;
 }

@@ -3353,6 +3353,8 @@
     "anti_chatbox_title": "Anti-Camera-Rotation & Anti-Conflict Protection",
     "anti_chatbox_desc": "Aligned with User9426: supports Virtual Piano (no-numpad, 100% camera-rotation free), CN Bar avoidance layout (skips R menu, Y chatbox, V mic), and Shift-state buffering.",
     "keyboard_layout_label": "Keyboard Layout",
+    "universal_piano_standard": "Universal Standard Piano Keymap (Virtual Piano Compatible)",
+    "universal_map_hint": "Universal 61/88-key piano layout. Works in any world with a piano without manual map selection.",
     "layout_virtual_piano": "Virtual Piano (Standard 61-key Web, No Numpad, Anti-Rotation)",
     "layout_cnbar_b": "CN Bar Piano (Layout B - Avoids R/Y/V Game Hotkeys)",
     "layout_safe_no_numpad": "Safe No-Numpad Layout (Prevents View Rotation)",

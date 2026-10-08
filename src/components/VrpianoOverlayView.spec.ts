@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
     return vi.fn();
   }),
   onMoved: vi.fn(async () => vi.fn()),
+  onResized: vi.fn(async (handler: (event: { payload?: { width: number; height: number }; width?: number; height: number }) => void) => {
+    mocks.resizeHandler = handler;
+    return vi.fn();
+  }),
   onFocusChanged: vi.fn(async (handler: (event: { payload: boolean }) => void) => {
     mocks.focusHandler = handler;
     return vi.fn();
@@ -28,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   status: {} as any,
   songs: [] as any[],
   focusHandler: null as null | ((event: { payload: boolean }) => void),
+  resizeHandler: null as null | ((event: any) => void),
 }));
 
 vi.hoisted(() => {
@@ -73,6 +78,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     clearEffects: mocks.clearEffects,
     destroy: vi.fn(async () => undefined),
     onMoved: mocks.onMoved,
+    onResized: mocks.onResized,
     onFocusChanged: mocks.onFocusChanged,
     setAlwaysOnTop: mocks.setAlwaysOnTop,
     setEffects: mocks.setEffects,
@@ -281,6 +287,34 @@ describe('VrpianoOverlayView appearance controls', () => {
     await flushPromises();
 
     expect(mocks.setHotkeys).toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('persists resized window dimensions to localStorage', async () => {
+    const wrapper = mount(VrpianoOverlayView);
+    await flushPromises();
+
+    expect(mocks.resizeHandler).toBeTypeOf('function');
+    mocks.resizeHandler?.({ payload: { width: 550, height: 720 } });
+    await wrapper.vm.$nextTick();
+
+    const savedSize = JSON.parse(localStorage.getItem('vrcdog.vrpiano.overlay.size') || '{}');
+    expect(savedSize).toEqual({ width: 550, height: 720 });
+
+    wrapper.unmount();
+  });
+
+  it('synchronizes outputMode when receiving vrpiano-output-mode-sync event', async () => {
+    const wrapper = mount(VrpianoOverlayView);
+    await flushPromises();
+
+    const onModeSync = mocks.listeners.get('vrpiano-output-mode-sync');
+    expect(onModeSync).toBeTypeOf('function');
+    onModeSync?.({ payload: { mode: 'midi' } });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('.mode-badge').text()).toContain('MIDI');
+
     wrapper.unmount();
   });
 });
