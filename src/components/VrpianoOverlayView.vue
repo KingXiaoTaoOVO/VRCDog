@@ -84,7 +84,7 @@ const positionLocked = useStorage('vrcdog.vrpiano.overlay.locked', false);
 const previewEnabled = useStorage('vrcdog.vrpiano.overlay.preview-enabled', false);
 const previewingPath = ref('');
 const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v3', 'osc');
-const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
+const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v2', 'virtual_piano');
 const selectedMidiDevice = useStorage('vrcdog.vrpiano.selectedMidiDevice.v1', '');
 const vrchatOscHost = useStorage('vrcdog.vrpiano.vrchatOscHost.v1', '127.0.0.1');
 const vrchatOscPort = useStorage('vrcdog.vrpiano.vrchatOscPort.v1', 9000);
@@ -438,6 +438,9 @@ onMounted(async () => {
   }
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  localStorage.setItem('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
+  localStorage.setItem('vrcdog.vrpiano.keyboardLayout.v2', 'virtual_piano');
+  keyboardLayout.value = 'virtual_piano';
 
   try {
     const [nextStatus, nextSongs] = await Promise.all([VrpianoApi.getStatus(), VrpianoApi.listSongs()]);

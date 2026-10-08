@@ -207,15 +207,8 @@ let isStarting = false; // re-entrancy guard: prevent concurrent start() calls
 const clearLogs = () => {
   logs.value = [];
 };
-const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
+const keyboardLayout = useStorage('vrcdog.vrpiano.keyboardLayout.v2', 'virtual_piano');
 const channelRouted = ref<boolean[]>(Array.from({ length: 16 }, () => true));
-
-const keyboardLayoutOptions = [
-  { value: 'virtual_piano', label: () => t('vrpiano.layout_virtual_piano') },
-  { value: 'cnbar_b', label: () => t('vrpiano.layout_cnbar_b') },
-  { value: 'safe_no_numpad', label: () => t('vrpiano.layout_safe_no_numpad') },
-  { value: 'cnbar_a', label: () => t('vrpiano.layout_cnbar_a') },
-];
 
 const playModeOptions = [
   { value: 'sequential', label: () => t('vrpiano.play_mode_sequential') },
@@ -1953,6 +1946,9 @@ const STATUS_LOG_THROTTLE_MS = 1000;
 
 onMounted(async () => {
   vrpianoDisposed = false;
+  localStorage.setItem('vrcdog.vrpiano.keyboardLayout.v1', 'virtual_piano');
+  localStorage.setItem('vrcdog.vrpiano.keyboardLayout.v2', 'virtual_piano');
+  keyboardLayout.value = 'virtual_piano';
   const savedInstrument = localStorage.getItem(playerInstrumentStorageKey);
   if (savedInstrument === 'source' || (savedInstrument && Number(savedInstrument) >= 0 && Number(savedInstrument) <= 127)) {
     playerInstrument.value = savedInstrument;

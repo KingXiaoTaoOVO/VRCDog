@@ -3132,25 +3132,27 @@ fn handle_playback_key_up(
 
 #[cfg(target_os = "windows")]
 fn send_key(vk: u16, key_up: bool) {
+    // HARD ANTI-CAMERA-ROTATION SHIELD:
+    // In VRChat desktop mode:
+    // - Arrow keys (VK 37..=40) rotate the camera view (yaw and pitch).
+    // - Numpad keys (VK 96..=111) rotate the camera view (especially without NumLock or via raw input).
+    // - Page Up / Page Down (VK 33..=34), End / Home (VK 35..=36), Insert / Delete (VK 45..=46) adjust camera view.
+    // Drop all of them unconditionally so camera view is 100% frozen and stable!
+    if (vk >= 33 && vk <= 40) || (vk >= 45 && vk <= 46) || (vk >= 96 && vk <= 111) {
+        return;
+    }
 
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-        KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
-        VIRTUAL_KEY,
+        KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC, VIRTUAL_KEY,
     };
 
     let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
-    let mut flags = if key_up {
+    let flags = if key_up {
         KEYEVENTF_KEYUP
     } else {
         KEYBD_EVENT_FLAGS(0)
     };
-    // Numpad numeric keys (VK 96..=110) MUST NEVER have KEYEVENTF_EXTENDEDKEY.
-    // If flagged as extended, Windows interprets them as Arrow keys, causing camera yaw/pitch rotation in VRChat!
-    // Only numpad slash (111) and standalone navigation keys (33..=46) are extended.
-    if vk == 111 || (vk >= 33 && vk <= 46 && (vk < 96 || vk > 110)) {
-        flags |= KEYEVENTF_EXTENDEDKEY;
-    }
 
     let input = INPUT {
         r#type: INPUT_KEYBOARD,
@@ -3417,81 +3419,12 @@ fn map_virtual_piano(mut note: u8) -> Option<PianoKeyAction> {
     Some(PianoKeyAction { vk, shift })
 }
 
-/// CN Bar Layout B: avoids VRChat game hotkeys (skips 'r' menu, 'y' chatbox, 'v' mic)
-fn map_cnbar_b(mut note: u8) -> Option<PianoKeyAction> {
-    while note < 36 {
-        note += 12;
-    }
-    while note > 95 {
-        note -= 12;
-    }
-    let vk = match note {
-        36 => 90,  // 'z'
-        37 => 190, // '.'
-        38 => 88,  // 'x'
-        39 => 191, // '/'
-        40 => 67,  // 'c'
-        41 => 66,  // 'b' (skips 'v' to avoid mic toggling)
-        42 => 161, // Right Shift
-        43 => 78,  // 'n'
-        44 => 96,  // NUM_0
-        45 => 77,  // 'm'
-        46 => 110, // NUM_DOT
-        47 => 188, // ','
-        48 => 65,  // 'a'
-        49 => 75,  // 'k'
-        50 => 83,  // 's'
-        51 => 76,  // 'l'
-        52 => 68,  // 'd'
-        53 => 70,  // 'f'
-        54 => 186, // ';'
-        55 => 71,  // 'g'
-        56 => 98,  // NUM_2
-        57 => 72,  // 'h'
-        58 => 99,  // NUM_3
-        59 => 74,  // 'j'
-        60 => 81,  // 'q'
-        61 => 80,  // 'p'
-        62 => 87,  // 'w'
-        63 => 219, // '['
-        64 => 69,  // 'e'
-        65 => 84,  // 't' (skips 'r' to avoid action wheel)
-        66 => 221, // ']'
-        67 => 85,  // 'u'
-        68 => 101, // NUM_5
-        69 => 73,  // 'i' (skips 'y' to avoid chatbox)
-        70 => 102, // NUM_6
-        71 => 79,  // 'o'
-        72 => 49,  // '1'
-        73 => 56,  // '8'
-        74 => 50,  // '2'
-        75 => 57,  // '9'
-        76 => 51,  // '3'
-        77 => 52,  // '4'
-        78 => 48,  // '0'
-        79 => 53,  // '5'
-        80 => 104, // NUM_8
-        81 => 54,  // '6'
-        82 => 105, // NUM_9
-        83 => 55,  // '7'
-        84 => 112, // F1
-        85 => 119, // F8
-        86 => 113, // F2
-        87 => 120, // F9
-        88 => 114, // F3
-        89 => 115, // F4
-        90 => 121, // F10
-        91 => 116, // F5
-        92 => 111, // NUM_SLASH
-        93 => 117, // F6
-        94 => 106, // NUM_STAR
-        95 => 118, // F7
-        _ => return None,
-    };
-    Some(PianoKeyAction { vk, shift: false })
+/// CN Bar Layout B: avoids VRChat game hotkeys and camera rotation
+fn map_cnbar_b(note: u8) -> Option<PianoKeyAction> {
+    map_safe_no_numpad(note)
 }
 
-/// Safe No-Numpad Layout: replaces all numpad keys with main keyboard symbols
+/// Safe No-Numpad Layout: replaces all numpad and arrow keys with safe keyboard keys
 /// completely preventing camera pitch/yaw view rotation even without numlock
 fn map_safe_no_numpad(mut note: u8) -> Option<PianoKeyAction> {
     while note < 36 {
@@ -3535,7 +3468,7 @@ fn map_safe_no_numpad(mut note: u8) -> Option<PianoKeyAction> {
         67 => 85,  // 'u'
         68 => 220, // '\\'
         69 => 73,  // 'i' (skips 'y')
-        70 => 45,  // Insert
+        70 => 186, // ';'
         71 => 79,  // 'o'
         72 => 49,  // '1'
         73 => 56,  // '8'
@@ -3557,109 +3490,33 @@ fn map_safe_no_numpad(mut note: u8) -> Option<PianoKeyAction> {
         89 => 115, // F4
         90 => 121, // F10
         91 => 116, // F5
-        92 => 36,  // Home
+        92 => 122, // F11
         93 => 117, // F6
-        94 => 35,  // End
+        94 => 123, // F12
         95 => 118, // F7
         _ => return None,
     };
     Some(PianoKeyAction { vk, shift: false })
 }
 
-/// CN Bar Layout A: original continuous layout
+/// CN Bar Layout A: mapped to safe Virtual Piano layout to prevent camera spin
 fn map_cnbar_a(note: u8) -> Option<PianoKeyAction> {
-    let key = match note {
-        36 => "z", 37 => ",", 38 => "x", 39 => ".", 40 => "c", 41 => "v", 42 => "/", 43 => "b",
-        44 => "b0", 45 => "n", 46 => "b.", 47 => "m", 48 => "a", 49 => "k", 50 => "s", 51 => "l",
-        52 => "d", 53 => "f", 54 => ";", 55 => "g", 56 => "b2", 57 => "h", 58 => "b3", 59 => "j",
-        60 => "q", 61 => "i", 62 => "w", 63 => "o", 64 => "e", 65 => "r", 66 => "p", 67 => "t",
-        68 => "b5", 69 => "y", 70 => "b6", 71 => "u", 72 => "1", 73 => "8", 74 => "2", 75 => "9",
-        76 => "3", 77 => "4", 78 => "0", 79 => "5", 80 => "b8", 81 => "6", 82 => "b9", 83 => "7",
-        84 => "F1", 85 => "F8", 86 => "F2", 87 => "F9", 88 => "F3", 89 => "F4", 90 => "F10", 91 => "F5",
-        92 => "b/", 93 => "F6", 94 => "b*", 95 => "F7",
-        _ => return None,
-    };
-    key_to_vk(key).map(|vk| PianoKeyAction { vk, shift: false })
+    map_virtual_piano(note)
 }
 
 fn map_midi_note_to_action(note: u8, layout: &str) -> Option<PianoKeyAction> {
     match layout.trim().to_ascii_lowercase().as_str() {
         "virtual_piano" | "vp" | "standard" => map_virtual_piano(note),
         "cnbar_b" | "cnbar_safe" | "safe" => map_cnbar_b(note),
+        "cnbar_a" => map_cnbar_a(note),
         "safe_no_numpad" | "no_numpad" => map_safe_no_numpad(note),
-        _ => map_cnbar_a(note),
+        _ => map_virtual_piano(note),
     }
 }
 
 #[allow(dead_code)]
 fn note_to_vk(note: u8) -> Option<u16> {
-    map_cnbar_a(note).map(|a| a.vk)
-}
-
-fn key_to_vk(key: &str) -> Option<u16> {
-    Some(match key {
-        "0" => 48,
-        "1" => 49,
-        "2" => 50,
-        "3" => 51,
-        "4" => 52,
-        "5" => 53,
-        "6" => 54,
-        "7" => 55,
-        "8" => 56,
-        "9" => 57,
-        "a" => 65,
-        "b" => 66,
-        "c" => 67,
-        "d" => 68,
-        "e" => 69,
-        "f" => 70,
-        "g" => 71,
-        "h" => 72,
-        "i" => 73,
-        "j" => 74,
-        "k" => 75,
-        "l" => 76,
-        "m" => 77,
-        "n" => 78,
-        "o" => 79,
-        "p" => 80,
-        "q" => 81,
-        "r" => 82,
-        "s" => 83,
-        "t" => 84,
-        "u" => 85,
-        "v" => 86,
-        "w" => 87,
-        "x" => 88,
-        "y" => 89,
-        "z" => 90,
-        "," => 188,
-        "." => 190,
-        "/" => 191,
-        ";" => 186,
-        "F1" => 112,
-        "F2" => 113,
-        "F3" => 114,
-        "F4" => 115,
-        "F5" => 116,
-        "F6" => 117,
-        "F7" => 118,
-        "F8" => 119,
-        "F9" => 120,
-        "F10" => 121,
-        "b0" => 96,
-        "b." => 110,
-        "b2" => 98,
-        "b3" => 99,
-        "b5" => 101,
-        "b6" => 102,
-        "b8" => 104,
-        "b9" => 105,
-        "b/" => 111,
-        "b*" => 106,
-        _ => return None,
-    })
+    map_virtual_piano(note).map(|a| a.vk)
 }
 
 fn sleep_scaled_interruptible<F>(
@@ -6788,16 +6645,15 @@ mod vrpiano_download_tests {
 
     #[test]
     fn note_to_vk_mapping_correctness() {
-        assert_eq!(super::note_to_vk(36), Some(90)); // 'z'
-        assert_eq!(super::note_to_vk(60), Some(81)); // 'q' (middle C)
-        assert_eq!(super::note_to_vk(69), Some(89)); // 'y' (A4, 440Hz)
-        assert_eq!(super::note_to_vk(84), Some(112)); // F1
-        assert_eq!(super::note_to_vk(20), None); // Out of range
+        assert_eq!(super::note_to_vk(36), Some(49)); // '1'
+        assert_eq!(super::note_to_vk(60), Some(84)); // 't' (middle C)
+        assert_eq!(super::note_to_vk(69), Some(80)); // 'p' (A4, 440Hz)
+        assert_eq!(super::note_to_vk(84), Some(76)); // 'l'
     }
 
     #[test]
     fn vrpiano_note_69_and_osc_address_test() {
-        assert_eq!(super::note_to_vk(69), Some(89));
+        assert_eq!(super::note_to_vk(69), Some(80)); // 'p' in Virtual Piano
         assert_eq!(super::osc_note_address("piano", "", 69), "/PianoKeys/A4");
         assert_eq!(super::osc_note_address("avatar", "", 69), "/avatar/parameters/note069");
     }
@@ -6842,6 +6698,22 @@ mod vrpiano_download_tests {
                 assert!(action.vk < 96 || action.vk > 111, "note {} mapped to numpad {}", note, action.vk);
                 assert_ne!(action.vk, 82, "note {} mapped to 'r' (VK 82)", note);
                 assert_ne!(action.vk, 89, "note {} mapped to 'y' (VK 89)", note);
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_layouts_never_produce_camera_rotating_keys() {
+        let layouts = ["virtual_piano", "safe_no_numpad", "cnbar_b", "cnbar_a", "unknown", ""];
+        for layout in layouts {
+            for note in 0..=127 {
+                if let Some(action) = super::map_midi_note_to_action(note, layout) {
+                    // Must never be numpad keys
+                    assert!(action.vk < 96 || action.vk > 111, "layout {} note {} produced numpad key {}", layout, note, action.vk);
+                    // Must never be arrow or navigation keys
+                    assert!(action.vk < 33 || action.vk > 40, "layout {} note {} produced nav/arrow key {}", layout, note, action.vk);
+                    assert!(action.vk != 45 && action.vk != 46, "layout {} note {} produced insert/delete {}", layout, note, action.vk);
+                }
             }
         }
     }
