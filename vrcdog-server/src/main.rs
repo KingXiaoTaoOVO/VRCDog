@@ -588,6 +588,50 @@ fn register_verification_enabled() -> bool {
 
 /// L2：用客户端的 VRChat 会话 Cookie 向官方 API 反查真实 user id，
 /// 确认与请求声明的 user_id 一致，防止仅凭 user_id 冒名注册并领取 client_token。
+fn normalize_cookie_header(raw_cookie: &str) -> String {
+    let raw = raw_cookie.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    if raw.starts_with('[') {
+        if let Ok(cookies) = serde_json::from_str::<Vec<String>>(raw) {
+            let list: Vec<String> = cookies
+                .iter()
+                .flat_map(|c| {
+                    normalize_cookie_header(c)
+                        .split(';')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            if !list.is_empty() {
+                return list.join("; ");
+            }
+        }
+    }
+    let parts: Vec<String> = raw
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && s.contains('='))
+        .map(String::from)
+        .collect();
+    if !parts.is_empty() {
+        parts.join("; ")
+    } else if !raw.contains('=') {
+        let clean = raw.trim_matches('"').trim_matches('\'').trim();
+        if !clean.is_empty() {
+            format!("auth={}", clean)
+        } else {
+            String::new()
+        }
+    } else {
+        raw.to_string()
+    }
+}
+
+/// L2：用客户端的 VRChat 会话 Cookie 向官方 API 反查真实 user id，
+/// 确认与请求声明的 user_id 一致，防止仅凭 user_id 冒名注册并领取 client_token。
 async fn verify_register_identity(request: &RegisterRequest) -> Result<(), String> {
     if !register_verification_enabled() {
         return Ok(());
@@ -599,13 +643,21 @@ async fn verify_register_identity(request: &RegisterRequest) -> Result<(), Strin
         .filter(|c| !c.is_empty())
         .ok_or_else(|| "VRChat auth cookie is required".to_string())?;
 
+    let normalized_cookie = normalize_cookie_header(cookie);
+    if normalized_cookie.is_empty() {
+        return Err("VRChat auth cookie is invalid or empty".to_string());
+    }
+
+    let user_agent = format!("VRCDog/{} (https://vrcdog.pcb.im; support@pcb.im)", env!("CARGO_PKG_VERSION"));
     let client = ClientBuilder::new()
         .timeout(StdDuration::from_secs(10))
+        .user_agent(&user_agent)
         .build()
         .map_err(|e| format!("VRChat auth client init failed: {e}"))?;
     let res = client
         .get("https://api.vrchat.cloud/api/1/auth/user")
-        .header(reqwest::header::COOKIE, cookie)
+        .header(reqwest::header::COOKIE, &normalized_cookie)
+        .header(reqwest::header::USER_AGENT, &user_agent)
         .send()
         .await
         .map_err(|e| format!("VRChat auth request failed: {e}"))?;
@@ -1383,6 +1435,7 @@ struct VrchatProxyQuery {
 }
 
 async fn require_admin_session(
+    State(state): State<AppState>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
@@ -1391,10 +1444,6 @@ async fn require_admin_session(
         .get("x-vrcdog-admin-token")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    let state = request
-        .extensions()
-        .get::<AppState>()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let sessions = state.admin_sessions.read().await;
     if !sessions.contains_key(token) {
         return Err(StatusCode::UNAUTHORIZED);
@@ -1405,7 +1454,8 @@ async fn require_admin_session(
 
 /// L2: 校验 client token，将验证通过的 user_id 注入 request extensions
 async fn require_client_token(
-    request: axum::extract::Request,
+    State(state): State<AppState>,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     let token = request
@@ -1413,10 +1463,6 @@ async fn require_client_token(
         .get("x-vrcdog-client-token")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    let state = request
-        .extensions()
-        .get::<AppState>()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let clients = state.clients.read().await;
     let verified_user_id = clients
         .values()
@@ -1426,7 +1472,6 @@ async fn require_client_token(
     let Some(user_id) = verified_user_id else {
         return Err(StatusCode::UNAUTHORIZED);
     };
-    let mut request = request;
     request.extensions_mut().insert(user_id);
     Ok(next.run(request).await)
 }
@@ -1982,7 +2027,7 @@ fn router(state: AppState) -> Router {
             "/api/client/survey-history/delete",
             post(client_delete_submission),
         )
-        .route_layer(middleware::from_fn(require_client_token));
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_client_token));
 
     Router::new()
         .route("/", get(status_page))

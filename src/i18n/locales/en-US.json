@@ -18,7 +18,7 @@
     "customize_navbar": "Customize Navbar",
     "external_launch": "External launch requested!\nJoin instance immediately:\n{worldId}",
     "banned_message": "Account Banned! Reason: {reason}{duration}",
-    "server_disconnected_desc": "Cannot connect to VrcDog server. Functions paused.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> seconds until auto reconnect...",
+    "server_disconnected_desc": "Cannot connect to VrcDog server. Functions paused.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> seconds until auto reconnect...",
     "save_and_reconnect": "Save & Reconnect",
     "server_reconnect_failed": "The new address is still unreachable. Check the URL and server status.",
     "service_disruption": "VRChat Service Disruption",
@@ -3432,7 +3432,12 @@
     "loopmidi_step_2": "Click the '+' button next to 'New port-name' to create a virtual port",
     "loopmidi_focus_window": "Bring loopMIDI to Front",
     "loopmidi_refresh_and_connect": "Refresh & Connect",
-    "loopmidi_launching": "Launching..."
+    "loopmidi_launching": "Launching...",
+    "operation_logs": "Operation Logs",
+    "play_settings": "Play Settings",
+    "channel_controls_desc": "16-channel mute, solo, route, and volume controls",
+    "sustain_pedal": "Sustain Pedal",
+    "midishow_search_timeout": "Midishow search timed out. Check your proxy, or click the browser button to open the official search."
   },
   "danmaku": {
     "streamer_theme": "Streamer theme",

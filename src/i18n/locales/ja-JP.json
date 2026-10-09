@@ -18,7 +18,7 @@
     "customize_navbar": "ナビゲーション設定",
     "external_launch": "外部起動リクエストを検出しました！\nすぐにインスタンスに参加しますか：\n{worldId}",
     "banned_message": "アカウントがBANされました！理由: {reason}{duration}",
-    "server_disconnected_desc": "VrcDog サーバーに接続できません。機能は一時停止されています。<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> 秒後に自動再接続します...",
+    "server_disconnected_desc": "VrcDog サーバーに接続できません。機能は一時停止されています。<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> 秒後に自動再接続します...",
     "save_and_reconnect": "保存して再接続",
     "server_reconnect_failed": "新しいアドレスにも接続できません。URL とサーバー状態を確認してください。",
     "access_restricted": "アクセス制限",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "左下の「New port-name」入力欄の横にある「+」をクリックしてポートを作成します",
     "loopmidi_focus_window": "loopMIDI ウィンドウを表示",
     "loopmidi_refresh_and_connect": "再検出して接続",
-    "loopmidi_launching": "起動中..."
+    "loopmidi_launching": "起動中...",
+    "operation_logs": "操作ログ",
+    "play_settings": "演奏モード設定",
+    "channel_controls_desc": "16チャンネル ミュート/ソロ/ルーティング/音量",
+    "sustain_pedal": "サステインペダル",
+    "midishow_search_timeout": "Midishow の検索がタイムアウトしました。プロキシを確認するか、ブラウザで検索を開いてください。"
   },
   "danmaku": {
     "streamer_theme": "配信者テーマ",

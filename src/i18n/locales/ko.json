@@ -18,7 +18,7 @@
     "customize_navbar": "사용자 지정 Navbar",
     "external_launch": "외부 실행 requested!\n참여 instance immediately:\n{worldId}",
     "banned_message": "계정 Banned! Reason: {reason}{duration}",
-    "server_disconnected_desc": "할 수 없음 connect 까지 VrcDog server. 기능 paused.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> 초 until 자동 reconnect...",
+    "server_disconnected_desc": "할 수 없음 connect 까지 VrcDog server. 기능 paused.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> 초 until 자동 reconnect...",
     "save_and_reconnect": "저장 & Reconnect",
     "server_reconnect_failed": "그 새로운 주소 is still unreachable. 확인 그 URL and server status.",
     "access_restricted": "접근 Restricted",
@@ -3339,7 +3339,12 @@
     "loopmidi_step_2": "창 좌측 하단 'New port-name' 입력창 옆 '+' 버튼을 눌러 가상 포트를 생성합니다",
     "loopmidi_focus_window": "loopMIDI 창 불러오기",
     "loopmidi_refresh_and_connect": "다시 감지 및 연결",
-    "loopmidi_launching": "시작하는 중..."
+    "loopmidi_launching": "시작하는 중...",
+    "operation_logs": "작업 로그",
+    "play_settings": "연주 모드 설정",
+    "channel_controls_desc": "16채널 음소거/솔로/라우팅/볼륨",
+    "sustain_pedal": "서스테인 페달",
+    "midishow_search_timeout": "Midishow 검색 시간이 초과되었습니다. 프록시를 확인하거나 브라우저에서 검색을 여세요."
   },
   "danmaku": {
     "streamer_theme": "스트리머 테마",

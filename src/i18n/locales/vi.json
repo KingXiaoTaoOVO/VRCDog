@@ -18,7 +18,7 @@
     "customize_navbar": "Tùy chỉnh thanh điều hướng",
     "external_launch": "Yêu cầu khởi chạy bên ngoài!\nTham gia phiên ngay:\n{worldId}",
     "banned_message": "Tài khoản bị cấm! Lý do: {reason}{duration}",
-    "server_disconnected_desc": "Không thể kết nối tới máy chủ VrcDog. Tính năng đã tạm ngưng.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> giây cho đến khi tự động kết nối lại...",
+    "server_disconnected_desc": "Không thể kết nối tới máy chủ VrcDog. Tính năng đã tạm ngưng.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> giây cho đến khi tự động kết nối lại...",
     "save_and_reconnect": "Lưu & Kết nối lại",
     "server_reconnect_failed": "Địa chỉ mới vẫn không thể truy cập. Hãy kiểm tra URL và trạng thái máy chủ.",
     "access_restricted": "Truy cập bị hạn chế",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "Nhấp vào nút '+' cạnh ô 'New port-name' để tạo cổng ảo",
     "loopmidi_focus_window": "Hiển thị cửa sổ loopMIDI",
     "loopmidi_refresh_and_connect": "Quét lại và kết nối",
-    "loopmidi_launching": "Đang khởi chạy..."
+    "loopmidi_launching": "Đang khởi chạy...",
+    "operation_logs": "Nhật ký thao tác",
+    "play_settings": "Cài đặt chế độ phát",
+    "channel_controls_desc": "Điều khiển 16 kênh tắt tiếng/solo/định tuyến/âm lượng",
+    "sustain_pedal": "Bàn đạp ngân vang",
+    "midishow_search_timeout": "Tìm kiếm Midishow đã hết thời gian chờ. Kiểm tra proxy hoặc mở tìm kiếm trong trình duyệt."
   },
   "danmaku": {
     "streamer_theme": "Giao diện người phát",

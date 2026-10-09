@@ -18,7 +18,7 @@
     "customize_navbar": "Navigációs sáv testreszabása",
     "external_launch": "External launch requested!\nJoin példány immediately:\n{worldId}",
     "banned_message": "Fiók kitiltva! Ok: {reason}{duration}",
-    "server_disconnected_desc": "Cannot connect to VrcDog kiszolgáló. Functions szüneteltetve.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> seconds until auto reconnect...",
+    "server_disconnected_desc": "Cannot connect to VrcDog kiszolgáló. Functions szüneteltetve.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> seconds until auto reconnect...",
     "save_and_reconnect": "Mentés és újracsatlakozás",
     "server_reconnect_failed": "Az új cím továbbra is elérhetetlen. Ellenőrizd az URL-t és a kiszolgáló állapotát.",
     "access_restricted": "Hozzáférés korlátozva",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "Kattintson a '+' gombra a 'New port-name' mellett a virtuális port létrehozásához",
     "loopmidi_focus_window": "loopMIDI ablak előtérbe hozása",
     "loopmidi_refresh_and_connect": "Újraészlelés és csatlakozás",
-    "loopmidi_launching": "Indítás..."
+    "loopmidi_launching": "Indítás...",
+    "operation_logs": "Műveleti naplók",
+    "play_settings": "Lejátszási beállítások",
+    "channel_controls_desc": "16 csatornás némítás, szóló, útválasztás és hangerő",
+    "sustain_pedal": "Kitartó pedál",
+    "midishow_search_timeout": "A Midishow keresés időtúllépést szenvedett. Ellenőrizze a proxyt vagy nyissa meg a keresést a böngészőben."
   },
   "danmaku": {
     "streamer_theme": "Streamer téma",

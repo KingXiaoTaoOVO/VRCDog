@@ -756,7 +756,7 @@ if (typeof window !== 'undefined') {
         <h2 class="text-lg font-bold text-red-400 mb-2">
           {{ t('app.server_disconnected') || 'Server Disconnected' }}
         </h2>
-        <p class="text-border-strong text-sm mb-4" v-html="$t('app.server_disconnected_desc', { auto_text: $t('auto_7072b137'), countdown: reconnectCountdown })">
+        <p class="text-red-500 font-medium text-sm mb-4 leading-relaxed" v-html="$t('app.server_disconnected_desc', { auto_text: $t('auto_7072b137'), countdown: reconnectCountdown })">
         </p>
         <label class="block text-left mb-4">
           <span class="block text-xs font-bold text-text-muted mb-2">{{ t('role.server_address') }}</span>
@@ -774,7 +774,7 @@ if (typeof window !== 'undefined') {
         <p v-if="reconnectServerError" class="text-red-400 text-xs mb-3">{{ reconnectServerError }}</p>
         <div class="grid grid-cols-2 gap-2">
           <button
-            class="px-5 py-2 bg-surface hover:bg-surface-hover text-white rounded-lg text-sm"
+            class="px-5 py-2 bg-surface-hover hover:bg-border-soft text-text-strong border border-border-strong rounded-lg text-sm font-semibold transition-colors"
             @click="() => authStore.handleLogout(false)"
           >
             {{ t('app.logout') || 'Logout' }}

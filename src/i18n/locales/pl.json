@@ -18,7 +18,7 @@
     "customize_navbar": "Dostosuj pasek nawigacji",
     "external_launch": "Żądanie uruchomienia zewnętrznego!\nDołącz do instancji natychmiast:\n{worldId}",
     "banned_message": "Konto zbanowane! Powód: {reason}{duration}",
-    "server_disconnected_desc": "Cannot connect to VrcDog server. Functions paused.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> seconds until auto reconnect...",
+    "server_disconnected_desc": "Cannot connect to VrcDog server. Functions paused.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> seconds until auto reconnect...",
     "save_and_reconnect": "Zapisz i połącz ponownie",
     "server_reconnect_failed": "Nowy adres wciąż nieosiągalny. Sprawdź URL i status serwera.",
     "access_restricted": "Dostęp ograniczony",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "Kliknij przycisk '+' obok pola 'New port-name', aby utworzyć port wirtualny",
     "loopmidi_focus_window": "Przywołaj okno loopMIDI",
     "loopmidi_refresh_and_connect": "Ponów wykrywanie i połącz",
-    "loopmidi_launching": "Uruchamianie..."
+    "loopmidi_launching": "Uruchamianie...",
+    "operation_logs": "Dzienniki operacji",
+    "play_settings": "Ustawienia odtwarzania",
+    "channel_controls_desc": "16-kanałowa kontrola wyciszenia, solo, trasowania i głośności",
+    "sustain_pedal": "Pedał sustain",
+    "midishow_search_timeout": "Przekroczono limit czasu wyszukiwania Midishow. Sprawdź serwer proxy lub otwórz wyszukiwanie w przeglądarce."
   },
   "danmaku": {
     "streamer_theme": "Motyw streamera",

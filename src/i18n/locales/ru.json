@@ -18,7 +18,7 @@
     "customize_navbar": "Настроить панель",
     "external_launch": "External запустить requested!\nПрисоединиться инстанс immediately:\n{worldId}",
     "banned_message": "Аккаунт Banned! Причина: {reason}{duration}",
-    "server_disconnected_desc": "Не может подключить в VrcDog сервер. Functions paused.<br>{auto_text}<span класс=\"text-white font-bold\">{countdown}</span> секунды until авто reconnect...",
+    "server_disconnected_desc": "Не может подключить в VrcDog сервер. Functions paused.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> секунды until авто reconnect...",
     "save_and_reconnect": "Сохранить и переподключить",
     "server_reconnect_failed": "The новый адрес это still unreachable. Проверить the URL и сервер статус.",
     "access_restricted": "Доступ ограничен",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "Нажмите кнопку «+» рядом с 'New port-name' для создания виртуального порта",
     "loopmidi_focus_window": "Открыть окно loopMIDI",
     "loopmidi_refresh_and_connect": "Обновить и подключить",
-    "loopmidi_launching": "Запуск..."
+    "loopmidi_launching": "Запуск...",
+    "operation_logs": "Журналы операций",
+    "play_settings": "Настройки воспроизведения",
+    "channel_controls_desc": "16-канальное управление заглушением, соло, маршрутизацией и громкостью",
+    "sustain_pedal": "Педаль сустейна",
+    "midishow_search_timeout": "Время ожидания поиска Midishow истекло. Проверьте прокси или откройте поиск в браузере."
   },
   "danmaku": {
     "streamer_theme": "Streamer тема",

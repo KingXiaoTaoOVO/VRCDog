@@ -18,7 +18,7 @@
     "customize_navbar": "ปรับแต่งแถบนำทาง",
     "external_launch": "External เปิดตัว ร้องขอแล้ว!\nเข้าร่วม อินสแตนซ์ immediately:\n{worldId}",
     "banned_message": "บัญชีถูกแบน! เหตุผล: {reason}{duration}",
-    "server_disconnected_desc": "ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ VrcDog ได้ ฟังก์ชันถูกหยุดชั่วคราว<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> วินาทีจนกว่าจะเชื่อมต่อใหม่โดยอัตโนมัติ...",
+    "server_disconnected_desc": "ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ VrcDog ได้ ฟังก์ชันถูกหยุดชั่วคราว<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> วินาทีจนกว่าจะเชื่อมต่อใหม่โดยอัตโนมัติ...",
     "save_and_reconnect": "บันทึกและเชื่อมต่อใหม่",
     "server_reconnect_failed": "ที่อยู่ใหม่ยังเข้าถึงไม่ได้ โปรดตรวจสอบ URL และสถานะเซิร์ฟเวอร์",
     "access_restricted": "การเข้าถึงถูกจำกัด",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "คลิกปุ่ม '+' ข้างช่อง 'New port-name' เพื่อสร้างพอร์ตเสมือน",
     "loopmidi_focus_window": "เรียกหน้าต่าง loopMIDI ขึ้นมา",
     "loopmidi_refresh_and_connect": "ตรวจหาใหม่และเชื่อมต่อ",
-    "loopmidi_launching": "กำลังเริ่มทำงาน..."
+    "loopmidi_launching": "กำลังเริ่มทำงาน...",
+    "operation_logs": "บันทึกการทำงาน",
+    "play_settings": "การตั้งค่าโหมดการเล่น",
+    "channel_controls_desc": "ควบคุม 16 ช่องสัญญาณ ปิดเสียง/โซโล/เส้นทาง/ระดับเสียง",
+    "sustain_pedal": "คันเหยียบซัสเทน",
+    "midishow_search_timeout": "การค้นหา Midishow หมดเวลา ตรวจสอบพร็อกซีของคุณ หรือคลิกปุ่มเบราว์เซอร์เพื่อเปิดการค้นหาอย่างเป็นทางการ"
   },
   "danmaku": {
     "streamer_theme": "ธีมสตรีมเมอร์",

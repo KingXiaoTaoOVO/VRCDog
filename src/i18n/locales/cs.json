@@ -18,7 +18,7 @@
     "customize_navbar": "Přizpůsobit Navbar",
     "external_launch": "Externí spustit požadováno!\nPřipojit se instance okamžitě:\n{worldId}",
     "banned_message": "Účet Zakázáno! Důvod: {reason}{duration}",
-    "server_disconnected_desc": "Nelze připojit do VrcDog server. Funkce pozastaveno.<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> sekundy dokud automaticky znovu připojit...",
+    "server_disconnected_desc": "Nelze připojit do VrcDog server. Funkce pozastaveno.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> sekundy dokud automaticky znovu připojit...",
     "save_and_reconnect": "Uložit & Znovu připojit",
     "server_reconnect_failed": "nový adresa je stále nedosažitelné. Zkontrolovat URL a server stav.",
     "service_disruption": "Výpadek služby VRChat",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "Klikněte na tlačítko '+' vedle 'New port-name' pro vytvoření virtuálního portu",
     "loopmidi_focus_window": "Zobrazit okno loopMIDI",
     "loopmidi_refresh_and_connect": "Znovu detekovat a připojit",
-    "loopmidi_launching": "Spouštění..."
+    "loopmidi_launching": "Spouštění...",
+    "operation_logs": "Provozní protokoly",
+    "play_settings": "Nastavení přehrávání",
+    "channel_controls_desc": "16kanálové ovládání ztlumení, sóla, směrování a hlasitosti",
+    "sustain_pedal": "Sustain pedál",
+    "midishow_search_timeout": "Vyhledávání v Midishow vypršelo. Zkontrolujte proxy nebo otevřete vyhledávání v prohlížeči."
   },
   "danmaku": {
     "streamer_theme": "Téma streameru",

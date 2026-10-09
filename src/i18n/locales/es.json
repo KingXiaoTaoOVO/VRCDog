@@ -18,7 +18,7 @@
     "customize_navbar": "Personalizar la barra de navegación",
     "external_launch": "Externo iniciar requested!\nUnirse instancia immediately:\n{worldId}",
     "banned_message": "Cuenta Banned! Reason: {reason}{duration}",
-    "server_disconnected_desc": "Cannot connect a VrcDog servidor. Functions en pausa.<br>{auto_text}<span class=\"texto-white fuente-bold\">{countdown}</span> segundos until auto reconnect...",
+    "server_disconnected_desc": "Cannot connect a VrcDog servidor. Functions en pausa.<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> segundos until auto reconnect...",
     "save_and_reconnect": "Guardar & Reconnect",
     "server_reconnect_failed": "El nuevo address es still unreachable. Comprobar el URL y servidor estado.",
     "access_restricted": "Acceso restringido",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "Haga clic en el botón '+' junto a 'New port-name' para crear el puerto virtual",
     "loopmidi_focus_window": "Traer loopMIDI al frente",
     "loopmidi_refresh_and_connect": "Volver a detectar y conectar",
-    "loopmidi_launching": "Iniciando..."
+    "loopmidi_launching": "Iniciando...",
+    "operation_logs": "Registros de operación",
+    "play_settings": "Ajustes de reproducción",
+    "channel_controls_desc": "Controles de 16 canales de silencio/solo/enrutamiento/volumen",
+    "sustain_pedal": "Pedal de sostenido",
+    "midishow_search_timeout": "Se agotó el tiempo de búsqueda de Midishow. Verifique su proxy o abra la búsqueda en el navegador."
   },
   "danmaku": {
     "streamer_theme": "Streamer theme",

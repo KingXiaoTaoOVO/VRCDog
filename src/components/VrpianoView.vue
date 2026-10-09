@@ -57,7 +57,6 @@ import { isVrpianoOverlayBlurEnabled, VRPIANO_OVERLAY_BLUR_KEY } from './vrpiano
 import { VRPIANO_PREVIEW_SONG_EVENT, type VrpianoPreviewSongPayload } from './vrpianoEvents';
 
 const { locale, t } = useI18n();
-const l = (zh: string, en: string) => locale.value.startsWith('zh') ? zh : en;
 const instrumentName = (program: number) => locale.value.startsWith('zh')
   ? getGeneralMidiInstrumentName(program)
   : t('vrpiano.general_midi_program', { program: program + 1 });
@@ -588,7 +587,7 @@ const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
     playerPositionMs.value = 0;
     playerDurationMs.value = Math.ceil(Math.max(...parsed.notes.map((note) => note.timeMs + note.durationMs)));
     await schedulePlayer(0);
-    const pedalHint = parsed.hasSustainPedal ? ` · ${l('延音踏板', 'Sustain pedal')}` : '';
+    const pedalHint = parsed.hasSustainPedal ? ` · ${t('vrpiano.sustain_pedal')}` : '';
     addLog(`${t('vrpiano.builtin_player_preview_started', { name: midi.name, instrument: activeInstrumentText.value })}${pedalHint}`);
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -1044,10 +1043,7 @@ const searchOnline = async () => {
     if (requestId !== onlineSearchRequestId) return;
     onlineSearchRequestId += 1;
     onlineLoading.value = false;
-    error.value = l(
-      'Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索。',
-      'Midishow search timed out. Check your proxy, or use the browser button to open the official search.',
-    );
+    error.value = t('vrpiano.midishow_search_timeout');
     addLog(t('vrpiano.online_search_failed', { error: error.value }));
   }, ONLINE_SEARCH_TIMEOUT_MS);
   try {
@@ -2354,7 +2350,7 @@ onUnmounted(async () => {
             @click="activeTab = 'play'"
           >
             <Sliders :size="15" />
-            <span>{{ l('演奏模式设置', 'Play Settings') }}</span>
+            <span>{{ t('vrpiano.play_settings') }}</span>
           </button>
           <button
             class="tab-btn"
@@ -2393,8 +2389,10 @@ onUnmounted(async () => {
                 type="button"
                 @click="outputMode = 'midi'"
               >
-                <Cable :size="15" />
-                <span class="mode-seg-label">{{ t('vrpiano.direct_midi_mode') }}</span>
+                <div class="mode-seg-head">
+                  <Cable :size="15" class="mode-seg-icon" />
+                  <span class="mode-seg-label">{{ t('vrpiano.direct_midi_mode') }}</span>
+                </div>
                 <span class="mode-seg-tag recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
               </button>
 
@@ -2404,8 +2402,10 @@ onUnmounted(async () => {
                 type="button"
                 @click="outputMode = 'keyboard'"
               >
-                <Keyboard :size="15" />
-                <span class="mode-seg-label">{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                <div class="mode-seg-head">
+                  <Keyboard :size="15" class="mode-seg-icon" />
+                  <span class="mode-seg-label">{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                </div>
                 <span class="mode-seg-tag safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</span>
               </button>
 
@@ -2415,8 +2415,10 @@ onUnmounted(async () => {
                 type="button"
                 @click="outputMode = 'osc'"
               >
-                <Radio :size="15" />
-                <span class="mode-seg-label">{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                <div class="mode-seg-head">
+                  <Radio :size="15" class="mode-seg-icon" />
+                  <span class="mode-seg-label">{{ t('vrpiano.vrchat_osc_mode') }}</span>
+                </div>
                 <span class="mode-seg-tag avatar">{{ t('vrpiano.avatar_osc_tag') }}</span>
               </button>
             </div>
@@ -2759,7 +2761,7 @@ onUnmounted(async () => {
           <div class="control-section">
             <div class="section-title-row">
               <strong>{{ t('vrpiano.channel_controls') }}</strong>
-              <small class="section-sub">{{ l('16 通道静音/独奏/路由/音量控制', '16-channel mute, solo, route, and volume controls') }}</small>
+              <small class="section-sub">{{ t('vrpiano.channel_controls_desc') }}</small>
             </div>
             <div class="channel-grid">
               <div v-for="idx in 16" :key="idx - 1" class="channel-row" :class="{ muted: channelStates[idx - 1].muted, solo: channelStates[idx - 1].solo, routed: channelRouted[idx - 1] }">
@@ -2781,23 +2783,30 @@ onUnmounted(async () => {
 
           <!-- Playlist & Play Mode -->
           <div class="control-section">
-            <strong>{{ t('vrpiano.playlist') }} / {{ t('vrpiano.play_mode') }}</strong>
-            <div class="control-row playlist-control-row">
+            <div class="section-title-row">
+              <strong>{{ t('vrpiano.playlist') }} / {{ t('vrpiano.play_mode') }}</strong>
+            </div>
+            <div class="playlist-toolbar">
               <label class="playmode-field">
                 <span>{{ t('vrpiano.play_mode') }}</span>
-                <select v-model="playMode" @change="applyPlayMode">
+                <select v-model="playMode" class="playmode-select" @change="applyPlayMode">
                   <option v-for="opt in playModeOptions" :key="opt.value" :value="opt.value">{{ opt.label() }}</option>
                 </select>
               </label>
-              <button class="small-action" :disabled="!selectedSong" @click="addToPlaylist">
-                <Music :size="14" /> {{ t('vrpiano.add_to_playlist') }}
-              </button>
-              <button class="small-action" @click="applyPlaylist" :disabled="!playlist.length || loading">
-                <Play :size="14" /> {{ t('vrpiano.apply_playlist') }}
-              </button>
-              <button class="small-action ghost" :disabled="!playlist.length" @click="clearPlaylist">
-                <Trash2 :size="14" /> {{ t('vrpiano.clear_playlist') }}
-              </button>
+              <div class="playlist-btn-group">
+                <button class="small-action" :disabled="!selectedSong" @click="addToPlaylist">
+                  <Music :size="14" />
+                  <span>{{ t('vrpiano.add_to_playlist') }}</span>
+                </button>
+                <button class="small-action primary-tint" @click="applyPlaylist" :disabled="!playlist.length || loading">
+                  <Play :size="14" />
+                  <span>{{ t('vrpiano.apply_playlist') }}</span>
+                </button>
+                <button class="small-action ghost danger-hover" :disabled="!playlist.length" @click="clearPlaylist">
+                  <Trash2 :size="14" />
+                  <span>{{ t('vrpiano.clear_playlist') }}</span>
+                </button>
+              </div>
             </div>
             <ul v-if="playlist.length" class="playlist-list">
               <li
@@ -2850,8 +2859,8 @@ onUnmounted(async () => {
           <!-- Logs with Clear Button -->
           <div class="control-section">
             <div class="section-title-row">
-              <strong>{{ l('操作日志', 'Operation Logs') }}</strong>
-              <button class="small-action ghost" type="button" @click="clearLogs">{{ l('清空日志', 'Clear Logs') }}</button>
+              <strong>{{ t('vrpiano.operation_logs') }}</strong>
+              <button class="clear-log-btn" type="button" @click="clearLogs">{{ t('role.clear_logs') }}</button>
             </div>
             <div class="log-pane">
               <div v-for="line in logs" :key="line" class="log-line">{{ line }}</div>
@@ -3311,15 +3320,55 @@ select:focus {
 }
 
 input[type="range"] {
-  accent-color: var(--vp-primary);
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 20px;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
-  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-border));
+  transition: background 0.15s ease;
+}
+
+input[type="range"]:hover::-webkit-slider-runnable-track {
+  background: color-mix(in srgb, var(--vp-primary) 36%, var(--vp-border));
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vp-primary);
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  margin-top: -4px;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
 input[type="range"]::-moz-range-track {
-  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-surface));
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-border));
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vp-primary);
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
 select option {
@@ -3722,9 +3771,11 @@ select option {
 }
 
 .chip-slider {
-  width: 70px;
-  accent-color: var(--vp-primary);
+  width: 76px;
+  height: 20px;
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .chip-val {
@@ -4146,7 +4197,6 @@ select option {
 
 .primary-action,
 .restart-action,
-.small-action,
 .toggle-btn,
 .online-form button {
   min-height: 40px;
@@ -4162,15 +4212,52 @@ select option {
 }
 
 .small-action {
-  flex: 1;
-  min-height: 36px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
   color: var(--vp-muted);
   background: var(--vp-panel);
   box-shadow: inset 0 0 0 1px var(--vp-border);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
 }
 
-.small-action:hover {
+.small-action:hover:not(:disabled) {
   color: var(--vp-text);
+  background: var(--vp-hover);
+  box-shadow: inset 0 0 0 1px var(--vp-border-strong);
+}
+
+.clear-log-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-surface);
+  color: var(--vp-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-log-btn:hover {
+  color: var(--vp-text);
+  border-color: var(--vp-primary);
   background: var(--vp-hover);
 }
 
@@ -4318,74 +4405,93 @@ select option {
 }
 
 .mode-segmented-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;
-  border-radius: 9px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 6px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--vp-panel) 60%, transparent);
   border: 1px solid var(--vp-border);
 }
 
 .mode-segment-btn {
-  flex: 1;
-  min-width: 0;
-  height: 38px;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 0 10px;
-  border-radius: 7px;
+  gap: 6px;
+  padding: 10px 8px;
+  min-height: 58px;
+  border-radius: 9px;
   border: 1px solid transparent;
   color: var(--vp-muted);
   background: transparent;
-  font-size: 12px;
-  font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
+  transition: all 0.18s ease;
+  text-align: center;
 }
 
 .mode-segment-btn:hover {
   color: var(--vp-text);
-  background: color-mix(in srgb, var(--vp-hover) 35%, transparent);
+  background: color-mix(in srgb, var(--vp-hover) 45%, transparent);
 }
 
 .mode-segment-btn.active {
   color: var(--vp-text);
   background: var(--vp-surface);
   border-color: var(--vp-border-strong);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.mode-seg-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mode-seg-icon {
+  flex-shrink: 0;
+  color: var(--vp-primary);
 }
 
 .mode-seg-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .mode-seg-tag {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 600;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .mode-seg-tag.recommended {
-  background: color-mix(in srgb, #8b5cf6 20%, transparent);
-  color: #8b5cf6;
+  background: color-mix(in srgb, var(--vp-primary) 18%, transparent);
+  color: var(--vp-primary);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 32%, transparent);
 }
 
 .mode-seg-tag.safe {
-  background: color-mix(in srgb, #10b981 18%, transparent);
+  background: color-mix(in srgb, #10b981 16%, transparent);
   color: #10b981;
+  border: 1px solid color-mix(in srgb, #10b981 30%, transparent);
 }
 
 .mode-seg-tag.avatar {
-  background: color-mix(in srgb, #64748b 20%, transparent);
-  color: #64748b;
+  background: color-mix(in srgb, var(--vp-muted) 16%, transparent);
+  color: var(--vp-muted);
+  border: 1px solid color-mix(in srgb, var(--vp-muted) 30%, transparent);
 }
 
 .midi-config-box {
@@ -4468,8 +4574,8 @@ select option {
   flex-direction: column;
   padding: 12px 14px;
   border-radius: 8px;
-  background: color-mix(in srgb, #3b82f6 10%, var(--vp-surface));
-  border: 1px solid color-mix(in srgb, #3b82f6 25%, var(--vp-border));
+  background: color-mix(in srgb, var(--vp-primary) 8%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 24%, var(--vp-border));
 }
 
 .loopmidi-launch-card {
@@ -4559,9 +4665,9 @@ select option {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, #3b82f6 20%, transparent);
-  border: 1px solid color-mix(in srgb, #3b82f6 40%, transparent);
-  color: #60a5fa;
+  background: color-mix(in srgb, var(--vp-primary) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 35%, transparent);
+  color: var(--vp-primary);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -4626,7 +4732,7 @@ select option {
 
 .progress-fill {
   height: 100%;
-  background: #3b82f6;
+  background: var(--vp-primary);
   transition: width 0.2s ease;
 }
 
@@ -4653,7 +4759,7 @@ select option {
 
 .progress-pct {
   font-weight: 700;
-  color: #60a5fa;
+  color: var(--vp-primary);
   font-variant-numeric: tabular-nums;
   margin-left: 6px;
 }
@@ -4681,13 +4787,14 @@ select option {
 }
 
 .install-btn.primary {
-  background: #3b82f6;
+  background: var(--vp-primary);
   color: white;
   border: none;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--vp-primary) 30%, transparent);
 }
 
 .install-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.1);
+  background: var(--vp-primary-hover);
 }
 
 .install-btn.secondary {
@@ -4747,13 +4854,13 @@ select option {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 6px;
-  background: color-mix(in srgb, #3b82f6 10%, var(--vp-surface));
-  border: 1px solid color-mix(in srgb, #3b82f6 25%, var(--vp-border));
+  background: color-mix(in srgb, var(--vp-primary) 8%, var(--vp-surface));
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 24%, var(--vp-border));
 }
 
 .midi-setup-banner .banner-icon {
   flex-shrink: 0;
-  color: #3b82f6;
+  color: var(--vp-primary);
   margin-top: 2px;
 }
 
@@ -4765,7 +4872,7 @@ select option {
 
 .midi-setup-banner .banner-info strong {
   font-size: 12px;
-  color: #60a5fa;
+  color: var(--vp-primary);
   font-weight: 700;
 }
 
@@ -5078,21 +5185,75 @@ select option {
   line-height: 1.3;
 }
 
-.playmode-field {
+.playlist-toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.playlist-toolbar .playmode-field {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-.playmode-field span {
-  color: var(--vp-dim);
+.playlist-toolbar .playmode-field span {
+  color: var(--vp-muted);
   font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.playmode-field select {
-  flex: 1;
-  min-width: 0;
+.playmode-select {
+  height: 32px;
+  min-width: 120px;
+  padding: 0 28px 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-surface);
+  color: var(--vp-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 13px 13px;
+}
+
+.playlist-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.small-action.primary-tint {
+  color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 10%, var(--vp-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vp-primary) 30%, transparent);
+}
+
+.small-action.primary-tint:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vp-primary) 20%, var(--vp-hover));
+}
+
+.small-action.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+
+.small-action.ghost:hover:not(:disabled) {
+  background: var(--vp-hover);
+}
+
+.small-action.danger-hover:hover:not(:disabled) {
+  color: #ef4444;
 }
 
 .playlist-list {
@@ -5157,30 +5318,62 @@ select option {
 .midi-device-select {
   flex: 1;
   min-width: 0;
-}
-
-.small-action.ghost {
-  background: transparent;
+  height: 36px;
+  padding: 0 28px 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-surface);
+  color: var(--vp-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px 14px;
 }
 
 .channel-volume {
   grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
+  -webkit-appearance: none;
   appearance: none;
-  height: 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--vp-text) 12%, transparent);
+  height: 18px;
+  background: transparent;
   cursor: pointer;
 }
-.channel-volume::-webkit-slider-thumb {
-  appearance: none;
-  width: 14px;
-  height: 14px;
+.channel-volume::-webkit-slider-runnable-track {
+  height: 5px;
   border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-border));
+}
+.channel-volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
   background: var(--vp-primary);
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   cursor: pointer;
-  margin-top: -5px;
+  margin-top: -4px;
+}
+.channel-volume::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-primary) 22%, var(--vp-border));
+}
+.channel-volume::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--vp-primary);
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 .channel-vol-label {
   grid-column: 1 / -1;

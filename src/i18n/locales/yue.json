@@ -18,7 +18,7 @@
     "customize_navbar": "自定義導航欄",
     "external_launch": "檢測到外部啓動請求！\n係咪要立即加入實例：\n{worldId}",
     "banned_message": "賬號已俾封禁！原因: {reason}{duration}",
-    "server_disconnected_desc": "無法連接到 VrcDog 服務端，軟件功能已暫停。<br>{auto_text}<span class=\"text-white font-bold\">{countdown}</span> 秒後自動嘗試重連...",
+    "server_disconnected_desc": "無法連接到 VrcDog 服務端，軟件功能已暫停。<br>{auto_text}<span class=\"text-red-600 font-bold px-1\">{countdown}</span> 秒後自動嘗試重連...",
     "save_and_reconnect": "保存並重連",
     "server_reconnect_failed": "新地址仍無法連接，請檢查 URL 同服務端狀態。",
     "service_disruption": "VRChat 服務中斷",
@@ -3337,7 +3337,12 @@
     "loopmidi_step_2": "喺窗口左下角 New port-name 隔離，撳「+」掣即可建立虛擬端口",
     "loopmidi_focus_window": "呼出 loopMIDI 介面",
     "loopmidi_refresh_and_connect": "重新檢測對接",
-    "loopmidi_launching": "啟動緊..."
+    "loopmidi_launching": "啟動緊...",
+    "operation_logs": "操作日誌",
+    "play_settings": "演奏模式設定",
+    "channel_controls_desc": "16 通道靜音/獨奏/路由/音量控制",
+    "sustain_pedal": "延音踏板",
+    "midishow_search_timeout": "Midishow 搜尋超時，請檢查代理連線，或點擊右側掣喺瀏覽器打開官方搜尋。"
   },
   "danmaku": {
     "streamer_theme": "直播姬風格",
