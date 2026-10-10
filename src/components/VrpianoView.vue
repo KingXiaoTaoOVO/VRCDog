@@ -2436,7 +2436,7 @@ onUnmounted(async () => {
                   <strong>使用须知：仅限支持 Udon MIDI 的特定地图</strong>
                 </div>
                 <p class="mode-tip-desc">
-                  本模式通过 loopMIDI 向 VRChat 发送原生 MIDI 信号。请确认当前地图具备 <code>VRC.SDK3.Midi</code> 接收器（如世界搜索 “MIDI Piano” 或 “QvPiano [MIDI]”），并在 VRChat 设置中启用了对应的 MIDI 输入设备。如果当前地图是中文吧钢琴或普通地图钢琴，游戏将无法接收 MIDI，请切换到【PC 键盘模拟模式】即可正常演奏！
+                  本模式通过 loopMIDI 向 VRChat 发送原生 MIDI 信号。请确认当前地图具备 <code>VRC.SDK3.Midi</code> 接收器（如世界搜索 “MIDI Piano” 或 “QvPiano [MIDI]”），并在 VRChat 设置中启用了对应的 MIDI 输入设备。如果当前地图是普通地图钢琴，游戏将无法接收 MIDI，请切换到【PC 键盘模拟模式】即可正常演奏！
                 </p>
               </div>
 
@@ -2590,7 +2590,7 @@ onUnmounted(async () => {
                   <strong>通用推荐：兼容 95% 以上地图钢琴</strong>
                 </div>
                 <p class="mode-tip-desc">
-                  适用于中文吧钢琴、标准 QvPiano、黑白键世界等绝大部分地图。在 VRChat 中走到琴前坐下，按下 F1 即可全自动模拟键盘演奏。内置防打字弹窗拦截与反视角旋转算法。
+                  适用于绝大多数世界地图钢琴（标准 QvPiano、黑白键世界等）。在 VRChat 中走到琴前坐下，按下 F1 即可全自动模拟键盘演奏。内置防打字弹窗拦截与反视角旋转算法。
                 </p>
               </div>
 
@@ -2608,9 +2608,9 @@ onUnmounted(async () => {
                   <span>{{ t('vrpiano.keyboard_layout_label') }}</span>
                 </label>
                 <select id="keyboard-layout-select" v-model="keyboardLayout" class="layout-select-dropdown">
-                  <option value="virtual_piano">Virtual Piano / QvPiano (标准 Shift 组合键，61/88键)</option>
-                  <option value="cnbar_original">中文吧经典小键盘模式 (完全匹配 VRPiano-auto-play 键位)</option>
-                  <option value="cnbar_safe">中文吧安全免小键盘模式 (防视角晃动与人物移位)</option>
+                  <option value="virtual_piano">通用标准键位 (Virtual Piano / QvPiano 61/88键)</option>
+                  <option value="cnbar_original">经典小键盘键位 (支持数字小键盘全音域)</option>
+                  <option value="cnbar_safe">主键盘安全键位 (防视角晃动与人物移位)</option>
                 </select>
               </div>
             </div>

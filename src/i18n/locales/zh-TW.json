@@ -3376,7 +3376,7 @@
     "osc_protocol": "協議",
     "osc_protocol_piano": "原生鋼琴：/PianoKeys/<音符>",
     "osc_protocol_avatar": "Avatar 參數：/avatar/parameters/note<NNN>",
-    "osc_mode_hint": "「鋼琴」模式驅動鋼琴 Avatar（/PianoKeys/<音符号>）；「Avatar」模式驅動自訂參數（/avatar/parameters/note<NNN>）。世界內建鋼琴（如中文吧）多為鍵盤驅動，需佩戴鋼琴 Avatar 才會發聲。",
+    "osc_mode_hint": "「鋼琴」模式驅動鋼琴 Avatar（/PianoKeys/<音符号>）；「Avatar」模式驅動自訂參數（/avatar/parameters/note<NNN>）。世界內建地圖鋼琴多為鍵盤驅動，需佩戴鋼琴 Avatar 才會發聲。",
     "auto_start_vrchat_osc": "已切換到無接觸 VRChat OSC 模式，自動開始遠端演奏（若本機未執行 VRChat 或未啟用 OSC 將無聲，請檢查上方連線狀態）。",
     "osc_avatar_prefix": "Avatar 參數前綴",
     "test_osc_note": "發送測試音符",

@@ -3414,7 +3414,7 @@
     "osc_protocol": "Protocol",
     "osc_protocol_piano": "Native piano: /PianoKeys/<note>",
     "osc_protocol_avatar": "Avatar parameter: /avatar/parameters/note<NNN>",
-    "osc_mode_hint": "Piano mode drives a piano avatar (/PianoKeys/<note>); Avatar mode drives a custom param (/avatar/parameters/note<NNN>). World pianos (e.g. 中文吧) are usually keyboard-driven — wear a piano avatar for OSC to be heard.",
+    "osc_mode_hint": "Piano mode drives a piano avatar (/PianoKeys/<note>); Avatar mode drives a custom param (/avatar/parameters/note<NNN>). World pianos are usually keyboard-driven — wear a piano avatar for OSC to be heard.",
     "auto_start_vrchat_osc": "Switched to contactless VRChat OSC mode — auto-starting remote playback. If VRChat isn't running locally or OSC is off, it will be silent; check the connection status above.",
     "osc_avatar_prefix": "Avatar parameter prefix",
     "test_osc_note": "Send test note",
