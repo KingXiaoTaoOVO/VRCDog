@@ -41,9 +41,12 @@ impl Default for MidiOutputState {
     }
 }
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 pub struct MidiOutputBackend {
     connection: Option<Arc<Mutex<MidiOutputConnection>>>,
     state: Arc<Mutex<MidiOutputState>>,
+    messages_sent: Arc<AtomicU64>,
 }
 
 impl MidiOutputBackend {
@@ -51,10 +54,14 @@ impl MidiOutputBackend {
         Self {
             connection: None,
             state: Arc::new(Mutex::new(MidiOutputState::default())),
+            messages_sent: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn state(&self) -> Arc<Mutex<MidiOutputState>> {
+        if let Ok(mut state) = self.state.try_lock() {
+            state.messages_sent = self.messages_sent.load(Ordering::Relaxed);
+        }
         self.state.clone()
     }
 
@@ -105,6 +112,7 @@ impl MidiOutputBackend {
         state.kind = Some(MidiDeviceKind::Usb);
         state.messages_sent = 0;
         state.last_error = None;
+        self.messages_sent.store(0, Ordering::Relaxed);
 
         Ok(())
     }
@@ -118,6 +126,7 @@ impl MidiOutputBackend {
         state.device_name = None;
         state.kind = None;
         state.last_error = None;
+        self.messages_sent.store(0, Ordering::Relaxed);
     }
 
     pub fn send_note_on(&self, note: u8, velocity: u8, channel: u8) -> Result<(), String> {
@@ -127,8 +136,7 @@ impl MidiOutputBackend {
         conn.send(&[status, note & 0x7F, velocity & 0x7F])
             .map_err(|e| format!("Failed to send note on: {e}"))?;
 
-        let mut state = self.state.lock().unwrap();
-        state.messages_sent += 1;
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -139,8 +147,7 @@ impl MidiOutputBackend {
         conn.send(&[status, note & 0x7F, 0x00])
             .map_err(|e| format!("Failed to send note off: {e}"))?;
 
-        let mut state = self.state.lock().unwrap();
-        state.messages_sent += 1;
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -151,8 +158,7 @@ impl MidiOutputBackend {
         conn.send(&[status, cc & 0x7F, value & 0x7F])
             .map_err(|e| format!("Failed to send control change: {e}"))?;
 
-        let mut state = self.state.lock().unwrap();
-        state.messages_sent += 1;
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 

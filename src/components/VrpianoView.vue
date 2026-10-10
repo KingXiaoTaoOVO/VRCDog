@@ -199,7 +199,7 @@ const loopMidiInstalling = ref(false);
 const loopMidiProgress = ref<LoopMidiInstallProgress | null>(null);
 const isLaunchingLoopMidi = ref(false);
 const isRefreshingMidi = ref(false);
-const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v3', 'midi');
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v4', 'keyboard');
 const activeTab = useStorage<'play' | 'online' | 'advanced'>('vrcdog.vrpiano.activeTab.v2', 'play');
 let launchPollTimer: number | null = null;
 let isStarting = false; // re-entrancy guard: prevent concurrent start() calls
@@ -2214,84 +2214,87 @@ onUnmounted(async () => {
       <section class="control-pane">
         <!-- 1. Hero Player Card (常驻顶部统一播放控制卡片) -->
         <div class="hero-player-card">
-          <div class="hero-player-main">
-            <div class="hero-song-info">
-              <div class="hero-badge-row">
-                <span class="hero-status-badge" :class="{ playing: status.running && !status.paused, paused: status.paused }">
-                  <span class="status-dot-sm" />
-                  {{ status.running ? (status.paused ? t('vrpiano.paused') : t('vrpiano.playing')) : t('vrpiano.ready') }}
-                </span>
-                <span class="hero-mode-pill">
-                  <Cable v-if="outputMode === 'midi'" :size="12" />
-                  <Keyboard v-else-if="outputMode === 'keyboard'" :size="12" />
-                  <Radio v-else :size="12" />
-                  {{ outputMode === 'midi' ? t('vrpiano.direct_midi_mode') : outputMode === 'keyboard' ? t('vrpiano.pc_keyboard_mode') : t('vrpiano.vrchat_osc_mode') }}
-                </span>
-              </div>
-              <h2 class="hero-song-title" :title="selectedSong?.name || t('vrpiano.none_selected')">
-                {{ selectedSong?.name || t('vrpiano.none_selected') }}
-              </h2>
-              <div class="hero-song-meta">
-                <span v-if="selectedSong">{{ formatBytes(selectedSong.size) }}</span>
-                <span v-if="status.total_notes > 0">{{ t('vrpiano.notes_count', { played: status.played_notes, total: status.total_notes }) }}</span>
-                <span>{{ formatTime(status.duration_ms) }}</span>
-              </div>
+          <!-- Row 1: Badges & Song Metadata Header -->
+          <div class="hero-card-header">
+            <div class="hero-badge-row">
+              <span class="hero-status-badge" :class="{ playing: status.running && !status.paused, paused: status.paused }">
+                <span class="status-dot-sm" />
+                {{ status.running ? (status.paused ? t('vrpiano.paused') : t('vrpiano.playing')) : t('vrpiano.ready') }}
+              </span>
+              <span class="hero-mode-pill">
+                <Cable v-if="outputMode === 'midi'" :size="12" />
+                <Keyboard v-else-if="outputMode === 'keyboard'" :size="12" />
+                <Radio v-else :size="12" />
+                {{ outputMode === 'midi' ? t('vrpiano.direct_midi_mode') : outputMode === 'keyboard' ? t('vrpiano.pc_keyboard_mode') : t('vrpiano.vrchat_osc_mode') }}
+              </span>
             </div>
-
-            <!-- Unified Transport Action Buttons -->
-            <div class="hero-actions">
-              <!-- F1 Main Play/Pause Button -->
-              <button
-                class="hero-play-btn"
-                :class="{ active: status.running && !status.paused }"
-                :disabled="!canTogglePlayback"
-                :title="t('vrpiano.f1_starts_pauses_or_resumes_after_playba')"
-                @click="togglePlayback"
-              >
-                <Loader2 v-if="loading" :size="20" class="spin" />
-                <Pause v-else-if="status.running && !status.paused" :size="20" />
-                <Play v-else :size="20" />
-                <span>F1 {{ playbackActionLabel }}</span>
-              </button>
-
-              <!-- Stop Button -->
-              <button
-                v-if="isPlaying"
-                class="hero-stop-btn"
-                :disabled="loading"
-                :title="t('vrpiano.stop') || t('osc.stop') || '停止'"
-                @click="stopAll"
-              >
-                <CircleStop :size="18" />
-                <span>{{ t('vrpiano.stop') || t('osc.stop') || '停止' }}</span>
-              </button>
-
-              <!-- F2 Restart Button -->
-              <button
-                v-if="hasStartedPlayback"
-                class="hero-tool-btn"
-                :disabled="loading"
-                :title="t('vrpiano.restart')"
-                @click="restartPlayback"
-              >
-                <RefreshCcw :size="16" />
-                <span>F2</span>
-              </button>
-
-              <!-- Built-in Preview Play/Pause -->
-              <button
-                class="hero-tool-btn preview"
-                :class="{ active: playerPlaying }"
-                :disabled="!canTogglePlayer"
-                :title="t('vrpiano.built_in_preview_desc')"
-                @click="togglePlayer"
-              >
-                <Loader2 v-if="playerLoading" :size="16" class="spin" />
-                <Pause v-else-if="playerPlaying" :size="16" />
-                <Headphones v-else :size="16" />
-                <span>{{ playerPlaying ? t('vrpiano.pause') : t('vrpiano.preview_song') }}</span>
-              </button>
+            <div class="hero-song-meta">
+              <span v-if="selectedSong" class="meta-tag">{{ formatBytes(selectedSong.size) }}</span>
+              <span v-if="status.total_notes > 0" class="meta-tag">{{ t('vrpiano.notes_count', { played: status.played_notes, total: status.total_notes }) }}</span>
+              <span class="meta-tag duration-tag"><Clock3 :size="11" /> {{ formatTime(status.duration_ms) }}</span>
             </div>
+          </div>
+
+          <!-- Row 2: Dedicated Full-Width Song Title (No squashing or button overlap) -->
+          <div class="hero-title-row">
+            <h2 class="hero-song-title" :title="selectedSong?.name || t('vrpiano.none_selected')">
+              {{ selectedSong?.name || t('vrpiano.none_selected') }}
+            </h2>
+          </div>
+
+          <!-- Row 3: Dedicated Transport Action Buttons Bar -->
+          <div class="hero-actions-bar">
+            <!-- F1 Main Play/Pause Button -->
+            <button
+              class="hero-play-btn"
+              :class="{ active: status.running && !status.paused }"
+              :disabled="!canTogglePlayback"
+              :title="t('vrpiano.f1_starts_pauses_or_resumes_after_playba')"
+              @click="togglePlayback"
+            >
+              <Loader2 v-if="loading" :size="18" class="spin" />
+              <Pause v-else-if="status.running && !status.paused" :size="18" />
+              <Play v-else :size="18" />
+              <span>F1 {{ playbackActionLabel }}</span>
+            </button>
+
+            <!-- Stop Button -->
+            <button
+              v-if="isPlaying"
+              class="hero-stop-btn"
+              :disabled="loading"
+              :title="t('vrpiano.stop') || t('osc.stop') || '停止'"
+              @click="stopAll"
+            >
+              <CircleStop :size="17" />
+              <span>{{ t('vrpiano.stop') || t('osc.stop') || '停止' }}</span>
+            </button>
+
+            <!-- F2 Restart Button -->
+            <button
+              v-if="hasStartedPlayback"
+              class="hero-tool-btn"
+              :disabled="loading"
+              :title="t('vrpiano.restart')"
+              @click="restartPlayback"
+            >
+              <RefreshCcw :size="15" />
+              <span>F2 重置</span>
+            </button>
+
+            <!-- Built-in Preview Play/Pause -->
+            <button
+              class="hero-tool-btn preview"
+              :class="{ active: playerPlaying }"
+              :disabled="!canTogglePlayer"
+              :title="t('vrpiano.built_in_preview_desc')"
+              @click="togglePlayer"
+            >
+              <Loader2 v-if="playerLoading" :size="15" class="spin" />
+              <Pause v-else-if="playerPlaying" :size="15" />
+              <Headphones v-else :size="15" />
+              <span>{{ playerPlaying ? t('vrpiano.pause') : t('vrpiano.preview_song') }}</span>
+            </button>
           </div>
 
           <!-- Hero Progress Track -->
@@ -2385,19 +2388,6 @@ onUnmounted(async () => {
             <div class="mode-segmented-bar">
               <button
                 class="mode-segment-btn"
-                :class="{ active: outputMode === 'midi' }"
-                type="button"
-                @click="outputMode = 'midi'"
-              >
-                <div class="mode-seg-head">
-                  <Cable :size="15" class="mode-seg-icon" />
-                  <span class="mode-seg-label">{{ t('vrpiano.direct_midi_mode') }}</span>
-                </div>
-                <span class="mode-seg-tag recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
-              </button>
-
-              <button
-                class="mode-segment-btn"
                 :class="{ active: outputMode === 'keyboard' }"
                 type="button"
                 @click="outputMode = 'keyboard'"
@@ -2406,7 +2396,20 @@ onUnmounted(async () => {
                   <Keyboard :size="15" class="mode-seg-icon" />
                   <span class="mode-seg-label">{{ t('vrpiano.pc_keyboard_mode') }}</span>
                 </div>
-                <span class="mode-seg-tag safe">{{ t('vrpiano.anti_chatbox_active_tag') }}</span>
+                <span class="mode-seg-tag recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
+              </button>
+
+              <button
+                class="mode-segment-btn"
+                :class="{ active: outputMode === 'midi' }"
+                type="button"
+                @click="outputMode = 'midi'"
+              >
+                <div class="mode-seg-head">
+                  <Cable :size="15" class="mode-seg-icon" />
+                  <span class="mode-seg-label">{{ t('vrpiano.direct_midi_mode') }}</span>
+                </div>
+                <span class="mode-seg-tag safe">Udon MIDI</span>
               </button>
 
               <button
@@ -2426,6 +2429,17 @@ onUnmounted(async () => {
             <!-- Mode-Specific Details Panel -->
             <!-- 1. MIDI Mode Config -->
             <div v-if="outputMode === 'midi'" class="mode-detail-panel">
+              <!-- MIDI Mode Info Notice -->
+              <div class="mode-tip-card midi-tip">
+                <div class="mode-tip-header">
+                  <Info :size="15" />
+                  <strong>使用须知：仅限支持 Udon MIDI 的特定地图</strong>
+                </div>
+                <p class="mode-tip-desc">
+                  本模式通过 loopMIDI 向 VRChat 发送原生 MIDI 信号。请确认当前地图具备 <code>VRC.SDK3.Midi</code> 接收器（如世界搜索 “MIDI Piano” 或 “QvPiano [MIDI]”），并在 VRChat 设置中启用了对应的 MIDI 输入设备。如果当前地图是中文吧钢琴或普通地图钢琴，游戏将无法接收 MIDI，请切换到【PC 键盘模拟模式】即可正常演奏！
+                </p>
+              </div>
+
               <div class="midi-device-selector-inline">
                 <label for="midi-device-select-inline" class="layout-label">
                   <Cable :size="14" />
@@ -2569,6 +2583,17 @@ onUnmounted(async () => {
 
             <!-- 2. Keyboard Mode Config -->
             <div v-if="outputMode === 'keyboard'" class="mode-detail-panel">
+              <!-- Keyboard Mode Info Notice -->
+              <div class="mode-tip-card keyboard-tip">
+                <div class="mode-tip-header">
+                  <ShieldCheck :size="15" />
+                  <strong>通用推荐：兼容 95% 以上地图钢琴</strong>
+                </div>
+                <p class="mode-tip-desc">
+                  适用于中文吧钢琴、标准 QvPiano、黑白键世界等绝大部分地图。在 VRChat 中走到琴前坐下，按下 F1 即可全自动模拟键盘演奏。内置防打字弹窗拦截与反视角旋转算法。
+                </p>
+              </div>
+
               <div class="keyboard-anti-chatbox-banner">
                 <ShieldCheck :size="18" class="banner-icon" />
                 <div class="banner-info">
@@ -2576,20 +2601,33 @@ onUnmounted(async () => {
                   <span>{{ t('vrpiano.anti_chatbox_desc') }}</span>
                 </div>
               </div>
+
               <div class="keyboard-layout-selector">
-                <label class="layout-label">
+                <label for="keyboard-layout-select" class="layout-label">
                   <Sliders :size="14" />
                   <span>{{ t('vrpiano.keyboard_layout_label') }}</span>
                 </label>
-                <div class="universal-layout-chip">
-                  <span class="chip-title">{{ t('vrpiano.universal_piano_standard') }}</span>
-                  <small class="chip-desc">{{ t('vrpiano.universal_map_hint') }}</small>
-                </div>
+                <select id="keyboard-layout-select" v-model="keyboardLayout" class="layout-select-dropdown">
+                  <option value="virtual_piano">Virtual Piano / QvPiano (标准 Shift 组合键，61/88键)</option>
+                  <option value="cnbar_original">中文吧经典小键盘模式 (完全匹配 VRPiano-auto-play 键位)</option>
+                  <option value="cnbar_safe">中文吧安全免小键盘模式 (防视角晃动与人物移位)</option>
+                </select>
               </div>
             </div>
 
             <!-- 3. OSC Mode Config -->
             <div v-if="outputMode === 'osc'" class="mode-detail-panel">
+              <!-- OSC Mode Info Notice -->
+              <div class="mode-tip-card osc-tip">
+                <div class="mode-tip-header">
+                  <Radio :size="15" />
+                  <strong>无接触网络模式：Avatar 虚拟人物 / VR 头显首选</strong>
+                </div>
+                <p class="mode-tip-desc">
+                  通过 UDP 127.0.0.1:9000 发送 OSC 数据，专用于配备钢琴参数的 Avatar（如 Kade's Piano）或 OSC 地图。无需夺取窗口焦点，在 VR 头显中亦可自由演奏！
+                </p>
+              </div>
+
               <div class="osc-compact">
                 <div class="osc-inline-inputs">
                   <span class="osc-label">{{ t('vrpiano.host') }}</span>
@@ -3543,33 +3581,26 @@ select option {
   gap: 12px;
 }
 
-.hero-player-main {
+.hero-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-}
-
-.hero-song-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .hero-badge-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .hero-status-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 9999px;
   font-size: 11px;
   font-weight: 700;
@@ -3600,7 +3631,7 @@ select option {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 9999px;
   font-size: 11px;
   font-weight: 600;
@@ -3611,46 +3642,52 @@ select option {
   flex-shrink: 0;
 }
 
+.hero-title-row {
+  width: 100%;
+  margin: 2px 0 4px 0;
+}
+
 .hero-song-title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--vp-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   margin: 0;
-  line-height: 1.3;
 }
 
 .hero-song-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11.5px;
-  color: var(--vp-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.hero-actions {
+.hero-song-meta .meta-tag {
+  font-size: 11.5px;
+  color: var(--vp-dim);
+  background: color-mix(in srgb, var(--vp-muted) 10%, transparent);
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.hero-song-meta .duration-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 10%, transparent);
+}
+
+.hero-actions-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
-}
-
-@media (max-width: 580px) {
-  .hero-player-main {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  .hero-actions {
-    width: 100%;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
+  flex-wrap: wrap;
+  width: 100%;
 }
 
 .hero-play-btn {
@@ -3914,6 +3951,70 @@ select option {
   border-radius: 10px;
   background: color-mix(in srgb, var(--vp-panel) 50%, transparent);
   border: 1px solid var(--vp-border);
+}
+
+.mode-tip-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-tip-card.midi-tip {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #b45309;
+}
+
+.mode-tip-card.keyboard-tip {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #047857;
+}
+
+.mode-tip-card.osc-tip {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #1d4ed8;
+}
+
+.mode-tip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.mode-tip-desc {
+  margin: 0;
+  color: var(--vp-text);
+  opacity: 0.88;
+}
+
+.mode-tip-desc code {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.layout-select-dropdown {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-panel);
+  color: var(--vp-text);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.layout-select-dropdown:focus {
+  border-color: var(--vp-primary);
 }
 
 .now-playing,

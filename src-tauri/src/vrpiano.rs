@@ -2681,11 +2681,13 @@ fn run_midi_playback(
             sleep_unscaled_interruptible(1_000, &stop, &paused);
         }
 
+        let _timer_guard = MultimediaTimerGuard::new();
         let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
         let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
         let mut index = 0_usize;
+        let mut last_emit_at = 0_u64;
 
         while index < events.len() {
             if stop.load(Ordering::SeqCst) {
@@ -2739,8 +2741,8 @@ fn run_midi_playback(
             }
 
             let transpose = current_transpose(&state);
-                let mut notes_to_send = Vec::new();
-                let mut notes_to_stop = Vec::new();
+            let mut notes_to_send = Vec::new();
+            let mut notes_to_stop = Vec::new();
             let mut controls_to_send = Vec::new();
             while index < events.len() && events[index].at_ms == at_ms {
                 let ev = &events[index];
@@ -2764,51 +2766,69 @@ fn run_midi_playback(
                     active_notes.remove(&(sent_note, ev.channel));
                     notes_to_stop.push((sent_note, ev.channel));
                 }
-                if recorder.lock().unwrap().is_recording() {
-                    let mut rec = recorder.lock().unwrap();
-                    rec.record(at_ms, if ev.is_note_on { "note_on" } else { "note_off" }, ev.channel, &[ev.note, ev.velocity]);
+                if let Ok(mut rec) = recorder.lock() {
+                    if rec.is_recording() {
+                        rec.record(at_ms, if ev.is_note_on { "note_on" } else { "note_off" }, ev.channel, &[ev.note, ev.velocity]);
+                    }
                 }
                 played += 1;
                 index += 1;
             }
 
+            let mut send_error = None;
             for (note, velocity, channel) in notes_to_send {
                 let adjusted_velocity = adjust_velocity(velocity, get_channel_state(&state, channel).volume);
                 if let Err(e) = backend.send_note_on(note, adjusted_velocity, channel) {
-                    drop(backend);
-                    update_runtime(&state, |status| {
-                        status.last_error = format!("MIDI error: {e}");
-                        status.running = false;
-                    });
-                    emit_status_with_midi(&app, &state, &midi_backend);
-                    return;
+                    send_error = Some(e);
+                    break;
                 }
             }
-            for (channel, cc, value) in controls_to_send {
-                let _ = backend.send_control_change(channel, cc, value);
-            }
-            for (note, channel) in notes_to_stop {
-                let _ = backend.send_note_off(note, channel);
+            if send_error.is_none() {
+                for (channel, cc, value) in controls_to_send {
+                    let _ = backend.send_control_change(channel, cc, value);
+                }
+                for (note, channel) in notes_to_stop {
+                    let _ = backend.send_note_off(note, channel);
+                }
             }
 
-            let playback_speed = current_speed(&state);
-            update_runtime(&state, |status| {
-                status.elapsed_ms = at_ms;
-                status.played_notes = played;
-                status.progress = if duration_ms == 0 {
-                    1.0
-                } else {
-                    (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
-                };
-                status.speed = playback_speed;
-                status.last_event = format!("MIDI Playing {} at {:.2}x", song_name, status.speed);
-            });
-            emit_status_with_midi(&app, &state, &midi_backend);
+            // CRITICAL: Drop backend lock BEFORE calling emit_status_with_midi or updating runtime
+            // to prevent thread self-deadlock.
+            drop(backend);
+
+            if let Some(e) = send_error {
+                update_runtime(&state, |status| {
+                    status.last_error = format!("MIDI error: {e}");
+                    status.running = false;
+                });
+                emit_status_with_midi(&app, &state, &midi_backend);
+                return;
+            }
+
+            // Throttle status updates to avoid UI event flooding and CPU lockup
+            let now_ms = at_ms;
+            if now_ms.saturating_sub(last_emit_at) >= 100 || index >= events.len() {
+                last_emit_at = now_ms;
+                let playback_speed = current_speed(&state);
+                update_runtime(&state, |status| {
+                    status.elapsed_ms = at_ms;
+                    status.played_notes = played;
+                    status.progress = if duration_ms == 0 {
+                        1.0
+                    } else {
+                        (at_ms as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                    };
+                    status.speed = playback_speed;
+                    status.last_event = format!("MIDI Playing {} at {:.2}x", song_name, status.speed);
+                });
+                emit_status_with_midi(&app, &state, &midi_backend);
+            }
             last_at = at_ms;
         }
 
-        let backend = midi_backend.lock().unwrap();
-        let _ = backend.send_panic();
+        if let Ok(backend) = midi_backend.lock() {
+            let _ = backend.send_panic();
+        }
     }));
 
     if result.is_err() {
@@ -3499,6 +3519,80 @@ fn map_safe_no_numpad(mut note: u8) -> Option<PianoKeyAction> {
     Some(PianoKeyAction { vk, shift: false })
 }
 
+/// CN Bar Original Layout (from VRPiano-auto-play): classic Chinese Bar piano mapping with Numpad
+fn map_cnbar_original(mut note: u8) -> Option<PianoKeyAction> {
+    while note < 36 {
+        note += 12;
+    }
+    while note > 95 {
+        note -= 12;
+    }
+    let vk = match note {
+        36 => 90,  // 'z'
+        37 => 188, // ','
+        38 => 88,  // 'x'
+        39 => 190, // '.'
+        40 => 67,  // 'c'
+        41 => 86,  // 'v'
+        42 => 191, // '/'
+        43 => 66,  // 'b'
+        44 => 96,  // 'b0' (VK_NUMPAD0)
+        45 => 78,  // 'n'
+        46 => 110, // 'b.' (VK_DECIMAL)
+        47 => 77,  // 'm'
+        48 => 65,  // 'a'
+        49 => 75,  // 'k'
+        50 => 83,  // 's'
+        51 => 76,  // 'l'
+        52 => 68,  // 'd'
+        53 => 70,  // 'f'
+        54 => 186, // ';'
+        55 => 71,  // 'g'
+        56 => 98,  // 'b2' (VK_NUMPAD2)
+        57 => 72,  // 'h'
+        58 => 99,  // 'b3' (VK_NUMPAD3)
+        59 => 74,  // 'j'
+        60 => 81,  // 'q'
+        61 => 73,  // 'i'
+        62 => 87,  // 'w'
+        63 => 79,  // 'o'
+        64 => 69,  // 'e'
+        65 => 82,  // 'r'
+        66 => 80,  // 'p'
+        67 => 84,  // 't'
+        68 => 101, // 'b5' (VK_NUMPAD5)
+        69 => 89,  // 'y'
+        70 => 102, // 'b6' (VK_NUMPAD6)
+        71 => 85,  // 'u'
+        72 => 49,  // '1'
+        73 => 56,  // '8'
+        74 => 50,  // '2'
+        75 => 57,  // '9'
+        76 => 51,  // '3'
+        77 => 52,  // '4'
+        78 => 48,  // '0'
+        79 => 53,  // '5'
+        80 => 104, // 'b8' (VK_NUMPAD8)
+        81 => 54,  // '6'
+        82 => 105, // 'b9' (VK_NUMPAD9)
+        83 => 55,  // '7'
+        84 => 112, // F1
+        85 => 119, // F8
+        86 => 113, // F2
+        87 => 120, // F9
+        88 => 114, // F3
+        89 => 115, // F4
+        90 => 121, // F10
+        91 => 116, // F5
+        92 => 111, // 'b/' (VK_DIVIDE)
+        93 => 117, // F6
+        94 => 106, // 'b*' (VK_MULTIPLY)
+        95 => 118, // F7
+        _ => return None,
+    };
+    Some(PianoKeyAction { vk, shift: false })
+}
+
 /// CN Bar Layout A: mapped to safe Virtual Piano layout to prevent camera spin
 fn map_cnbar_a(note: u8) -> Option<PianoKeyAction> {
     map_virtual_piano(note)
@@ -3507,6 +3601,7 @@ fn map_cnbar_a(note: u8) -> Option<PianoKeyAction> {
 fn map_midi_note_to_action(note: u8, layout: &str) -> Option<PianoKeyAction> {
     match layout.trim().to_ascii_lowercase().as_str() {
         "virtual_piano" | "vp" | "standard" => map_virtual_piano(note),
+        "cnbar_original" | "cnbar" | "cnbar_numpad" => map_cnbar_original(note),
         "cnbar_b" | "cnbar_safe" | "safe" => map_cnbar_b(note),
         "cnbar_a" => map_cnbar_a(note),
         "safe_no_numpad" | "no_numpad" => map_safe_no_numpad(note),
@@ -3976,11 +4071,12 @@ fn emit_status_with_midi(
         status.hotkeys_enabled = runtime.hotkeys_enabled;
         status.hotkeys_available = cfg!(target_os = "windows");
         status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
-        if let Ok(backend) = midi_backend.lock() {
-            let state_arc = backend.state();
-            let midi_state = state_arc.lock().unwrap();
-            status.midi_connected = midi_state.connected;
-            status.midi_device_name = midi_state.device_name.clone();
+        if let Ok(backend) = midi_backend.try_lock() {
+            let s = backend.state();
+            if let Ok(midi_state) = s.lock() {
+                status.midi_connected = midi_state.connected;
+                status.midi_device_name = midi_state.device_name.clone();
+            };
         }
         let _ = app.emit("vrpiano_status", status);
     }

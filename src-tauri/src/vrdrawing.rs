@@ -1430,6 +1430,10 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
             let sy = config.canvas_size_px as f32 / plan.height as f32;
             (sx, sy)
         } else { (1.0, 1.0) };
+        let mut last_pen_down = std::time::Instant::now()
+            .checked_sub(Duration::from_millis(1000))
+            .unwrap_or_else(std::time::Instant::now);
+
         for (index, stroke) in plan.strokes.iter().enumerate() {
             if stop.load(Ordering::SeqCst) { break; }
             wait_while_paused(&stop, &paused);
@@ -1439,7 +1443,19 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
             let first = &stroke.points[0];
             move_planar(&mut current_x, &mut current_y, first, &config, true, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y);
             if stop.load(Ordering::SeqCst) { break; }
+
+            // Anti double-click guard (VRC-Draw principle): ensure at least 550ms between
+            // consecutive pen-down clicks to prevent VRChat from invoking the eraser.
+            let elapsed = last_pen_down.elapsed();
+            if elapsed < Duration::from_millis(550) {
+                let wait = Duration::from_millis(550) - elapsed;
+                interruptible_sleep(wait.as_millis() as u64, &stop, &paused);
+            }
+            if stop.load(Ordering::SeqCst) { break; }
+
             mouse_left(true);
+            last_pen_down = std::time::Instant::now();
+
             // Pen-down settle: give the canvas a few ms to register the click so the first
             // actual stroke point isn't lost or offset by a half-pixel.
             if config.pen_settle_ms > 0 {
