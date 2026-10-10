@@ -683,10 +683,15 @@ async fn register(
     ConnectInfo(address): ConnectInfo<SocketAddr>,
     Json(request): Json<RegisterRequest>,
 ) -> Json<Value> {
-    // L2：注册前先核验身份。任何失败一律拒绝，绝不签发 client_token。
+    // L2：注册前先核验身份。
+    let is_already_registered = state.data.read().await.users.contains_key(&request.user_id);
     if let Err(reason) = verify_register_identity(&request).await {
-        warn!(user_id = %request.user_id, reason = %reason, "拒绝注册：VRChat 身份核验未通过");
-        return Json(json!({ "status": "auth_failed", "reason": reason }));
+        if is_already_registered && reason.contains("401") {
+            warn!(user_id = %request.user_id, "客户端 VRChat 会话 Cookie 已过期 (401)，但该用户已在此服务端注册过，允许维持连接");
+        } else {
+            warn!(user_id = %request.user_id, reason = %reason, "拒绝注册：VRChat 身份核验未通过");
+            return Json(json!({ "status": "auth_failed", "reason": reason }));
+        }
     }
 
     let now = now_string();

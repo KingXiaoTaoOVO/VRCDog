@@ -2259,11 +2259,11 @@ onUnmounted(async () => {
                 v-if="isPlaying"
                 class="hero-stop-btn"
                 :disabled="loading"
-                :title="t('vrpiano.stop')"
+                :title="t('vrpiano.stop') || t('osc.stop') || '停止'"
                 @click="stopAll"
               >
                 <CircleStop :size="18" />
-                <span>{{ t('vrpiano.stop') }}</span>
+                <span>{{ t('vrpiano.stop') || t('osc.stop') || '停止' }}</span>
               </button>
 
               <!-- F2 Restart Button -->
@@ -3548,7 +3548,6 @@ select option {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  flex-wrap: wrap;
 }
 
 .hero-song-info {
@@ -3556,13 +3555,14 @@ select option {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .hero-badge-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: nowrap;
 }
 
 .hero-status-badge {
@@ -3575,6 +3575,8 @@ select option {
   font-weight: 700;
   background: color-mix(in srgb, var(--vp-muted) 15%, transparent);
   color: var(--vp-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hero-status-badge.playing {
@@ -3605,10 +3607,12 @@ select option {
   background: color-mix(in srgb, var(--vp-primary) 12%, transparent);
   color: var(--vp-primary);
   border: 1px solid color-mix(in srgb, var(--vp-primary) 25%, transparent);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hero-song-title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--vp-text);
   overflow: hidden;
@@ -3621,9 +3625,12 @@ select option {
 .hero-song-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 11.5px;
   color: var(--vp-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hero-actions {
@@ -3631,7 +3638,19 @@ select option {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  flex-wrap: wrap;
+}
+
+@media (max-width: 580px) {
+  .hero-player-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .hero-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 .hero-play-btn {

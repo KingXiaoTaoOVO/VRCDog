@@ -190,6 +190,13 @@ export const useAuthStore = defineStore('auth', () => {
         allowExternalHost: true,
       });
 
+      if (data?.status === 'auth_failed') {
+        serverRegisterRetryAt = Date.now() + 15_000;
+        serverConnected.value = false;
+        console.warn('VRCDog server auth_failed:', data.reason);
+        return false;
+      }
+
       serverConnected.value = true;
       serverRegisterRetryAt = 0;
       lastServerRegisterError = '';

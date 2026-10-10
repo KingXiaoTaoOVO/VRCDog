@@ -3144,6 +3144,7 @@
     "resume": "继续",
     "pause": "暂停",
     "start": "开始",
+    "stop": "停止",
     "signed_in_session": "登录会话",
     "searching": "正在搜索…",
     "search_by_keyword_or_paste_a_url_or_id_t": "输入关键词搜索，或直接粘贴 URL / ID 下载。",

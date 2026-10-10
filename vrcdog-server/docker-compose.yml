@@ -13,6 +13,7 @@ services:
       VRCDOG_PORT: 11451
       VRCDOG_DATA_FILE: /app/data/server-state.json
       VRCDOG_SERVER_PASSWORD_BCRYPT: ${VRCDOG_SERVER_PASSWORD_BCRYPT:?Set VRCDOG_SERVER_PASSWORD_BCRYPT in .env}
+      VRCDOG_REGISTER_SKIP_VERIFY: ${VRCDOG_REGISTER_SKIP_VERIFY:-0}
       RUST_LOG: ${RUST_LOG:-vrcdog_server=info,tower_http=info}
     volumes:
       - ./data:/app/data

@@ -3143,6 +3143,7 @@
     "resume": "Resume",
     "pause": "Pause",
     "start": "Start",
+    "stop": "Stop",
     "signed_in_session": "signed-in session",
     "searching": "Searching…",
     "search_by_keyword_or_paste_a_url_or_id_t": "Search by keyword, or paste a URL or ID to download.",
