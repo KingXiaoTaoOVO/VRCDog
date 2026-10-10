@@ -77,7 +77,8 @@ chcon -Rt svirt_sandbox_file_t "$TARGET_DIR/data" 2>/dev/null || true
 
 # 4. 重新构建镜像并后台启动
 echo "[4/4] 重新构建镜像并启动容器..."
-docker compose up -d --build --no-cache
+docker compose build --no-cache
+docker compose up -d
 
 echo "=================================================="
 echo " [VRCDog-Server] 更新完成！正在等待服务启动..."
