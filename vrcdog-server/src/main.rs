@@ -2099,6 +2099,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    info!("Starting vrcdog-server v{}", env!("CARGO_PKG_VERSION"));
+
     let host = env::var("VRCDOG_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("VRCDOG_PORT")
         .ok()

@@ -3548,6 +3548,7 @@ select option {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .hero-song-info {
@@ -3630,6 +3631,7 @@ select option {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .hero-play-btn {
@@ -3748,31 +3750,35 @@ select option {
 .hero-quick-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-top: 6px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding-top: 8px;
   border-top: 1px dashed var(--vp-border);
 }
 
 .quick-chip {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   background: color-mix(in srgb, var(--vp-panel) 60%, transparent);
   padding: 4px 8px;
   border-radius: 8px;
   border: 1px solid var(--vp-border);
-  font-size: 12px;
+  font-size: 11.5px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .chip-label {
   color: var(--vp-muted);
   font-weight: 600;
   white-space: nowrap;
+  font-size: 11px;
 }
 
 .chip-slider {
-  width: 76px;
-  height: 20px;
+  width: 66px;
+  height: 18px;
   cursor: pointer;
   -webkit-appearance: none;
   appearance: none;
@@ -3781,8 +3787,9 @@ select option {
 .chip-val {
   font-weight: 700;
   color: var(--vp-text);
-  min-width: 32px;
+  min-width: 28px;
   text-align: right;
+  font-size: 11.5px;
 }
 
 .chip-reset {
@@ -3802,23 +3809,24 @@ select option {
 }
 
 .delay-chip {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .chip-input-num {
-  width: 44px;
+  width: 38px;
   padding: 2px 4px;
   border-radius: 6px;
   border: 1px solid var(--vp-border);
   background: transparent;
   color: var(--vp-text);
   text-align: center;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .chip-unit {
   color: var(--vp-dim);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .vrpiano-tab-bar {

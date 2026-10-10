@@ -72,20 +72,46 @@ fn emit_progress(
     let _ = app.emit("vrpiano_loopmidi_progress", payload);
 }
 
+fn is_valid_loopmidi_exe(path: &std::path::Path) -> bool {
+    if !path.exists() || !path.is_file() {
+        return false;
+    }
+    let filename = match path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_lowercase(),
+        None => return false,
+    };
+    if filename != "loopmidi.exe" {
+        return false;
+    }
+    let path_str = path.to_string_lossy().to_lowercase();
+    // Exclude setup bundles, installers, temp extractions, and WiX package cache
+    if path_str.contains("setup")
+        || path_str.contains("installer")
+        || path_str.contains("package cache")
+        || path_str.contains("packagecache")
+    {
+        return false;
+    }
+    true
+}
+
 /// Detects if loopMIDI is installed on the system and returns its path and detected version.
 pub fn detect_installed_loopmidi() -> Option<(PathBuf, Option<String>)> {
     #[cfg(target_os = "windows")]
     {
-        // 1. Check running processes first for exact executable path
-        let mut sys = System::new();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        for p in sys.processes().values() {
-            let name = p.name().to_string_lossy().to_lowercase();
-            if name.contains("loopmidi") {
-                if let Some(exe) = p.exe() {
-                    if exe.exists() {
-                        return Some((exe.to_path_buf(), None));
-                    }
+        // 1. Check common Program Files locations across available drives first
+        let rel_paths = [
+            r"Program Files (x86)\Tobias Erichsen\loopMIDI\loopMIDI.exe",
+            r"Program Files\Tobias Erichsen\loopMIDI\loopMIDI.exe",
+            r"Tobias Erichsen\loopMIDI\loopMIDI.exe",
+        ];
+
+        for drive in b'C'..=b'Z' {
+            let drive_char = drive as char;
+            for rel in &rel_paths {
+                let candidate = PathBuf::from(format!(r"{}:\{}", drive_char, rel));
+                if is_valid_loopmidi_exe(&candidate) {
+                    return Some((candidate, None));
                 }
             }
         }
@@ -93,6 +119,26 @@ pub fn detect_installed_loopmidi() -> Option<(PathBuf, Option<String>)> {
         use winreg::enums::*;
         use winreg::RegKey;
 
+        // 2. Check App Paths in registry
+        let app_path_bases = [
+            (HKEY_LOCAL_MACHINE, r#"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\loopMIDI.exe"#),
+            (HKEY_CURRENT_USER, r#"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\loopMIDI.exe"#),
+        ];
+        for (hkey, sub_path) in app_path_bases {
+            let root = RegKey::predef(hkey);
+            if let Ok(key) = root.open_subkey(sub_path) {
+                let exe_val: String = key.get_value("").unwrap_or_default();
+                let clean_path = exe_val.trim().trim_matches('"');
+                if !clean_path.is_empty() {
+                    let p = PathBuf::from(clean_path);
+                    if is_valid_loopmidi_exe(&p) {
+                        return Some((p, None));
+                    }
+                }
+            }
+        }
+
+        // 3. Check Uninstall registry keys
         let reg_bases = [
             (HKEY_LOCAL_MACHINE, r#"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"#),
             (HKEY_LOCAL_MACHINE, r#"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"#),
@@ -110,15 +156,15 @@ pub fn detect_installed_loopmidi() -> Option<(PathBuf, Option<String>)> {
                             let install_loc: String = subkey.get_value("InstallLocation").unwrap_or_default();
                             if !install_loc.is_empty() {
                                 let exe_path = PathBuf::from(&install_loc).join("loopMIDI.exe");
-                                if exe_path.exists() {
+                                if is_valid_loopmidi_exe(&exe_path) {
                                     return Some((exe_path, version));
                                 }
                             }
                             let display_icon: String = subkey.get_value("DisplayIcon").unwrap_or_default();
                             let icon_path = display_icon.split(',').next().unwrap_or("").trim().trim_matches('"');
-                            if !icon_path.is_empty() && icon_path.ends_with(".exe") {
+                            if !icon_path.is_empty() {
                                 let p = PathBuf::from(icon_path);
-                                if p.exists() {
+                                if is_valid_loopmidi_exe(&p) {
                                     return Some((p, version));
                                 }
                             }
@@ -128,18 +174,16 @@ pub fn detect_installed_loopmidi() -> Option<(PathBuf, Option<String>)> {
             }
         }
 
-        // Check common Program Files locations across available drives
-        let rel_paths = [
-            r"Program Files (x86)\Tobias Erichsen\loopMIDI\loopMIDI.exe",
-            r"Program Files\Tobias Erichsen\loopMIDI\loopMIDI.exe",
-        ];
-
-        for drive in b'C'..=b'Z' {
-            let drive_char = drive as char;
-            for rel in &rel_paths {
-                let candidate = PathBuf::from(format!(r"{}:\{}", drive_char, rel));
-                if candidate.exists() {
-                    return Some((candidate, None));
+        // 4. Check running processes as last resort (strict name and path match)
+        let mut sys = System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        for p in sys.processes().values() {
+            let name = p.name().to_string_lossy().to_lowercase();
+            if (name == "loopmidi.exe" || name == "loopmidi") && !name.contains("setup") {
+                if let Some(exe) = p.exe() {
+                    if is_valid_loopmidi_exe(exe) {
+                        return Some((exe.to_path_buf(), None));
+                    }
                 }
             }
         }
@@ -167,7 +211,7 @@ pub fn is_loopmidi_process_running() -> bool {
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         return sys.processes().values().any(|p| {
             let name = p.name().to_string_lossy().to_lowercase();
-            name.contains("loopmidi")
+            (name == "loopmidi.exe" || name == "loopmidi") && !name.contains("setup")
         });
     }
     false
