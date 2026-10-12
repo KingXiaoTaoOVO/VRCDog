@@ -129,6 +129,10 @@ const logs = ref<string[]>([]);
 const midishowAccounts = ref<VrpianoMidishowAccount[]>([]);
 const midishowAccount = ref('');
 const midishowPassword = ref('');
+const midishowLoginMode = ref<'password' | 'cookie'>('password');
+const midishowCookie = ref('');
+const midishowCookieAccount = ref('');
+const onlineSearchError = ref('');
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   state: 'idle',
@@ -139,7 +143,7 @@ const accountLoading = ref(false);
 const externalLinkLoading = ref(false);
 const loginError = ref('');
 // 用户重新输入账号或密码时，清除登录错误提示
-watch([midishowAccount, midishowPassword], () => {
+watch([midishowAccount, midishowPassword, midishowCookie], () => {
   if (loginError.value) loginError.value = '';
 });
 const accountInputRef = ref<HTMLInputElement | null>(null);
@@ -306,6 +310,7 @@ const onlineEmptyText = computed(() => {
   // 搜索进行中：显示"正在搜索"，而不是"未找到"——避免请求未完成时就
   // 误把"未找到 XX 相关结果"展示给用户，让用户以为真的搜不到。
   if (onlineLoading.value) return t('vrpiano.searching');
+  if (onlineSearchError.value) return onlineSearchError.value;
   if (!hasSearchedOnline.value) return t('vrpiano.search_by_keyword_or_paste_a_url_or_id_t');
   return t('vrpiano.no_results_for_keyword', { keyword: lastOnlineKeyword.value });
 });
@@ -797,6 +802,44 @@ const loginMidishow = async () => {
   }
 };
 
+const importMidishowCookie = async () => {
+  const cookie = midishowCookie.value.trim();
+  if (!cookie) {
+    loginError.value = t('vrpiano.enter_midishow_cookie');
+    return;
+  }
+  accountLoading.value = true;
+  loginError.value = '';
+  error.value = '';
+  try {
+    const acc = await VrpianoApi.midishowImportCookie({
+      cookie,
+      accountName: midishowCookieAccount.value.trim() || undefined,
+    });
+    if (acc) {
+      midishowAccounts.value = [acc];
+      midishowCookie.value = '';
+      midishowCookieAccount.value = '';
+      midishowLoginOpen.value = false;
+      addLog(t('vrpiano.signed_in_to_midishow_as', { username: acc.username }));
+    }
+  } catch (e: any) {
+    loginError.value = e.message || String(e);
+    addLog(t('vrpiano.midishow_signin_not_completed', { error: loginError.value }));
+  } finally {
+    accountLoading.value = false;
+  }
+};
+
+const copyCookieExtractCommand = async () => {
+  try {
+    await navigator.clipboard.writeText('copy(document.cookie)');
+    addLog(t('vrpiano.copied_cookie_extract_command'));
+  } catch {
+    // ignore clipboard write failure
+  }
+};
+
 const logoutMidishow = async () => {
   if (!defaultMidishowAccount.value) return;
   accountLoading.value = true;
@@ -1070,15 +1113,15 @@ const searchOnline = async () => {
   hasSearchedOnline.value = true;
   lastOnlineKeyword.value = keyword;
   onlineResults.value = [];
-  error.value = '';
+  onlineSearchError.value = '';
   if (onlineSearchTimeout !== null) window.clearTimeout(onlineSearchTimeout);
   onlineSearchTimeout = window.setTimeout(() => {
     onlineSearchTimeout = null;
     if (requestId !== onlineSearchRequestId) return;
     onlineSearchRequestId += 1;
     onlineLoading.value = false;
-    error.value = t('vrpiano.midishow_search_timeout');
-    addLog(t('vrpiano.online_search_failed', { error: error.value }));
+    onlineSearchError.value = t('vrpiano.midishow_search_timeout');
+    addLog(t('vrpiano.online_search_failed', { error: onlineSearchError.value }));
   }, ONLINE_SEARCH_TIMEOUT_MS);
   try {
     const results = await VrpianoApi.searchMidishow({
@@ -1090,8 +1133,9 @@ const searchOnline = async () => {
     addLog(t('vrpiano.midishow_returned_results', { count: results.length }));
   } catch (e: any) {
     if (requestId !== onlineSearchRequestId) return;
-    error.value = formatVrpianoError(e);
-    addLog(t('vrpiano.online_search_failed', { error: error.value }));
+    const msg = e instanceof Error ? e.message : String(e);
+    onlineSearchError.value = msg || t('vrpiano.the_action_could_not_be_completed_try_ag');
+    addLog(t('vrpiano.online_search_failed', { error: onlineSearchError.value }));
   } finally {
     if (requestId === onlineSearchRequestId) {
       onlineLoading.value = false;
@@ -2787,65 +2831,126 @@ onUnmounted(async () => {
               </button>
             </div>
 
-            <form v-if="midishowLoginOpen && !defaultMidishowAccount" :key="midishowLoginOpen ? 'open' : 'closed'" class="login-form" @submit.prevent="loginMidishow">
-              <label class="login-field">
-                <span>{{ t('vrpiano.account') }}</span>
-                <input
-                  ref="accountInputRef"
-                  v-model="midishowAccount"
-                  type="text"
-                  name="ms_account"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  autocorrect="off"
-                  spellcheck="false"
-                  data-lpignore="true"
-                  data-1p-ignore="true"
-                  data-form-type="other"
-                  :placeholder="t('vrpiano.midishow_username_or_email')"
+            <div v-if="midishowLoginOpen && !defaultMidishowAccount" class="midishow-login-wrapper">
+              <div class="login-tabs">
+                <button
+                  type="button"
+                  class="login-tab-pill"
+                  :class="{ active: midishowLoginMode === 'password' }"
+                  @click="midishowLoginMode = 'password'"
                 >
-              </label>
-              <label class="login-field">
-                <span>{{ t('vrpiano.password') }}</span>
-                <input
-                  ref="passwordInputRef"
-                  v-model="midishowPassword"
-                  type="password"
-                  name="ms_password"
-                  autocomplete="new-password"
-                  autocapitalize="off"
-                  autocorrect="off"
-                  spellcheck="false"
-                  data-lpignore="true"
-                  data-1p-ignore="true"
-                  data-form-type="other"
-                  :placeholder="t('vrpiano.midishow_password')"
+                  {{ t('vrpiano.silent_auto_login') }}
+                </button>
+                <button
+                  type="button"
+                  class="login-tab-pill"
+                  :class="{ active: midishowLoginMode === 'cookie' }"
+                  @click="midishowLoginMode = 'cookie'"
                 >
-              </label>
-              <p v-if="loginError" class="login-error" role="alert">
-                <AlertTriangle :size="14" />
-                <span>{{ loginError }}</span>
-              </p>
-              <p class="login-hint">{{ t('vrpiano.sign_in_completes_automatically_a_login_') }}</p>
-              <p v-if="accountLoading" class="login-status" aria-live="polite">
-                <Loader2 :size="15" class="spin" />
-                {{ midishowLoginStatus.message }}
-              </p>
-              <div class="login-form-actions">
-                <button type="submit" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
-                  <Loader2 v-if="accountLoading" :size="16" class="spin" />
-                  <LogIn v-else :size="16" />
-                  <span>{{ accountLoading ? t('vrpiano.signing_in') : t('vrpiano.sign_in') }}</span>
-                </button>
-                <button type="button" class="account-btn ghost" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
-                  <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
-                  <ExternalLink v-else :size="15" /> {{ t('vrpiano.register') }}
-                </button>
-                <button type="button" class="account-btn ghost" :title="t('vrpiano.copy_registration_link')" :disabled="accountLoading" @click="copySignupUrl">
-                  {{ t('vrpiano.copy_link') }}
+                  {{ t('vrpiano.cookie_quick_import') }}
                 </button>
               </div>
-            </form>
+
+              <!-- 账号密码静默登录 -->
+              <form v-if="midishowLoginMode === 'password'" class="login-form" @submit.prevent="loginMidishow">
+                <label class="login-field">
+                  <span>{{ t('vrpiano.account') }}</span>
+                  <input
+                    ref="accountInputRef"
+                    v-model="midishowAccount"
+                    type="text"
+                    name="ms_account"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-form-type="other"
+                    :placeholder="t('vrpiano.midishow_username_or_email')"
+                  >
+                </label>
+                <label class="login-field">
+                  <span>{{ t('vrpiano.password') }}</span>
+                  <input
+                    ref="passwordInputRef"
+                    v-model="midishowPassword"
+                    type="password"
+                    name="ms_password"
+                    autocomplete="new-password"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-form-type="other"
+                    :placeholder="t('vrpiano.midishow_password')"
+                  >
+                </label>
+                <p v-if="loginError" class="login-error" role="alert">
+                  <AlertTriangle :size="14" />
+                  <span>{{ loginError }}</span>
+                </p>
+                <p class="login-hint">{{ t('vrpiano.silent_login_hint') }}</p>
+                <p v-if="accountLoading" class="login-status" aria-live="polite">
+                  <Loader2 :size="15" class="spin" />
+                  {{ midishowLoginStatus.message }}
+                </p>
+                <div class="login-form-actions">
+                  <button type="submit" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
+                    <Loader2 v-if="accountLoading" :size="16" class="spin" />
+                    <LogIn v-else :size="16" />
+                    <span>{{ accountLoading ? t('vrpiano.signing_in') : t('vrpiano.sign_in') }}</span>
+                  </button>
+                  <button type="button" class="account-btn ghost" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
+                    <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
+                    <ExternalLink v-else :size="15" /> {{ t('vrpiano.register') }}
+                  </button>
+                  <button type="button" class="account-btn ghost" :title="t('vrpiano.copy_registration_link')" :disabled="accountLoading" @click="copySignupUrl">
+                    {{ t('vrpiano.copy_link') }}
+                  </button>
+                </div>
+              </form>
+
+              <!-- Cookie 一键导入免密登录 -->
+              <form v-else class="login-form" @submit.prevent="importMidishowCookie">
+                <label class="login-field">
+                  <span>Cookie</span>
+                  <input
+                    v-model="midishowCookie"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    :placeholder="t('vrpiano.paste_midishow_cookie_placeholder')"
+                  >
+                </label>
+                <label class="login-field">
+                  <span>{{ t('vrpiano.account_remark') }}</span>
+                  <input
+                    v-model="midishowCookieAccount"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    :placeholder="t('vrpiano.account_remark_placeholder')"
+                  >
+                </label>
+                <p v-if="loginError" class="login-error" role="alert">
+                  <AlertTriangle :size="14" />
+                  <span>{{ loginError }}</span>
+                </p>
+                <p class="login-hint">{{ t('vrpiano.cookie_import_guide_tip') }}</p>
+                <div class="login-form-actions">
+                  <button type="submit" :disabled="accountLoading || !midishowCookie.trim()">
+                    <Loader2 v-if="accountLoading" :size="16" class="spin" />
+                    <LogIn v-else :size="16" />
+                    <span>{{ accountLoading ? t('vrpiano.saving') : t('vrpiano.import_and_save') }}</span>
+                  </button>
+                  <button type="button" class="account-btn ghost" @click="copyCookieExtractCommand">
+                    {{ t('vrpiano.copy_f12_command') }}
+                  </button>
+                </div>
+              </form>
+            </div>
 
             <div class="online-form">
               <div class="input-row">
@@ -5805,6 +5910,39 @@ select option:hover {
   color: var(--vp-text);
   background: var(--vp-panel);
   box-shadow: inset 0 0 0 1px var(--vp-border);
+}
+
+.midishow-login-wrapper {
+  display: grid;
+  gap: 8px;
+}
+
+.login-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.login-tab-pill {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 650;
+  border-radius: 6px;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-panel);
+  color: var(--vp-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.login-tab-pill:hover {
+  color: var(--vp-text);
+  border-color: var(--vp-accent);
+}
+
+.login-tab-pill.active {
+  background: var(--vp-accent);
+  color: #fff;
+  border-color: var(--vp-accent);
 }
 
 .login-form {

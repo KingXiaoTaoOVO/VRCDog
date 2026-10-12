@@ -612,6 +612,7 @@ pub fn run() {
             vrpiano::vrpiano_midishow_preview_data,
             vrpiano::vrpiano_midishow_accounts,
             vrpiano::vrpiano_midishow_login,
+            vrpiano::vrpiano_midishow_import_cookie,
             vrpiano::vrpiano_midishow_login_status,
             vrpiano::vrpiano_midishow_remove_account,
             vrpiano::vrpiano_open_songs_dir,

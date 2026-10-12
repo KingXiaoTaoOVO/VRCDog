@@ -1089,11 +1089,11 @@ pub async fn vrpiano_midishow_login(
     .user_agent(MIDISHOW_USER_AGENT)
     .inner_size(980.0, 760.0)
     .resizable(true)
-    // 立即显示登录窗口：原先 `.visible(false)` + 20s 兜底会让用户看不到任何反馈，
-    // 主观感受"打开浏览器和登录都好慢"。改为可见后用户立刻看到页面正在加载，
-    // 自动填充脚本仍在后台跑；如果 Cloudflare 拦截了自动填充，用户可继续手动操作。
-    .visible(true)
-    .focused(true)
+    // 默认在后台静默运行：由脚本自动填入并提交表单，登录成功后直接关闭并保存，
+    // 用户全程无需看到任何弹窗，也不需要手动点击；
+    // 仅当检测到需要人工完成的人机验证码时，才唤醒并显示窗口给用户操作。
+    .visible(false)
+    .focused(false)
     .on_page_load(move |window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
             // 记录最近一次加载的 URL，用于判断登录页是否跳转走（登录成功信号）
@@ -1123,6 +1123,42 @@ pub async fn vrpiano_midishow_login(
     update_midishow_login_runtime(&status);
     let _ = app.emit("vrpiano_midishow_login_status", status.clone());
     Ok(status)
+}
+
+#[tauri::command]
+pub async fn vrpiano_midishow_import_cookie(
+    app: tauri::AppHandle,
+    cookie: String,
+    account_name: Option<String>,
+) -> Result<VrpianoMidishowAccount, String> {
+    let normalized = normalize_midishow_cookie_header(&cookie)?;
+    if normalized.is_empty() {
+        return Err("Cookie 不能为空，请粘贴有效的 Midishow Cookie".to_string());
+    }
+
+    let detected = inspect_midishow_session(&normalized).await.ok().flatten();
+    let username = account_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or(detected)
+        .unwrap_or_else(|| "Midishow 用户 (Cookie 会话)".to_string());
+
+    persist_midishow_session(&app, &username, normalized)?;
+
+    let account = VrpianoMidishowAccount {
+        username: username.clone(),
+        login_type: "cookie".to_string(),
+    };
+
+    let status = VrpianoMidishowLoginStatus {
+        state: "signed_in".to_string(),
+        message: format!("已成功导入 Cookie 会话：{username}"),
+        username: Some(username),
+    };
+    update_midishow_login_runtime(&status);
+    let _ = app.emit("vrpiano_midishow_login_status", status);
+
+    Ok(account)
 }
 
 #[tauri::command]
@@ -4253,15 +4289,141 @@ fn extract_midishow_id(input: &str) -> Result<u64, String> {
         .ok_or_else(|| "Invalid Midishow ID or URL".to_string())
 }
 
+const MIDISHOW_SEARCH_WINDOW_LABEL: &str = "midishow_search_worker";
+
+async fn search_midishow_webview(
+    app: &tauri::AppHandle,
+    keyword: &str,
+    limit: usize,
+) -> Result<Vec<VrpianoOnlineSong>, String> {
+    let encoded = urlencoding::encode(keyword);
+    let search_url = format!("https://www.midishow.com/search/result?q={encoded}&page=1&per-page={limit}");
+    let parsed_url = search_url
+        .parse::<tauri::Url>()
+        .map_err(|e| format!("搜索地址不可用: {e}"))?;
+
+    if let Some(w) = app.get_webview_window(MIDISHOW_SEARCH_WINDOW_LABEL) {
+        let _ = w.close();
+        tokio::time::sleep(Duration::from_millis(80)).await;
+    }
+
+    let extract_script = r#"(() => {
+  let attempts = 0;
+  const poll = () => {
+    attempts++;
+    const cards = document.querySelectorAll('[data-key], .col-midi, .midi-item, div[data-key]');
+    if (cards.length > 0) {
+      const list = [];
+      const seen = new Set();
+      cards.forEach((card) => {
+        const dataKey = card.getAttribute('data-key');
+        const link = card.querySelector('a[href*="/midi/"]');
+        const href = link ? (link.getAttribute('href') || '') : '';
+        let id = 0;
+        if (dataKey) {
+          id = parseInt(dataKey, 10);
+        } else if (href) {
+          const m = href.match(/\/midi\/(\d+)/);
+          if (m) id = parseInt(m[1], 10);
+        }
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          const title = (link && link.textContent) ? link.textContent.trim() : ('MIDI #' + id);
+          const artistEl = card.querySelector('.artist, .author, [class*="artist"]');
+          const artist = artistEl ? (artistEl.textContent || '').trim() : '';
+          const page_url = href.startsWith('http') ? href : ('https://www.midishow.com' + href);
+          const img = card.querySelector('img');
+          const cover_url = img ? (img.src || null) : null;
+          list.push({ id, title, artist, page_url, cover_url });
+        }
+      });
+      if (list.length > 0) {
+        document.title = 'VRCDOG_SEARCH_DONE:' + encodeURIComponent(JSON.stringify(list));
+        return true;
+      }
+    }
+    const text = (document.body && document.body.innerText) ? document.body.innerText : '';
+    if (text.includes('没有找到') || text.includes('0 个结果') || text.includes('未找到') || text.includes('没有符合') || text.includes('抱歉，没有')) {
+      document.title = 'VRCDOG_SEARCH_DONE:[]';
+      return true;
+    }
+    return false;
+  };
+  if (!poll()) {
+    const timer = setInterval(() => {
+      if (poll() || attempts >= 35) clearInterval(timer);
+    }, 200);
+  }
+})();"#;
+
+    let page_script = extract_script.to_string();
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        MIDISHOW_SEARCH_WINDOW_LABEL,
+        tauri::WebviewUrl::External(parsed_url),
+    )
+    .title("搜索 Midishow")
+    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+    .inner_size(800.0, 600.0)
+    .visible(false)
+    .skip_taskbar(true)
+    .on_page_load(move |win, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            let _ = win.eval(&page_script);
+        }
+    })
+    .build()
+    .map_err(|e| format!("后台搜索服务启动失败: {e}"))?;
+
+    let start = std::time::Instant::now();
+    let mut final_results: Option<Vec<VrpianoOnlineSong>> = None;
+
+    while start.elapsed() < Duration::from_secs(9) {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        if let Ok(title) = window.title() {
+            if let Some(encoded_data) = title.strip_prefix("VRCDOG_SEARCH_DONE:") {
+                let decoded = urlencoding::decode(encoded_data).unwrap_or_default();
+                if let Ok(items) = serde_json::from_str::<Vec<VrpianoOnlineSong>>(&decoded) {
+                    final_results = Some(items);
+                    break;
+                }
+            }
+        }
+    }
+
+    let _ = window.close();
+
+    final_results.ok_or_else(|| "后台搜索未完成响应".to_string())
+}
+
 async fn search_midishow(
     app: &tauri::AppHandle,
     project_path: &Path,
     keyword: &str,
     limit: usize,
 ) -> Result<Vec<VrpianoOnlineSong>, String> {
-    // The CLI creates a new cookie jar for every request, so it cannot use the
-    // account or browser Cookie that the user saved in VRPiano. Search through
-    // the application session first and only keep the CLI as a public fallback.
+    // 1. 如果用户输入的是纯数字 ID 或 Midishow 详情页 URL，直接解析为单曲结果，秒级返回
+    if (keyword.starts_with("http") && keyword.contains("midishow"))
+        || (!keyword.is_empty() && keyword.chars().all(|c| c.is_ascii_digit()))
+    {
+        if let Ok(id) = extract_midishow_id(keyword) {
+            let title = midishow_title(project_path, id).unwrap_or_else(|| format!("MIDI #{id}"));
+            return Ok(vec![VrpianoOnlineSong {
+                id,
+                title,
+                artist: String::new(),
+                page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
+                cover_url: None,
+            }]);
+        }
+    }
+
+    // 2. 优先通过后台 WebView2 真实浏览器执行搜索（天然通过 Cloudflare 质询与 Turnstile）
+    if let Ok(results) = search_midishow_webview(app, keyword, limit).await {
+        return Ok(results);
+    }
+
+    // 3. 回退策略：尝试直接 HTTP 搜索与 CLI 搜索
     let account = default_midishow_account(app)?;
     let http_result = tokio::time::timeout(
         Duration::from_secs(MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS),
@@ -4274,7 +4436,6 @@ async fn search_midishow(
         Ok(Err(request_error)) => run_midishow_cli_search(project_path, keyword, limit)
             .map_err(|cli_error| format!("{request_error}; CLI 搜索回退失败: {cli_error}")),
         // HTTP 请求超时（网络慢 / 代理握手）也要回退到 CLI，而不是直接报“搜索超时”。
-        // 之前只在非超时错误时才回退，导致任何慢一点的请求都被误判为超时。
         Err(_) => run_midishow_cli_search(project_path, keyword, limit).map_err(|cli_error| {
             format!("Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索。CLI 回退也失败: {cli_error}")
         }),
@@ -4972,14 +5133,21 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       // 监听表单出现并自动回填+提交，这样用户不用手动再输一遍账号密码。
       const cfObserver = new MutationObserver(() => {{
         const acc = findVisible([
+          '#loginform-identity',
+          'input[name="LoginForm[identity]"]',
+          'input[id*="identity"]',
           'input[autocomplete="username"]',
           'input[name="username"]',
           'input[name="email"]',
           'input[type="email"]',
           'input[name="login"]',
+          '#login-form input[type="text"]',
           'input[type="text"]'
         ]);
         const pw = findVisible([
+          '#loginform-password',
+          'input[name="LoginForm[password]"]',
+          'input[id*="password"]',
           'input[autocomplete="current-password"]',
           'input[name="password"]',
           'input[type="password"]'
@@ -4988,8 +5156,8 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
           cfObserver.disconnect();
           fill(acc, account);
           fill(pw, password);
-          const form = pw.form || acc.form || document.querySelector('form');
-          const submit = form?.querySelector('button[type="submit"], input[type="submit"]');
+          const form = pw.form || acc.form || document.querySelector('#login-form') || document.querySelector('form');
+          const submit = form?.querySelector('button[name="login-button"], button[type="submit"], input[type="submit"]');
           signal('submitted');
           window.setTimeout(() => {{
             if (submit instanceof HTMLElement) submit.click();
@@ -5009,14 +5177,21 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
     }}
     if (submitted) return;
     const accountInput = findVisible([
+      '#loginform-identity',
+      'input[name="LoginForm[identity]"]',
+      'input[id*="identity"]',
       'input[autocomplete="username"]',
       'input[name="username"]',
       'input[name="email"]',
       'input[type="email"]',
       'input[name="login"]',
+      '#login-form input[type="text"]',
       'input[type="text"]'
     ]);
     const passwordInput = findVisible([
+      '#loginform-password',
+      'input[name="LoginForm[password]"]',
+      'input[id*="password"]',
       'input[autocomplete="current-password"]',
       'input[name="password"]',
       'input[type="password"]'
@@ -5029,8 +5204,8 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       }}
       return;
     }}
-    const form = passwordInput.form || accountInput.form || document.querySelector('form');
-    const submit = form?.querySelector('button[type="submit"], input[type="submit"]');
+    const form = passwordInput.form || accountInput.form || document.querySelector('#login-form') || document.querySelector('form');
+    const submit = form?.querySelector('button[name="login-button"], button[type="submit"], input[type="submit"]');
     submitted = true;
     signal('submitted');
     window.setTimeout(() => {{
@@ -5818,6 +5993,11 @@ fn run_midishow_cli_json_with_timeout(
         .file_name()
         .ok_or_else(|| format!("Midishow CLI path has no filename: {}", cli.display()))?;
     let mut command = std::process::Command::new(&node);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
     command
         .arg(script_name)
         .args(args)

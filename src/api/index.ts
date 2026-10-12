@@ -1380,6 +1380,10 @@ export const VrpianoApi = {
       password: params.password,
     },
   }),
+  midishowImportCookie: (params: { cookie: string; accountName?: string }) => safeInvoke<VrpianoMidishowAccount>('vrpiano_midishow_import_cookie', {
+    cookie: params.cookie,
+    accountName: params.accountName || null,
+  }),
   midishowLoginStatus: () => safeInvoke<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status'),
   midishowRemoveAccount: (params: { username: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_remove_account', {
     username: params.username,
