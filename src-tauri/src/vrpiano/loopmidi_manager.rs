@@ -43,6 +43,7 @@ pub struct LoopMidiStatus {
     pub download_url: String,
     pub is_latest: bool,
     pub last_checked_at: Option<String>,
+    pub autostart: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -313,6 +314,8 @@ pub async fn get_loopmidi_status() -> LoopMidiStatus {
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
+    let autostart = get_loopmidi_autostart();
+
     LoopMidiStatus {
         installed,
         running,
@@ -324,6 +327,7 @@ pub async fn get_loopmidi_status() -> LoopMidiStatus {
         download_url,
         is_latest,
         last_checked_at: Some(now),
+        autostart,
     }
 }
 
@@ -510,7 +514,63 @@ pub fn launch_loopmidi() -> Result<(), String> {
         }
     }
 
+    broadcast_device_change();
+
     Ok(())
+}
+
+/// Checks whether loopMIDI is registered in Windows CurrentVersion\Run to start on boot.
+pub fn get_loopmidi_autostart() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(run_key) = hkcu.open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_READ) {
+            let val: Result<String, _> = run_key.get_value("loopMIDI");
+            return val.is_ok();
+        }
+    }
+    false
+}
+
+/// Configures loopMIDI to autostart with Windows (-minimized) or removes the startup entry.
+pub fn set_loopmidi_autostart(enabled: bool) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (run_key, _) = hkcu.create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+            .map_err(|e| format!("打开注册表启动项失败: {e}"))?;
+        if enabled {
+            let (exe_path, _) = detect_installed_loopmidi()
+                .ok_or_else(|| "未找到 loopMIDI 安装路径，请先安装 loopMIDI".to_string())?;
+            let val = format!("\"{}\" -minimized", exe_path.to_string_lossy());
+            run_key.set_value("loopMIDI", &val)
+                .map_err(|e| format!("写入自启项失败: {e}"))?;
+            Ok(true)
+        } else {
+            let _ = run_key.delete_value("loopMIDI");
+            Ok(false)
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok(false)
+}
+
+/// Broadcasts WM_DEVICECHANGE (DBT_DEVNODES_CHANGED = 0x0007) to all top-level windows.
+/// Notifies Windows applications (including running games and DAWs) that the device tree updated.
+pub fn broadcast_device_change() {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::Foundation::{LPARAM, WPARAM, HWND};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            PostMessageW, WM_DEVICECHANGE,
+        };
+        // HWND_BROADCAST = 0xffff, DBT_DEVNODES_CHANGED = 0x0007
+        let _ = PostMessageW(HWND(0xffff as _), WM_DEVICECHANGE, WPARAM(0x0007), LPARAM(0));
+    }
 }
 
 #[cfg(test)]
@@ -553,6 +613,7 @@ mod tests {
             download_url: FALLBACK_DOWNLOAD_URL.to_string(),
             is_latest: false,
             last_checked_at: None,
+            autostart: false,
         };
         assert!(!status.installed);
         assert!(!status.is_latest);

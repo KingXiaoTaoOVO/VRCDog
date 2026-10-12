@@ -1312,6 +1312,7 @@ export interface LoopMidiStatus {
   download_url: string;
   is_latest: boolean;
   last_checked_at?: string | null;
+  autostart?: boolean;
 }
 
 export interface LoopMidiInstallProgress {
@@ -1437,6 +1438,9 @@ export const VrpianoApi = {
   installLoopMidi: () => safeInvoke<void>('vrpiano_install_loopmidi'),
   launchLoopMidi: () => safeInvoke<void>('vrpiano_launch_loopmidi'),
   checkLoopMidiLatest: () => safeInvoke<LoopMidiStatus>('vrpiano_check_loopmidi_latest'),
+  getLoopMidiAutostart: () => safeInvoke<boolean>('vrpiano_get_loopmidi_autostart'),
+  setLoopMidiAutostart: (params: { enabled: boolean }) => safeInvoke<boolean>('vrpiano_set_loopmidi_autostart', { enabled: params.enabled }),
+  broadcastMidiRefresh: () => safeInvoke<Array<{ id: string; name: string; kind: string }>>('vrpiano_broadcast_midi_refresh'),
   startRecording: () => safeInvoke<string>('vrpiano_start_recording'),
   stopRecording: () => safeInvoke<string | null>('vrpiano_stop_recording'),
   getRecordingStatus: () => safeInvoke<VrpianoRecordingStatus>('vrpiano_get_recording_status'),

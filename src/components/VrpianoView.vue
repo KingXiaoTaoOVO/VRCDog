@@ -199,7 +199,8 @@ const loopMidiInstalling = ref(false);
 const loopMidiProgress = ref<LoopMidiInstallProgress | null>(null);
 const isLaunchingLoopMidi = ref(false);
 const isRefreshingMidi = ref(false);
-const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v4', 'keyboard');
+const outputMode = useStorage<'keyboard' | 'midi' | 'osc'>('vrcdog.vrpiano.outputMode.v5', 'midi');
+const loopMidiAutostart = ref(false);
 const activeTab = useStorage<'play' | 'online' | 'advanced'>('vrcdog.vrpiano.activeTab.v2', 'play');
 let launchPollTimer: number | null = null;
 let isStarting = false; // re-entrancy guard: prevent concurrent start() calls
@@ -973,9 +974,42 @@ const previewLocalSong = async () => {
   }
 };
 
+const syncHotkeySongTarget = async (songPath: string) => {
+  if (!isTauri() || !songPath) return;
+  try {
+    await VrpianoApi.setHotkeys({
+      enabled: hotkeysEnabled.value,
+      songPath,
+      delaySecs: Math.max(0, Math.round(delaySecs.value || 0)),
+      speed: clampSpeed(speed.value),
+      outputMode: outputMode.value,
+      keyboardLayout: keyboardLayout.value,
+      midiDeviceId: outputMode.value === 'midi' ? selectedMidiDevice.value : undefined,
+      oscHost: vrchatOscHost.value,
+      oscPort: vrchatOscPort.value,
+    });
+  } catch {}
+};
+
 const previewSong = async (song: VrpianoSong) => {
   selectedPath.value = song.path;
+  void syncHotkeySongTarget(song.path);
   await previewLocalSong();
+};
+
+const handleSongSelectAndPreview = async (song: VrpianoSong) => {
+  selectedPath.value = song.path;
+  void syncHotkeySongTarget(song.path);
+  await previewSong(song);
+};
+
+const handleSongDblClickToPlay = async (song: VrpianoSong) => {
+  selectedPath.value = song.path;
+  void syncHotkeySongTarget(song.path);
+  if (playerPlaying.value) {
+    pausePlayer();
+  }
+  await start();
 };
 
 const playRelativeSongInBuiltInPlayer = async (delta: -1 | 1) => {
@@ -1407,7 +1441,7 @@ const refreshStatus = async () => {
         volume: ch.volume ?? 127,
       }));
     }
-    if (status.value.song_path && songs.value.some((song) => song.path === status.value.song_path)) {
+    if (status.value.running && status.value.song_path && songs.value.some((song) => song.path === status.value.song_path)) {
       selectedPath.value = status.value.song_path;
     }
   } catch {
@@ -1766,6 +1800,7 @@ const refreshLoopMidiStatus = async () => {
     const res = await VrpianoApi.getLoopMidiStatus();
     if (res) {
       loopMidiStatus.value = res;
+      loopMidiAutostart.value = Boolean(res.autostart);
       await refreshMidiDevices();
       if (res.has_virtual_port) {
         const loopDevice = midiDevices.value.find(d => /loopmidi|virtual|vrc/i.test(d.name));
@@ -1779,6 +1814,36 @@ const refreshLoopMidiStatus = async () => {
     }
   } catch (e: any) {
     console.error('Failed to get loopMIDI status:', e);
+  }
+};
+
+const toggleLoopMidiAutostart = async () => {
+  if (!isTauri()) return;
+  try {
+    const next = !loopMidiAutostart.value;
+    const res = await VrpianoApi.setLoopMidiAutostart({ enabled: next });
+    loopMidiAutostart.value = Boolean(res);
+    addLog(loopMidiAutostart.value ? '已开启 loopMIDI 开机自启（开机自动就绪虚拟端口）' : '已关闭 loopMIDI 开机自启');
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  }
+};
+
+const broadcastRefreshMidi = async () => {
+  if (isRefreshingMidi.value) return;
+  isRefreshingMidi.value = true;
+  try {
+    addLog('正在向 Windows 全系统广播设备更新通知并刷新端口...');
+    await VrpianoApi.broadcastMidiRefresh();
+    await refreshLoopMidiStatus();
+    await refreshMidiDevices();
+    addLog('MIDI 虚拟端口刷新完成，若游戏已在运行请在游戏中重新加入世界');
+  } catch (e: any) {
+    error.value = e.message || String(e);
+  } finally {
+    setTimeout(() => {
+      isRefreshingMidi.value = false;
+    }, 600);
   }
 };
 
@@ -2154,9 +2219,9 @@ onUnmounted(async () => {
             class="song-row"
             :class="{ selected: selectedPath === song.path }"
             tabindex="0"
-            @click="selectedPath = song.path"
-            @dblclick="previewSong(song)"
-            @keydown.enter="selectedPath = song.path"
+            @click="handleSongSelectAndPreview(song)"
+            @dblclick="handleSongDblClickToPlay(song)"
+            @keydown.enter="handleSongDblClickToPlay(song)"
           >
             <span
               class="song-note"
@@ -2388,19 +2453,6 @@ onUnmounted(async () => {
             <div class="mode-segmented-bar">
               <button
                 class="mode-segment-btn"
-                :class="{ active: outputMode === 'keyboard' }"
-                type="button"
-                @click="outputMode = 'keyboard'"
-              >
-                <div class="mode-seg-head">
-                  <Keyboard :size="15" class="mode-seg-icon" />
-                  <span class="mode-seg-label">{{ t('vrpiano.pc_keyboard_mode') }}</span>
-                </div>
-                <span class="mode-seg-tag recommended">{{ t('vrpiano.recommended_vrc_native') }}</span>
-              </button>
-
-              <button
-                class="mode-segment-btn"
                 :class="{ active: outputMode === 'midi' }"
                 type="button"
                 @click="outputMode = 'midi'"
@@ -2409,7 +2461,20 @@ onUnmounted(async () => {
                   <Cable :size="15" class="mode-seg-icon" />
                   <span class="mode-seg-label">{{ t('vrpiano.direct_midi_mode') }}</span>
                 </div>
-                <span class="mode-seg-tag safe">Udon MIDI</span>
+                <span class="mode-seg-tag recommended">{{ t('vrpiano.recommended_direct_midi') }}</span>
+              </button>
+
+              <button
+                class="mode-segment-btn"
+                :class="{ active: outputMode === 'keyboard' }"
+                type="button"
+                @click="outputMode = 'keyboard'"
+              >
+                <div class="mode-seg-head">
+                  <Keyboard :size="15" class="mode-seg-icon" />
+                  <span class="mode-seg-label">{{ t('vrpiano.pc_keyboard_mode') }}</span>
+                </div>
+                <span class="mode-seg-tag standard">{{ t('vrpiano.keyboard_simulation_tag') }}</span>
               </button>
 
               <button
@@ -2433,10 +2498,10 @@ onUnmounted(async () => {
               <div class="mode-tip-card midi-tip">
                 <div class="mode-tip-header">
                   <Info :size="15" />
-                  <strong>使用须知：仅限支持 Udon MIDI 的特定地图</strong>
+                  <strong>{{ t('vrpiano.midi_tip_title') }}</strong>
                 </div>
                 <p class="mode-tip-desc">
-                  本模式通过 loopMIDI 向 VRChat 发送原生 MIDI 信号。请确认当前地图具备 <code>VRC.SDK3.Midi</code> 接收器（如世界搜索 “MIDI Piano” 或 “QvPiano [MIDI]”），并在 VRChat 设置中启用了对应的 MIDI 输入设备。如果当前地图是普通地图钢琴，游戏将无法接收 MIDI，请切换到【PC 键盘模拟模式】即可正常演奏！
+                  {{ t('vrpiano.midi_tip_desc') }}
                 </p>
               </div>
 
@@ -2460,6 +2525,46 @@ onUnmounted(async () => {
                   </button>
                   <button class="small-action midi-refresh-btn ghost" :title="t('vrpiano.refresh_devices')" @click="manualRefreshLoopMidi">
                     <RefreshCcw :size="14" :class="{ 'spin-icon': isRefreshingMidi }" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- loopMIDI 启动顺序免忧方案与热重载指南 -->
+              <div v-if="loopMidiStatus?.installed" class="loopmidi-order-guide-card">
+                <div class="order-guide-header">
+                  <div class="order-guide-title">
+                    <Sliders :size="15" />
+                    <strong>{{ t('vrpiano.loopmidi_order_solution_title') }}</strong>
+                  </div>
+                  <button
+                    class="autostart-toggle-btn"
+                    :class="{ enabled: loopMidiAutostart }"
+                    type="button"
+                    :title="loopMidiAutostart ? t('vrpiano.autostart_enabled_title') : t('vrpiano.autostart_disabled_title')"
+                    @click="toggleLoopMidiAutostart"
+                  >
+                    <span>{{ loopMidiAutostart ? t('vrpiano.autostart_on') : t('vrpiano.autostart_enable_btn') }}</span>
+                  </button>
+                </div>
+                <div class="order-guide-tips">
+                  <div class="order-tip-item">
+                    <span class="tip-num">1</span>
+                    <span>{{ t('vrpiano.loopmidi_autostart_tip') }}</span>
+                  </div>
+                  <div class="order-tip-item">
+                    <span class="tip-num">2</span>
+                    <span>{{ t('vrpiano.loopmidi_in_game_rejoin_tip') }}</span>
+                  </div>
+                </div>
+                <div class="order-guide-actions">
+                  <button
+                    class="order-refresh-btn"
+                    type="button"
+                    :disabled="isRefreshingMidi"
+                    @click="broadcastRefreshMidi"
+                  >
+                    <RefreshCcw :size="13" :class="{ 'spin-icon': isRefreshingMidi }" />
+                    <span>{{ t('vrpiano.broadcast_refresh_btn') }}</span>
                   </button>
                 </div>
               </div>
@@ -2587,10 +2692,10 @@ onUnmounted(async () => {
               <div class="mode-tip-card keyboard-tip">
                 <div class="mode-tip-header">
                   <ShieldCheck :size="15" />
-                  <strong>通用推荐：兼容 95% 以上地图钢琴</strong>
+                  <strong>{{ t('vrpiano.keyboard_tip_title') }}</strong>
                 </div>
                 <p class="mode-tip-desc">
-                  适用于绝大多数世界地图钢琴（标准 QvPiano、黑白键世界等）。在 VRChat 中走到琴前坐下，按下 F1 即可全自动模拟键盘演奏。内置防打字弹窗拦截与反视角旋转算法。
+                  {{ t('vrpiano.keyboard_tip_desc') }}
                 </p>
               </div>
 
@@ -3999,6 +4104,107 @@ select option {
   padding: 1px 4px;
   border-radius: 4px;
   font-family: monospace;
+}
+
+.loopmidi-order-guide-card {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vp-primary) 5%, var(--vp-panel));
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 22%, var(--vp-border));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.order-guide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.order-guide-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--vp-text);
+  font-weight: 700;
+}
+
+.autostart-toggle-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-panel);
+  color: var(--vp-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.autostart-toggle-btn.enabled {
+  background: var(--vp-primary);
+  color: #fff;
+  border-color: var(--vp-primary);
+}
+
+.order-guide-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vp-text);
+}
+
+.order-tip-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tip-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--vp-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.order-guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.order-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--vp-panel);
+  border: 1px solid var(--vp-border);
+  color: var(--vp-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.order-refresh-btn:hover:not(:disabled) {
+  border-color: var(--vp-primary);
+  color: var(--vp-primary);
 }
 
 .layout-select-dropdown {

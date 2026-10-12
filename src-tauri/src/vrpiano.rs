@@ -1742,6 +1742,22 @@ pub async fn vrpiano_check_loopmidi_latest() -> Result<loopmidi_manager::LoopMid
 }
 
 #[tauri::command]
+pub async fn vrpiano_get_loopmidi_autostart() -> Result<bool, String> {
+    Ok(loopmidi_manager::get_loopmidi_autostart())
+}
+
+#[tauri::command]
+pub async fn vrpiano_set_loopmidi_autostart(enabled: bool) -> Result<bool, String> {
+    loopmidi_manager::set_loopmidi_autostart(enabled)
+}
+
+#[tauri::command]
+pub async fn vrpiano_broadcast_midi_refresh() -> Result<Vec<MidiDevice>, String> {
+    loopmidi_manager::broadcast_device_change();
+    Ok(MidiOutputBackend::list_usb_devices())
+}
+
+#[tauri::command]
 pub async fn vrpiano_set_hotkeys(
     app: tauri::AppHandle,
     state: tauri::State<'_, VrpianoState>,

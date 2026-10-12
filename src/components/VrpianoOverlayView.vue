@@ -160,7 +160,17 @@ const reapplySavedAppearance = () => {
 const handleVisibilityChange = () => reapplySavedAppearance();
 
 const progress = computed(() => Math.min(1, Math.max(0, Number(status.value.progress) || 0)));
+const selectedOverlayPath = ref('');
 const currentIndex = computed(() => {
+  if (status.value.running && status.value.song_path) {
+    const byPath = songs.value.findIndex((song) => song.path === status.value.song_path);
+    if (byPath >= 0) return byPath;
+    return songs.value.findIndex((song) => song.name === status.value.song_name);
+  }
+  if (selectedOverlayPath.value) {
+    const byPath = songs.value.findIndex((song) => song.path === selectedOverlayPath.value);
+    if (byPath >= 0) return byPath;
+  }
   const byPath = songs.value.findIndex((song) => song.path === status.value.song_path);
   if (byPath >= 0) return byPath;
   return songs.value.findIndex((song) => song.name === status.value.song_name);
@@ -316,6 +326,7 @@ const previewSong = async (song: VrpianoSong) => {
 };
 
 const handleSongClick = (song: VrpianoSong) => {
+  selectedOverlayPath.value = song.path;
   if (songClickTimer !== null) window.clearTimeout(songClickTimer);
   if (previewEnabled.value) {
     songClickTimer = window.setTimeout(() => {
@@ -329,12 +340,43 @@ const handleSongClick = (song: VrpianoSong) => {
 };
 
 const handleSongDblClick = (song: VrpianoSong) => {
+  selectedOverlayPath.value = song.path;
   if (songClickTimer !== null) {
     window.clearTimeout(songClickTimer);
     songClickTimer = null;
   }
   previewingPath.value = '';
   void playSong(song);
+};
+
+const handleHotkeyButtonClick = async (key: string) => {
+  recentHotkey.value = key;
+  if (hotkeyTimer !== null) window.clearTimeout(hotkeyTimer);
+  hotkeyTimer = window.setTimeout(() => {
+    recentHotkey.value = '';
+    hotkeyTimer = null;
+  }, 400);
+
+  if (key === 'F1') {
+    await togglePlayback();
+  } else if (key === 'F2') {
+    await restartSong();
+  } else if (key === 'F3') {
+    const next = Math.min(2.5, Math.round(((status.value.speed || 1) + 0.1) * 100) / 100);
+    applyStatus(await VrpianoApi.setSpeed({ speed: next }));
+  } else if (key === 'F4') {
+    const next = Math.max(0.2, Math.round(((status.value.speed || 1) - 0.1) * 100) / 100);
+    applyStatus(await VrpianoApi.setSpeed({ speed: next }));
+  } else if (key === 'F5') {
+    applyStatus(await VrpianoApi.setSpeed({ speed: 1.0 }));
+  }
+};
+
+const handleOverlayKeyDown = (event: KeyboardEvent) => {
+  if (['F1', 'F2', 'F3', 'F4', 'F5'].includes(event.key)) {
+    event.preventDefault();
+    void handleHotkeyButtonClick(event.key);
+  }
 };
 
 const toggleHotkeys = async () => {
@@ -474,7 +516,7 @@ onMounted(async () => {
     }
   });
   pollTimer = window.setInterval(refresh, 1_000);
-
+  window.addEventListener('keydown', handleOverlayKeyDown);
 });
 
 watch(outputMode, (newMode) => {
@@ -482,6 +524,7 @@ watch(outputMode, (newMode) => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleOverlayKeyDown);
   if (pollTimer !== null) window.clearInterval(pollTimer);
   if (hotkeyTimer !== null) window.clearTimeout(hotkeyTimer);
   if (songClickTimer !== null) window.clearTimeout(songClickTimer);
@@ -647,8 +690,13 @@ onUnmounted(() => {
         <span
           v-for="item in hotkeys"
           :key="item.key"
+          role="button"
+          tabindex="0"
+          class="hotkey-pill"
           :class="{ pressed: recentHotkey === item.key }"
           :title="`${item.key} ${item.label}`"
+          @click="handleHotkeyButtonClick(item.key)"
+          @keydown.enter="handleHotkeyButtonClick(item.key)"
         >
           <kbd>{{ item.key }}</kbd>{{ item.label }}
         </span>
@@ -1238,7 +1286,8 @@ input {
   gap: 5px;
 }
 
-.hotkey-list span {
+.hotkey-list span,
+.hotkey-list button {
   min-width: 0;
   display: grid;
   place-items: center;
@@ -1246,9 +1295,18 @@ input {
   padding: 4px 2px;
   border: 1px solid var(--theme-border-soft);
   border-radius: 5px;
+  background: transparent;
   color: var(--theme-text-muted);
   font-size: 8px;
   font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hotkey-list button:hover {
+  border-color: var(--theme-primary);
+  color: var(--theme-text-strong);
+  background: var(--theme-active-bg);
 }
 
 .hotkey-list kbd {
@@ -1257,7 +1315,9 @@ input {
   font-weight: 900;
 }
 
-.hotkey-list span.pressed {
+.hotkey-list span.pressed,
+.hotkey-list button.pressed,
+.hotkey-list button:active {
   color: var(--theme-primary);
   border-color: var(--theme-primary);
   background: var(--theme-active-bg);
