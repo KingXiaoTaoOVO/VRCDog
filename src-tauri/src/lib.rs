@@ -290,6 +290,16 @@ pub fn run() {
             vrdrawing::register_runtime(app.handle().clone(), drawing_state.clone());
             app.manage(drawing_state);
 
+            if let Some(proxy) = sys::get_effective_proxy(app.handle()) {
+                println!("[VrcDog] Initializing global proxy: {proxy}");
+                std::env::set_var("HTTP_PROXY", &proxy);
+                std::env::set_var("HTTPS_PROXY", &proxy);
+                std::env::set_var("ALL_PROXY", &proxy);
+                std::env::set_var("http_proxy", &proxy);
+                std::env::set_var("https_proxy", &proxy);
+                std::env::set_var("all_proxy", &proxy);
+            }
+
             // Sweep stale updater artifacts left over from prior
             // interrupted runs (e.g. half-downloaded installers or
             // bootstrapper .cmd scripts that never got cleaned up).
@@ -468,6 +478,8 @@ pub fn run() {
             sys::sys_restore_database,
             sys::sys_store_secure_string,
             sys::sys_load_secure_string,
+            sys::sys_test_proxy,
+            sys::sys_apply_proxy,
             sys::sys_open_steamvr_bindings,
             update::update_remote_releases,
             update::update_install_release,

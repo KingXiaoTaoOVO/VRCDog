@@ -966,6 +966,12 @@ export let SysApi = {
   saveVrcConfig: (params: { content: string }) => safeInvoke<void>('sys_save_vrc_config', params),
   backupDatabase: (params: { destPath: string }) => safeInvoke<void>('sys_backup_database', params),
   restoreDatabase: (params: { srcPath: string }) => safeInvoke<void>('sys_restore_database', params),
+  testProxy: (params: { proxyUrl?: string | null }) => safeInvoke<{ ok: boolean; message: string; latency_ms?: number | null }>('sys_test_proxy', { proxyUrl: params.proxyUrl || null }),
+  applyProxy: (params: { enabled: boolean; proxyType: string; proxyUrl?: string | null }) => safeInvoke<void>('sys_apply_proxy', {
+    enabled: params.enabled,
+    proxyType: params.proxyType,
+    proxyUrl: params.proxyUrl || null,
+  }),
 };
 
 export type OscValueType = 'float' | 'double' | 'int' | 'long' | 'bool' | 'string' | 'impulse';
@@ -1294,6 +1300,8 @@ export interface VrpianoOnlineSong {
   page_url: string;
   /** Midishow 列表项的封面图 URL（已校验为 midishow 域或带图片后缀）。 */
   cover_url?: string | null;
+  source?: 'midishow' | 'bitmidi' | 'local' | string | null;
+  download_url?: string | null;
 }
 
 export interface VrpianoMidishowAccount {
@@ -1358,19 +1366,39 @@ export const VrpianoApi = {
     keyword: params.keyword,
     maxResults: params.maxResults || 30,
   }),
-  downloadMidishow: (params: { midiId: number; title?: string; preview?: boolean; coverUrl?: string | null }) => safeInvoke<VrpianoSong | null>('vrpiano_download_midishow', {
+  downloadMidishow: (params: {
+    midiId: number;
+    title?: string;
+    preview?: boolean;
+    coverUrl?: string | null;
+    source?: string | null;
+    pageUrl?: string | null;
+    downloadUrl?: string | null;
+  }) => safeInvoke<VrpianoSong | null>('vrpiano_download_midishow', {
     request: {
       midi_id: params.midiId,
       title: params.title || null,
       preview: Boolean(params.preview),
       cover_url: params.coverUrl || null,
+      source: params.source || null,
+      page_url: params.pageUrl || null,
+      download_url: params.downloadUrl || null,
     },
   }),
-  midishowPreviewData: (params: { midiId: number; title?: string }) => safeInvoke<VrpianoMidiData>('vrpiano_midishow_preview_data', {
+  midishowPreviewData: (params: {
+    midiId: number;
+    title?: string;
+    source?: string | null;
+    pageUrl?: string | null;
+    downloadUrl?: string | null;
+  }) => safeInvoke<VrpianoMidiData>('vrpiano_midishow_preview_data', {
     request: {
       midi_id: params.midiId,
       title: params.title || null,
       preview: true,
+      source: params.source || null,
+      page_url: params.pageUrl || null,
+      download_url: params.downloadUrl || null,
     },
   }),
   midishowAccounts: () => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_accounts'),
@@ -1704,5 +1732,7 @@ if (isBrowser) {
     saveVrcConfig: async () => {},
     backupDatabase: async () => 0,
     restoreDatabase: async () => {},
+    testProxy: async () => ({ ok: true, message: 'Browser mode mock OK', latency_ms: 60 }),
+    applyProxy: async () => {},
   };
 }

@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -971,3 +971,206 @@ fn sanitize_filename(key: &str) -> String {
         .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect()
 }
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProxyTestResult {
+    pub success: bool,
+    pub latency_ms: Option<u64>,
+    pub message: String,
+}
+
+#[cfg(windows)]
+pub fn read_windows_system_proxy() -> Option<String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu
+        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+        .ok()?;
+    let enabled: u32 = key.get_value("ProxyEnable").ok()?;
+    if enabled == 0 {
+        return None;
+    }
+    let server: String = key.get_value("ProxyServer").ok()?;
+    let server = server.trim();
+    if server.is_empty() {
+        return None;
+    }
+    if server.contains('=') {
+        for part in server.split(';') {
+            let mut it = part.splitn(2, '=');
+            let (proto, val) = match (it.next(), it.next()) {
+                (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
+                _ => continue,
+            };
+            if proto == "https" || proto == "http" {
+                return Some(normalize_proxy_url(val));
+            }
+        }
+        None
+    } else {
+        Some(normalize_proxy_url(server))
+    }
+}
+
+pub fn normalize_proxy_url(val: &str) -> String {
+    let trimmed = val.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("socks5://")
+        || trimmed.starts_with("socks5h://")
+    {
+        trimmed.to_string()
+    } else {
+        format!("http://{trimmed}")
+    }
+}
+
+pub fn get_effective_proxy(app: &tauri::AppHandle) -> Option<String> {
+    if let Some(db_state) = app.try_state::<crate::db::DbState>() {
+        if let Ok(conn) = db_state.conn.lock() {
+            let get_val = |k: &str| -> Option<String> {
+                conn.query_row(
+                    "SELECT value FROM app_settings WHERE key = ?1",
+                    rusqlite::params![k],
+                    |row| row.get(0),
+                )
+                .ok()
+            };
+
+            let enabled = get_val("proxyEnabled")
+                .map(|v| v == "true" || v == "\"true\"")
+                .unwrap_or(false);
+            if !enabled {
+                return None;
+            }
+
+            let mode = get_val("proxyType").unwrap_or_else(|| "custom".to_string());
+            let mode = mode.trim_matches('"');
+
+            if mode == "system" {
+                #[cfg(windows)]
+                {
+                    return read_windows_system_proxy();
+                }
+                #[cfg(not(windows))]
+                {
+                    return std::env::var("HTTPS_PROXY")
+                        .or_else(|_| std::env::var("HTTP_PROXY"))
+                        .ok();
+                }
+            } else {
+                let url = get_val("proxyUrl").unwrap_or_default();
+                let url = url.trim().trim_matches('"');
+                if !url.is_empty() {
+                    return Some(normalize_proxy_url(url));
+                }
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+pub async fn sys_test_proxy(proxy_url: Option<String>) -> Result<ProxyTestResult, String> {
+    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(8));
+
+    if let Some(url) = proxy_url.filter(|u| !u.trim().is_empty()) {
+        let norm = normalize_proxy_url(&url);
+        let proxy = reqwest::Proxy::all(&norm).map_err(|e| format!("无效的代理地址: {e}"))?;
+        builder = builder.proxy(proxy);
+    }
+
+    let client = builder.build().map_err(|e| format!("创建测试客户端失败: {e}"))?;
+    let start = std::time::Instant::now();
+
+    let res = client
+        .get("https://www.cloudflare.com/cdn-cgi/trace")
+        .send()
+        .await
+        .map_err(|e| format!("代理连接超时或失败: {e}"))?;
+
+    let elapsed = start.elapsed().as_millis() as u64;
+    if res.status().is_success() {
+        Ok(ProxyTestResult {
+            success: true,
+            latency_ms: Some(elapsed),
+            message: format!("连接成功 ({}ms)", elapsed),
+        })
+    } else {
+        Ok(ProxyTestResult {
+            success: false,
+            latency_ms: None,
+            message: format!("HTTP 状态码: {}", res.status()),
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn sys_apply_proxy(
+    app: tauri::AppHandle,
+    enabled: bool,
+    proxy_type: String,
+    proxy_url: Option<String>,
+) -> Result<(), String> {
+    let effective = if enabled {
+        if proxy_type == "system" {
+            #[cfg(windows)]
+            {
+                read_windows_system_proxy()
+            }
+            #[cfg(not(windows))]
+            {
+                std::env::var("HTTPS_PROXY")
+                    .or_else(|_| std::env::var("HTTP_PROXY"))
+                    .ok()
+            }
+        } else {
+            proxy_url
+                .map(|u| normalize_proxy_url(&u))
+                .filter(|u| !u.is_empty())
+        }
+    } else {
+        None
+    };
+
+    if let Some(ref url) = effective {
+        std::env::set_var("HTTP_PROXY", url);
+        std::env::set_var("HTTPS_PROXY", url);
+        std::env::set_var("ALL_PROXY", url);
+        std::env::set_var("http_proxy", url);
+        std::env::set_var("https_proxy", url);
+        std::env::set_var("all_proxy", url);
+    } else {
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("HTTPS_PROXY");
+        std::env::remove_var("ALL_PROXY");
+        std::env::remove_var("http_proxy");
+        std::env::remove_var("https_proxy");
+        std::env::remove_var("all_proxy");
+    }
+
+    // 同步更新 VRChat API 客户端代理
+    if let Some(vrc_state) = app.try_state::<crate::vrc_api::VrcState>() {
+        let auth_cookie = if let Some(db_state) = app.try_state::<crate::db::DbState>() {
+            db_state
+                .conn
+                .lock()
+                .ok()
+                .and_then(|c| {
+                    c.query_row("SELECT cookie FROM auth WHERE id = 1", [], |r| r.get(0))
+                        .ok()
+                })
+        } else {
+            None
+        };
+        let _ = crate::vrc_api::vrc_set_proxy(vrc_state, effective.clone(), auth_cookie).await;
+    }
+
+    let _ = app.emit("app://proxy-updated", effective);
+    Ok(())
+}
+

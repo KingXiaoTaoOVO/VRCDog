@@ -145,6 +145,7 @@ const config = ref({
   language: 'zh-CN',
   theme: 'dog',
   proxyEnabled: false,
+  proxyType: 'system',
   proxyUrl: 'http://127.0.0.1:7890',
   pipelineUrl: '',
   clientServerUrl: 'http://127.0.0.1:11451',
@@ -262,6 +263,32 @@ const parsedAutoLaunchApps = computed({
   }
 });
 
+const testingProxy = ref(false);
+const proxyTestResult = ref<{ ok: boolean; message: string; latency_ms?: number | null } | null>(null);
+
+const testProxyConnection = async () => {
+  testingProxy.value = true;
+  proxyTestResult.value = null;
+  try {
+    const targetUrl = (config.value.proxyEnabled && config.value.proxyType === 'custom')
+      ? config.value.proxyUrl
+      : undefined;
+    const res = await SysApi.testProxy({ proxyUrl: targetUrl });
+    proxyTestResult.value = res;
+  } catch (e: any) {
+    proxyTestResult.value = {
+      ok: false,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  } finally {
+    testingProxy.value = false;
+  }
+};
+
+const setProxyPreset = (port: number) => {
+  config.value.proxyUrl = `http://127.0.0.1:${port}`;
+};
+
 // 从 DB 加载设置
 const loadSettings = async () => {
   try {
@@ -333,6 +360,15 @@ const saveSettings = async () => {
     try {
       await SysApi.registerUrlScheme({ enable: config.value.customUrlScheme });
     } catch (e) { console.warn("Failed to register URL scheme", e); }
+
+    // 应用全局网络代理
+    try {
+      await SysApi.applyProxy({
+        enabled: config.value.proxyEnabled,
+        proxyType: config.value.proxyType || (config.value.proxyEnabled ? 'custom' : 'direct'),
+        proxyUrl: config.value.proxyUrl,
+      });
+    } catch (e) { console.warn('Failed to apply proxy settings', e); }
 
     // 如果{{ t('settings.state_on') }}启了 Discord RPC，立即更新
     if (config.value.discordRpcEnabled) {
@@ -1208,26 +1244,150 @@ const selectInterfaceLanguage = (nextLocale: string) => {
               </div>
             </div>
             <div>
-              <h2 class="text-[15px] font-bold text-text-strong mb-4">{{ $t('auto_898db399') }}</h2>
-              <div class="space-y-1">
-                <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.proxyEnabled = !config.proxyEnabled">
-                  <div class="flex items-center gap-2">
-                    <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_36d4ed47') }}</div>
-                    <span class="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded font-bold">{{ $t('auto_a5327004') }}</span>
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h2 class="text-[15px] font-bold text-text-strong">{{ t('settings.proxy_title') || '网络代理与加速设置' }}</h2>
+                  <p class="text-[12px] text-[var(--theme-text-muted)] mt-0.5">{{ t('settings.proxy_desc') || '设置应用全局网络代理模式。支持直连、自动跟随系统代理或手动指定 HTTP / SOCKS5 代理。' }}</p>
+                </div>
+              </div>
+
+              <div class="p-4 bg-[var(--theme-surface)]/60 border border-[var(--theme-border-soft)] rounded-lg space-y-4">
+                <!-- 代理模式单选 -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <!-- 直连 -->
+                  <div
+                    class="p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between"
+                    :class="!config.proxyEnabled || config.proxyType === 'direct'
+                      ? 'border-primary bg-primary/10 shadow-sm'
+                      : 'border-[var(--theme-border-soft)] bg-[var(--theme-bg-main)]/30 hover:border-border'"
+                    @click="config.proxyEnabled = false; config.proxyType = 'direct'"
+                  >
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-[13px] font-bold text-text-strong">直连模式</span>
+                      <div class="w-3.5 h-3.5 rounded-full border flex items-center justify-center" :class="(!config.proxyEnabled || config.proxyType === 'direct') ? 'border-primary bg-primary' : 'border-border-soft'">
+                        <div v-if="!config.proxyEnabled || config.proxyType === 'direct'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
+                      </div>
+                    </div>
+                    <span class="text-[11px] text-[var(--theme-text-muted)]">不使用任何代理，直接连接互联网</span>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.proxyEnabled ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
-                    <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.proxyEnabled ? 'right-1' : 'left-1'"></div>
+
+                  <!-- 系统代理 -->
+                  <div
+                    class="p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between"
+                    :class="config.proxyEnabled && config.proxyType === 'system'
+                      ? 'border-primary bg-primary/10 shadow-sm'
+                      : 'border-[var(--theme-border-soft)] bg-[var(--theme-bg-main)]/30 hover:border-border'"
+                    @click="config.proxyEnabled = true; config.proxyType = 'system'"
+                  >
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-[13px] font-bold text-text-strong">系统代理 (推荐)</span>
+                      <div class="w-3.5 h-3.5 rounded-full border flex items-center justify-center" :class="(config.proxyEnabled && config.proxyType === 'system') ? 'border-primary bg-primary' : 'border-border-soft'">
+                        <div v-if="config.proxyEnabled && config.proxyType === 'system'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
+                      </div>
+                    </div>
+                    <span class="text-[11px] text-[var(--theme-text-muted)]">自动跟随 Windows 系统的网络代理设置</span>
+                  </div>
+
+                  <!-- 自定义代理 -->
+                  <div
+                    class="p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between"
+                    :class="config.proxyEnabled && config.proxyType === 'custom'
+                      ? 'border-primary bg-primary/10 shadow-sm'
+                      : 'border-[var(--theme-border-soft)] bg-[var(--theme-bg-main)]/30 hover:border-border'"
+                    @click="config.proxyEnabled = true; config.proxyType = 'custom'"
+                  >
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-[13px] font-bold text-text-strong">自定义代理</span>
+                      <div class="w-3.5 h-3.5 rounded-full border flex items-center justify-center" :class="(config.proxyEnabled && config.proxyType === 'custom') ? 'border-primary bg-primary' : 'border-border-soft'">
+                        <div v-if="config.proxyEnabled && config.proxyType === 'custom'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
+                      </div>
+                    </div>
+                    <span class="text-[11px] text-[var(--theme-text-muted)]">手动指定 HTTP / SOCKS5 代理地址与端口</span>
                   </div>
                 </div>
 
-                <div v-if="config.proxyEnabled" class="p-3 ml-6 rounded-xl bg-[var(--theme-primary)]/5 ring-1 ring-[var(--theme-primary)]/15">
-                  <div class="text-[13px] text-[var(--theme-text-muted)] mb-2">{{ $t('auto_4a669973') }}</div>
-                  <input
-                    v-model="config.proxyUrl"
-                    type="text"
-                    :placeholder="$t('auto_d3352c52')"
-                    class="w-full max-w-sm bg-[var(--theme-surface)]/60 backdrop-blur-md border-border-soft rounded px-3 py-1.5 text-[13px] text-[var(--theme-text-muted)] outline-none  font-mono transition-colors"
-                  >
+                <!-- 自定义代理详细配置 -->
+                <div v-if="config.proxyEnabled && config.proxyType === 'custom'" class="pt-2 border-t border-[var(--theme-border-soft)]/60 space-y-3">
+                  <div>
+                    <label class="block text-[12px] font-bold text-[var(--theme-text-muted)] mb-1.5">
+                      代理服务器地址 (HTTP / SOCKS5)
+                    </label>
+                    <div class="flex items-center gap-2 px-3 py-2 bg-[var(--theme-bg-main)]/40 border border-[var(--theme-border-soft)] rounded-lg focus-within:border-[var(--theme-primary)]">
+                      <Globe class="w-4 h-4 text-[var(--theme-text-muted)] shrink-0" />
+                      <input
+                        v-model="config.proxyUrl"
+                        type="text"
+                        placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:10808"
+                        class="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--theme-text)] outline-none font-mono"
+                      >
+                    </div>
+                  </div>
+
+                  <!-- 常用端口预设快捷按钮 -->
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-[11px] text-[var(--theme-text-muted)]">常用预设:</span>
+                    <button
+                      type="button"
+                      class="px-2 py-0.5 text-[11px] border border-[var(--theme-border-soft)] rounded hover:bg-[var(--theme-surface-hover)] text-text-strong font-mono"
+                      @click="setProxyPreset(7890)"
+                    >
+                      Clash (7890)
+                    </button>
+                    <button
+                      type="button"
+                      class="px-2 py-0.5 text-[11px] border border-[var(--theme-border-soft)] rounded hover:bg-[var(--theme-surface-hover)] text-text-strong font-mono"
+                      @click="setProxyPreset(7897)"
+                    >
+                      Clash Verge (7897)
+                    </button>
+                    <button
+                      type="button"
+                      class="px-2 py-0.5 text-[11px] border border-[var(--theme-border-soft)] rounded hover:bg-[var(--theme-surface-hover)] text-text-strong font-mono"
+                      @click="setProxyPreset(10808)"
+                    >
+                      V2Ray (10808)
+                    </button>
+                    <button
+                      type="button"
+                      class="px-2 py-0.5 text-[11px] border border-[var(--theme-border-soft)] rounded hover:bg-[var(--theme-surface-hover)] text-text-strong font-mono"
+                      @click="setProxyPreset(10809)"
+                    >
+                      Xray (10809)
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 测试代理与状态展示 -->
+                <div class="pt-2 border-t border-[var(--theme-border-soft)]/60 flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class="px-3 py-1.5 border border-[var(--theme-border-soft)] rounded-lg text-[12px] font-bold text-text-strong hover:bg-[var(--theme-surface-hover)] flex items-center gap-2 transition-colors disabled:opacity-50"
+                      :disabled="testingProxy"
+                      @click="testProxyConnection"
+                    >
+                      <Loader2 v-if="testingProxy" class="w-3.5 h-3.5 animate-spin text-primary" />
+                      <Activity v-else class="w-3.5 h-3.5 text-primary" />
+                      <span>{{ testingProxy ? '正在测试连接...' : '测试网络连接' }}</span>
+                    </button>
+                  </div>
+
+                  <div v-if="proxyTestResult" class="text-[12px] flex items-center gap-1.5">
+                    <span
+                      v-if="proxyTestResult.ok"
+                      class="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1"
+                    >
+                      <Check class="w-3.5 h-3.5" />
+                      连接正常 {{ proxyTestResult.latency_ms != null ? `(${proxyTestResult.latency_ms}ms)` : '' }}
+                    </span>
+                    <span
+                      v-else
+                      class="text-destructive bg-destructive/10 border border-destructive/20 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1"
+                    >
+                      <AlertCircle class="w-3.5 h-3.5 shrink-0" />
+                      {{ proxyTestResult.message || '连接失败' }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

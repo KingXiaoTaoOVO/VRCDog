@@ -227,13 +227,13 @@ const playlistSongs = computed(() => playlist.value.map((path) => songs.value.fi
 
 const formatVrpianoError = (e: unknown) => {
   const message = e instanceof Error ? e.message : String(e);
-  if (/403|cloudflare|challenge|cookie|cf_chl|javascript/i.test(message)) {
-    return t('vrpiano.this_action_could_not_be_completed_sign_');
+  if (/403|cloudflare|challenge|cf_chl|javascript/i.test(message)) {
+    return t('vrpiano.cloudflare_challenge_notice') || '网络连接或安全验证拦截，建议在设置中开启代理或使用其他曲库。';
   }
   if (/invalid|expired|会话已失效/i.test(message)) {
     return t('vrpiano.your_session_expired_sign_in_again');
   }
-  return message ||t('vrpiano.the_action_could_not_be_completed_try_ag');
+  return message || t('vrpiano.the_action_could_not_be_completed_try_ag');
 };
 
 let unlistenStatus: (() => void) | null = null;
@@ -1098,8 +1098,9 @@ const downloadFromUrl = async () => {
     selectedPath.value = song.path;
     addLog(t('vrpiano.url_id_download_completed', { name: song.name }));
   } catch (e: any) {
-    error.value = formatVrpianoError(e);
-    addLog(t('vrpiano.url_id_download_failed', { error: error.value }));
+    const errText = formatVrpianoError(e);
+    onlineSearchError.value = errText;
+    addLog(t('vrpiano.url_id_download_failed', { error: errText }));
   } finally {
     onlineLoading.value = false;
   }
@@ -1149,13 +1150,19 @@ const searchOnline = async () => {
 
 const previewOnline = async (song: VrpianoOnlineSong) => {
   onlineBusyId.value = song.id;
-  error.value = '';
   try {
-    const midi = await VrpianoApi.midishowPreviewData({ midiId: song.id, title: song.title });
+    const midi = await VrpianoApi.midishowPreviewData({
+      midiId: song.id,
+      title: song.title,
+      source: song.source || null,
+      pageUrl: song.page_url || null,
+      downloadUrl: song.download_url || null,
+    });
     await loadMidiIntoPlayer(midi);
   } catch (e: any) {
-    error.value = formatVrpianoError(e);
-    addLog(t('vrpiano.preview_failed', { error: error.value }));
+    const errText = formatVrpianoError(e);
+    onlineSearchError.value = errText;
+    addLog(t('vrpiano.preview_failed', { error: errText }));
   } finally {
     onlineBusyId.value = null;
   }
@@ -1163,12 +1170,14 @@ const previewOnline = async (song: VrpianoOnlineSong) => {
 
 const downloadOnline = async (song: VrpianoOnlineSong) => {
   onlineBusyId.value = song.id;
-  error.value = '';
   try {
     const downloaded = await VrpianoApi.downloadMidishow({
       midiId: song.id,
       title: song.title,
       coverUrl: song.cover_url || null,
+      source: song.source || null,
+      pageUrl: song.page_url || null,
+      downloadUrl: song.download_url || null,
     });
     if (downloaded) {
       await refreshSongs();
@@ -1176,8 +1185,9 @@ const downloadOnline = async (song: VrpianoOnlineSong) => {
       addLog(t('vrpiano.midishow_download_completed', { name: downloaded.name }));
     }
   } catch (e: any) {
-    error.value = formatVrpianoError(e);
-    addLog(t('vrpiano.download_failed', { error: error.value }));
+    const errText = formatVrpianoError(e);
+    onlineSearchError.value = errText;
+    addLog(t('vrpiano.download_failed', { error: errText }));
   } finally {
     onlineBusyId.value = null;
   }
@@ -2979,7 +2989,15 @@ onUnmounted(async () => {
             <div class="online-results">
               <div v-for="item in onlineResults" :key="item.id" class="online-row">
                 <div class="online-meta">
-                  <strong>{{ item.title }}</strong>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      class="text-[10px] font-bold px-1.5 py-0.5 rounded leading-none shrink-0"
+                      :class="item.source === 'bitmidi' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : item.source === 'local' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-primary/15 text-primary border border-primary/30'"
+                    >
+                      {{ item.source === 'bitmidi' ? 'BitMidi' : item.source === 'local' ? '本地' : 'MidiShow' }}
+                    </span>
+                    <strong class="text-[13px] text-text-strong">{{ item.title }}</strong>
+                  </div>
                   <small>{{ item.artist || t('vrpiano.unknown_artist') }} · ID {{ item.id }}</small>
                 </div>
                 <div class="online-actions">
@@ -2990,7 +3008,7 @@ onUnmounted(async () => {
                   <button :title="t('vrpiano.download_to_library')" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
                     <Download :size="15" />
                   </button>
-                  <button :title="t('vrpiano.open_webpage')" @click="openOnlinePage(item)">
+                  <button v-if="item.source !== 'local'" :title="t('vrpiano.open_webpage')" @click="openOnlinePage(item)">
                     <ExternalLink :size="15" />
                   </button>
                 </div>

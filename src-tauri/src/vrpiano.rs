@@ -72,9 +72,10 @@ const MIDISHOW_LOGIN_TIMEOUT_MS: u64 = 75_000;
 const MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS: u64 = 300_000;
 /// 自动填充迟迟没进展（页面被 Cloudflare 卡住、加载过慢）时，把窗口弹出来让用户
 /// 手动完成，而不是干等 75s 才超时。
-const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 20_000;
+const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 35_000;
 /// Keep an online search responsive when the proxy or Cloudflare stalls.
 const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 8;
+#[allow(dead_code)]
 const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 15;
 const MIDISHOW_LOGIN_TITLE_PREFIX: &str = "VRCDOG_MIDISHOW:";
 
@@ -267,9 +268,15 @@ pub struct VrpianoOnlineSong {
     title: String,
     artist: String,
     page_url: String,
-    /// 从 Midishow 搜索结果中提取到的封面图 URL（绝对 http(s) URL），
-    /// 仅指向 midishow.com / midishowstatic.com 静态域，避免被滥用为通用加载器。
     cover_url: Option<String>,
+    #[serde(default = "default_online_song_source")]
+    source: Option<String>,
+    #[serde(default)]
+    download_url: Option<String>,
+}
+
+fn default_online_song_source() -> Option<String> {
+    Some("midishow".to_string())
 }
 
 #[derive(Clone, Serialize)]
@@ -287,7 +294,7 @@ pub struct VrpianoMidiData {
 #[derive(Clone, Serialize, Deserialize)]
 struct StoredMidishowAccount {
     username: String,
-    #[serde(default, skip_serializing)]
+    #[serde(default)]
     password: String,
     #[serde(default)]
     cookie: String,
@@ -415,6 +422,12 @@ pub struct VrpianoMidishowDownloadRequest {
     /// 可选的封面图 URL，由前端从 Midishow 搜索结果中透传过来；
     /// 后端仅在 URL 通过 `is_midishow_cover_url` 校验时才会下载并落盘。
     cover_url: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    page_url: Option<String>,
+    #[serde(default)]
+    download_url: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -437,6 +450,8 @@ struct MidishowLoginRuntime {
     message: String,
     /// 用户输入的账号（用于在不再做 HTTP 验证的情况下作为 username 持久化）
     account: String,
+    /// 用户输入的密码（用于登录成功后持久化以供未来自动续期）
+    password: String,
     /// 最近一次 `on_page_load` 看到的 URL（用于判断登录页是否已跳转走）
     last_url: String,
 }
@@ -968,6 +983,57 @@ pub async fn vrpiano_download_midishow(
     request: VrpianoMidishowDownloadRequest,
 ) -> Result<Option<VrpianoSong>, String> {
     let songs_dir = ensure_songs_dir(&app)?;
+    let source = request.source.as_deref().unwrap_or("midishow");
+
+    if source == "bitmidi" {
+        let page_url = request
+            .page_url
+            .as_deref()
+            .or(request.download_url.as_deref())
+            .ok_or_else(|| "缺少 BitMidi 链接".to_string())?;
+        let (data, title) = download_bitmidi_file(&app, page_url).await?;
+        if request.preview {
+            let preview_dir = app
+                .path()
+                .app_cache_dir()
+                .map_err(|e| e.to_string())?
+                .join("vrpiano")
+                .join("previews");
+            fs::create_dir_all(&preview_dir)
+                .map_err(|e| format!("Failed to create preview folder: {e}"))?;
+            let title = request
+                .title
+                .clone()
+                .map(|name| sanitize_filename(&name))
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| sanitize_filename(&title));
+            let path = unique_path(&preview_dir.join(ensure_midi_extension(title)));
+            write_midi_file(&path, &data)?;
+            open_file(&path)?;
+            return Ok(None);
+        }
+        let title = request
+            .title
+            .clone()
+            .map(|name| sanitize_filename(&name))
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| sanitize_filename(&title));
+        let target = unique_path(&songs_dir.join(ensure_midi_extension(title)));
+        write_midi_file(&target, &data)?;
+        return song_from_path(&target).map(Some);
+    } else if source == "local" {
+        if let Some(path_str) = request.page_url.as_deref() {
+            let path = PathBuf::from(path_str);
+            if path.is_file() {
+                if request.preview {
+                    open_file(&path)?;
+                    return Ok(None);
+                }
+                return song_from_path(&path).map(Some);
+            }
+        }
+    }
+
     if request.preview {
         let preview_dir = app
             .path()
@@ -1007,6 +1073,41 @@ pub async fn vrpiano_midishow_preview_data(
     app: tauri::AppHandle,
     request: VrpianoMidishowDownloadRequest,
 ) -> Result<VrpianoMidiData, String> {
+    let source = request.source.as_deref().unwrap_or("midishow");
+    if source == "bitmidi" {
+        let page_url = request
+            .page_url
+            .as_deref()
+            .or(request.download_url.as_deref())
+            .ok_or_else(|| "缺少 BitMidi 链接".to_string())?;
+        let (data, title) = download_bitmidi_file(&app, page_url).await?;
+        let name = request
+            .title
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(title);
+        return Ok(VrpianoMidiData {
+            name,
+            data: base64::engine::general_purpose::STANDARD.encode(data),
+        });
+    } else if source == "local" {
+        if let Some(path_str) = request.page_url.as_deref() {
+            let path = PathBuf::from(path_str);
+            if path.is_file() {
+                let data = fs::read(&path).map_err(|e| format!("读取本地 MIDI 失败: {e}"))?;
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Local MIDI")
+                    .to_string();
+                return Ok(VrpianoMidiData {
+                    name,
+                    data: base64::engine::general_purpose::STANDARD.encode(data),
+                });
+            }
+        }
+    }
+
     let data = download_midishow_bytes(&app, request.midi_id).await?;
     let project_path = resolve_vrpiano_project_path(Some(&app));
     let title = request
@@ -1056,12 +1157,8 @@ pub async fn vrpiano_midishow_login(
     let account_js = serde_json::to_string(&account).map_err(|_| "无法准备登录信息".to_string())?;
     let password_js =
         serde_json::to_string(&request.password).map_err(|_| "无法准备登录信息".to_string())?;
-    let login_script = Arc::new(Mutex::new(Some(midishow_login_script(
-        &account_js,
-        &password_js,
-    ))));
-    drop(password_js);
-    drop(request.password);
+    let script_content = midishow_login_script(&account_js, &password_js);
+    let login_script = Arc::new(Mutex::new(Some(script_content.clone())));
 
     {
         let mut runtime = midishow_login_runtime()
@@ -1071,6 +1168,7 @@ pub async fn vrpiano_midishow_login(
         runtime.state = "opening".to_string();
         runtime.message = "正在准备登录".to_string();
         runtime.account = account.clone();
+        runtime.password = request.password.clone();
         runtime.last_url.clear();
     }
 
@@ -1094,6 +1192,7 @@ pub async fn vrpiano_midishow_login(
     // 仅当检测到需要人工完成的人机验证码时，才唤醒并显示窗口给用户操作。
     .visible(false)
     .focused(false)
+    .initialization_script(&script_content)
     .on_page_load(move |window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
             // 记录最近一次加载的 URL，用于判断登录页是否跳转走（登录成功信号）
@@ -1101,11 +1200,10 @@ pub async fn vrpiano_midishow_login(
                 runtime.last_url = payload.url().as_str().to_string();
             }
             if is_midishow_login_url(payload.url().as_str()) {
-                let script = page_script.lock().ok().and_then(|mut value| value.take());
-                if let Some(script) = script {
-                    let _ = window.eval(&script);
-                } else {
-                    let _ = window.eval(&monitor_script);
+                if let Ok(guard) = page_script.lock() {
+                    if let Some(script) = guard.as_ref() {
+                        let _ = window.eval(script);
+                    }
                 }
             } else {
                 let _ = window.eval(&monitor_script);
@@ -1208,9 +1306,9 @@ pub async fn vrpiano_midishow_login_status(
 
     let runtime = midishow_login_runtime()
         .lock()
-        .map(|runtime| (runtime.last_url.clone(), runtime.account.clone()))
+        .map(|runtime| (runtime.last_url.clone(), runtime.account.clone(), runtime.password.clone()))
         .unwrap_or_default();
-    let (last_url, auto_account) = runtime;
+    let (last_url, auto_account, auto_password) = runtime;
     let navigated_away = !last_url.is_empty() && !is_midishow_login_url(&last_url);
     if navigated_away && !auto_account.is_empty() {
         // 仅在页面已经跳离登录页之后才读 cookie：
@@ -1221,7 +1319,7 @@ pub async fn vrpiano_midishow_login_status(
             // 不再发起会触发 Cloudflare 拦截的 HTTP 校验请求（该请求从中国网络常被拦，
             // 会误报「暂时无法确认登录状态」）。改为用「网页已离开登录页 + 存在 cookie」
             // 作为登录成功判据：登录表单提交成功后页面会跳走、cookie 被写入。
-            persist_midishow_session(&app, &auto_account, cookie)?;
+            persist_midishow_session_with_password(&app, &auto_account, Some(&auto_password), cookie)?;
             let _ = window.close();
             let status = VrpianoMidishowLoginStatus {
                 state: "signed_in".to_string(),
@@ -4311,14 +4409,16 @@ async fn search_midishow_webview(
   let attempts = 0;
   const poll = () => {
     attempts++;
-    const cards = document.querySelectorAll('[data-key], .col-midi, .midi-item, div[data-key]');
+    const cards = document.querySelectorAll('[data-key], .col-midi, .midi-item, div[data-key], .list-group-item');
     if (cards.length > 0) {
       const list = [];
       const seen = new Set();
       cards.forEach((card) => {
-        const dataKey = card.getAttribute('data-key');
-        const link = card.querySelector('a[href*="/midi/"]');
+        const link = card.tagName === 'A' && (card.getAttribute('href') || '').includes('/midi/')
+          ? card
+          : card.querySelector('a[href*="/midi/"]');
         const href = link ? (link.getAttribute('href') || '') : '';
+        const dataKey = card.getAttribute('data-key');
         let id = 0;
         if (dataKey) {
           id = parseInt(dataKey, 10);
@@ -4329,12 +4429,12 @@ async fn search_midishow_webview(
         if (id && !seen.has(id)) {
           seen.add(id);
           const title = (link && link.textContent) ? link.textContent.trim() : ('MIDI #' + id);
-          const artistEl = card.querySelector('.artist, .author, [class*="artist"]');
+          const artistEl = card.querySelector('.artist, .author, [class*="artist"], [class*="author"]');
           const artist = artistEl ? (artistEl.textContent || '').trim() : '';
           const page_url = href.startsWith('http') ? href : ('https://www.midishow.com' + href);
           const img = card.querySelector('img');
           const cover_url = img ? (img.src || null) : null;
-          list.push({ id, title, artist, page_url, cover_url });
+          list.push({ id, title, artist, page_url, cover_url, source: 'midishow', download_url: null });
         }
       });
       if (list.length > 0) {
@@ -4351,25 +4451,27 @@ async fn search_midishow_webview(
   };
   if (!poll()) {
     const timer = setInterval(() => {
-      if (poll() || attempts >= 35) clearInterval(timer);
+      if (poll() || attempts >= 45) clearInterval(timer);
     }, 200);
   }
 })();"#;
 
     let page_script = extract_script.to_string();
+    let page_script_for_load = extract_script.to_string();
     let window = tauri::WebviewWindowBuilder::new(
         app,
         MIDISHOW_SEARCH_WINDOW_LABEL,
         tauri::WebviewUrl::External(parsed_url),
     )
     .title("搜索 Midishow")
-    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+    .user_agent(MIDISHOW_USER_AGENT)
     .inner_size(800.0, 600.0)
     .visible(false)
     .skip_taskbar(true)
+    .initialization_script(&page_script)
     .on_page_load(move |win, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
-            let _ = win.eval(&page_script);
+            let _ = win.eval(&page_script_for_load);
         }
     })
     .build()
@@ -4378,7 +4480,7 @@ async fn search_midishow_webview(
     let start = std::time::Instant::now();
     let mut final_results: Option<Vec<VrpianoOnlineSong>> = None;
 
-    while start.elapsed() < Duration::from_secs(9) {
+    while start.elapsed() < Duration::from_secs(12) {
         tokio::time::sleep(Duration::from_millis(200)).await;
         if let Ok(title) = window.title() {
             if let Some(encoded_data) = title.strip_prefix("VRCDOG_SEARCH_DONE:") {
@@ -4396,13 +4498,163 @@ async fn search_midishow_webview(
     final_results.ok_or_else(|| "后台搜索未完成响应".to_string())
 }
 
+async fn search_bitmidi(
+    app: &tauri::AppHandle,
+    keyword: &str,
+    limit: usize,
+) -> Result<Vec<VrpianoOnlineSong>, String> {
+    let client = midishow_client(Some(app))?;
+    let encoded = urlencoding::encode(keyword);
+    let search_url = format!("https://bitmidi.com/search?q={encoded}");
+    let response = client
+        .get(&search_url)
+        .header(reqwest::header::USER_AGENT, MIDISHOW_USER_AGENT)
+        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+        .send()
+        .await
+        .map_err(|e| format!("BitMidi 搜索请求失败: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("BitMidi 返回 HTTP {}", response.status()));
+    }
+
+    let html = response.text().await.map_err(|e| format!("BitMidi 内容读取失败: {e}"))?;
+    let re = regex::Regex::new(r#"(?is)<a[^>]+href=["'](/[^"']+-mid)["'][^>]*>(.*?)</a>"#)
+        .map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    for cap in re.captures_iter(&html) {
+        let slug = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        let title_raw = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+        let title = clean_midishow_text(&strip_html(title_raw));
+
+        if slug.is_empty() || title.is_empty() {
+            continue;
+        }
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&slug, &mut hasher);
+        let id = std::hash::Hasher::finish(&hasher) % 900_000_000 + 100_000_000;
+
+        if !seen.insert(id) {
+            continue;
+        }
+
+        results.push(VrpianoOnlineSong {
+            id,
+            title,
+            artist: "BitMidi 全球曲库".to_string(),
+            page_url: format!("https://bitmidi.com{slug}"),
+            cover_url: None,
+            source: Some("bitmidi".to_string()),
+            download_url: None,
+        });
+
+        if results.len() >= limit {
+            break;
+        }
+    }
+
+    Ok(results)
+}
+
+fn search_local_songs(
+    songs_dir: &Path,
+    keyword: &str,
+    limit: usize,
+) -> Vec<VrpianoOnlineSong> {
+    let kw = keyword.to_lowercase();
+    let mut results = Vec::new();
+    if let Ok(entries) = fs::read_dir(songs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if is_midi_file(&path) {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if stem.to_lowercase().contains(&kw) {
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    std::hash::Hash::hash(&path.to_string_lossy(), &mut hasher);
+                    let id = std::hash::Hasher::finish(&hasher) % 100_000_000 + 1_000_000;
+                    results.push(VrpianoOnlineSong {
+                        id,
+                        title: stem.to_string(),
+                        artist: "本地曲库".to_string(),
+                        page_url: path.to_string_lossy().to_string(),
+                        cover_url: find_local_cover_path(&path),
+                        source: Some("local".to_string()),
+                        download_url: None,
+                    });
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    results
+}
+
+async fn download_bitmidi_file(
+    app: &tauri::AppHandle,
+    page_url: &str,
+) -> Result<(Vec<u8>, String), String> {
+    let client = midishow_client(Some(app))?;
+
+    if page_url.ends_with(".mid") || page_url.contains("/uploads/") {
+        let res = client
+            .get(page_url)
+            .header(reqwest::header::USER_AGENT, MIDISHOW_USER_AGENT)
+            .send()
+            .await
+            .map_err(|e| format!("BitMidi download failed: {e}"))?;
+        let bytes = res.bytes().await.map_err(|e| e.to_string())?.to_vec();
+        let title = filename_from_url(page_url);
+        return Ok((validate_midi_bytes(bytes)?, title));
+    }
+
+    let page_res = client
+        .get(page_url)
+        .header(reqwest::header::USER_AGENT, MIDISHOW_USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("BitMidi 页面获取失败: {e}"))?;
+    let page_html = page_res.text().await.map_err(|e| format!("BitMidi 内容读取失败: {e}"))?;
+
+    let dl_re = regex::Regex::new(r#"(?is)href=["'](/uploads/\d+\.mid)["']"#).unwrap();
+    let dl_path = dl_re
+        .captures(&page_html)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .ok_or_else(|| "未能找到 BitMidi 下载链接".to_string())?;
+
+    let dl_url = format!("https://bitmidi.com{dl_path}");
+    let title_re = regex::Regex::new(r#"(?is)<h1[^>]*>(.*?)</h1>"#).unwrap();
+    let title = title_re
+        .captures(&page_html)
+        .and_then(|c| c.get(1))
+        .map(|m| clean_midishow_text(&strip_html(m.as_str())))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| filename_from_url(&dl_url));
+
+    let file_res = client
+        .get(&dl_url)
+        .header(reqwest::header::USER_AGENT, MIDISHOW_USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("BitMidi 下载请求失败: {e}"))?;
+
+    let bytes = file_res.bytes().await.map_err(|e| e.to_string())?.to_vec();
+    Ok((validate_midi_bytes(bytes)?, title))
+}
+
 async fn search_midishow(
     app: &tauri::AppHandle,
     project_path: &Path,
     keyword: &str,
     limit: usize,
 ) -> Result<Vec<VrpianoOnlineSong>, String> {
-    // 1. 如果用户输入的是纯数字 ID 或 Midishow 详情页 URL，直接解析为单曲结果，秒级返回
+    // 1. 如果用户输入的是纯数字 ID 或详情页 URL，直接返回单曲
     if (keyword.starts_with("http") && keyword.contains("midishow"))
         || (!keyword.is_empty() && keyword.chars().all(|c| c.is_ascii_digit()))
     {
@@ -4414,35 +4666,83 @@ async fn search_midishow(
                 artist: String::new(),
                 page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
                 cover_url: None,
+                source: Some("midishow".to_string()),
+                download_url: None,
             }]);
         }
     }
 
-    // 2. 优先通过后台 WebView2 真实浏览器执行搜索（天然通过 Cloudflare 质询与 Turnstile）
-    if let Ok(results) = search_midishow_webview(app, keyword, limit).await {
-        return Ok(results);
+    if keyword.starts_with("http") && keyword.contains("bitmidi.com") {
+        return Ok(vec![VrpianoOnlineSong {
+            id: 888_888_888,
+            title: filename_from_url(keyword),
+            artist: "BitMidi 全球曲库".to_string(),
+            page_url: keyword.to_string(),
+            cover_url: None,
+            source: Some("bitmidi".to_string()),
+            download_url: None,
+        }]);
     }
 
-    // 3. 回退策略：尝试直接 HTTP 搜索与 CLI 搜索
-    let account = default_midishow_account(app)?;
-    let http_result = tokio::time::timeout(
-        Duration::from_secs(MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS),
-        search_midishow_http(keyword, limit, account.as_ref()),
-    )
-    .await;
+    // 2. 本地曲库检索
+    let songs_dir = ensure_songs_dir(app).unwrap_or_else(|_| PathBuf::from("."));
+    let local_results = search_local_songs(&songs_dir, keyword, 15);
 
-    match http_result {
-        Ok(Ok(results)) => Ok(results),
-        Ok(Err(request_error)) => run_midishow_cli_search(project_path, keyword, limit)
-            .map_err(|cli_error| format!("{request_error}; CLI 搜索回退失败: {cli_error}")),
-        // HTTP 请求超时（网络慢 / 代理握手）也要回退到 CLI，而不是直接报“搜索超时”。
-        Err(_) => run_midishow_cli_search(project_path, keyword, limit).map_err(|cli_error| {
-            format!("Midishow 搜索超时，请检查代理连接，或点击右侧按钮在浏览器打开官方搜索。CLI 回退也失败: {cli_error}")
-        }),
+    // 3. 多接口并行查询：Midishow 与 BitMidi
+    let midishow_future = async {
+        if let Ok(results) = search_midishow_webview(app, keyword, limit).await {
+            return results;
+        }
+        let account = default_midishow_account(app).ok().flatten();
+        if let Ok(Ok(results)) = tokio::time::timeout(
+            Duration::from_secs(MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS),
+            search_midishow_http(Some(app), keyword, limit, account.as_ref()),
+        )
+        .await
+        {
+            return results;
+        }
+        Vec::new()
+    };
+
+    let bitmidi_future = async {
+        search_bitmidi(app, keyword, limit).await.unwrap_or_default()
+    };
+
+    let (ms_results, bm_results) = tokio::join!(midishow_future, bitmidi_future);
+
+    let mut merged = Vec::new();
+    let mut seen_titles = HashSet::new();
+
+    // 优先本地
+    for song in local_results {
+        seen_titles.insert(song.title.to_lowercase());
+        merged.push(song);
     }
+
+    // 其次 Midishow
+    for song in ms_results {
+        if seen_titles.insert(song.title.to_lowercase()) {
+            merged.push(song);
+        }
+    }
+
+    // 再次 BitMidi
+    for song in bm_results {
+        if seen_titles.insert(song.title.to_lowercase()) {
+            merged.push(song);
+        }
+    }
+
+    if merged.is_empty() {
+        return Err("未找到相关歌曲，换个关键词或粘贴 ID/URL 试试".to_string());
+    }
+
+    Ok(merged)
 }
 
 /// 通过 Node CLI 作为公共（未登录）搜索的回退实现。
+#[allow(dead_code)]
 fn run_midishow_cli_search(
     project_path: &Path,
     keyword: &str,
@@ -4456,6 +4756,7 @@ fn run_midishow_cli_search(
     parse_midishow_results(value, limit)
 }
 
+#[allow(dead_code)]
 fn parse_midishow_results(
     value: serde_json::Value,
     limit: usize,
@@ -4497,6 +4798,8 @@ fn parse_midishow_results(
             artist,
             page_url,
             cover_url,
+            source: Some("midishow".to_string()),
+            download_url: None,
         });
         if results.len() >= limit {
             break;
@@ -4506,11 +4809,12 @@ fn parse_midishow_results(
 }
 
 async fn search_midishow_http(
+    app: Option<&tauri::AppHandle>,
     keyword: &str,
     limit: usize,
     account: Option<&StoredMidishowAccount>,
 ) -> Result<Vec<VrpianoOnlineSong>, String> {
-    let client = midishow_client()?;
+    let client = midishow_client(app)?;
     let cookie = account
         .map(|account| account.cookie.trim())
         .filter(|cookie| !cookie.is_empty());
@@ -4536,7 +4840,7 @@ async fn search_midishow_http(
         .await
         .map_err(|_| "暂时无法读取 Midishow 搜索结果，请稍后重试".to_string())?;
     if is_cloudflare_challenge(&html) || !status.is_success() {
-        return Err("当前搜索未完成，请重新登录后再试".to_string());
+        return Err("Cloudflare challenge encountered".to_string());
     }
 
     let mut results = Vec::new();
@@ -4563,6 +4867,8 @@ async fn search_midishow_http(
             artist,
             page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
             cover_url,
+            source: Some("midishow".to_string()),
+            download_url: None,
         });
         if results.len() >= limit {
             break;
@@ -4588,6 +4894,8 @@ async fn search_midishow_http(
                 artist: String::new(),
                 page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
                 cover_url: None,
+                source: Some("midishow".to_string()),
+                download_url: None,
             });
             if results.len() >= limit {
                 break;
@@ -4939,12 +5247,21 @@ fn proxy_should_bypass(pattern: &str, host: &str) -> bool {
     pat == host
 }
 
-fn midishow_client() -> Result<reqwest::Client, String> {
+fn midishow_client(app: Option<&tauri::AppHandle>) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
         .cookie_store(true)
         .redirect(reqwest::redirect::Policy::limited(10))
         .timeout(Duration::from_secs(35));
+
+    if let Some(app) = app {
+        if let Some(effective_proxy) = crate::sys::get_effective_proxy(app) {
+            if let Ok(proxy) = reqwest::Proxy::all(&effective_proxy) {
+                builder = builder.proxy(proxy);
+                return builder.build().map_err(|e| format!("Failed to create client: {e}"));
+            }
+        }
+    }
 
     // Midishow login uses the WebView2 network stack (which honors the Windows
     // system proxy), but reqwest does not. Without this, every search/download
@@ -5063,12 +5380,6 @@ fn midishow_login_monitor_script() -> String {
       signal('needs_confirmation');
       return true;
     }}
-    // Cloudflare / DDoS challenge shown after a navigation (e.g. the login POST
-    // bounces to an interstitial). Surface it for manual completion.
-    if (hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS'])) {{
-      signal('needs_confirmation');
-      return true;
-    }}
     return false;
   }};
   if (inspect()) return;
@@ -5108,7 +5419,7 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
   // Wall-clock budget for the auto-fill loop. Independent of the polling interval
   // so the form_missing timeout doesn't shrink if we tune the interval down.
   const startMs = Date.now();
-  const FORM_MISSING_BUDGET_MS = 20000;
+  const FORM_MISSING_BUDGET_MS = 35000;
   const timer = window.setInterval(() => {{
     attempts += 1;
     const pageText = text();
@@ -5123,51 +5434,12 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       signal('needs_confirmation');
       return;
     }}
-    // Cloudflare / DDoS protection challenge. After submitting, midishow.com may
-    // bounce to a "Just a moment…" interstitial. We cannot solve it for the user,
-    // so surface the window and let them complete it manually instead of timing out.
-    if (hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS'])) {{
-      window.clearInterval(timer);
-      signal('needs_confirmation');
-      // 用户在弹出的窗口里解开 CF 后，登录表单会重新出现。这里挂一个 MutationObserver
-      // 监听表单出现并自动回填+提交，这样用户不用手动再输一遍账号密码。
-      const cfObserver = new MutationObserver(() => {{
-        const acc = findVisible([
-          '#loginform-identity',
-          'input[name="LoginForm[identity]"]',
-          'input[id*="identity"]',
-          'input[autocomplete="username"]',
-          'input[name="username"]',
-          'input[name="email"]',
-          'input[type="email"]',
-          'input[name="login"]',
-          '#login-form input[type="text"]',
-          'input[type="text"]'
-        ]);
-        const pw = findVisible([
-          '#loginform-password',
-          'input[name="LoginForm[password]"]',
-          'input[id*="password"]',
-          'input[autocomplete="current-password"]',
-          'input[name="password"]',
-          'input[type="password"]'
-        ]);
-        if (acc && pw) {{
-          cfObserver.disconnect();
-          fill(acc, account);
-          fill(pw, password);
-          const form = pw.form || acc.form || document.querySelector('#login-form') || document.querySelector('form');
-          const submit = form?.querySelector('button[name="login-button"], button[type="submit"], input[type="submit"]');
-          signal('submitted');
-          window.setTimeout(() => {{
-            if (submit instanceof HTMLElement) submit.click();
-            else if (form instanceof HTMLFormElement) form.requestSubmit();
-            password = '';
-          }}, 80);
-        }}
-      }});
-      if (document.body) cfObserver.observe(document.body, {{ childList: true, subtree: true, characterData: true }});
-      window.setTimeout(() => cfObserver.disconnect(), MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS);
+    const hasCfChallenge = hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS']);
+    if (hasCfChallenge) {{
+      if (Date.now() - startMs > 12000) {{
+        window.clearInterval(timer);
+        signal('needs_confirmation');
+      }}
       return;
     }}
     if (!location.pathname.includes('/user/account/login')) {{
@@ -5240,7 +5512,7 @@ async fn read_midishow_browser_cookie(window: tauri::WebviewWindow) -> Result<St
 
 #[allow(dead_code)]
 async fn inspect_midishow_session(cookie: &str) -> Result<Option<String>, String> {
-    let client = midishow_client().map_err(|_| "暂时无法确认登录状态".to_string())?;
+    let client = midishow_client(None).map_err(|_| "暂时无法确认登录状态".to_string())?;
     let response = with_midishow_cookie(
         client
             .get(MIDISHOW_ACCOUNT_URL)
@@ -5289,28 +5561,39 @@ fn html_unescape(value: &str) -> String {
         .replace("&gt;", ">")
 }
 
-fn persist_midishow_session(
+fn persist_midishow_session_with_password(
     app: &tauri::AppHandle,
     username: &str,
+    password: Option<&str>,
     cookie: String,
 ) -> Result<(), String> {
     let mut accounts = load_midishow_accounts(app)?;
-    for account in &mut accounts {
-        account.password.clear();
-    }
     if let Some(account) = accounts
         .iter_mut()
         .find(|account| account.username == username)
     {
         account.cookie = cookie;
+        if let Some(pwd) = password {
+            if !pwd.is_empty() {
+                account.password = pwd.to_string();
+            }
+        }
     } else {
         accounts.push(StoredMidishowAccount {
             username: username.to_string(),
-            password: String::new(),
+            password: password.unwrap_or_default().to_string(),
             cookie,
         });
     }
     save_midishow_accounts(app, &accounts)
+}
+
+fn persist_midishow_session(
+    app: &tauri::AppHandle,
+    username: &str,
+    cookie: String,
+) -> Result<(), String> {
+    persist_midishow_session_with_password(app, username, None, cookie)
 }
 
 #[allow(dead_code)]
@@ -5406,10 +5689,11 @@ fn is_midishow_challenge_response(
 }
 
 async fn download_midishow_direct(
+    app: Option<&tauri::AppHandle>,
     midi_id: u64,
     account: Option<&StoredMidishowAccount>,
 ) -> Result<(Vec<u8>, String), String> {
-    let client = midishow_client()?;
+    let client = midishow_client(app)?;
     let cookie = account
         .map(|account| account.cookie.trim())
         .filter(|cookie| !cookie.is_empty());
@@ -5662,8 +5946,7 @@ async fn download_midishow_to_library(
     // 封面下载：失败不回退——MIDI 已写入，封面只是锦上添花，
     // 让 `song_from_path` 在下次 `list_local_songs` 时重新探测即可。
     if let Some(cover_url) = cover_url.filter(|url| is_midishow_cover_url(url)) {
-        if let Err(error) = download_cover_for_song(&target, cover_url).await {
-            let _ = app; // suppress unused
+        if let Err(error) = download_cover_for_song(Some(app), &target, cover_url).await {
             eprintln!("[vrpiano] cover download failed for {midi_id}: {error}");
         }
     }
@@ -5675,14 +5958,18 @@ async fn download_midishow_to_library(
 /// - 仅允许通过 `is_midishow_cover_url` 的 URL；
 /// - 单文件大小上限 5 MiB；
 /// - 若目标文件已存在则跳过，避免覆盖用户手动设置的图标。
-async fn download_cover_for_song(midi_path: &Path, cover_url: &str) -> Result<(), String> {
+async fn download_cover_for_song(
+    app: Option<&tauri::AppHandle>,
+    midi_path: &Path,
+    cover_url: &str,
+) -> Result<(), String> {
     let stem = midi_path
         .file_stem()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "MIDI path has no usable filename".to_string())?;
     let parent = midi_path.parent().unwrap_or_else(|| Path::new("."));
 
-    let client = midishow_client()?;
+    let client = midishow_client(app)?;
     let response = client
         .get(cover_url)
         .header(reqwest::header::REFERER, "https://www.midishow.com/")
@@ -5757,13 +6044,13 @@ async fn download_midishow_file(
     let project_path = resolve_vrpiano_project_path(Some(app));
 
     if let Some(account) = default_midishow_account(app)? {
-        match download_midishow_direct(midi_id, Some(&account)).await {
+        match download_midishow_direct(Some(app), midi_id, Some(&account)).await {
             Ok((data, title)) => return Ok((validate_midi_bytes(data)?, title)),
             Err(account_error) => {
                 // Do not retry with the legacy password/Python flow. Midishow's
                 // browser challenge rejects those non-browser login requests and
                 // can turn a clear session-expired error into repeated HTTP 403s.
-                if let Ok((data, title)) = download_midishow_direct(midi_id, None).await {
+                if let Ok((data, title)) = download_midishow_direct(Some(app), midi_id, None).await {
                     return Ok((validate_midi_bytes(data)?, title));
                 }
                 return download_midishow_file_with_cli(&project_path, midi_id).map_err(
@@ -5777,7 +6064,7 @@ async fn download_midishow_file(
         }
     }
 
-    download_midishow_direct(midi_id, None)
+    download_midishow_direct(Some(app), midi_id, None)
         .await
         .or_else(|direct_error| {
             download_midishow_file_with_cli(&project_path, midi_id)
@@ -5819,15 +6106,7 @@ fn save_midishow_accounts(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create account folder: {e}"))?;
     }
-    let safe_accounts = accounts
-        .iter()
-        .map(|account| StoredMidishowAccount {
-            username: account.username.clone(),
-            password: String::new(),
-            cookie: account.cookie.clone(),
-        })
-        .collect::<Vec<_>>();
-    let text = serde_json::to_string_pretty(&safe_accounts).map_err(|e| e.to_string())?;
+    let text = serde_json::to_string_pretty(accounts).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| format!("Failed to save Midishow accounts: {e}"))
 }
 
@@ -6120,9 +6399,11 @@ fn clean_midishow_text(value: &str) -> String {
 fn open_file(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", ""])
-            .arg(path)
+        use std::os::windows::process::CommandExt;
+        let mut command = std::process::Command::new("explorer");
+        command.arg(path);
+        command.creation_flags(0x08000000);
+        command
             .spawn()
             .map_err(|e| format!("Failed to open MIDI preview: {e}"))?;
     }
