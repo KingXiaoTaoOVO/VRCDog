@@ -433,7 +433,7 @@ const resolveWorldNames = async () => {
             v-model="currentSearchQuery"
             type="text" 
             :placeholder="searchPlaceholder" 
-            class="w-full bg-[var(--theme-surface)]-hover text-[var(--theme-text)] pl-10 pr-10 py-2.5 rounded-full text-sm outline-none placeholder-[var(--theme-text-muted)] focus:ring-4 focus:ring-primary/20 transition-all border-2 border-border-soft focus:border-primary/50 font-bold"
+            class="w-full bg-[var(--theme-surface-hover)] text-[var(--theme-text)] pl-10 pr-10 py-2.5 rounded-full text-sm outline-none placeholder-[var(--theme-text-muted)] focus:ring-4 focus:ring-primary/20 transition-all border-2 border-border-soft focus:border-primary/50 font-bold"
           />
           <button v-if="currentSearchQuery" @click="clearCurrentSearch" class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-transform hover:scale-110">
             <X class="w-4 h-4" />
@@ -508,7 +508,7 @@ const resolveWorldNames = async () => {
             <div v-show="!collapsedSections.has('sameRoom')" class="mt-1 pl-1">
               <template v-for="group in groupedFriends.sameRoom" :key="group.location">
                 <!-- Location Header -->
-                <div class="flex items-center gap-2 py-1.5 px-4 text-[13px] font-bold text-[var(--theme-text-muted)] bg-[var(--theme-surface)]-hover rounded-[16px] mx-4 mb-2 mt-2 border-2 border-border-soft shadow-sm hover:scale-[1.01] transition-transform">
+                <div class="flex items-center gap-2 py-1.5 px-4 text-[13px] font-bold text-[var(--theme-text-muted)] bg-[var(--theme-surface-hover)] rounded-[16px] mx-4 mb-2 mt-2 border-2 border-border-soft shadow-sm hover:scale-[1.01] transition-transform">
                   <Globe :size="14" class="text-primary shrink-0" />
                   <span v-if="group.flag" class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold border border-border-soft bg-[var(--theme-surface)] text-[var(--theme-text)]">{{ group.flag }}</span>
                   <span class="truncate max-w-[200px]">{{ group.locationName }}</span>
@@ -586,7 +586,7 @@ const resolveWorldNames = async () => {
             >
               <component :is="collapsedSections.has('offline') ? ChevronRight : ChevronDown" class="w-4 h-4" />
               {{ t('friends.offline') }}
-              <span class="ml-auto bg-[var(--theme-surface)]-hover px-2.5 py-0.5 rounded-full text-[11px] border-2 border-border-soft">{{ filteredOfflineFriends.length }}</span>
+              <span class="ml-auto bg-[var(--theme-surface-hover)] px-2.5 py-0.5 rounded-full text-[11px] border-2 border-border-soft">{{ filteredOfflineFriends.length }}</span>
             </div>
             <div v-show="!collapsedSections.has('offline') || searchQuery" class="mt-1 pl-1 pr-1 opacity-80 hover:opacity-100 transition-opacity">
               <FriendItem 
@@ -670,10 +670,10 @@ const resolveWorldNames = async () => {
       
       <!-- Footer Settings / Refresh -->
       <div class="h-10 border-t border-border-soft shrink-0 flex items-center justify-between px-3 bg-[var(--theme-surface)]/50">
-        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" :title="$t('layout.settings') || 'Settings'" @click="uiStore.activeTab = 'settings'">
+        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface-hover)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" :title="$t('layout.settings') || 'Settings'" @click="uiStore.activeTab = 'settings'">
           <Settings class="w-4 h-4" />
         </button>
-        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface)]-hover text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" @click="refreshCurrentTab" :disabled="loading || groupsLoading">
+        <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--theme-surface-hover)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text)] transition-colors" @click="refreshCurrentTab" :disabled="loading || groupsLoading">
           <RefreshCcw class="w-4 h-4" :class="{ 'animate-spin': loading || groupsLoading }" />
         </button>
       </div>

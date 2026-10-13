@@ -97,23 +97,28 @@ const lastSyncAgo = computed(() => {
   return `${Math.floor(min / 60)}h`;
 });
 
-// 立即用最新 pipelineUrl 重连（用户改完设置后不用重启/重登）
+const pipelineRetrying = ref(false);
 const retryPipeline = async () => {
+  pipelineRetrying.value = true;
   try {
     await closeWebSocket();
+    await initWebsocket();
   } catch { /* best effort */ }
-  void initWebsocket();
+  finally {
+    setTimeout(() => { pipelineRetrying.value = false; }, 800);
+  }
 };
 const canRetryPipeline = computed(
   () => wsState.phase === 'failed' || wsState.phase === 'waiting' || wsState.phase === 'idle',
 );
 
-// 次要指示器：VRChat 实时推送管道（WebSocket），仅作可选提示。
+// 次要指示器：VRChat 实时推送管道（WebSocket）
 const pipelineClass = computed(() => ({
-  'bg-emerald-50 border-emerald-200 text-emerald-600': wsState.connected,
-  'bg-blue-50 border-blue-200 text-blue-600': !wsState.connected && (wsState.phase === 'authenticating' || wsState.phase === 'connecting'),
-  'bg-amber-50 border-amber-200 text-amber-700': !wsState.connected && wsState.phase === 'waiting',
-  'bg-slate-50 border-slate-200 text-slate-500': !wsState.connected && (wsState.phase === 'idle' || wsState.phase === 'failed'),
+  'bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400': wsState.connected,
+  'bg-blue-500/10 border-blue-500/25 text-blue-600 dark:text-blue-400': !wsState.connected && (wsState.phase === 'authenticating' || wsState.phase === 'connecting'),
+  'bg-amber-500/10 border-amber-500/25 text-amber-600 dark:text-amber-400': !wsState.connected && wsState.phase === 'waiting',
+  'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400': !wsState.connected && wsState.phase === 'failed',
+  'bg-slate-500/10 border-slate-500/25 text-slate-500': !wsState.connected && wsState.phase === 'idle',
 }));
 const menuSectionBg = computed(() => {
   switch (currentTheme.value.id) {
@@ -287,12 +292,12 @@ const themeStyles = computed(() => {
           </button>
         </div>
 
-      <div class="flex-1 space-y-0.5 overflow-y-auto custom-scrollbar">
+      <div class="flex-1 min-h-0 space-y-0.5 overflow-y-auto custom-scrollbar pr-1">
         <template v-for="tab in visibleSidebarTabs" :key="tab.key">
           <!-- 父级 tab（带子菜单） -->
           <div v-if="isGroupParent(tab.key)">
             <button
-              class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px]"
+              class="w-full flex items-center gap-3 px-3 rounded-xl font-bold transition-all text-left text-[13px] hover:scale-[1.01] active:scale-[0.98]"
               :class="currentDensity.navClass"
               :style="activeTab === tab.key || subMenuGroups[tab.key]?.some(c => c.key === activeTab)
                 ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
@@ -313,7 +318,7 @@ const themeStyles = computed(() => {
                 <button
                   v-for="child in subMenuGroups[tab.key]"
                   :key="child.key"
-                  class="w-full flex items-center gap-2.5 px-3 rounded-lg font-medium transition-all text-left text-[12px]"
+                  class="w-full flex items-center gap-2.5 px-3 rounded-lg font-medium transition-all text-left text-[12px] hover:scale-[1.01] active:scale-[0.98]"
                   :class="currentDensity.childClass"
                   :style="activeTab === child.key
                     ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
@@ -330,7 +335,7 @@ const themeStyles = computed(() => {
           <!-- 普通 tab -->
           <button
             v-else
-            class="w-full flex items-center gap-3 px-3 rounded-lg font-bold transition-all text-left text-[13px]"
+            class="w-full flex items-center gap-3 px-3 rounded-xl font-bold transition-all text-left text-[13px] hover:scale-[1.01] active:scale-[0.98]"
             :class="currentDensity.navClass"
             :style="activeTab === tab.key
               ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
@@ -361,18 +366,18 @@ const themeStyles = computed(() => {
       </button>
       </div>
 
-      <!-- 用户信息 + 退出 -->
+      <!-- 用户信息 + 退出（固定底部，防止侧边菜单溢出覆盖） -->
       <div
-        class="mt-auto pt-3 space-y-2 relative"
+        class="mt-auto pt-2.5 space-y-1.5 relative shrink-0"
         :style="{ boxShadow: 'inset 0 1px 0 ' + currentTheme.colors.borderSoft }"
       >
         <div 
-          class="flex items-center gap-2.5 cursor-pointer hover:bg-background/5 p-1.5 -ml-1.5 rounded-xl transition-colors relative"
+          class="flex items-center gap-2.5 cursor-pointer hover:bg-background/10 p-2 -ml-1 rounded-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.98] relative"
           @click="showVrcDogMenu = !showVrcDogMenu"
         >
           <VrcAvatar
             :user="currentUser"
-            custom-class="w-9 h-9 rounded-xl object-cover flex-shrink-0"
+            custom-class="w-10 h-10 rounded-2xl object-cover flex-shrink-0 shadow-sm"
             :style="{ backgroundColor: currentTheme.colors.blob2 }"
           />
           <div class="flex-1 overflow-hidden">
@@ -402,49 +407,58 @@ const themeStyles = computed(() => {
 
         <!-- 数据服务状态（本地数据库 + 好友/热力图/日志等用户数据） -->
         <div
-          class="mt-2 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between transition-colors"
+          class="px-2.5 py-1.5 rounded-xl border text-[10px] font-bold flex items-center justify-between transition-all duration-200 shadow-2xs"
           :class="dataServiceClass"
           :title="t('status.data_service')"
         >
-          <div class="flex items-center gap-1">
-            <Database :size="10" />
+          <div class="flex items-center gap-1.5">
+            <Database :size="11" />
             <span>{{ $t(dataServiceKey) }}</span>
           </div>
           <span
             v-if="dataHealth.lastSuccessAt && dataServiceStatus === 'online'"
-            class="text-current tabular-nums"
+            class="text-current tabular-nums text-[9px] font-mono px-1 rounded bg-black/5 dark:bg-white/10"
           >{{ $t('status.sync_ago', { time: lastSyncAgo }) }}</span>
         </div>
 
-        <!-- VRChat 实时推送管道（WebSocket，可选） -->
+        <!-- VRChat 实时推送管道（WebSocket） -->
         <div
           v-if="wsState.everConnected || wsState.phase !== 'idle'"
-          class="mt-1 px-2 py-1 rounded-lg border text-[9px] font-semibold flex items-center justify-between transition-colors"
+          class="px-2.5 py-1.5 rounded-xl border text-[10px] font-bold flex items-center justify-between transition-all duration-200 shadow-2xs"
           :class="pipelineClass"
           :title="pipelineStatusTitle"
         >
-          <div class="flex items-center gap-1 min-w-0">
-            <Activity :size="9" />
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span
+              class="w-1.5 h-1.5 rounded-full shrink-0"
+              :class="{
+                'bg-emerald-500 animate-pulse': wsState.connected,
+                'bg-blue-500 animate-ping': wsState.phase === 'authenticating' || wsState.phase === 'connecting',
+                'bg-amber-400': wsState.phase === 'waiting',
+                'bg-rose-400': wsState.phase === 'failed' || wsState.phase === 'idle',
+              }"
+            />
+            <Activity :size="11" class="shrink-0" />
             <span class="truncate">{{ $t('status.realtime_pipeline') }} · {{ $t(pipelineStatusKey) }}</span>
           </div>
-          <div class="flex items-center gap-1 shrink-0">
+          <div class="flex items-center gap-1.5 shrink-0">
             <span
               v-if="wsState.connected && wsState.messageCount > 0"
-              class="text-current tabular-nums"
-            >{{ $t('status.frames', { count: wsState.messageCount }) }}</span>
+              class="text-current tabular-nums text-[9px] font-mono px-1 rounded bg-emerald-500/10"
+            >{{ wsState.messageCount }}f</span>
             <span
               v-else-if="wsState.phase === 'waiting' && wsState.reconnectAttempts > 0"
-              class="text-current tabular-nums"
+              class="text-current tabular-nums text-[9px] font-mono"
             >#{{ wsState.reconnectAttempts }}</span>
             <button
               v-if="canRetryPipeline && !wsState.connected"
               type="button"
-              class="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/15 transition-colors"
+              class="inline-flex items-center justify-center w-5 h-5 rounded-lg hover:bg-black/10 dark:hover:bg-white/15 transition-all active:scale-90"
               :title="$t('status.pipeline_retry_button')"
               :aria-label="$t('status.pipeline_retry_button')"
               @click="retryPipeline"
             >
-              <RefreshCw :size="10" />
+              <RefreshCw :size="11" :class="{ 'animate-spin': pipelineRetrying }" />
             </button>
           </div>
         </div>
@@ -452,12 +466,12 @@ const themeStyles = computed(() => {
         <!-- VrcDog 服务端连接状态 -->
         <div
           v-if="clientServerUrl"
-          class="mt-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1"
-          :class="serverConnected ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-red-50 border-red-200 text-red-600'"
+          class="px-2.5 py-1.5 rounded-xl border text-[10px] font-bold flex items-center gap-1.5 transition-all shadow-2xs"
+          :class="serverConnected ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600' : 'bg-rose-500/10 border-rose-500/25 text-rose-600'"
         >
           <div
-            class="w-1.5 h-1.5 rounded-full"
-            :class="serverConnected ? 'bg-emerald-500' : 'bg-red-500'"
+            class="w-1.5 h-1.5 rounded-full shrink-0"
+            :class="serverConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"
           />
           <span>{{ serverConnected ? $t('app.server_connected') : $t('app.server_disconnected') }}</span>
         </div>
@@ -465,23 +479,23 @@ const themeStyles = computed(() => {
         <!-- VRC 服务器状态 -->
         <div
           v-if="vrcServerStatus"
-          class="mt-1 px-2 py-1.5 rounded-lg bg-red-50 border border-red-200 text-[10px] font-bold text-red-600 flex items-center gap-1"
+          class="px-2.5 py-1.5 rounded-xl bg-red-500/10 border border-red-500/25 text-[10px] font-bold text-red-600 flex items-center gap-1.5"
         >
-          <Globe :size="10" /> {{ vrcServerStatus }}
+          <Globe :size="11" /> {{ vrcServerStatus }}
         </div>
 
-        <div class="flex gap-2 mt-1">
+        <div class="flex gap-2 pt-0.5">
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-orange-500 hover:bg-orange-50 font-bold text-xs transition-colors"
+            class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-orange-500 hover:bg-orange-500/10 font-bold text-xs transition-all duration-200 active:scale-95"
             @click="uiStore.appMode = null"
           >
-            <Monitor :size="14" /> {{ $t('app.reselect_mode') }}
+            <Monitor :size="13" /> {{ $t('app.reselect_mode') }}
           </button>
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs transition-colors"
+            class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-red-500 hover:bg-red-500/10 font-bold text-xs transition-all duration-200 active:scale-95"
             @click="() => authStore.handleLogout(false)"
           >
-            <LogOut :size="14" /> {{ $t('app.logout') }}
+            <LogOut :size="13" /> {{ $t('app.logout') }}
           </button>
         </div>
 

@@ -125,7 +125,16 @@ pub async fn start_pipeline_ws(
     stop_internal().await;
 
     let endpoint = parse_pipeline_url(pipeline_url.as_deref())?;
-    let proxy_url = state.proxy_url.read().await.clone();
+    let proxy_url = state.proxy_url.read().await.clone().or_else(|| {
+        #[cfg(windows)]
+        {
+            crate::sys::read_windows_system_proxy()
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var("HTTPS_PROXY").or_else(|_| std::env::var("HTTP_PROXY")).ok()
+        }
+    });
     let stop = Arc::new(AtomicBool::new(false));
 
     let app_for_task = app.clone();

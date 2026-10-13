@@ -484,7 +484,7 @@ interface ReleaseInfo {
 
 const updateProgress = ref<{ percent: number; bytesDone: number; bytesTotal: number } | null>(null);
 
-// 与 Rust 端 update.rs 的 cmp_versions 保持一致的语义化版本比较
+// �?Rust �?update.rs �?cmp_versions 保持一致的语义化版本比�?
 const cmpVersions = (a: string, b: string): number => {
   const parse = (v: string) => {
     const core = v.trim().replace(/^v/i, '');
@@ -507,7 +507,7 @@ const cmpVersions = (a: string, b: string): number => {
 
 const fmtMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
 
-// 全自动更新：下载 → 校验 → 静默安装 → 启动新版本 → 退出旧进程（Rust 端完成）
+// 全自动更新：下载 -> 校验 -> 静默安装 -> 启动新版本 -> 退出旧进程（Rust 端完成）
 const runAutoUpdate = async (release: ReleaseInfo) => {
   const unlisten = await listen<any>('app-update://progress', (ev) => {
     const p = ev.payload || {};
@@ -988,7 +988,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                 </div>
                 <button
                   :disabled="isCheckingUpdate"
-                  class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-text-strong transition-colors disabled:opacity-50 flex items-center gap-2"
+                  class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-text-strong transition-all disabled:opacity-50 flex items-center gap-2 hover:scale-105 active:scale-95"
                   @click="checkForUpdates(false)"
                 >
                   <span v-if="isCheckingUpdate" class="w-3.5 h-3.5 border-border-soft border-t-transparent rounded-full animate-spin" />
@@ -1005,7 +1005,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.autoCheckUpdate = !config.autoCheckUpdate">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_32f4a3ee') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.autoCheckUpdate ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.autoCheckUpdate ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                   <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.autoCheckUpdate ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
@@ -1021,19 +1021,19 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_c534d49a') }}</div>
                   <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_5fb85ff0') }}</div>
                 </div>
-                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.autoStart ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.autoStart ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                   <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.autoStart ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.minimizeToTray = !config.minimizeToTray">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_52f59745') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.minimizeToTray ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.minimizeToTray ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                   <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.minimizeToTray ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
               <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.topWindow = !config.topWindow">
                 <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_54cfb890') }}</div>
-                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.topWindow ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.topWindow ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                   <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.topWindow ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
@@ -1042,7 +1042,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_18580f7f') }}</div>
                   <span class="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded font-bold">Dev</span>
                 </div>
-                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.enableDebugConsole ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.enableDebugConsole ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                   <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.enableDebugConsole ? 'right-1' : 'left-1'"></div>
                 </div>
               </div>
@@ -1081,7 +1081,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   min="10"
                   max="120"
                   step="5"
-                  class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-primary"
+                  class="w-full h-1 bg-[var(--theme-border-strong)] rounded-lg appearance-none cursor-pointer accent-primary"
                 >
               </div>
             </div>
@@ -1098,7 +1098,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     <div class="text-[13px] text-[var(--theme-text-muted)]">系统通知</div>
                     <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">收到邀请、好友请求和重要提醒时显示桌面通知</div>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifySystem ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifySystem ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifySystem ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
@@ -1110,16 +1110,16 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                 </div>
                 <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.notifyShowWhenAfk = !config.notifyShowWhenAfk">
                   <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_f4edc0a7') }}</div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifyShowWhenAfk ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifyShowWhenAfk ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifyShowWhenAfk ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
                 <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.notifySound = !config.notifySound">
                   <div>
                     <div class="text-[13px] text-[var(--theme-text-muted)]">通知音效</div>
-                    <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">系统通知触发时播放一声轻提示音</div>
+                    <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">系统通知触发时播放一声轻提示</div>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifySound ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifySound ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifySound ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
@@ -1141,7 +1141,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_825e9dca') }}</div>
                     <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_79b1d0e6') }}</div>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifyTts ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.notifyTts ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.notifyTts ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
@@ -1157,19 +1157,19 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     min="0"
                     max="100"
                     step="1"
-                    class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-primary"
+                    class="w-full h-1 bg-[var(--theme-border-strong)] rounded-lg appearance-none cursor-pointer accent-primary"
                   >
                 </div>
 
                 <div class="flex gap-4 p-3 mt-2">
                   <button
-                    class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-colors flex items-center gap-2"
+                    class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
                     @click="testTTS"
                   >
                     <Play class="w-3.5 h-3.5" /> {{ t('settings.play_test') || 'Play Test' }}
                   </button>
                   <button
-                    class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-colors flex items-center gap-2"
+                    class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
                     @click="testNotification"
                   >
                     <Bell class="w-3.5 h-3.5" /> {{ t('settings.send_notification') || 'Test Notify' }}
@@ -1306,7 +1306,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   </div>
                 </div>
 
-                <!-- 自定义代理详细配置 -->
+                <!-- 自定义代理 -->
                 <div v-if="config.proxyEnabled && config.proxyType === 'custom'" class="pt-2 border-t border-[var(--theme-border-soft)]/60 space-y-3">
                   <div>
                     <label class="block text-[12px] font-bold text-[var(--theme-text-muted)] mb-1.5">
@@ -1431,7 +1431,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     type="range"
                     min="1"
                     max="20"
-                    class="w-full h-1 bg-[var(--theme-surface)]-active rounded-lg appearance-none cursor-pointer accent-primary"
+                    class="w-full h-1 bg-[var(--theme-border-strong)] rounded-lg appearance-none cursor-pointer accent-primary"
                   >
                 </div>
               </div>
@@ -1450,7 +1450,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
               <div class="space-y-1">
                 <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcEnabled = !config.discordRpcEnabled">
                   <div class="text-[13px] text-[var(--theme-text-muted)] font-bold">{{ $t('auto_3c9a1ecb') }}</div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcEnabled ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcEnabled ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcEnabled ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
@@ -1461,49 +1461,49 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                       <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_6eb92b82') }}</div>
                       <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_eb117849') }}</div>
                     </div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcEnableWorldIntegration ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcEnableWorldIntegration ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcEnableWorldIntegration ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
 
                   <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcShowRoomTypeAndCount = !config.discordRpcShowRoomTypeAndCount">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_91b7dcbf') }}</div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowRoomTypeAndCount ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowRoomTypeAndCount ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcShowRoomTypeAndCount ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
 
                   <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcShowPlatform = !config.discordRpcShowPlatform">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_086cf470') }}</div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowPlatform ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowPlatform ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcShowPlatform ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
 
                   <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcShowRoomInfoInPrivate = !config.discordRpcShowRoomInfoInPrivate">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_aa0494ff') }}</div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowRoomInfoInPrivate ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowRoomInfoInPrivate ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcShowRoomInfoInPrivate ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
 
                   <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcShowJoinButton = !config.discordRpcShowJoinButton">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_73fbf843') }}</div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowJoinButton ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowJoinButton ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcShowJoinButton ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
 
                   <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcShowWorldThumbnail = !config.discordRpcShowWorldThumbnail">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_f5dce70b') }}</div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowWorldThumbnail ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowWorldThumbnail ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcShowWorldThumbnail ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
 
                   <div class="flex items-center justify-between p-3 hover:bg-[var(--theme-surface)] rounded-lg transition-colors cursor-pointer" @click="config.discordRpcShowWorldName = !config.discordRpcShowWorldName">
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_7c5900a9') }}</div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowWorldName ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.discordRpcShowWorldName ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.discordRpcShowWorldName ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
@@ -1541,7 +1541,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_da56e03d') }}</div>
                     <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_0c780a55') }}</div>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.translationApiEnabled ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.translationApiEnabled ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.translationApiEnabled ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
@@ -1566,7 +1566,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_35f77773') }}</div>
                     <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_562dae68') }}</div>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.youtubeApiEnabled ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.youtubeApiEnabled ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.youtubeApiEnabled ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
@@ -1591,12 +1591,12 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                     <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_e5c256af') }}</div>
                     <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_a1104dd4') }}</div>
                   </div>
-                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.remoteAvatarDbEnabled ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                  <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.remoteAvatarDbEnabled ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                     <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.remoteAvatarDbEnabled ? 'right-1' : 'left-1'"></div>
                   </div>
                 </div>
                 <div v-if="config.remoteAvatarDbEnabled" class="flex justify-end pt-2 px-3">
-                  <button class="px-4 py-1.5 bg-[var(--theme-surface)]-hover/60 backdrop-blur-md hover:bg-[var(--theme-surface)]-active/60 backdrop-blur-md border-border-soft rounded text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-colors">
+                  <button class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all hover:scale-105 active:scale-95">
                     {{ t('settings.contribute_avatar') || 'Contribute Avatar Data' }}
                   </button>
                 </div>
@@ -1620,7 +1620,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                       <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_b4a6c98c') }}</div>
                       <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_167f8433') }}</div>
                     </div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.killAppsOnExit ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.killAppsOnExit ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.killAppsOnExit ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
@@ -1630,7 +1630,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                       <div class="text-[13px] text-[var(--theme-text-muted)]">{{ $t('auto_5161a1f8') }}</div>
                       <div class="text-[11px] text-[var(--theme-text-muted)] mt-0.5">{{ $t('auto_d3e8fc8e') }}</div>
                     </div>
-                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.clearCacheOnExit ? 'bg-primary' : 'bg-[var(--theme-surface)]-active'">
+                    <div class="relative inline-block w-8 h-4 rounded-full transition-colors" :class="config.clearCacheOnExit ? 'bg-primary' : 'bg-[var(--theme-border-strong)]'">
                       <div class="absolute top-0.5 w-3 h-3 rounded-full bg-[var(--theme-surface)] shadow-sm transition-all" :class="config.clearCacheOnExit ? 'right-1' : 'left-1'"></div>
                     </div>
                   </div>
@@ -1665,7 +1665,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
             <div class="space-y-2">
               <!-- Network Settings -->
-              <div class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 rounded-2xl border border-white/5 transition-all">
+              <div class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all hover:scale-[1.01]">
                 <div class="flex items-center gap-4">
                   <div class="p-2 bg-blue-500/10 rounded-lg text-blue-400">
                     <Globe :size="18" />
@@ -1689,7 +1689,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
               <!-- Hardware Acceleration -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 rounded-2xl border border-white/5 transition-all cursor-pointer group"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
                 @click="config.hardwareAcceleration = !config.hardwareAcceleration"
               >
                 <div class="flex items-center gap-4">
@@ -1714,7 +1714,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
               <!-- OSC Automation -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 rounded-2xl border border-white/5 transition-all cursor-pointer group"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
                 @click="config.oscAutomation = !config.oscAutomation"
               >
                 <div class="flex items-center gap-4">
@@ -1765,13 +1765,13 @@ const selectInterfaceLanguage = (nextLocale: string) => {
             <div class="space-y-4">
               <div class="flex gap-3">
                 <button
-                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group"
+                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group hover:scale-[1.01] active:scale-[0.99]"
                   @click="pickFolderForConfig('cache_directory')"
                 >
                   <HardDrive :size="16" class="group-hover:text-primary" /> Set Cache Dir
                 </button>
                 <button
-                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group"
+                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group hover:scale-[1.01] active:scale-[0.99]"
                   @click="pickFolderForConfig('camera_res_dir')"
                 >
                   <Camera :size="16" class="group-hover:text-primary" /> Set Photo Dir
@@ -1876,7 +1876,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
             <div class="space-y-3">
               <!-- Enable Overlay -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 rounded-2xl border border-white/5 transition-all cursor-pointer group"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
                 @click="config.vrOverlayEnabled = !config.vrOverlayEnabled"
               >
                 <div class="flex items-center gap-4">
@@ -1920,7 +1920,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
               <!-- Wrist Mode -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface)]-hover/50 rounded-2xl border border-white/5 transition-all cursor-pointer group"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
                 @click="config.wristMode = !config.wristMode"
               >
                 <div class="flex items-center gap-4">

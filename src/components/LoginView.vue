@@ -702,10 +702,10 @@ onUnmounted(() => {
 <template>
   <div class="flex items-center justify-center h-screen bg-[var(--theme-bg-main)] relative overflow-hidden">
     <!-- VrcDog 风格左上角工具栏 -->
-    <div class="fixed top-4 left-4 z-50 flex gap-1 items-center">
+    <div class="fixed top-4 left-4 z-50 flex gap-2 items-center">
       <!-- 设置 -->
       <button
-        class="vrcdog-toolbar-btn"
+        class="vrcdog-toolbar-btn cartoon-pill-btn transition-transform hover:scale-105 active:scale-95"
         :title="t('login.toolbar.settings')"
         @click="openSettings"
       >
@@ -713,32 +713,36 @@ onUnmounted(() => {
       </button>
       <!-- 检查更新 -->
       <button
-        class="vrcdog-toolbar-btn relative"
+        class="vrcdog-toolbar-btn cartoon-pill-btn relative transition-transform hover:scale-105 active:scale-95"
         :title="t('login.toolbar.check_update')"
         @click="openUpdateDialog"
       >
         <ArrowDownToLine :size="18" />
         <span
           v-if="updateAvailable"
-          class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-[var(--theme-bg-main)] animate-pulse"
+          class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[var(--theme-bg-main)] animate-ping"
           :title="t('login.toolbar.update_available', { version: updateAvailableTag })"
+        />
+        <span
+          v-if="updateAvailable"
+          class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[var(--theme-bg-main)]"
         />
       </button>
       <!-- 语言 -->
       <div class="relative vrcdog-lang-wrap">
         <button
-          class="vrcdog-toolbar-btn"
+          class="vrcdog-toolbar-btn cartoon-pill-btn transition-transform hover:scale-105 active:scale-95"
           :title="t('login.toolbar.language')"
           @click.stop="showLangMenu = !showLangMenu"
         >
           <Languages :size="18" />
         </button>
         <transition name="vrcdog-menu">
-          <div v-if="showLangMenu" class="vrcdog-lang-menu">
+          <div v-if="showLangMenu" class="vrcdog-lang-menu rounded-2xl border-2 border-[var(--theme-border-soft)] shadow-2xl p-1.5 custom-scrollbar">
             <button
               v-for="lang in languages"
               :key="lang.code"
-              class="vrcdog-lang-item"
+              class="vrcdog-lang-item rounded-xl transition-all hover:translate-x-1"
               :class="{ active: preferredLangCode === lang.code }"
               @click="selectLanguage(lang.code)"
             >
@@ -764,10 +768,10 @@ onUnmounted(() => {
     <!-- 主容器：登录表单 + 已保存账号 -->
     <div class="flex gap-6 items-stretch justify-center relative z-10 max-w-4xl w-full px-4">
       <!-- 左侧：登录表单 -->
-      <div class="bg-[var(--theme-surface)]/90 backdrop-blur-xl p-8 rounded-3xl shadow-2xl w-full max-w-md border border-[var(--theme-border-soft)] flex flex-col">
+      <div class="cartoon-card bg-[var(--theme-surface)]/95 backdrop-blur-xl p-8 rounded-[28px] shadow-2xl w-full max-w-md border-2 border-[var(--theme-border-soft)] flex flex-col">
         <div class="text-center mb-8">
-          <h1 class="text-3xl font-bold text-[var(--theme-text)] mb-2 font-mono flex items-center justify-center gap-2">
-            <Bone class="animate-bounce" /> {{ t('login.title') }}
+          <h1 class="text-3xl font-extrabold text-[var(--theme-text)] mb-2 flex items-center justify-center gap-2 tracking-tight">
+            <Bone class="animate-bounce text-[var(--theme-primary)]" :size="30" /> {{ t('login.title') }}
           </h1>
           <p class="text-zinc-400 text-sm">
             {{ t('login.subtitle') }}
@@ -776,25 +780,25 @@ onUnmounted(() => {
 
         <div v-if="!show2FA" class="space-y-5">
           <div>
-            <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1">
-              <User :size="16" /> {{ t('login.username') }}
+            <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1.5">
+              <User :size="16" class="text-[var(--theme-primary)]" /> {{ t('login.username') }}
             </label>
             <input
               v-model="username"
               type="text"
               :placeholder="t('login.username')"
-              class="w-full px-4 py-3 rounded-xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)]"
+              class="cartoon-input w-full px-4 py-3 rounded-2xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-4 focus:ring-[var(--theme-primary)]/15 outline-none transition-all bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-500 font-medium"
             >
           </div>
           <div>
-            <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1">
-              <Key :size="16" /> {{ t('login.password') }}
+            <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1.5">
+              <Key :size="16" class="text-[var(--theme-primary)]" /> {{ t('login.password') }}
             </label>
             <input
               v-model="password"
               type="password"
               :placeholder="t('login.password')"
-              class="w-full px-4 py-3 rounded-xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)]"
+              class="cartoon-input w-full px-4 py-3 rounded-2xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-4 focus:ring-[var(--theme-primary)]/15 outline-none transition-all bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-500 font-medium"
               @keyup.enter="handleLogin"
             >
           </div>
@@ -809,26 +813,9 @@ onUnmounted(() => {
             {{ t('login.save_credentials') }}
           </label>
 
-          <div class="relative flex items-center py-4">
-            <div class="flex-grow border-t border-[var(--theme-border-soft)]" />
-            <span class="flex-shrink-0 mx-4 text-zinc-500 text-xs font-bold uppercase tracking-widest">{{ t('login.or') }}</span>
-            <div class="flex-grow border-t border-[var(--theme-border-soft)]" />
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-text mb-1">{{ t('login.use_cookie') }}</label>
-            <input
-              v-model="authCookie"
-              type="text"
-              :placeholder="t('login.cookie_ph')"
-              class="w-full px-4 py-2 rounded-xl border border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-500 text-xs"
-              @keyup.enter="handleLogin"
-            >
-          </div>
-
           <button
             :disabled="loading"
-            class="w-full mt-4 bg-primary hover:bg-primary/80 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="cartoon-pill-btn w-full mt-4 bg-primary hover:brightness-110 active:brightness-95 text-white font-extrabold py-3.5 px-4 rounded-2xl shadow-[0_8px_20px_rgba(249,115,22,0.35)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
             @click="handleLogin"
           >
             <Loader2 v-if="loading" class="animate-spin" :size="20" />
@@ -853,9 +840,9 @@ onUnmounted(() => {
               type="button"
               role="radio"
               :aria-checked="selectedTwoFactorMethod === method"
-              class="rounded-xl border px-3 py-2 text-sm font-bold transition-colors"
+              class="cartoon-pill-btn rounded-xl border-2 px-3 py-2 text-sm font-bold transition-all hover:scale-105 active:scale-95"
               :class="selectedTwoFactorMethod === method
-                ? 'border-[var(--theme-primary)] bg-[var(--theme-primary)] text-white'
+                ? 'border-[var(--theme-primary)] bg-[var(--theme-primary)] text-white shadow-md'
                 : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface)] text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)]'"
               @click="selectedTwoFactorMethod = method; twoFactorCode = ''; errorMsg = ''"
             >
@@ -871,13 +858,13 @@ onUnmounted(() => {
               maxlength="12"
               :aria-label="t('login.2fa_placeholder')"
               :placeholder="t('login.2fa_placeholder')"
-              class="w-full px-4 py-4 rounded-xl border border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-0 outline-none transition-colors bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-600 text-center text-2xl tracking-[0.5em] font-mono font-bold"
+              class="cartoon-input w-full px-4 py-4 rounded-2xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-4 focus:ring-[var(--theme-primary)]/15 outline-none transition-all bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-600 text-center text-2xl tracking-[0.5em] font-mono font-extrabold"
               @keyup.enter="handle2FA"
             >
           </div>
           <button
             :disabled="loading"
-            class="w-full mt-4 bg-green-500/90 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(34,197,94,0.3)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="cartoon-pill-btn w-full mt-4 bg-emerald-500 hover:brightness-110 active:brightness-95 text-white font-extrabold py-3.5 px-4 rounded-2xl shadow-[0_8px_20px_rgba(16,185,129,0.35)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
             @click="handle2FA"
           >
             <Loader2 v-if="loading" class="animate-spin" :size="20" />
@@ -886,7 +873,7 @@ onUnmounted(() => {
           <div class="mt-6 flex justify-center">
             <button
               @click="show2FA = false"
-              class="group relative px-6 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all duration-300 overflow-hidden bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)]"
+              class="cartoon-pill-btn group relative px-6 py-2.5 rounded-2xl flex items-center justify-center gap-2 font-bold transition-all overflow-hidden bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] border-2 border-[var(--theme-border-soft)] hover:scale-105 active:scale-95"
             >
               <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[var(--theme-surface-hover)] to-transparent -translate-x-[100%] group-hover:animate-[shimmer_1.5s_infinite]" />
               <ArrowLeft class="w-4 h-4 text-zinc-400 group-hover:-translate-x-1 transition-transform" />
@@ -906,25 +893,26 @@ onUnmounted(() => {
       <!-- 右侧：已保存的账号（2FA 阶段隐藏） -->
       <div
         v-if="!show2FA"
-        class="bg-[var(--theme-surface)]/90 backdrop-blur-xl p-6 rounded-3xl shadow-2xl w-full max-w-xs border border-[var(--theme-border-soft)] flex flex-col"
+        class="cartoon-card bg-[var(--theme-surface)]/95 backdrop-blur-xl p-6 rounded-[28px] shadow-2xl w-full max-w-xs border-2 border-[var(--theme-border-soft)] flex flex-col"
       >
-        <h2 class="text-center text-lg font-bold text-[var(--theme-text)] mb-4">
+        <h2 class="text-center text-lg font-extrabold text-[var(--theme-text)] mb-4 flex items-center justify-center gap-1.5">
+          <User :size="18" class="text-[var(--theme-primary)]" />
           {{ t('login.saved_accounts') }}
         </h2>
-        <div v-if="savedAccounts.length > 0" class="flex-1 overflow-y-auto space-y-2">
+        <div v-if="savedAccounts.length > 0" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
           <div
             v-for="account in savedAccounts"
             :key="account.userId"
-            class="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-[var(--theme-surface-hover)] transition-colors border border-transparent hover:border-[var(--theme-border-soft)] group"
+            class="flex items-center gap-3 p-3 rounded-2xl cursor-pointer bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] transition-all duration-200 border-2 border-[var(--theme-border-soft)] hover:border-[var(--theme-primary)]/50 hover:scale-[1.02] active:scale-[0.98] group shadow-sm"
             @click="loginWithSavedAccount(account)"
           >
             <img
               v-if="account.avatarUrl"
               :src="account.avatarUrl"
-              class="w-10 h-10 rounded-full object-cover flex-shrink-0 bg-zinc-700"
+              class="w-10 h-10 rounded-2xl object-cover flex-shrink-0 bg-zinc-700 ring-2 ring-[var(--theme-border-soft)]"
               @error="($event.target as HTMLImageElement).style.display = 'none'"
             >
-            <div v-else class="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center flex-shrink-0">
+            <div v-else class="w-10 h-10 rounded-2xl bg-zinc-700 flex items-center justify-center flex-shrink-0 ring-2 ring-[var(--theme-border-soft)]">
               <User :size="18" class="text-zinc-400" />
             </div>
             <div class="flex-1 min-w-0">
@@ -932,7 +920,7 @@ onUnmounted(() => {
               <p class="text-xs text-[var(--theme-text-muted)] truncate">{{ account.username }}</p>
             </div>
             <button
-              class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-red-500/20 text-zinc-500 hover:text-red-400"
+              class="opacity-0 group-hover:opacity-100 transition-all p-1.5 rounded-xl hover:bg-red-500/20 text-zinc-500 hover:text-red-400 hover:scale-110 active:scale-95"
               @click.stop="deleteSavedAccount(account.userId)"
               :title="t('login.delete_account')"
             >
@@ -954,10 +942,13 @@ onUnmounted(() => {
     <!-- ============ 设置弹窗 ============ -->
     <transition name="vrcdog-modal">
       <div v-if="showSettingsDialog" class="vrcdog-dialog-overlay" @click="showSettingsDialog = false">
-        <div class="vrcdog-dialog-panel" style="width: 460px;" @click.stop>
+        <div class="vrcdog-dialog-panel cartoon-card" style="width: 460px;" @click.stop>
           <div class="vrcdog-dialog-header">
-            <h3 class="vrcdog-dialog-title">{{ t('login.settings.title') }}</h3>
-            <button class="vrcdog-dialog-close" @click="showSettingsDialog = false"><X :size="18" /></button>
+            <h3 class="vrcdog-dialog-title flex items-center gap-2 font-extrabold">
+              <Settings :size="18" class="text-[var(--theme-primary)]" />
+              {{ t('login.settings.title') }}
+            </h3>
+            <button class="vrcdog-dialog-close transition-transform hover:scale-110 active:scale-95" @click="showSettingsDialog = false"><X :size="18" /></button>
           </div>
           <div class="vrcdog-dialog-body">
             <label class="vrcdog-field-label">{{ t('login.settings.proxy_label') }}</label>
@@ -984,8 +975,8 @@ onUnmounted(() => {
             >
           </div>
           <div class="vrcdog-dialog-footer">
-            <button class="vrcdog-btn-primary" @click="saveSettingsAndRestart">{{ t('login.settings.save_restart') }}</button>
-            <button class="vrcdog-btn-secondary" @click="showSettingsDialog = false">{{ t('login.settings.close') }}</button>
+            <button class="vrcdog-btn-primary cartoon-pill-btn" @click="saveSettingsAndRestart">{{ t('login.settings.save_restart') }}</button>
+            <button class="vrcdog-btn-secondary cartoon-pill-btn" @click="showSettingsDialog = false">{{ t('login.settings.close') }}</button>
           </div>
         </div>
       </div>
@@ -994,21 +985,24 @@ onUnmounted(() => {
     <!-- ============ 更新检查弹窗 ============ -->
     <transition name="vrcdog-modal">
       <div v-if="showUpdateDialog" class="vrcdog-dialog-overlay" @click="showUpdateDialog = false">
-        <div class="vrcdog-dialog-panel" style="width: 520px;" @click.stop>
+        <div class="vrcdog-dialog-panel vrcdog-update-panel cartoon-card" style="width: 520px;" @click.stop>
           <div class="vrcdog-dialog-header">
-            <h3 class="vrcdog-dialog-title">{{ t('login.update.title') }}</h3>
-            <button class="vrcdog-dialog-close" @click="showUpdateDialog = false"><X :size="18" /></button>
+            <h3 class="vrcdog-dialog-title flex items-center gap-2 font-extrabold">
+              <span class="w-3 h-3 rounded-full bg-[var(--theme-primary)]" />
+              {{ t('login.update.title') }}
+            </h3>
+            <button class="vrcdog-dialog-close transition-transform hover:scale-110 active:scale-95" @click="showUpdateDialog = false"><X :size="18" /></button>
           </div>
-          <div class="vrcdog-dialog-body">
+          <div class="vrcdog-dialog-body vrcdog-update-dialog-body">
             <!-- 稳定版 / 测试版 切换 -->
             <div class="vrcdog-tab-group">
               <button
-                class="vrcdog-tab-pill"
+                class="vrcdog-tab-pill transition-all"
                 :class="{ active: updateChannel === 'stable' }"
                 @click="switchUpdateChannel('stable')"
               >{{ t('login.update.tab_stable') }}</button>
               <button
-                class="vrcdog-tab-pill"
+                class="vrcdog-tab-pill transition-all"
                 :class="{ active: updateChannel === 'beta' }"
                 @click="switchUpdateChannel('beta')"
               >{{ t('login.update.tab_beta') }}</button>
@@ -1027,19 +1021,19 @@ onUnmounted(() => {
             <label class="vrcdog-field-label mt-4">{{ t('login.update.version') }}</label>
             <div class="relative">
               <button
-                class="vrcdog-version-trigger"
+                class="vrcdog-version-trigger transition-all hover:border-[var(--theme-primary)]"
                 :disabled="updateLoading || updateChannelReleases.length === 0"
                 @click.stop="showUpdateVersionDropdown = !showUpdateVersionDropdown"
               >
                 <span>{{ updateLoading ? '...' : (updateSelectedTag || (updateChannelReleases.length === 0 ? t('login.update.no_releases') : '...')) }}</span>
-                <ChevronDown :size="16" />
+                <ChevronDown :size="16" class="transition-transform duration-200" :class="{ 'rotate-180': showUpdateVersionDropdown }" />
               </button>
               <transition name="vrcdog-menu">
-                <div v-if="showUpdateVersionDropdown" class="vrcdog-version-list">
+                <div v-if="showUpdateVersionDropdown" class="vrcdog-version-list custom-scrollbar">
                   <button
                     v-for="rel in updateChannelReleases"
                     :key="rel.tag"
-                    class="vrcdog-version-item"
+                    class="vrcdog-version-item transition-all"
                     :class="{ active: rel.tag === updateSelectedTag }"
                     @click="updateSelectedTag = rel.tag; showUpdateVersionDropdown = false"
                   >
@@ -1051,14 +1045,19 @@ onUnmounted(() => {
             </div>
 
             <!-- 是否最新 -->
-            <p v-if="!updateLoading && updateChannel === 'stable'" class="vrcdog-update-status">
-              <span v-if="isCurrentLatest">{{ t('login.update.up_to_date') }}</span>
-              <span v-else style="color: #f97316;">{{ t('login.update.has_new', { version: updateChannelReleases[0]?.tag || '' }) }}</span>
-            </p>
+            <div v-if="!updateLoading && updateChannel === 'stable'" class="vrcdog-update-status flex items-center gap-2 mt-4">
+              <span v-if="isCurrentLatest" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                <Check :size="12" />
+                {{ t('login.update.up_to_date') }}
+              </span>
+              <span v-else class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                {{ t('login.update.has_new', { version: updateChannelReleases[0]?.tag || '' }) }}
+              </span>
+            </div>
           </div>
-          <div class="vrcdog-dialog-footer">
+          <div class="vrcdog-dialog-footer mt-auto">
             <button
-              class="vrcdog-btn-primary"
+              class="vrcdog-btn-primary cartoon-pill-btn"
               :disabled="!updateSelectedTag || updateInstalling"
               @click="downloadUpdate"
             >{{ updateInstalling ? t('login.update.installing', { percent: updateInstallPercent }) : t('login.update.download') }}</button>
@@ -1141,12 +1140,15 @@ onUnmounted(() => {
 }
 .vrcdog-dialog-panel {
   background: var(--theme-surface);
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 16px;
+  border: 2px solid var(--theme-border-soft);
+  border-radius: 24px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   max-height: 90vh;
+}
+.vrcdog-update-panel {
+  min-height: 440px;
 }
 .vrcdog-dialog-header {
   display: flex;
@@ -1156,7 +1158,7 @@ onUnmounted(() => {
 }
 .vrcdog-dialog-title {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--theme-text);
   margin: 0;
 }
@@ -1175,6 +1177,10 @@ onUnmounted(() => {
   padding: 4px 22px 16px 22px;
   overflow-y: auto;
 }
+.vrcdog-update-dialog-body {
+  overflow: visible !important;
+  position: relative;
+}
 .vrcdog-dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -1186,22 +1192,25 @@ onUnmounted(() => {
 .vrcdog-field-label {
   display: block;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--theme-text);
   margin-bottom: 6px;
 }
 .vrcdog-input {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 8px;
+  border: 2px solid var(--theme-border-soft);
+  border-radius: 14px;
   background: var(--theme-bg-main);
   color: var(--theme-text);
   font-size: 14px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: all 0.2s;
 }
-.vrcdog-input:focus { border-color: var(--theme-primary); }
+.vrcdog-input:focus {
+  border-color: var(--theme-primary);
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.15);
+}
 .vrcdog-checkbox-row {
   display: inline-flex;
   align-items: center;
@@ -1213,55 +1222,65 @@ onUnmounted(() => {
 
 /* ── Buttons ─────────────────────────────────────────────── */
 .vrcdog-btn-primary {
-  padding: 8px 18px;
-  border-radius: 8px;
-  background: var(--theme-text);
-  color: var(--theme-bg-main);
+  padding: 10px 22px;
+  border-radius: 16px;
+  background: var(--theme-primary);
+  color: #fff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
   cursor: pointer;
-  transition: opacity 0.15s;
+  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.3);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.vrcdog-btn-primary:hover { opacity: 0.85; }
-.vrcdog-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.vrcdog-btn-primary:hover {
+  filter: brightness(1.1);
+  transform: scale(1.02);
+}
+.vrcdog-btn-primary:active {
+  transform: scale(0.98);
+}
+.vrcdog-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .vrcdog-btn-secondary {
-  padding: 8px 18px;
-  border-radius: 8px;
+  padding: 10px 20px;
+  border-radius: 16px;
   background: transparent;
   color: var(--theme-text);
   font-size: 14px;
   font-weight: 600;
-  border: 1px solid var(--theme-border-soft);
+  border: 2px solid var(--theme-border-soft);
   cursor: pointer;
+  transition: all 0.15s;
 }
-.vrcdog-btn-secondary:hover { background: var(--theme-surface-hover); }
+.vrcdog-btn-secondary:hover { background: var(--theme-surface-hover); transform: scale(1.02); }
+.vrcdog-btn-secondary:active { transform: scale(0.98); }
 
 /* ── Tab pills (stable / beta) ───────────────────────────── */
 .vrcdog-tab-group {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 10px;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 16px;
   background: var(--theme-bg-main);
-  border: 1px solid var(--theme-border-soft);
-  margin-bottom: 8px;
+  border: 2px solid var(--theme-border-soft);
+  margin-bottom: 12px;
 }
 .vrcdog-tab-pill {
   padding: 10px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent;
   color: var(--theme-text-muted);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 700;
   border: none;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .vrcdog-tab-pill.active {
   background: var(--theme-surface);
   color: var(--theme-text);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 /* ── Beta warning box ────────────────────────────────────── */
@@ -1269,14 +1288,14 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: 16px;
   background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  border: 2px solid rgba(239, 68, 68, 0.35);
   margin-top: 12px;
 }
 .vrcdog-warning-icon { color: #ef4444; flex-shrink: 0; margin-top: 2px; }
-.vrcdog-warning-title { font-weight: 600; color: #ef4444; font-size: 14px; }
-.vrcdog-warning-desc { color: #ef4444; font-size: 13px; opacity: 0.85; margin-top: 2px; line-height: 1.4; }
+.vrcdog-warning-title { font-weight: 700; color: #ef4444; font-size: 14px; }
+.vrcdog-warning-desc { color: #ef4444; font-size: 13px; opacity: 0.9; margin-top: 2px; line-height: 1.4; }
 
 /* ── Version dropdown ────────────────────────────────────── */
 .vrcdog-version-trigger {
@@ -1284,44 +1303,56 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 8px;
+  padding: 12px 16px;
+  border: 2px solid var(--theme-border-soft);
+  border-radius: 16px;
   background: var(--theme-bg-main);
   color: var(--theme-text);
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s;
 }
 .vrcdog-version-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 .vrcdog-version-list {
   position: absolute;
-  top: 44px;
+  top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 10;
-  max-height: 320px;
+  z-index: 60;
+  max-height: 220px;
   overflow-y: auto;
   background: var(--theme-surface);
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-  padding: 4px 0;
+  border: 2px solid var(--theme-border-soft);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  backdrop-filter: blur(16px);
 }
 .vrcdog-version-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 8px 14px;
+  padding: 10px 14px;
   font-size: 14px;
+  font-weight: 600;
   color: var(--theme-text);
   background: transparent;
   border: none;
+  border-radius: 12px;
   cursor: pointer;
   text-align: left;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.vrcdog-version-item:hover { background: var(--theme-surface-hover); }
-.vrcdog-version-item.active { color: var(--theme-primary); }
+.vrcdog-version-item:hover {
+  background: var(--theme-surface-hover);
+  transform: translateX(4px);
+}
+.vrcdog-version-item.active {
+  color: var(--theme-primary);
+  background: rgba(249, 115, 22, 0.12);
+}
 
 .vrcdog-update-status {
   margin-top: 12px;
@@ -1333,10 +1364,10 @@ onUnmounted(() => {
 .vrcdog-modal-enter-active, .vrcdog-modal-leave-active { transition: opacity 0.18s; }
 .vrcdog-modal-enter-from, .vrcdog-modal-leave-to { opacity: 0; }
 .vrcdog-modal-enter-active .vrcdog-dialog-panel,
-.vrcdog-modal-leave-active .vrcdog-dialog-panel { transition: transform 0.18s; }
-.vrcdog-modal-enter-from .vrcdog-dialog-panel { transform: scale(0.96); }
-.vrcdog-modal-leave-to .vrcdog-dialog-panel { transform: scale(0.96); }
+.vrcdog-modal-leave-active .vrcdog-dialog-panel { transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.vrcdog-modal-enter-from .vrcdog-dialog-panel { transform: scale(0.92); }
+.vrcdog-modal-leave-to .vrcdog-dialog-panel { transform: scale(0.92); }
 
-.vrcdog-menu-enter-active, .vrcdog-menu-leave-active { transition: opacity 0.12s, transform 0.12s; }
-.vrcdog-menu-enter-from, .vrcdog-menu-leave-to { opacity: 0; transform: translateY(-4px); }
+.vrcdog-menu-enter-active, .vrcdog-menu-leave-active { transition: opacity 0.15s, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.vrcdog-menu-enter-from, .vrcdog-menu-leave-to { opacity: 0; transform: translateY(-8px) scale(0.96); }
 </style>
