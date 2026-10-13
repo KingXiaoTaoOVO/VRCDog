@@ -49,6 +49,7 @@ vi.mock('../api', () => ({
     fetchConfig: mocks.fetchConfig,
     getCurrentUser: mocks.getCurrentUser,
     login: mocks.login,
+    request: vi.fn().mockRejectedValue(new Error('Auth expired')),
     verify2fa: mocks.verify2fa,
   },
 }));
@@ -218,5 +219,38 @@ describe('LoginView two-factor flow', () => {
       username: 'king小韬',
       password: 'test-password',
     }));
+  });
+
+  it('automatically re-authenticates saved account when credentials are saved', async () => {
+    mocks.getSetting.mockImplementation((params: any) => {
+      if (params?.key === 'savedAccounts') {
+        return Promise.resolve(JSON.stringify([{
+          userId: 'usr_test_123',
+          displayName: 'TestUser',
+          username: 'testuser',
+          avatarUrl: '',
+          authCookie: '["auth=expired_token","twoFactorAuth=valid_2fa_token"]',
+          savedPassword: 'saved_pwd',
+        }]));
+      }
+      return Promise.resolve(null);
+    });
+
+    mocks.login.mockReset().mockResolvedValue({
+      id: 'usr_test_123',
+      displayName: 'TestUser',
+      username: 'testuser',
+      auth_cookie: '["auth=fresh_token","twoFactorAuth=valid_2fa_token"]',
+    });
+
+    const wrapper = mountLogin();
+    await flushPromises();
+
+    const savedCard = wrapper.find('.vrcdog-saved-account-card');
+    expect(savedCard.exists()).toBe(true);
+    await savedCard.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.emitted('login-success')).toBeTruthy();
   });
 });

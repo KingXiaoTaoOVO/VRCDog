@@ -130,14 +130,16 @@ function isVrchatAuthExpired(status: number, url: string, message: string): bool
   if (isVrchatPermissionError(status, url, message)) return false;
 
   // ONLY canonical auth endpoints can expire a session!
-  // Data endpoints (friends, worlds, avatars, users, instances, etc.) returning 401
+  // Data endpoints (friends, notifications, worlds, avatars, users, instances, etc.) returning 401
   // are permission/privacy/rate-limit issues and must NEVER kill the user's session!
   let isAuthEndpoint = false;
   try {
-    const parsedUrl = new URL(url);
-    isAuthEndpoint = parsedUrl.pathname.endsWith('/auth/user') || parsedUrl.pathname.endsWith('/auth');
+    const fullUrl = buildVrchatApiUrl(url);
+    const parsedUrl = new URL(fullUrl);
+    const normPath = parsedUrl.pathname.replace(/\/+$/, '');
+    isAuthEndpoint = normPath === '/api/1/auth/user' || normPath === '/api/1/auth';
   } catch {
-    isAuthEndpoint = url.includes('/auth/user') || url.includes('/auth');
+    isAuthEndpoint = false;
   }
 
   if (!isAuthEndpoint) {

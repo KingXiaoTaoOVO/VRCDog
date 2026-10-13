@@ -168,7 +168,7 @@ export async function mergeCookiesAndSave(newCookieJson: string | null | undefin
 
         let updated = false;
         for (const acc of accounts) {
-          if (!currentUserId || acc.userId === currentUserId || accounts.length === 1) {
+          if ((currentUserId && acc.userId === currentUserId) || (!currentUserId && accounts.length === 1)) {
             acc.authCookie = mergedJson;
             updated = true;
           }

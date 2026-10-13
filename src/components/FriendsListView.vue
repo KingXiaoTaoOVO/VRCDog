@@ -150,7 +150,8 @@ const fetchGroups = async (force = false) => {
   groupsLoading.value = true;
   groupsErrorMsg.value = '';
   try {
-    const res: any = await VrcApi.getGroups({ userId: currentUser.value?.id });
+    const myId = currentUser.value?.id || authStore?.currentUser?.id;
+    const res: any = await VrcApi.getGroups(myId ? { userId: myId } : undefined);
     const list = Array.isArray(res) ? res : [];
     groups.value = list
       .map(normalizeGroup)
@@ -158,7 +159,13 @@ const fetchGroups = async (force = false) => {
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     groupsLoaded.value = true;
   } catch (err: any) {
-    groupsErrorMsg.value = err.message || String(err);
+    const msg = String(err?.message || err || '');
+    if (/missing credentials|401|unauthorized/i.test(msg)) {
+      groups.value = [];
+      groupsLoaded.value = true;
+    } else {
+      groupsErrorMsg.value = msg;
+    }
   } finally {
     groupsLoading.value = false;
   }

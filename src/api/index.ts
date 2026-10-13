@@ -623,9 +623,17 @@ export const VrcApi = {
     let userId = params?.userId;
     if (!userId) {
       const cached = await DbApi.getCachedCurrentUser();
-      userId = cached?.id || (await baseRequest('/auth/user'))?.id;
+      userId = cached?.id;
+      if (!userId) {
+        try {
+          const u = await baseRequest('/auth/user', { suppressAuthExpired: true });
+          userId = u?.id;
+        } catch {
+          return [];
+        }
+      }
     }
-    if (!userId) throw new VrcRequestError('无法获取当前用户 ID', { code: 'VRCHAT_AUTH_EXPIRED', status: 401, url: '/users/<id>/groups' });
+    if (!userId) return [];
     return GroupApi.getGroups({ userId });
   },
   getGroupAnnouncement: GroupApi.getGroupAnnouncement,

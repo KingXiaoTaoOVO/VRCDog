@@ -737,12 +737,8 @@ pub async fn vrc_execute(
         req = req.timeout(Duration::from_millis(timeout_ms.clamp(1_000, 120_000)));
     }
 
-    let mut has_explicit_cookie_header = false;
     if let Some(headers) = options.headers {
         for (k, v) in headers {
-            if k.eq_ignore_ascii_case("cookie") {
-                has_explicit_cookie_header = true;
-            }
             let h_name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
                 .map_err(|error| format!("Invalid request header name: {error}"))?;
             let h_value = reqwest::header::HeaderValue::from_str(&v)
@@ -751,8 +747,8 @@ pub async fn vrc_execute(
         }
     }
 
-    // Sync auth cookies into the shared jar and explicitly inject Cookie header (VRCX alignment)
-    // so reqwest sends both auth and twoFactorAuth without jar domain matching quirks.
+    // Sync auth cookies into the shared jar so reqwest sends both auth and twoFactorAuth
+    // cleanly through the cookie provider without duplicated headers.
     if let Some(ref cv) = options.auth_cookie {
         let is_vrc_host = request_url.host_str() == Some("api.vrchat.cloud")
             || request_url
@@ -764,12 +760,6 @@ pub async fn vrc_execute(
                 let direct_cookies = parse_auth_cookies(cv);
                 for cookie in &direct_cookies {
                     jar.add_cookie_str(cookie, &url);
-                }
-                if !has_explicit_cookie_header && !direct_cookies.is_empty() {
-                    let cookie_val = direct_cookies.join("; ");
-                    if let Ok(hv) = reqwest::header::HeaderValue::from_str(&cookie_val) {
-                        req = req.header(reqwest::header::COOKIE, hv);
-                    }
                 }
             }
         }

@@ -38,12 +38,14 @@ function formatCookieForDisplay(rawCookie: string | null | undefined): string {
 }
 
 // ========== 已保存账号管理 ==========
-interface SavedAccount {
+export interface SavedAccount {
   userId: string;
   displayName: string;
   username: string;
   avatarUrl: string;
   authCookie: string;
+  savedPassword?: string;
+  updatedAt?: number;
 }
 
 const savedAccounts = ref<SavedAccount[]>([]);
@@ -55,7 +57,8 @@ async function loadSavedAccounts() {
   try {
     const raw = await DbApi.getSetting({ key: 'savedAccounts' });
     if (raw) {
-      savedAccounts.value = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      savedAccounts.value = Array.isArray(parsed) ? parsed : [];
     }
   } catch { /* ignore */ }
 }
@@ -63,10 +66,10 @@ async function loadSavedAccounts() {
 async function persistSavedAccounts() {
   // 安全：桌面端 DbApi.saveSetting 落到应用私有 SQLite，浏览器/Web 构建则落到
   // localStorage（同源任何脚本都可读）。因此 Web 模式下只持久化账号展示信息，
-  // 绝不落盘 authCookie，避免会话令牌被同源 XSS 或浏览器扩展直接取走。
+  // 绝不落盘 authCookie 与凭据，避免会话令牌被同源 XSS 或浏览器扩展直接取走。
   const payload = isTauri()
     ? savedAccounts.value
-    : savedAccounts.value.map(({ authCookie: _authCookie, ...rest }) => ({ ...rest, authCookie: '' }));
+    : savedAccounts.value.map(({ authCookie: _authCookie, savedPassword: _savedPassword, ...rest }) => ({ ...rest, authCookie: '' }));
   await DbApi.saveSetting({ key: 'savedAccounts', value: JSON.stringify(payload) });
 }
 
@@ -82,7 +85,7 @@ function hasUsableAuthCookie(rawCookie: string | null | undefined): boolean {
 
 function prepareManualLoginFromSavedAccount(account: SavedAccount, messageKey: string) {
   username.value = account.username || account.displayName || '';
-  password.value = '';
+  password.value = account.savedPassword || '';
   const twoFa = getCookieValue(account.authCookie, 'twoFactorAuth');
   authCookie.value = twoFa ? `twoFactorAuth=${twoFa}` : '';
   saveCredentials.value = true;
@@ -93,6 +96,7 @@ async function updateSavedAccountCookie(userId: string, cookie: string) {
   const idx = savedAccounts.value.findIndex(a => a.userId === userId);
   if (idx < 0) return;
   savedAccounts.value[idx].authCookie = cookie;
+  savedAccounts.value[idx].updatedAt = Date.now();
   await persistSavedAccounts();
 }
 
@@ -100,19 +104,26 @@ async function saveCurrentAccount(user: any, cookie: string) {
   if (!saveCredentials.value) return;
   if (!user?.id) return;
 
-  const accountUsername = user.username || user.email || user.id || '';
+  const accountUsername = username.value.trim() || user.username || user.email || user.id || '';
+  const existingIdx = savedAccounts.value.findIndex(a => a.userId === user.id);
+  const existingAcc = existingIdx >= 0 ? savedAccounts.value[existingIdx] : null;
 
-  const existing = savedAccounts.value.findIndex(a => a.userId === user.id);
+  const pwdToSave = (password.value && saveCredentials.value)
+    ? password.value
+    : (existingAcc?.savedPassword || undefined);
+
   const account: SavedAccount = {
     userId: user.id,
     displayName: user.displayName || user.display_name || user.username || 'Unknown',
     username: accountUsername,
-    avatarUrl: user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '',
-    authCookie: cookie
+    avatarUrl: user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || existingAcc?.avatarUrl || '',
+    authCookie: cookie,
+    savedPassword: saveCredentials.value ? pwdToSave : undefined,
+    updatedAt: Date.now(),
   };
 
-  if (existing >= 0) {
-    savedAccounts.value[existing] = account;
+  if (existingIdx >= 0) {
+    savedAccounts.value[existingIdx] = account;
   } else {
     savedAccounts.value.push(account);
   }
@@ -126,127 +137,108 @@ async function deleteSavedAccount(userId: string) {
 
 async function loginWithSavedAccount(account: SavedAccount) {
   const savedCookie = normalizeAuthCookieJson(account.authCookie);
-  if (!hasUsableAuthCookie(savedCookie)) {
-    prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_missing');
-    return;
-  }
 
   authStore?.setLoginGracePeriod(120_000);
   loading.value = true;
   errorMsg.value = '';
+
   try {
-    // 关键：在注入新账号前，先重置清空 Rust 端的 CookieJar，确保新会话纯净独立
     try { await VrcApi.clearCookies(); } catch {}
-    await DbApi.saveAuth({ cookie: savedCookie });
-    try { await VrcApi.applyAuthCookie({ authCookie: savedCookie }); } catch {}
 
-    const res: any = await VrcApi.login({
-      username: null,
-      password: null,
-      authCookie: savedCookie
-    });
+    let loggedUser: any = null;
+    let freshCookie = savedCookie;
 
-    if (res.error) {
-      const msg = res.error.message || JSON.stringify(res.error);
-      if (/missing credentials|401|unauthorized|expired|invalid/i.test(msg)) {
-        try {
-          const verify: any = await VrcApi.request('/auth/user', {
-            method: 'GET',
-            authCookie: savedCookie,
-            suppressAuthExpired: true,
-            timeoutMs: 10000,
-          });
-          const user = verify?.currentUser || verify?.current_user || (verify?.id ? verify : null);
-          if (user) {
-            if (verify.auth_cookie) {
-              authCookie.value = verify.auth_cookie;
-              await mergeCookiesAndSave(verify.auth_cookie);
-            }
-            const idx = savedAccounts.value.findIndex(a => a.userId === account.userId);
-            if (idx >= 0) {
-              savedAccounts.value[idx].displayName = user.displayName || user.display_name || account.displayName;
-              savedAccounts.value[idx].username = user.username || account.username;
-              savedAccounts.value[idx].avatarUrl = user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || account.avatarUrl;
-              const durableCookie = await DbApi.getAuth().catch(() => null);
-              savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || verify.auth_cookie || savedCookie);
-              await persistSavedAccounts();
-            }
-            show2FA.value = false;
-            twoFactorCode.value = '';
-            errorMsg.value = '';
-            emit('login-success', user);
-            return;
-          }
-        } catch { /* proceed to expired */ }
-        prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
-      } else {
-        errorMsg.value = msg;
-      }
-    } else if (res.requiresTwoFactorAuth || res.requires_two_factor_auth) {
-      if (res.auth_cookie) {
-        authCookie.value = res.auth_cookie;
-        await mergeCookiesAndSave(res.auth_cookie);
-      }
-      beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth, res.auth_cookie);
-    } else if (res.id || res.currentUser || res.current_user) {
-      if (res.auth_cookie) {
-        authCookie.value = res.auth_cookie;
-        await mergeCookiesAndSave(res.auth_cookie);
-      }
-      const user = res.currentUser || res.current_user || res;
-      // 更新保存的账号信息
-      const idx = savedAccounts.value.findIndex(a => a.userId === account.userId);
-      if (idx >= 0) {
-        savedAccounts.value[idx].displayName = user.displayName || user.display_name || account.displayName;
-        savedAccounts.value[idx].username = user.username || account.username;
-        savedAccounts.value[idx].avatarUrl = user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || account.avatarUrl;
-        const durableCookie = await DbApi.getAuth().catch(() => null);
-        savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || res.auth_cookie || savedCookie);
-        await persistSavedAccounts();
-      }
-      show2FA.value = false;
-      twoFactorCode.value = '';
-      errorMsg.value = '';
-      emit('login-success', user);
-    } else {
-      errorMsg.value = `Unhandled login response: ${JSON.stringify(res)}`;
-    }
-  } catch (err: any) {
-    const methods = extractTwoFactorMethods(err);
-    if (methods) {
-      const challengeCookie = err?.auth_cookie || err?.response?.auth_cookie;
-      if (challengeCookie) {
-        authCookie.value = challengeCookie;
-        await mergeCookiesAndSave(challengeCookie);
-      }
-      beginTwoFactor(methods, challengeCookie);
-    } else if (/missing credentials|401|unauthorized|expired|invalid/i.test(err.message || '')) {
+    // 1. 如果保存的 Cookie 含有未过期的 auth 会话令牌，直接用 session 请求验证
+    if (hasUsableAuthCookie(savedCookie)) {
       try {
+        await DbApi.saveAuth({ cookie: savedCookie });
+        try { await VrcApi.applyAuthCookie({ authCookie: savedCookie }); } catch {}
+
         const verify: any = await VrcApi.request('/auth/user', {
           method: 'GET',
           authCookie: savedCookie,
           suppressAuthExpired: true,
-          timeoutMs: 10000,
+          timeoutMs: 12000,
         });
-        const user = verify?.currentUser || verify?.current_user || (verify?.id ? verify : null);
-        if (user) {
-          const idx = savedAccounts.value.findIndex(a => a.userId === account.userId);
-          if (idx >= 0) {
-            const durableCookie = await DbApi.getAuth().catch(() => null);
-            savedAccounts.value[idx].authCookie = normalizeAuthCookieJson(durableCookie || verify.auth_cookie || savedCookie);
-            await persistSavedAccounts();
+
+        const u = verify?.currentUser || verify?.current_user || (verify?.id ? verify : null);
+        if (u) {
+          loggedUser = u;
+          if (verify.auth_cookie) {
+            freshCookie = normalizeAuthCookieJson(verify.auth_cookie);
           }
-          show2FA.value = false;
-          twoFactorCode.value = '';
-          errorMsg.value = '';
-          emit('login-success', user);
+        }
+      } catch {
+        /* 会话 token 自然过期，自动进入下一步凭据重鉴权 */
+      }
+    }
+
+    // 2. 如果 Cookie 已失效，但保存了账号凭据与 30 天 twoFactorAuth 令牌，自动执行免密重连
+    if (!loggedUser && account.username && account.savedPassword) {
+      try {
+        const twoFa = getCookieValue(savedCookie, 'twoFactorAuth');
+        const cookieToSend = twoFa ? `twoFactorAuth=${twoFa}` : (savedCookie || undefined);
+
+        const res: any = await VrcApi.login({
+          username: account.username,
+          password: account.savedPassword,
+          authCookie: cookieToSend,
+        });
+
+        if (res?.requiresTwoFactorAuth || res?.requires_two_factor_auth) {
+          // 30 天 2FA 期限已过，提示输入新的 2FA 验证码
+          if (res.auth_cookie) {
+            authCookie.value = formatCookieForDisplay(res.auth_cookie);
+            await mergeCookiesAndSave(res.auth_cookie);
+          }
+          username.value = account.username;
+          password.value = account.savedPassword;
+          beginTwoFactor(res.requiresTwoFactorAuth || res.requires_two_factor_auth, res.auth_cookie);
           return;
         }
-      } catch {}
-      prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
-    } else {
-      errorMsg.value = err.message || JSON.stringify(err);
+
+        const u = res?.currentUser || res?.current_user || (res?.id ? res : null);
+        if (u) {
+          loggedUser = u;
+          if (res.auth_cookie) {
+            freshCookie = normalizeAuthCookieJson(res.auth_cookie);
+          }
+        }
+      } catch (authErr) {
+        console.warn('[FastLogin] Credentials re-auth failed:', authErr);
+      }
     }
+
+    // 3. 登录成功：落盘刷新后的最新 Cookie 并进入主界面
+    if (loggedUser) {
+      if (freshCookie) {
+        authCookie.value = formatCookieForDisplay(freshCookie);
+        await DbApi.saveAuth({ cookie: freshCookie });
+        await mergeCookiesAndSave(freshCookie);
+        try { await VrcApi.applyAuthCookie({ authCookie: freshCookie }); } catch {}
+      }
+
+      const idx = savedAccounts.value.findIndex(a => a.userId === account.userId);
+      if (idx >= 0) {
+        savedAccounts.value[idx].displayName = loggedUser.displayName || loggedUser.display_name || account.displayName;
+        savedAccounts.value[idx].username = account.username || loggedUser.username || account.displayName;
+        savedAccounts.value[idx].avatarUrl = loggedUser.currentAvatarThumbnailImageUrl || loggedUser.currentAvatarImageUrl || account.avatarUrl;
+        savedAccounts.value[idx].authCookie = freshCookie || savedAccounts.value[idx].authCookie;
+        savedAccounts.value[idx].updatedAt = Date.now();
+        await persistSavedAccounts();
+      }
+
+      show2FA.value = false;
+      twoFactorCode.value = '';
+      errorMsg.value = '';
+      emit('login-success', loggedUser);
+      return;
+    }
+
+    // 4. 若无法自动重连，优雅预填用户名与设备 2FA 凭据，引导用户仅输入密码即可快速登录
+    prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
+  } catch (err: any) {
+    prepareManualLoginFromSavedAccount(account, 'login.saved_cookie_expired');
   } finally {
     loading.value = false;
   }
@@ -508,7 +500,16 @@ const handleLogin = async () => {
       // If logging in with username and password:
       // Preserve any existing twoFactorAuth cookie so VRChat recognizes this computer and skips the 2FA prompt
       const currentStored = await DbApi.getAuth().catch(() => null);
-      const twoFaToken = getCookieValue(rawCookie, 'twoFactorAuth') || getCookieValue(currentStored, 'twoFactorAuth');
+      let twoFaToken = getCookieValue(rawCookie, 'twoFactorAuth') || getCookieValue(currentStored, 'twoFactorAuth');
+      if (!twoFaToken) {
+        const matched = savedAccounts.value.find(a =>
+          a.username.toLowerCase() === rawUser.toLowerCase() ||
+          a.displayName.toLowerCase() === rawUser.toLowerCase()
+        );
+        if (matched?.authCookie) {
+          twoFaToken = getCookieValue(matched.authCookie, 'twoFactorAuth');
+        }
+      }
       if (twoFaToken) {
         effectiveCookieToSend = `twoFactorAuth=${twoFaToken}`;
       }
@@ -903,7 +904,7 @@ onUnmounted(() => {
           <div
             v-for="account in savedAccounts"
             :key="account.userId"
-            class="flex items-center gap-3 p-3 rounded-2xl cursor-pointer bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] transition-all duration-200 border-2 border-[var(--theme-border-soft)] hover:border-[var(--theme-primary)]/50 hover:scale-[1.02] active:scale-[0.98] group shadow-sm"
+            class="vrcdog-saved-account-card flex items-center gap-3 p-3 rounded-2xl cursor-pointer bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] transition-all duration-200 border-2 border-[var(--theme-border-soft)] hover:border-[var(--theme-primary)]/50 hover:scale-[1.02] active:scale-[0.98] group shadow-sm"
             @click="loginWithSavedAccount(account)"
           >
             <img

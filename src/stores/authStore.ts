@@ -9,7 +9,7 @@ import { setAppLocale, translate } from '../i18n';
 import { normalizeNotificationForDb } from '../api/notificationNormalization';
 import { useUiStore } from './uiStore';
 import { useFriendsStore } from './friendsStore';
-import { mergeCookiesAndSave } from '../api/cookies';
+import { getCookieValue, mergeCookiesAndSave, normalizeAuthCookieJson } from '../api/cookies';
 import { markDataHealthy } from './dataHealth';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -290,20 +290,23 @@ export const useAuthStore = defineStore('auth', () => {
 
   const startVrcKeepalive = () => {
     if (vrcKeepaliveTimer) clearInterval(vrcKeepaliveTimer);
-    // VRChat API keepalive: ping /auth/user periodically (every 5 minutes)
-    // This keeps the VRChat session alive for both standalone and server-connected users.
+    // VRChat API keepalive: ping /auth/user periodically (every 2 minutes)
+    // This keeps the VRChat session alive and rotates tokens continuously.
     vrcKeepaliveTimer = setInterval(async () => {
       if (!currentUser.value || !isLoggedIn.value) return;
       try {
-        await VrcApi.request('/auth/user', {
+        const pingRes: any = await VrcApi.request('/auth/user', {
           method: 'GET',
           suppressAuthExpired: true,
           timeoutMs: 15000,
         });
+        if (pingRes?.auth_cookie) {
+          await mergeCookiesAndSave(pingRes.auth_cookie);
+        }
       } catch (e) {
         console.warn('[VrcKeepalive] Session keepalive ping failed (will retry next interval):', e);
       }
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
   };
 
   const startHeartbeat = () => {
@@ -439,6 +442,7 @@ export const useAuthStore = defineStore('auth', () => {
       const cookie = await DbApi.getAuth();
       if (cookie) {
         await VrcApi.loadCookiesOnStartup({ authCookie: cookie });
+        await mergeCookiesAndSave(cookie);
       }
     } catch { /* ignore */ }
 
@@ -511,7 +515,41 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       // Normalize: VRChat API may return user as current_user, currentUser, or directly as res (with res.id)
-      const autoLoginUser = res?.current_user || res?.currentUser || (res?.id ? res : null);
+      let autoLoginUser = res?.current_user || res?.currentUser || (res?.id ? res : null);
+
+      // If session cookie expired/failed, attempt seamless re-auth with saved credentials
+      if (!autoLoginUser) {
+        try {
+          const rawAccounts = await DbApi.getSetting({ key: 'savedAccounts' });
+          if (rawAccounts) {
+            const accounts = JSON.parse(rawAccounts);
+            if (Array.isArray(accounts)) {
+              const matched = accounts.find((a: any) => a && a.username && a.savedPassword);
+              if (matched) {
+                const twoFa = getCookieValue(savedCookie, 'twoFactorAuth') || getCookieValue(matched.authCookie, 'twoFactorAuth');
+                const cookieToSend = twoFa ? `twoFactorAuth=${twoFa}` : (savedCookie || matched.authCookie);
+                const reAuthRes: any = await VrcApi.login({
+                  username: matched.username,
+                  password: matched.savedPassword,
+                  authCookie: cookieToSend,
+                });
+                const reUser = reAuthRes?.current_user || reAuthRes?.currentUser || (reAuthRes?.id ? reAuthRes : null);
+                if (reUser) {
+                  autoLoginUser = reUser;
+                  res = reAuthRes;
+                  if (reAuthRes.auth_cookie) {
+                    await DbApi.saveAuth({ cookie: normalizeAuthCookieJson(reAuthRes.auth_cookie) });
+                    await mergeCookiesAndSave(reAuthRes.auth_cookie);
+                  }
+                }
+              }
+            }
+          }
+        } catch (reAuthErr) {
+          console.warn('[AutoLogin] Re-auth fallback attempt failed:', reAuthErr);
+        }
+      }
+
       if (autoLoginUser) {
         currentUser.value = autoLoginUser;
 
@@ -527,7 +565,7 @@ export const useAuthStore = defineStore('auth', () => {
         await ensureServerEventListeners();
         await uiStore.fetchServerFeatures(getBaseUrl(), autoLoginUser);
 
-        if (res.auth_cookie) {
+        if (res?.auth_cookie) {
           await mergeCookiesAndSave(res.auth_cookie);
         }
         initGamelogWatcher();
@@ -542,7 +580,18 @@ export const useAuthStore = defineStore('auth', () => {
           ? res.error
           : String(res.error?.message || res.error?.details || '');
         if (/missing credentials|invalid credentials|session expired|cookie expired/i.test(errMsg)) {
-          await DbApi.clearAuth();
+          // Check if saved accounts exist before clearing
+          let hasSaved = false;
+          try {
+            const raw = await DbApi.getSetting({ key: 'savedAccounts' });
+            if (raw) {
+              const accs = JSON.parse(raw);
+              hasSaved = Array.isArray(accs) && accs.some((a: any) => a?.username && a?.savedPassword);
+            }
+          } catch {}
+          if (!hasSaved) {
+            await DbApi.clearAuth();
+          }
         }
       }
     } catch (err: any) {
@@ -562,7 +611,17 @@ export const useAuthStore = defineStore('auth', () => {
         !err?.response?.requires_two_factor_auth &&
         /missing credentials|invalid credentials|cookie expired|session expired/i.test(respMsg);
       if (looksExpired) {
-        try { await DbApi.clearAuth(); } catch { /* ignore */ }
+        let hasSaved = false;
+        try {
+          const raw = await DbApi.getSetting({ key: 'savedAccounts' });
+          if (raw) {
+            const accs = JSON.parse(raw);
+            hasSaved = Array.isArray(accs) && accs.some((a: any) => a?.username && a?.savedPassword);
+          }
+        } catch {}
+        if (!hasSaved) {
+          try { await DbApi.clearAuth(); } catch { /* ignore */ }
+        }
       }
       console.warn('[Auth] automatic login verification failed', err);
     } finally {
