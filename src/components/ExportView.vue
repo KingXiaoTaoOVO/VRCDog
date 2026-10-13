@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { SysApi } from "../api";
-import { Download, Upload, CheckCircle, DatabaseBackup, Loader2, AlertTriangle, FolderOpen, ShieldCheck, Sparkles, FileWarning, Clock, Database, Copy } from 'lucide-vue-next';
+import { SysApi, DbApi } from "../api";
+import { Download, Upload, CheckCircle, DatabaseBackup, Loader2, AlertTriangle, FolderOpen, ShieldCheck, Sparkles, FileWarning, Clock, Database, Copy, FileJson } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -17,6 +17,13 @@ const exporting2Success = ref(false);
 const importing = ref(false);
 const importResult = ref('');
 const importSuccess = ref(false);
+
+const exportingVrcx = ref(false);
+const exportVrcxResult = ref('');
+const exportVrcxSuccess = ref(false);
+const importingVrcx = ref(false);
+const importVrcxResult = ref('');
+const importVrcxSuccess = ref(false);
 
 const now = ref(new Date());
 let clockTimer: ReturnType<typeof setInterval> | null = null;
@@ -136,6 +143,59 @@ const openBackupFolder = async (_folderPath?: string) => {
   // 使用 opener 插件 openPath(path) 即可
 };
 
+const handleExportVrcxJson = async () => {
+  exportingVrcx.value = true;
+  exportVrcxResult.value = '';
+  exportVrcxSuccess.value = false;
+  try {
+    const jsonStr = await DbApi.exportVrcxData();
+    const d = now.value;
+    const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const filePath = await save({
+      filters: [{ name: 'VRCX Data JSON', extensions: ['json'] }],
+      defaultPath: `vrcx_data_${ymd}.json`,
+    });
+    if (filePath) {
+      await SysApi.saveTextFile({
+        path: filePath,
+        content: typeof jsonStr === 'string' ? jsonStr : JSON.stringify(jsonStr, null, 2),
+      });
+      exportVrcxResult.value = (t('export.vrcx_export_success') || 'VRCX 数据导出成功') + ` → ${filePath}`;
+      exportVrcxSuccess.value = true;
+    } else {
+      exportVrcxResult.value = t('auto_20fdb3a3') || '已取消';
+    }
+  } catch (err: any) {
+    exportVrcxResult.value = (t('export.fail') || '导出失败') + `: ${err}`;
+  } finally {
+    exportingVrcx.value = false;
+  }
+};
+
+const handleImportVrcxJson = async () => {
+  importingVrcx.value = true;
+  importVrcxResult.value = '';
+  importVrcxSuccess.value = false;
+  try {
+    const filePath = await open({
+      filters: [{ name: 'VRCX Data JSON', extensions: ['json'] }],
+      multiple: false,
+    });
+    if (filePath && typeof filePath === 'string') {
+      const content = await SysApi.readTextFile({ path: filePath });
+      const res = await DbApi.importVrcxData({ jsonData: content });
+      importVrcxResult.value = `导入成功: 写入 ${res.imported_notes} 条备注, ${res.imported_worlds} 个世界, ${res.imported_avatars} 个头像`;
+      importVrcxSuccess.value = true;
+    } else {
+      importVrcxResult.value = t('auto_20fdb3a3') || '已取消';
+    }
+  } catch (err: any) {
+    importVrcxResult.value = `导入失败: ${err}`;
+  } finally {
+    importingVrcx.value = false;
+  }
+};
+
 onMounted(() => {
   clockTimer = setInterval(() => { now.value = new Date(); }, 1000);
 });
@@ -239,6 +299,85 @@ onUnmounted(() => {
           <CheckCircle v-if="importSuccess" :size="14" />
           <AlertTriangle v-else :size="14" />
           <span class="truncate">{{ importResult }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- VRCX 互操作区：细粒度 JSON 数据导入与导出 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- 导出 VRCX / VRCDog 格式数据 -->
+      <div class="bg-surface rounded-2xl border border-primary/20 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
+        <div class="relative z-10 p-4 flex items-center gap-4">
+          <div class="shrink-0 w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
+            <FileJson class="text-primary" :size="22" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-extrabold text-text text-base flex items-center gap-2">
+              {{ t('export.vrcx_export_title') || '导出 VRCX 兼容 JSON' }}
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-500">
+                VRCX 互通
+              </span>
+            </h3>
+            <p class="text-xs text-text-muted mt-0.5 leading-snug">
+              {{ t('export.vrcx_export_desc') || '导出好友备注、收藏世界及收藏形象为开放 JSON 文件，便于在各软件间无缝迁移。' }}
+            </p>
+          </div>
+          <button
+            :disabled="exportingVrcx"
+            class="shrink-0 bg-primary/15 hover:bg-primary text-primary hover:text-white font-bold px-4 py-2 rounded-lg border border-primary/30 transition-all flex items-center gap-1.5 disabled:opacity-50 text-sm"
+            @click="handleExportVrcxJson"
+          >
+            <Loader2 v-if="exportingVrcx" class="animate-spin" :size="16" />
+            <Download v-else :size="16" />
+            {{ exportingVrcx ? (t('export.packing') || '导出中…') : (t('export.vrcx_export_btn') || '导出 JSON') }}
+          </button>
+        </div>
+        <div
+          v-if="exportVrcxResult"
+          class="px-4 pb-3 -mt-1 text-xs font-bold flex items-center gap-1.5"
+          :class="exportVrcxSuccess ? 'text-emerald-600' : 'text-text-muted'"
+        >
+          <CheckCircle v-if="exportVrcxSuccess" :size="14" />
+          <AlertTriangle v-else :size="14" />
+          <span class="truncate">{{ exportVrcxResult }}</span>
+        </div>
+      </div>
+
+      <!-- 导入 VRCX / VRCDog 格式数据 -->
+      <div class="bg-surface rounded-2xl border border-sky-500/20 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
+        <div class="relative z-10 p-4 flex items-center gap-4">
+          <div class="shrink-0 w-12 h-12 bg-sky-500/10 rounded-xl flex items-center justify-center">
+            <Upload class="text-sky-500" :size="22" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-extrabold text-text text-base flex items-center gap-2">
+              {{ t('export.vrcx_import_title') || '导入 VRCX / JSON 数据' }}
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500">
+                智能合并
+              </span>
+            </h3>
+            <p class="text-xs text-text-muted mt-0.5 leading-snug">
+              {{ t('export.vrcx_import_desc') || '导入外部 VRCX 或备份的 JSON 数据，自动增量合并好友备注与收藏项，不覆盖已有日志。' }}
+            </p>
+          </div>
+          <button
+            :disabled="importingVrcx"
+            class="shrink-0 bg-sky-500/15 hover:bg-sky-500 text-sky-500 hover:text-white font-bold px-4 py-2 rounded-lg border border-sky-500/30 transition-all flex items-center gap-1.5 disabled:opacity-50 text-sm"
+            @click="handleImportVrcxJson"
+          >
+            <Loader2 v-if="importingVrcx" class="animate-spin" :size="16" />
+            <Upload v-else :size="16" />
+            {{ importingVrcx ? (t('app.restoring') || '导入中…') : (t('export.vrcx_import_btn') || '选择 JSON 导入') }}
+          </button>
+        </div>
+        <div
+          v-if="importVrcxResult"
+          class="px-4 pb-3 -mt-1 text-xs font-bold flex items-center gap-1.5"
+          :class="importVrcxSuccess ? 'text-emerald-600' : 'text-text-muted'"
+        >
+          <CheckCircle v-if="importVrcxSuccess" :size="14" />
+          <AlertTriangle v-else :size="14" />
+          <span class="truncate">{{ importVrcxResult }}</span>
         </div>
       </div>
     </div>

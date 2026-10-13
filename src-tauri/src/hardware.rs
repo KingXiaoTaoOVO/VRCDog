@@ -320,7 +320,7 @@ fn send_osc_chatbox_raw(text: String, complete: bool, notification: bool) -> App
 
 static CHATBOX_KEEPALIVE_RUNNING: AtomicBool = AtomicBool::new(false);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscordRpcRequest {
     pub details: String,
@@ -329,6 +329,13 @@ pub struct DiscordRpcRequest {
     pub show_world_thumbnail: bool,
     #[serde(default)]
     pub show_join_button: bool,
+    pub large_image: Option<String>,
+    pub large_text: Option<String>,
+    pub small_image: Option<String>,
+    pub small_text: Option<String>,
+    pub party_size: Option<[i32; 2]>,
+    pub start_timestamp: Option<i64>,
+    pub join_url: Option<String>,
 }
 
 #[tauri::command]
@@ -343,17 +350,50 @@ pub fn sys_set_discord_rpc(req: DiscordRpcRequest) -> AppResult<()> {
         let mut activity = activity::Activity::new()
             .details(&req.details)
             .state(&req.state);
-        if req.show_world_thumbnail {
-            // Best-effort: only renders if the configured Discord application
-            // registers the "vrchat" asset key. Harmless otherwise.
-            activity = activity.assets(activity::Assets::default().large_image("vrchat"));
+
+        let mut assets = activity::Assets::default();
+        let mut has_assets = false;
+        if let Some(ref img) = req.large_image {
+            assets = assets.large_image(img);
+            has_assets = true;
+        } else if req.show_world_thumbnail {
+            assets = assets.large_image("vrchat");
+            has_assets = true;
         }
-        if req.show_join_button {
+        if let Some(ref txt) = req.large_text {
+            assets = assets.large_text(txt);
+            has_assets = true;
+        }
+        if let Some(ref img) = req.small_image {
+            assets = assets.small_image(img);
+            has_assets = true;
+        }
+        if let Some(ref txt) = req.small_text {
+            assets = assets.small_text(txt);
+            has_assets = true;
+        }
+        if has_assets {
+            activity = activity.assets(assets);
+        }
+
+        if let Some([current, max]) = req.party_size {
+            if max > 0 {
+                activity = activity.party(activity::Party::new().size([current, max]));
+            }
+        }
+
+        if let Some(start) = req.start_timestamp {
+            activity = activity.timestamps(activity::Timestamps::new().start(start));
+        }
+
+        let join_button_url = req.join_url.as_deref().unwrap_or("https://vrchat.com/home");
+        if req.show_join_button || req.join_url.is_some() {
             activity = activity.buttons(vec![activity::Button::new(
                 "Join VRChat",
-                "https://vrchat.com/home",
+                join_button_url,
             )]);
         }
+
         let _ = client.set_activity(activity);
     }
 

@@ -33,6 +33,8 @@ impl DbState {
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA cache_size = -64000;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA mmap_size = 268435456;
             ",
         )
         .map_err(|e| format!("Failed to apply SQLite pragmas: {e}"))?;
@@ -124,12 +126,17 @@ impl DbState {
             );
             CREATE INDEX IF NOT EXISTS idx_activity_user ON friend_activity(user_id);
             CREATE INDEX IF NOT EXISTS idx_activity_time ON friend_activity(recorded_at);
+            CREATE INDEX IF NOT EXISTS idx_activity_user_date ON friend_activity(user_id, date_key);
             CREATE INDEX IF NOT EXISTS idx_friend_log_time ON friend_log(created_at);
             CREATE INDEX IF NOT EXISTS idx_friend_log_type ON friend_log(event_type);
+            CREATE INDEX IF NOT EXISTS idx_friend_log_user_id ON friend_log(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_friends_status ON friends(status);
             CREATE INDEX IF NOT EXISTS idx_game_log_time ON game_log(time);
+            CREATE INDEX IF NOT EXISTS idx_game_log_event_type ON game_log(event_type, time DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_game_log_unique ON game_log(time, event_type, content);
             CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_bili_tasks_status ON bili_tasks(status);
             
             CREATE TABLE IF NOT EXISTS bili_tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1199,3 +1206,176 @@ pub fn db_clear_friend_logs(state: tauri::State<'_, DbState>) -> Result<(), Stri
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ========== VRCX Interoperability & Fine-grained Export/Import ==========
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VrcxExportData {
+    pub version: String,
+    pub exported_at: String,
+    pub generator: String,
+    pub notes: Vec<NoteRecord>,
+    pub favorite_worlds: Vec<FavoriteWorldRecord>,
+    pub favorite_avatars: Vec<serde_json::Value>,
+    pub total_notes: usize,
+    pub total_worlds: usize,
+    pub total_avatars: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VrcxImportResult {
+    pub imported_notes: usize,
+    pub imported_worlds: usize,
+    pub imported_avatars: usize,
+}
+
+#[tauri::command]
+pub fn db_export_vrcx_data(state: tauri::State<'_, DbState>) -> Result<VrcxExportData, String> {
+    let notes = db_get_all_notes(state.clone())?;
+    let favorite_worlds = db_get_favorite_worlds(state.clone())?;
+    let favorite_avatars = db_get_favorite_avatars(state)?;
+
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    Ok(VrcxExportData {
+        version: "5.7.18".to_string(),
+        exported_at: now_str,
+        generator: "VRCDog".to_string(),
+        total_notes: notes.len(),
+        total_worlds: favorite_worlds.len(),
+        total_avatars: favorite_avatars.len(),
+        notes,
+        favorite_worlds,
+        favorite_avatars,
+    })
+}
+
+#[tauri::command]
+pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) -> Result<VrcxImportResult, String> {
+    let value: serde_json::Value = serde_json::from_str(&json_data)
+        .map_err(|e| format!("JSON 格式解析失败: {e}"))?;
+
+    let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let mut imported_notes = 0;
+    let mut imported_worlds = 0;
+    let mut imported_avatars = 0;
+
+    // 1. Process notes: support either { "notes": [...] } or direct array [...] or VRCX { "friends": [...] }
+    let notes_candidates = value.get("notes")
+        .or_else(|| value.get("friends"))
+        .and_then(|v| v.as_array())
+        .or_else(|| value.as_array());
+
+    if let Some(list) = notes_candidates {
+        let mut note_stmt = tx.prepare(
+            "INSERT OR REPLACE INTO notes (user_id, display_name, note, updated_at) VALUES (?1, ?2, ?3, datetime('now','localtime'))"
+        ).map_err(|e| e.to_string())?;
+
+        for item in list {
+            let user_id = item.get("userId")
+                .or_else(|| item.get("user_id"))
+                .or_else(|| item.get("id"))
+                .and_then(|v| v.as_str());
+            let display_name = item.get("displayName")
+                .or_else(|| item.get("display_name"))
+                .or_else(|| item.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let note = item.get("note")
+                .or_else(|| item.get("memo"))
+                .and_then(|v| v.as_str());
+
+            if let (Some(uid), Some(n)) = (user_id, note) {
+                if !uid.trim().is_empty() && !n.trim().is_empty() {
+                    let _ = note_stmt.execute(params![uid.trim(), display_name.trim(), n.trim()]);
+                    imported_notes += 1;
+                }
+            }
+        }
+    }
+
+    // 2. Process favorite worlds
+    let worlds_candidates = value.get("favoriteWorlds")
+        .or_else(|| value.get("favorite_worlds"))
+        .or_else(|| value.get("worlds"))
+        .and_then(|v| v.as_array());
+
+    if let Some(list) = worlds_candidates {
+        let mut world_stmt = tx.prepare(
+            "INSERT OR REPLACE INTO favorite_worlds (world_id, name, image_url, added_at) VALUES (?1, ?2, ?3, datetime('now','localtime'))"
+        ).map_err(|e| e.to_string())?;
+
+        for item in list {
+            let world_id = item.get("worldId")
+                .or_else(|| item.get("world_id"))
+                .or_else(|| item.get("id"))
+                .and_then(|v| v.as_str());
+            let name = item.get("name")
+                .or_else(|| item.get("worldName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown World");
+            let image_url = item.get("imageUrl")
+                .or_else(|| item.get("image_url"))
+                .or_else(|| item.get("thumbnailImageUrl"))
+                .and_then(|v| v.as_str());
+
+            if let Some(wid) = world_id {
+                if !wid.trim().is_empty() {
+                    let _ = world_stmt.execute(params![wid.trim(), name.trim(), image_url]);
+                    imported_worlds += 1;
+                }
+            }
+        }
+    }
+
+    // 3. Process favorite avatars
+    let avatars_candidates = value.get("favoriteAvatars")
+        .or_else(|| value.get("favorite_avatars"))
+        .or_else(|| value.get("avatars"))
+        .and_then(|v| v.as_array());
+
+    if let Some(list) = avatars_candidates {
+        let mut avatar_stmt = tx.prepare(
+            "INSERT OR REPLACE INTO favorite_avatars (avatar_id, name, image_url, author_id, author_name, added_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now','localtime'))"
+        ).map_err(|e| e.to_string())?;
+
+        for item in list {
+            let avatar_id = item.get("avatarId")
+                .or_else(|| item.get("avatar_id"))
+                .or_else(|| item.get("id"))
+                .and_then(|v| v.as_str());
+            let name = item.get("name")
+                .or_else(|| item.get("avatarName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown Avatar");
+            let image_url = item.get("imageUrl")
+                .or_else(|| item.get("image_url"))
+                .or_else(|| item.get("thumbnailImageUrl"))
+                .and_then(|v| v.as_str());
+            let author_id = item.get("authorId")
+                .or_else(|| item.get("author_id"))
+                .and_then(|v| v.as_str());
+            let author_name = item.get("authorName")
+                .or_else(|| item.get("author_name"))
+                .and_then(|v| v.as_str());
+
+            if let Some(aid) = avatar_id {
+                if !aid.trim().is_empty() {
+                    let _ = avatar_stmt.execute(params![aid.trim(), name.trim(), image_url, author_id, author_name]);
+                    imported_avatars += 1;
+                }
+            }
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(VrcxImportResult {
+        imported_notes,
+        imported_worlds,
+        imported_avatars,
+    })
+}
+

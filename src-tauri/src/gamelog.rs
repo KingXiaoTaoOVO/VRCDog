@@ -54,6 +54,9 @@ enum ParsedEvent {
     PlayerJoined(TrackedPlayer),
     PlayerLeft(TrackedPlayer),
     InstanceJoined(String),
+    LocationJoined(String),
+    Screenshot(String),
+    PortalSpawned(String),
     Authenticated(String),
     VideoPlayback(String),
     ApplicationQuit,
@@ -193,6 +196,30 @@ fn parse_log_line(line: &str) -> Option<(String, ParsedEvent)> {
             return Some((timestamp, ParsedEvent::InstanceJoined(room)));
         }
     }
+    if let Some(offset) = payload.rfind("Joining or Creating Room: ") {
+        let loc = sanitize_log_value(&payload[offset + "Joining or Creating Room: ".len()..]);
+        if !loc.is_empty() {
+            return Some((timestamp, ParsedEvent::LocationJoined(loc)));
+        }
+    }
+    if let Some(offset) = payload.rfind("[RoomManager] Joining ") {
+        let loc = sanitize_log_value(&payload[offset + "[RoomManager] Joining ".len()..]);
+        if !loc.is_empty() {
+            return Some((timestamp, ParsedEvent::LocationJoined(loc)));
+        }
+    }
+    if let Some(offset) = payload.rfind("Took screenshot to: ") {
+        let path = sanitize_log_value(&payload[offset + "Took screenshot to: ".len()..]);
+        if !path.is_empty() {
+            return Some((timestamp, ParsedEvent::Screenshot(path)));
+        }
+    }
+    if let Some(offset) = payload.rfind("Spawned portal to: ") {
+        let target = sanitize_log_value(&payload[offset + "Spawned portal to: ".len()..]);
+        if !target.is_empty() {
+            return Some((timestamp, ParsedEvent::PortalSpawned(target)));
+        }
+    }
     if let Some(offset) = payload.rfind("User Authenticated: ") {
         let user = sanitize_log_value(&payload[offset + "User Authenticated: ".len()..]);
         if !user.is_empty() {
@@ -201,6 +228,18 @@ fn parse_log_line(line: &str) -> Option<(String, ParsedEvent)> {
     }
     if let Some(offset) = payload.rfind("[Video Playback] Resolving URL: ") {
         let url = sanitize_log_value(&payload[offset + "[Video Playback] Resolving URL: ".len()..]);
+        if !url.is_empty() {
+            return Some((timestamp, ParsedEvent::VideoPlayback(url)));
+        }
+    }
+    if let Some(offset) = payload.rfind("[Video Playback] Starting: ") {
+        let url = sanitize_log_value(&payload[offset + "[Video Playback] Starting: ".len()..]);
+        if !url.is_empty() {
+            return Some((timestamp, ParsedEvent::VideoPlayback(url)));
+        }
+    }
+    if let Some(offset) = payload.rfind("[AVProVideo] Opening ") {
+        let url = sanitize_log_value(&payload[offset + "[AVProVideo] Opening ".len()..]);
         if !url.is_empty() {
             return Some((timestamp, ParsedEvent::VideoPlayback(url)));
         }
@@ -357,6 +396,15 @@ fn apply_parsed_event(
                 plain_event(timestamp, "Instance Joined", room),
                 limit,
             );
+        }
+        ParsedEvent::LocationJoined(loc) => {
+            push_limited(events, plain_event(timestamp, "Location Joined", loc), limit);
+        }
+        ParsedEvent::Screenshot(path) => {
+            push_limited(events, plain_event(timestamp, "Screenshot", path), limit);
+        }
+        ParsedEvent::PortalSpawned(target) => {
+            push_limited(events, plain_event(timestamp, "Portal Spawn", target), limit);
         }
         ParsedEvent::Authenticated(user) => {
             push_limited(events, plain_event(timestamp, "Authenticated", user), limit);
@@ -801,5 +849,45 @@ mod tests {
         assert_eq!(leave.content, "Alice (usr_alice)");
         assert!(players.is_empty());
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn vrcx_extended_log_events_parse_correctly() {
+        let (ts1, ev1) = parse_log_line(
+            "2026.10.13 12:00:00 Debug      -  Joining or Creating Room: wrld_test123:456~hidden",
+        )
+        .expect("parse Joining or Creating Room");
+        assert_eq!(ts1, "2026.10.13 12:00:00");
+        assert_eq!(ev1, ParsedEvent::LocationJoined("wrld_test123:456~hidden".to_string()));
+
+        let (_, ev2) = parse_log_line(
+            "2026.10.13 12:00:01 Debug      -  [RoomManager] Joining wrld_room456:789",
+        )
+        .expect("parse [RoomManager] Joining");
+        assert_eq!(ev2, ParsedEvent::LocationJoined("wrld_room456:789".to_string()));
+
+        let (_, ev3) = parse_log_line(
+            "2026.10.13 12:00:02 Debug      -  Took screenshot to: C:/Pictures/VRChat/VRChat_2026-10-13.png",
+        )
+        .expect("parse Took screenshot to");
+        assert_eq!(ev3, ParsedEvent::Screenshot("C:/Pictures/VRChat/VRChat_2026-10-13.png".to_string()));
+
+        let (_, ev4) = parse_log_line(
+            "2026.10.13 12:00:03 Debug      -  Spawned portal to: wrld_portal999:111",
+        )
+        .expect("parse Spawned portal to");
+        assert_eq!(ev4, ParsedEvent::PortalSpawned("wrld_portal999:111".to_string()));
+
+        let (_, ev5) = parse_log_line(
+            "2026.10.13 12:00:04 Debug      -  [Video Playback] Starting: https://example.com/live.m3u8",
+        )
+        .expect("parse [Video Playback] Starting");
+        assert_eq!(ev5, ParsedEvent::VideoPlayback("https://example.com/live.m3u8".to_string()));
+
+        let (_, ev6) = parse_log_line(
+            "2026.10.13 12:00:05 Debug      -  [AVProVideo] Opening https://example.com/video.mp4",
+        )
+        .expect("parse [AVProVideo] Opening");
+        assert_eq!(ev6, ParsedEvent::VideoPlayback("https://example.com/video.mp4".to_string()));
     }
 }

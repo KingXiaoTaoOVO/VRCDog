@@ -853,6 +853,8 @@ export let DbApi = {
   removeFavoriteAvatar: (params: { avatarId: string }) => safeInvoke<void>('db_remove_favorite_avatar', params),
   getApiCache: (params: { key: string }) => safeInvoke<string | null>('db_get_api_cache', params),
   saveApiCache: (params: { key: string, data: string }) => safeInvoke<void>('db_save_api_cache', params),
+  exportVrcxData: () => safeInvoke<string>('db_export_vrcx_data'),
+  importVrcxData: (params: { jsonData: string }) => safeInvoke<{ imported_notes: number; imported_worlds: number; imported_avatars: number }>('db_import_vrcx_data', params),
 };
 
 export type AudioSource = 'mic' | 'speaker' | 'output';
@@ -932,8 +934,21 @@ export let SysApi = {
   sendOscTyping: (params: { typing: boolean }) => safeInvoke<void>('sys_send_osc_typing', params),
   startChatboxKeepalive: () => safeInvoke<void>('sys_chatbox_keepalive_start', {}),
   stopChatboxKeepalive: () => safeInvoke<void>('sys_chatbox_keepalive_stop', {}),
-  setDiscordRpc: (params: { details: string; state: string; showWorldThumbnail?: boolean; showJoinButton?: boolean }) => safeInvoke<void>('sys_set_discord_rpc', params),
+  setDiscordRpc: (params: {
+    details: string;
+    state: string;
+    showWorldThumbnail?: boolean;
+    showJoinButton?: boolean;
+    largeImage?: string | null;
+    largeText?: string | null;
+    smallImage?: string | null;
+    smallText?: string | null;
+    partySize?: [number, number] | null;
+    startTimestamp?: number | null;
+    joinUrl?: string | null;
+  }) => safeInvoke<void>('sys_set_discord_rpc', params),
   saveTextFile: (params: { path: string; content: string }) => safeInvoke<void>('sys_save_text_file', params),
+  readTextFile: (params: { path: string }) => safeInvoke<string>('sys_read_text_file', params),
   saveBinaryFile: (params: { path: string; content: number[] }) => safeInvoke<void>('sys_save_binary_file', params),
   getAudioDevices: () => safeInvoke<AudioDevice[]>('vrct_get_audio_devices'),
   getAudioSessions: () => safeInvoke<AudioSessionInfo[]>('vrct_get_audio_sessions'),
@@ -1677,6 +1692,14 @@ if (isBrowser) {
     removeFavoriteAvatar: async () => {},
     getApiCache: async ({ key }: { key: string }) => localStorage.getItem(`vrcdog_api_cache_${key}`),
     saveApiCache: async ({ key, data }: { key: string, data: string }) => localStorage.setItem(`vrcdog_api_cache_${key}`, data),
+    exportVrcxData: async () => JSON.stringify({
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      notes: JSON.parse(localStorage.getItem('vrcdog_notes') || '[]'),
+      favoriteWorlds: JSON.parse(localStorage.getItem('vrcdog_favorite_worlds') || '[]'),
+      favoriteAvatars: JSON.parse(localStorage.getItem('vrcdog_favorite_avatars') || '[]'),
+    }),
+    importVrcxData: async () => ({ imported_notes: 0, imported_worlds: 0, imported_avatars: 0 }),
   };
 
   (DbApi as any) = { ...(DbApi as any), ...localStorageDb };
@@ -1700,6 +1723,7 @@ if (isBrowser) {
     stopChatboxKeepalive: async () => {},
     setDiscordRpc: async () => {},
     saveTextFile: async () => {},
+    readTextFile: async () => '',
     saveBinaryFile: async () => {},
     getAudioDevices: async () => [],
     getAudioSessions: async () => [],

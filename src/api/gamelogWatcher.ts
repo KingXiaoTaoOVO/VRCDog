@@ -1,5 +1,5 @@
 import { GamelogApi, DbApi, SysApi } from './index';
-import { refreshCurrentInstance } from '../stores/currentInstance';
+import { refreshCurrentInstance, currentInstanceState, parseVrcLocation } from '../stores/currentInstance';
 import { isTauri } from '@tauri-apps/api/core';
 
 let watcherTimer: number | null = null;
@@ -67,16 +67,47 @@ export async function pollGamelogOnce() {
       // Dynamic Discord RPC update
       try {
         const settings = await DbApi.getAllSettings();
-        if (settings && settings.discordRpcEnabled === 'true' && settings.discordRpcEnableWorldIntegration === 'true') {
-          const joinedEvent = newLogs.find((l: any) => l.event_type === 'Instance Joined');
-          if (joinedEvent) {
-             const worldName = joinedEvent.content;
-             await SysApi.setDiscordRpc({
-               details: settings.discordRpcShowWorldName === 'true' ? `Playing in ${worldName}` : 'In VRChat',
-               state: 'Active',
-               showWorldThumbnail: settings.discordRpcShowWorldThumbnail === 'true',
-               showJoinButton: settings.discordRpcShowJoinButton === 'true',
-             });
+        if (settings && (settings.discordRpcEnabled === 'true' || settings.discordRpcEnabled === true)) {
+          if (settings.discordRpcEnableWorldIntegration === 'true' || settings.discordRpcEnableWorldIntegration === true) {
+            const joinedEvent = newLogs.find((l: any) => l.event_type === 'Instance Joined');
+            const roomName = currentInstanceState.roomName || joinedEvent?.content;
+            if (roomName) {
+              const showWorldName = settings.discordRpcShowWorldName === 'true' || settings.discordRpcShowWorldName === true;
+              const details = showWorldName ? `Playing in ${roomName}` : (settings.discordRpcDetails || 'In VRChat');
+
+              const showRoomTypeAndCount = settings.discordRpcShowRoomTypeAndCount === 'true' || settings.discordRpcShowRoomTypeAndCount === true;
+              let state = settings.discordRpcState || 'Active';
+              let partySize: [number, number] | undefined = undefined;
+
+              if (showRoomTypeAndCount && currentInstanceState.playerCount) {
+                const count = currentInstanceState.playerCount;
+                state = `${count} ${count === 1 ? 'player' : 'players'}`;
+                partySize = [currentInstanceState.players?.length || count, Math.max(count, currentInstanceState.players?.length || 1)];
+              }
+
+              const showPlatform = settings.discordRpcShowPlatform === 'true' || settings.discordRpcShowPlatform === true;
+              const showThumbnail = settings.discordRpcShowWorldThumbnail === 'true' || settings.discordRpcShowWorldThumbnail === true;
+              const showJoinButton = settings.discordRpcShowJoinButton === 'true' || settings.discordRpcShowJoinButton === true;
+
+              let joinUrl: string | undefined = undefined;
+              if (showJoinButton && currentInstanceState.location) {
+                const parsed = parseVrcLocation(currentInstanceState.location);
+                if (parsed) {
+                  joinUrl = `https://vrchat.com/home/launch?worldId=${parsed.worldId}&instanceId=${parsed.instanceId}`;
+                }
+              }
+
+              await SysApi.setDiscordRpc({
+                details,
+                state,
+                showWorldThumbnail: showThumbnail,
+                showJoinButton,
+                smallImage: showPlatform ? 'pc' : undefined,
+                smallText: showPlatform ? 'VRChat (PC)' : undefined,
+                partySize,
+                joinUrl,
+              });
+            }
           }
         }
       } catch (err) {

@@ -368,6 +368,26 @@ pub async fn sys_save_text_file(
 }
 
 #[tauri::command]
+pub async fn sys_read_text_file(
+    _app: tauri::AppHandle,
+    path: String,
+) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("File path is empty".to_string());
+    }
+    let p = std::path::PathBuf::from(trimmed);
+    if !p.is_file() {
+        return Err("Target file does not exist".to_string());
+    }
+    let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
+    if meta.len() > 50 * 1024 * 1024 {
+        return Err("File size exceeds 50MB limit".to_string());
+    }
+    std::fs::read_to_string(&p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn sys_save_binary_file(
     app: tauri::AppHandle,
     path: String,
