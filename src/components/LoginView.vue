@@ -5,7 +5,7 @@ import { Bone, Key, User, Loader2, Globe, ArrowLeft, Trash2, Settings, ArrowDown
 import { useI18n } from 'vue-i18n';
 import { getLocaleLabel, localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { currentTheme } from '../theme';
 import { getCookieValue, mergeCookiesAndSave, normalizeAuthCookieJson, parseCookieInput } from '../api/cookies';
@@ -61,7 +61,13 @@ async function loadSavedAccounts() {
 }
 
 async function persistSavedAccounts() {
-  await DbApi.saveSetting({ key: 'savedAccounts', value: JSON.stringify(savedAccounts.value) });
+  // 安全：桌面端 DbApi.saveSetting 落到应用私有 SQLite，浏览器/Web 构建则落到
+  // localStorage（同源任何脚本都可读）。因此 Web 模式下只持久化账号展示信息，
+  // 绝不落盘 authCookie，避免会话令牌被同源 XSS 或浏览器扩展直接取走。
+  const payload = isTauri()
+    ? savedAccounts.value
+    : savedAccounts.value.map(({ authCookie: _authCookie, ...rest }) => ({ ...rest, authCookie: '' }));
+  await DbApi.saveSetting({ key: 'savedAccounts', value: JSON.stringify(payload) });
 }
 
 function hasUsableAuthCookie(rawCookie: string | null | undefined): boolean {

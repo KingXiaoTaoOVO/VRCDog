@@ -15,6 +15,72 @@ static OSC_AUTOMATION: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()
     OnceLock::new();
 static AUTO_LAUNCH_APPS: OnceLock<Mutex<Vec<std::process::Child>>> = OnceLock::new();
 
+/// 自动启动项允许的可执行文件类型。
+///
+/// 该列表刻意只包含「双击即可运行」的文件类型，从而让 `sys_start_auto_launch_apps`
+/// 只具备「启动一个已存在的程序」的能力，而不是一个通用的任意命令执行原语。
+const AUTO_LAUNCH_ALLOWED_EXT: &[&str] = &["exe", "com", "lnk", "msc", "appref-ms"];
+
+/// 把一个自动启动项拆成 `(可执行文件路径, 参数字符串)`。
+/// 支持 `"C:\Program Files\App\app.exe" --flag` 与 `C:\App\app.exe --flag` 两种写法。
+fn split_auto_launch_entry(raw: &str) -> (String, String) {
+    let trimmed = raw.trim();
+    if let Some(stripped) = trimmed.strip_prefix('"') {
+        if let Some(end) = stripped.find('"') {
+            return (
+                stripped[..end].to_string(),
+                stripped[end + 1..].trim().to_string(),
+            );
+        }
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    for ext in AUTO_LAUNCH_ALLOWED_EXT {
+        let needle = format!(".{ext} ");
+        if let Some(idx) = lower.find(&needle) {
+            let cut = idx + ext.len() + 1;
+            return (trimmed[..cut].to_string(), trimmed[cut..].trim().to_string());
+        }
+    }
+    (trimmed.to_string(), String::new())
+}
+
+/// 校验自动启动项的可执行文件路径。
+///
+/// 修复点：原实现把前端传入的字符串直接交给 `Command::new(cmd).args(args)`，
+/// 于是 `"cmd.exe /c ..."`、`"powershell -Command ..."` 这类输入可以在本机执行任意命令
+/// （WebView 一旦被注入脚本即可升级为 RCE）。现在要求：
+/// 1. 必须是绝对路径，且是真实存在的普通文件；
+/// 2. 扩展名在 `AUTO_LAUNCH_ALLOWED_EXT` 白名单内；
+/// 3. 路径不含 shell 元字符，避免任何解释器层面的二次解析。
+fn validate_auto_launch_target(raw: &str) -> Result<std::path::PathBuf, String> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return Err("自动启动项为空".to_string());
+    }
+    if trimmed
+        .chars()
+        .any(|c| "&|<>^%!`$;()\n\r\t".contains(c) || c == '\0')
+    {
+        return Err(format!("自动启动项包含非法字符，已拒绝: {trimmed}"));
+    }
+    let path = std::path::PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err(format!("自动启动项必须是绝对路径: {trimmed}"));
+    }
+    if !path.is_file() {
+        return Err(format!("自动启动项不存在或不是文件: {trimmed}"));
+    }
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !AUTO_LAUNCH_ALLOWED_EXT.contains(&ext.as_str()) {
+        return Err(format!("不支持的自动启动文件类型: .{ext}"));
+    }
+    Ok(path)
+}
+
 #[tauri::command]
 pub fn sys_start_auto_launch_apps(apps: Vec<String>) -> AppResult<()> {
     let mut procs = AUTO_LAUNCH_APPS
@@ -26,37 +92,24 @@ pub fn sys_start_auto_launch_apps(apps: Vec<String>) -> AppResult<()> {
     } // Already launched
 
     for app in apps {
-        let app = app.trim();
-        if app.is_empty() {
+        if app.trim().is_empty() {
             continue;
         }
 
-        // Simple manual parsing to handle quotes and arguments
-        let (cmd, args) = if app.starts_with('"') {
-            if let Some(end_idx) = app[1..].find('"') {
-                let cmd = &app[1..end_idx];
-                let args_str = app[end_idx + 2..].trim();
-                let args = args_str.split_whitespace().collect::<Vec<_>>();
-                (cmd, args)
-            } else {
-                (app.trim_matches('"'), vec![])
-            }
-        } else if let Some(exe_idx) = app.to_lowercase().find(".exe ") {
-            let cmd = &app[..exe_idx + 4];
-            let args_str = app[exe_idx + 5..].trim();
-            let args = args_str.split_whitespace().collect::<Vec<_>>();
-            (cmd, args)
+        let (executable, args_str) = split_auto_launch_entry(&app);
+        // 先做安全校验：只允许启动「已存在的、白名单扩展名的绝对路径可执行文件」。
+        // 校验失败不再静默忽略，而是把原因回报给调用方，方便用户修正配置。
+        let executable = validate_auto_launch_target(&executable)?;
+
+        // 参数以独立 argv 元素传入，不经过 shell 解释
+        let args: Vec<&str> = if args_str.is_empty() {
+            Vec::new()
         } else {
-            let parts: Vec<&str> = app.split_whitespace().collect();
-            if parts.len() > 1 && !app.to_lowercase().contains(".exe") {
-                (parts[0], parts[1..].to_vec())
-            } else {
-                (app, vec![])
-            }
+            args_str.split_whitespace().collect()
         };
 
         // Launch and save actual child process so we can kill it later
-        if let Ok(child) = Command::new(cmd).args(args).spawn() {
+        if let Ok(child) = Command::new(&executable).args(args).spawn() {
             procs.push(child);
         }
     }
@@ -373,4 +426,60 @@ pub fn sys_show_in_explorer(path: String) -> AppResult<()> {
         .spawn()
         .map_err(|e| crate::AppError::from(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod auto_launch_tests {
+    use super::{split_auto_launch_entry, validate_auto_launch_target};
+
+    /// 在临时目录造一个白名单扩展名的真实文件，避免依赖测试二进制自身的后缀。
+    fn temp_executable(name: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(name);
+        std::fs::write(&path, b"stub").expect("create temp file");
+        path
+    }
+
+    #[test]
+    fn splits_quoted_entry_with_arguments() {
+        let (exe, args) = split_auto_launch_entry("\"C:\\Program Files\\App\\app.exe\" --flag 1");
+        assert_eq!(exe, "C:\\Program Files\\App\\app.exe");
+        assert_eq!(args, "--flag 1");
+    }
+
+    #[test]
+    fn splits_unquoted_entry_with_arguments() {
+        let (exe, args) = split_auto_launch_entry("C:\\Tools\\app.exe --flag");
+        assert_eq!(exe, "C:\\Tools\\app.exe");
+        assert_eq!(args, "--flag");
+    }
+
+    #[test]
+    fn accepts_existing_absolute_executable() {
+        let path = temp_executable("vrcdog-autolaunch-ok.exe");
+        assert!(validate_auto_launch_target(&path.to_string_lossy()).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rejects_shell_command_smuggling() {
+        // 修复前：`cmd.exe /c calc.exe` 会被当作可执行文件 + 参数直接 spawn
+        assert!(validate_auto_launch_target("cmd.exe /c calc.exe").is_err());
+        assert!(validate_auto_launch_target("C:\\Windows\\System32\\cmd.exe /c calc").is_err());
+        assert!(validate_auto_launch_target("C:\\Windows\\System32\\cmd.exe & whoami").is_err());
+        assert!(validate_auto_launch_target("C:\\Windows\\System32\\cmd.exe|calc").is_err());
+    }
+
+    #[test]
+    fn rejects_relative_and_missing_paths() {
+        assert!(validate_auto_launch_target("app.exe").is_err());
+        assert!(validate_auto_launch_target("C:\\definitely\\missing\\app.exe").is_err());
+    }
+
+    #[test]
+    fn rejects_non_executable_extension() {
+        let path = temp_executable("vrcdog-autolaunch-reject.txt");
+        assert!(validate_auto_launch_target(&path.to_string_lossy()).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
 }

@@ -197,29 +197,63 @@ function getRateLimitDelay(): number {
 
 // ==================== Safe Invoke ====================
 
-export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  // 脱敏：对任何含 credential/密钥语义的字段（password/cookie/auth/token/apiKey 等，
-  // 含 options.body 与响应体中的 auth_cookie）统一替换为 ***，防止会话令牌泄露到日志/控制台
-  const REDACT_KEY_RE = /^(password|passwd|secret|token|cookie|auth|credential|authorization|set-cookie|setcookie|api[_-]?key|apikey)$/i;
-  const sanitizeValue = (value: any): any => {
-    if (Array.isArray(value)) return value.map(sanitizeValue);
-    if (value && typeof value === 'object') {
-      const out: any = {};
-      for (const [k, v] of Object.entries(value)) {
-        out[k] = REDACT_KEY_RE.test(k) ? '***' : sanitizeValue(v);
-      }
-      return out;
+// 脱敏：对任何含 credential/密钥语义的字段统一替换为 ***，防止会话令牌泄露到日志/控制台。
+//
+// 修复点：
+// 1. 旧正则用 `^(...)$` 做**全词**匹配，而真实字段名是 `auth_cookie`、`authToken`、
+//    `client_token` 这类带下划线/驼峰的名字，全部漏网 → VRChat 会话 Cookie 明文进调试控制台。
+//    这里改成子串匹配（`auth` 能命中 `auth_cookie` / `authToken` / `twoFactorAuth`）。
+// 2. 旧实现只递归对象，`options.body` 是 JSON **字符串**，不会被解析脱敏。
+//    现在遇到 JSON 形态的字符串会先解析再脱敏，并按 Cookie 串规则擦除 `auth=...`。
+const REDACT_KEY_RE = /(password|passwd|passphrase|secret|token|cookie|auth|credential|api[_-]?key|apikey|session)/i;
+
+/** 匹配 Cookie 串里的 `auth=xxx` / `twoFactorAuth=xxx` 等键值对，只保留键名。 */
+const COOKIE_PAIR_RE = /((?:^|[;\s])(?:auth|twofactorauth|apikey|token|session|sessdata|bili_jct)\s*=\s*)([^;\s]+)/gi;
+
+function redactCookiePairs(value: string): string {
+  return value.replace(COOKIE_PAIR_RE, '$1***');
+}
+
+/** 递归脱敏任意值：命中敏感键名的字段整体替换为 `***`。 */
+export function sanitizeValue(value: any, depth = 0): any {
+  if (depth > 8) return value;
+  if (Array.isArray(value)) return value.map(item => sanitizeValue(item, depth + 1));
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    // JSON 形态的字符串（典型：options.body）先解析再脱敏
+    if (
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    ) {
+      try {
+        return JSON.stringify(sanitizeValue(JSON.parse(trimmed), depth + 1));
+      } catch { /* 不是合法 JSON，按普通字符串处理 */ }
     }
-    return value;
-  };
-  const sanitizeArgs = (originalArgs?: Record<string, unknown>) => {
-    if (!originalArgs) return originalArgs;
-    return sanitizeValue(JSON.parse(JSON.stringify(originalArgs)));
-  };
-  const sanitizeResponse = (res: any) => {
-    if (res === undefined || res === null) return res;
-    try { return sanitizeValue(JSON.parse(JSON.stringify(res))); } catch { return res; }
-  };
+    return redactCookiePairs(value);
+  }
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = REDACT_KEY_RE.test(k) ? '***' : sanitizeValue(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** 脱敏 invoke 参数。 */
+export function sanitizeArgs(originalArgs?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!originalArgs) return originalArgs;
+  try { return sanitizeValue(JSON.parse(JSON.stringify(originalArgs))); } catch { return originalArgs; }
+}
+
+/** 脱敏 invoke 响应。 */
+export function sanitizeResponse(res: any): any {
+  if (res === undefined || res === null) return res;
+  try { return sanitizeValue(JSON.parse(JSON.stringify(res))); } catch { return res; }
+}
+
+export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 
   if (!isTauri()) {
     console.warn(`[Browser Mode] API Command: ${cmd}`, sanitizeArgs(args));

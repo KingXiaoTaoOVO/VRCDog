@@ -38,6 +38,15 @@ struct PipelineEndpoint {
     resource: String,
 }
 
+/// 回环地址判定（含 `localhost` 域名与 `[::1]` 形式）。
+fn is_loopback_host(host: &str) -> bool {
+    let trimmed = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = trimmed.parse::<std::net::IpAddr>() {
+        return ip.is_loopback();
+    }
+    trimmed.eq_ignore_ascii_case("localhost")
+}
+
 fn parse_pipeline_url(url: Option<&str>) -> Result<PipelineEndpoint, String> {
     let raw = url
         .map(str::trim)
@@ -56,6 +65,16 @@ fn parse_pipeline_url(url: Option<&str>) -> Result<PipelineEndpoint, String> {
         .host_str()
         .ok_or_else(|| format!("URL 缺少 host：{raw}"))?
         .to_string();
+
+    // 明文 ws:// 只放行本机回环（文档中的「本地反向代理」用法）。
+    // 远端镜像必须使用 wss://，否则 VRChat 会话 token 会以明文查询参数
+    // （`?authToken=...`）在网络上传输，可被同一链路上的任意中间人直接截获。
+    if !secure && !is_loopback_host(&host) {
+        return Err(format!(
+            "非本机的实时推送地址必须使用 wss://（当前为明文 ws://，会话令牌会明文外发）：{raw}"
+        ));
+    }
+
     let port = parsed.port().unwrap_or(if secure { 443 } else { 80 });
     let mut resource = parsed.path().to_string();
     if resource.is_empty() {
@@ -518,5 +537,29 @@ mod tests {
     #[test]
     fn pipeline_url_rejects_http() {
         assert!(parse_pipeline_url(Some("https://pipeline.vrchat.cloud")).is_err());
+    }
+
+    #[test]
+    fn pipeline_url_rejects_plaintext_ws_to_remote_host() {
+        // 远端明文 ws:// 会把 authToken 暴露在网络上，必须拒绝
+        assert!(parse_pipeline_url(Some("ws://attacker.example.com:8080/socket")).is_err());
+        assert!(parse_pipeline_url(Some("ws://pipeline.vrchat.cloud/socket")).is_err());
+        // 本地回环代理仍然允许（文档中的本地反向代理用法）
+        assert!(parse_pipeline_url(Some("ws://localhost:8080/socket")).is_ok());
+        assert!(parse_pipeline_url(Some("ws://[::1]:8080/socket")).is_ok());
+        // 远端镜像走 wss 不受影响
+        assert!(parse_pipeline_url(Some("wss://mirror.example.com:8443/socket")).is_ok());
+    }
+
+    #[test]
+    fn loopback_host_detection() {
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("127.1.2.3"));
+        assert!(is_loopback_host("::1"));
+        assert!(is_loopback_host("[::1]"));
+        assert!(is_loopback_host("localhost"));
+        assert!(is_loopback_host("LOCALHOST"));
+        assert!(!is_loopback_host("10.0.0.1"));
+        assert!(!is_loopback_host("pipeline.vrchat.cloud"));
     }
 }

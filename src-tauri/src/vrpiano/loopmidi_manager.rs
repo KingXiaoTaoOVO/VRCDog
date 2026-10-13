@@ -252,8 +252,11 @@ pub async fn check_official_latest_loopmidi() -> (String, String) {
         Err(_) => return get_cached_or_default_official_info(),
     };
 
-    // Regex match: https://www.tobias-erichsen.de/wp-content/uploads/2020/01/loopMIDISetup_1_0_16_27.zip
-    let re = regex::Regex::new(r#"https?://[^\s"'<>]+/wp-content/uploads/[^\s"'<>]+/loopMIDISetup_([0-9_]+)\.zip"#).unwrap();
+    // 主机必须被钉死在官方站点：原正则 `https?://[^\s"'<>]+/wp-content/uploads/...`
+    // 允许任意域名，只要路径形如 `/wp-content/uploads/*/loopMIDISetup_<数字>.zip`
+    // 就会命中。若官方页面被篡改（或未来改成由第三方镜像页提供链接），
+    // 下载到的就是攻击者控制的 zip，而其中的 loopMIDISetup.exe 会以 RunAs 提权执行。
+    let re = regex::Regex::new(r#"https?://(?:www\.)?tobias-erichsen\.de/wp-content/uploads/[^\s"'<>]+/loopMIDISetup_([0-9_]+)\.zip"#).unwrap();
     if let Some(caps) = re.captures(&body) {
         let full_url = caps.get(0).map(|m| m.as_str().to_string()).unwrap_or_else(|| FALLBACK_DOWNLOAD_URL.to_string());
         let raw_ver = caps.get(1).map(|m| m.as_str()).unwrap_or("1_0_16_27");
@@ -333,10 +336,34 @@ pub async fn get_loopmidi_status() -> LoopMidiStatus {
 
 /// Automatically downloads the official latest loopMIDI installer, unzips it,
 /// and launches the installation wizard with administrative privileges.
+/// 下载/安装链路只允许访问 loopMIDI 官方站点，避免被重定向或第三方镜像投毒。
+fn ensure_official_download_url(url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("下载地址无效: {e}"))?;
+    if parsed.scheme() != "https" {
+        return Err("下载地址必须使用 HTTPS".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "下载地址缺少主机名".to_string())?
+        .to_ascii_lowercase();
+    if host == "tobias-erichsen.de" || host == "www.tobias-erichsen.de" {
+        Ok(())
+    } else {
+        Err(format!("拒绝从非官方主机下载 loopMIDI: {host}"))
+    }
+}
+
+/// PowerShell 单引号字符串里，单引号需要写成两个单引号；路径中若含 `'`
+/// （例如用户名是 O'Brien）否则会破坏脚本语法并可能被用于注入。
+fn escape_ps_single_quotes(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 pub async fn download_and_install_loopmidi(app: AppHandle) -> Result<(), String> {
     emit_progress(&app, "checking", 0.05, 0, 0, "正在连接官方服务器检测最新版 loopMIDI...");
 
     let (latest_version, download_url) = check_official_latest_loopmidi().await;
+    ensure_official_download_url(&download_url)?;
 
     let cache_dir = app
         .path()
@@ -414,8 +441,8 @@ pub async fn download_and_install_loopmidi(app: AppHandle) -> Result<(), String>
 
     let ps_cmd = format!(
         "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
-        zip_path.to_string_lossy(),
-        extract_dir.to_string_lossy()
+        escape_ps_single_quotes(&zip_path.to_string_lossy()),
+        escape_ps_single_quotes(&extract_dir.to_string_lossy())
     );
 
     let extract_status = std::process::Command::new("powershell")
@@ -447,7 +474,7 @@ pub async fn download_and_install_loopmidi(app: AppHandle) -> Result<(), String>
 
     let run_cmd = format!(
         "Start-Process -FilePath '{}' -Verb RunAs",
-        installer_exe.to_string_lossy()
+        escape_ps_single_quotes(&installer_exe.to_string_lossy())
     );
 
     std::process::Command::new("powershell")
@@ -480,7 +507,10 @@ pub fn launch_loopmidi() -> Result<(), String> {
 
     let spawn_res = cmd.spawn();
     if spawn_res.is_err() {
-        let ps_cmd = format!("Start-Process -FilePath '{}'", exe_path.to_string_lossy());
+        let ps_cmd = format!(
+            "Start-Process -FilePath '{}'",
+            escape_ps_single_quotes(&exe_path.to_string_lossy())
+        );
         std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_cmd])
             .spawn()
@@ -576,6 +606,43 @@ pub fn broadcast_device_change() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn official_download_url_accepts_only_official_host() {
+        assert!(ensure_official_download_url(
+            "https://www.tobias-erichsen.de/wp-content/uploads/2020/01/loopMIDISetup_1_0_16_27.zip"
+        )
+        .is_ok());
+        assert!(ensure_official_download_url(
+            "https://tobias-erichsen.de/wp-content/uploads/2020/01/loopMIDISetup_1_0_16_27.zip"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn official_download_url_rejects_third_party_hosts() {
+        // 任意域名 + 相同路径结构都曾被旧正则放行
+        assert!(ensure_official_download_url(
+            "https://evil.example.com/wp-content/uploads/2020/01/loopMIDISetup_1_0_16_27.zip"
+        )
+        .is_err());
+        assert!(ensure_official_download_url(
+            "https://tobias-erichsen.de.evil.example.com/wp-content/uploads/x/loopMIDISetup_1.zip"
+        )
+        .is_err());
+        // 明文 HTTP 与非法 scheme 同样拒绝
+        assert!(ensure_official_download_url(
+            "http://www.tobias-erichsen.de/wp-content/uploads/x/loopMIDISetup_1.zip"
+        )
+        .is_err());
+        assert!(ensure_official_download_url("file:///C:/Windows/System32/cmd.exe").is_err());
+    }
+
+    #[test]
+    fn powershell_single_quotes_are_escaped() {
+        assert_eq!(escape_ps_single_quotes("C:\\Users\\O'Brien\\x.zip"), "C:\\Users\\O''Brien\\x.zip");
+        assert_eq!(escape_ps_single_quotes("plain"), "plain");
+    }
 
     #[test]
     fn test_version_up_to_date_comparison() {

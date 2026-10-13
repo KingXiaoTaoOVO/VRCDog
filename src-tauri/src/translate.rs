@@ -195,6 +195,65 @@ pub async fn translate(req: &TranslateRequest) -> Result<TranslateResult, String
     Err(last_error)
 }
 
+/// 判断主机是否为「本机或内网」地址（用于放行局域网/本机自建 LLM 服务）。
+fn is_local_or_private_host(host: &str) -> bool {
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if bare.eq_ignore_ascii_case("localhost") || bare.ends_with(".localhost") {
+        return true;
+    }
+    match bare.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                // 唯一本地地址 fc00::/7
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                // 链路本地 fe80::/10
+                || (v6.octets()[0] == 0xfe && (v6.octets()[1] & 0xc0) == 0x80)
+        }
+        Err(_) => false,
+    }
+}
+
+/// 校验用户自定义的 LLM 端点。
+///
+/// 修复点：`custom_api_url` 原样交给 reqwest 请求，且用户的 `api_key` 会作为
+/// `Authorization: Bearer` 发往该地址，等于把「自定义服务地址」变成 SSRF 跳板 +
+/// 密钥外发通道。这里限制 scheme、显式拒绝云元数据地址，并要求公网地址必须走 HTTPS。
+/// 本机 / 内网地址仍然放行，因为自建 Ollama、LM Studio、局域网推理服务是合法用法。
+fn validate_custom_llm_endpoint(url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("自定义 LLM API URL 无效: {e}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!(
+            "自定义 LLM API URL 仅支持 http/https，收到: {}",
+            parsed.scheme()
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "自定义 LLM API URL 缺少主机名".to_string())?
+        .to_ascii_lowercase();
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+
+    // 云元数据地址永远不是合法的 LLM 端点，命中即拒绝（防止读取实例凭据）
+    let is_metadata = bare == "169.254.169.254"
+        || bare == "metadata.google.internal"
+        || bare == "metadata"
+        || bare == "fd00:ec2::254";
+    if is_metadata {
+        return Err(format!("拒绝把自定义 LLM API 指向云元数据地址: {host}"));
+    }
+
+    if parsed.scheme() == "http" && !is_local_or_private_host(&host) {
+        return Err(format!(
+            "非本机/内网的自定义 LLM API 必须使用 HTTPS（否则 API Key 会明文外发）: {host}"
+        ));
+    }
+    Ok(())
+}
+
 async fn translate_provider(req: &TranslateRequest) -> Result<TranslateResult, String> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -208,6 +267,7 @@ async fn translate_provider(req: &TranslateRequest) -> Result<TranslateResult, S
         }
         "qwen" | "dashscope" => {
             let endpoint = if !req.custom_api_url.is_empty() && req.custom_api_url.starts_with("http") {
+                validate_custom_llm_endpoint(&req.custom_api_url)?;
                 req.custom_api_url.as_str()
             } else if req.model.contains("intl") || req.api_key.starts_with("sk-intl") || req.custom_api_url.contains("intl") {
                 "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
@@ -285,6 +345,7 @@ async fn translate_provider(req: &TranslateRequest) -> Result<TranslateResult, S
             if req.custom_api_url.is_empty() {
                 return Err("自定义 LLM API URL 未配置".into());
             }
+            validate_custom_llm_endpoint(&req.custom_api_url)?;
             translate_openai_compat(&client, req, &req.custom_api_url).await?
         }
         "gemini" => translate_gemini(&client, req).await?,
@@ -1051,6 +1112,27 @@ pub async fn ovr_translate(req: TranslateRequest) -> crate::AppResult<TranslateR
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_llm_endpoint_allows_local_and_private_hosts() {
+        // 自建 Ollama / LM Studio / 局域网推理服务属于合法用法
+        assert!(validate_custom_llm_endpoint("http://127.0.0.1:11434/v1/chat/completions").is_ok());
+        assert!(validate_custom_llm_endpoint("http://localhost:1234/v1/chat/completions").is_ok());
+        assert!(validate_custom_llm_endpoint("http://192.168.1.50:8000/v1/chat/completions").is_ok());
+        assert!(validate_custom_llm_endpoint("https://api.example.com/v1/chat/completions").is_ok());
+    }
+
+    #[test]
+    fn custom_llm_endpoint_rejects_metadata_and_plaintext_public() {
+        // 云元数据地址是 SSRF 的主要目标，必须拒绝
+        assert!(validate_custom_llm_endpoint("http://169.254.169.254/latest/meta-data/").is_err());
+        assert!(validate_custom_llm_endpoint("http://metadata.google.internal/x").is_err());
+        // 公网明文 HTTP 会把 API Key 暴露在网络上
+        assert!(validate_custom_llm_endpoint("http://api.example.com/v1/chat/completions").is_err());
+        // 非 http(s) scheme
+        assert!(validate_custom_llm_endpoint("file:///C:/Windows/System32/drivers/etc/hosts").is_err());
+        assert!(validate_custom_llm_endpoint("gopher://127.0.0.1:70/").is_err());
+    }
 
     fn request(text: &str) -> TranslateRequest {
         TranslateRequest {

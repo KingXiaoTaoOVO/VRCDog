@@ -132,6 +132,22 @@ impl RemoteAssistHub {
         let salt = uuid::Uuid::new_v4().as_bytes().to_vec();
         let mut salt_arr = [0u8; 16];
         salt_arr.copy_from_slice(&salt);
+
+        // 设备 ID 劫持防护：任何人都能连上这个 WS 端点并声称自己是某个 device_id。
+        // 若直接覆盖已有注册，攻击者就能顶掉受害者连接，并让定向到该设备的中继流量
+        // （会话元数据 + 加密载荷）改投到自己这里，同时把受害者挤下线。
+        // 因此只有当提交的口令与「已注册设备的口令」一致时，才允许替换旧连接。
+        {
+            let state = self.inner.read().await;
+            if let Some(existing) = state.peers.get(&device_id) {
+                if hash_password(&password, &existing.salt) != existing.password_hash {
+                    return Err(
+                        "This device ID is already registered by another session".to_string()
+                    );
+                }
+            }
+        }
+
         let peer = Peer {
             sender: sender.clone(),
             password_hash: hash_password(&password, &salt_arr),
@@ -408,5 +424,68 @@ fn hash_password(password: &str, salt: &[u8; 16]) -> [u8; 32] {
 fn send_json(sender: &mpsc::Sender<Message>, value: Value) {
     if let Ok(text) = serde_json::to_string(&value) {
         let _ = sender.try_send(Message::Text(text.into()));
+    }
+}
+
+#[cfg(test)]
+mod hub_tests {
+    use super::*;
+
+    fn register_payload(device_id: &str, password: &str) -> Value {
+        json!({
+            "type": "register",
+            "device_id": device_id,
+            "password": password,
+            "hostname": "test-host",
+            "public_key": "test-public-key"
+        })
+    }
+
+    #[tokio::test]
+    async fn rejects_device_id_hijack_with_wrong_password() {
+        let hub = RemoteAssistHub::default();
+        let (first_tx, _first_rx) = mpsc::channel::<Message>(8);
+        assert!(hub
+            .register_peer(register_payload("dev-a", "correct-horse"), first_tx)
+            .await
+            .is_ok());
+
+        // 攻击者用同一个 device_id + 自己的口令注册，必须被拒绝，
+        // 否则受害者连接会被顶掉且中继流量被劫持。
+        let (attacker_tx, _attacker_rx) = mpsc::channel::<Message>(8);
+        let result = hub
+            .register_peer(register_payload("dev-a", "attacker-guess"), attacker_tx)
+            .await;
+        assert!(result.is_err(), "不同口令不得顶掉已有设备注册");
+
+        // 原注册必须仍然有效
+        assert!(hub.inner.read().await.peers.contains_key("dev-a"));
+    }
+
+    #[tokio::test]
+    async fn allows_same_device_to_reconnect() {
+        let hub = RemoteAssistHub::default();
+        let (first_tx, _first_rx) = mpsc::channel::<Message>(8);
+        assert!(hub
+            .register_peer(register_payload("dev-b", "shared-secret"), first_tx)
+            .await
+            .is_ok());
+
+        // 同一台设备（持同一口令）重连应当允许替换旧连接
+        let (second_tx, _second_rx) = mpsc::channel::<Message>(8);
+        assert!(hub
+            .register_peer(register_payload("dev-b", "shared-secret"), second_tx)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn first_registration_always_succeeds() {
+        let hub = RemoteAssistHub::default();
+        let (tx, _rx) = mpsc::channel::<Message>(8);
+        assert!(hub
+            .register_peer(register_payload("fresh-device", "any"), tx)
+            .await
+            .is_ok());
     }
 }

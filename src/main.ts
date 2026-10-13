@@ -3,6 +3,13 @@ import { createApp } from "vue";
 import { createPinia } from 'pinia';
 
 const isTrayMenuMode = window.location.search.includes('mode=tray-menu');
+
+// 托盘菜单模式通过 query string 标记。该逻辑原先写在 index.html 的内联 <script> 里，
+// 而内联脚本会让生产 CSP 只能停留在 'unsafe-inline'（XSS 防护形同虚设）。
+// 迁移到模块里之后，生产 CSP 可以使用严格的 `script-src 'self'`。
+if (isTrayMenuMode) {
+  document.documentElement.classList.add('tray-menu-mode');
+}
 const STARTUP_RECOVERY_KEY = 'vrcdog-startup-network-recovered';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));

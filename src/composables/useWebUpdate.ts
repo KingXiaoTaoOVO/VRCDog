@@ -34,9 +34,29 @@ function cmpVersions(a: string, b: string): number {
   return 0;
 }
 
-async function fetchUpdateFromSource(source: string): Promise<WebUpdateInfo | null> {
+/**
+ * 只接受 https URL 并返回规范化后的 href，其它一律返回 null。
+ *
+ * 更新源地址可由用户改写（localStorage `vrcdog_web_update_source`），
+ * 而响应里的 `html_url` 又会被直接交给 `window.open`。若不做校验，
+ * 一个被改写/被中间人篡改的更新源就能返回 `javascript:...` 或 `data:` 链接，
+ * 点击「应用更新」即在本应用 WebView 上下文中执行脚本。
+ */
+function sanitizeHttpsUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
   try {
-    const res = await fetch(source, {
+    const parsed = new URL(raw.trim());
+    return parsed.protocol === 'https:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchUpdateFromSource(source: string): Promise<WebUpdateInfo | null> {
+  const safeSource = sanitizeHttpsUrl(source);
+  if (!safeSource) return null;
+  try {
+    const res = await fetch(safeSource, {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return null;
@@ -45,7 +65,7 @@ async function fetchUpdateFromSource(source: string): Promise<WebUpdateInfo | nu
     const name = data.name || version;
     const published_at = data.published_at || data.publishedAt || '';
     const body = data.body || '';
-    const html_url = data.html_url || data.url || '';
+    const html_url = sanitizeHttpsUrl(data.html_url || data.url) || '';
     if (!version) return null;
     return { version, name, published_at, body, html_url };
   } catch {
@@ -66,7 +86,8 @@ export function useWebUpdate() {
   const loadSettings = async () => {
     try {
       const raw = localStorage.getItem('vrcdog_web_update_source');
-      if (raw) updateSource.value = raw;
+      const safe = sanitizeHttpsUrl(raw);
+      if (safe) updateSource.value = safe;
     } catch {
       // ignore
     }
@@ -74,7 +95,9 @@ export function useWebUpdate() {
 
   const saveSettings = async () => {
     try {
-      localStorage.setItem('vrcdog_web_update_source', updateSource.value);
+      const safe = sanitizeHttpsUrl(updateSource.value) || DEFAULT_UPDATE_SOURCE;
+      updateSource.value = safe;
+      localStorage.setItem('vrcdog_web_update_source', safe);
     } catch {
       // ignore
     }
@@ -113,8 +136,10 @@ export function useWebUpdate() {
   };
 
   const applyUpdate = () => {
-    if (updateInfo.value?.html_url) {
-      window.open(updateInfo.value.html_url, '_blank');
+    // html_url 已在 fetchUpdateFromSource 中收敛为 https，这里再校验一次作为纵深防御
+    const safeUrl = sanitizeHttpsUrl(updateInfo.value?.html_url);
+    if (safeUrl) {
+      window.open(safeUrl, '_blank');
     }
     window.location.reload();
   };

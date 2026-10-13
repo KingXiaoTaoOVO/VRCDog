@@ -6,15 +6,11 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VrcDog</title>
-    <script>
-      (function() {
-        try {
-          if (window.location.search.indexOf('mode=tray-menu') !== -1) {
-            document.documentElement.classList.add('tray-menu-mode');
-          }
-        } catch (e) {}
-      })();
-    </script>
+    <!--
+      Tray-menu 模式原本在 <head> 里放了一段内联 JavaScript 给 <html> 加 class。
+      内联 JavaScript 会迫使生产 CSP 放宽到 'unsafe-inline'（等于放弃 XSS 防护），
+      因此该逻辑已迁移到 src/main.ts 顶部，CSP 可以保持 script-src 'self'。
+    -->
     <style>
       html.tray-menu-mode,
       html.tray-menu-mode body,

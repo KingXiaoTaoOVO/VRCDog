@@ -241,14 +241,140 @@ fn get_dir_size(path: &PathBuf) -> std::io::Result<u64> {
     Ok(size)
 }
 
-#[tauri::command]
-pub async fn sys_save_text_file(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+/// 可执行/脚本类扩展名。这些文件一旦落盘即可能被执行，因此只允许写入应用自己的
+/// 数据目录或用户临时目录，防止「导出文件」能力被当作持久化 / 自启动原语使用。
+const SCRIPT_LIKE_EXT: &[&str] = &[
+    "exe", "com", "scr", "pif", "dll", "sys", "ocx", "cpl", "drv", "msi", "msp", "mst", "bat",
+    "cmd", "ps1", "psm1", "psd1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "reg", "lnk",
+    "url", "inf", "jar", "scf", "application",
+];
+
+/// 禁止写入的系统目录（对目录做 canonicalize 后按前缀匹配）。
+fn protected_write_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for key in [
+        "SystemRoot",
+        "WINDIR",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "ProgramData",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            if let Ok(canonical) = std::fs::canonicalize(&value) {
+                roots.push(canonical);
+            }
+        }
+    }
+    // 当前用户的「启动」文件夹：写入这里等于配置开机自启
+    if let Some(data) = dirs::data_dir() {
+        roots.push(
+            data.join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("Startup"),
+        );
+    }
+    roots
+}
+
+/// 目标目录落在受保护的系统目录内则拒绝。
+fn ensure_not_protected_dir(dir: &std::path::Path) -> Result<(), String> {
+    for root in protected_write_roots() {
+        if dir.starts_with(&root) {
+            return Err(format!(
+                "拒绝写入受保护的系统目录: {}",
+                dir.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 校验由前端提供的写入目标路径。
+///
+/// 修复点：`sys_save_text_file` / `sys_save_binary_file` 原先直接 `fs::write(&path, ..)`，
+/// 前端（或任何注入到 WebView 的脚本）可以把任意内容写到任意可写路径——包括往
+/// 「启动」文件夹丢一个 `.bat`、覆盖其它用户文件、或改写应用自身的安装文件。
+/// 现在统一要求：绝对路径、不含 `..`、父目录真实存在、不落在受保护系统目录，
+/// 且可执行/脚本类扩展名只能写进应用数据目录或临时目录。
+fn validate_write_target(app: &tauri::AppHandle, raw_path: &str) -> Result<PathBuf, String> {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() {
+        return Err("写入路径为空".to_string());
+    }
+    let candidate = PathBuf::from(trimmed);
+    if !candidate.is_absolute() {
+        return Err("写入路径必须是绝对路径".to_string());
+    }
+    if candidate
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("写入路径不允许包含 `..`".to_string());
+    }
+    let parent = candidate
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .ok_or_else(|| "写入路径缺少父目录".to_string())?;
+    let parent_canonical = parent
+        .canonicalize()
+        .map_err(|error| format!("目标目录不可用: {error}"))?;
+    ensure_not_protected_dir(&parent_canonical)?;
+
+    // 目标已存在时跟随符号链接再判定一次，避免用软链接绕过上面的目录检查
+    if let Ok(existing) = candidate.canonicalize() {
+        if let Some(existing_parent) = existing.parent() {
+            ensure_not_protected_dir(existing_parent)?;
+        }
+    }
+
+    let ext = candidate
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if SCRIPT_LIKE_EXT.contains(&ext.as_str()) {
+        let app_dir_ok = app
+            .path()
+            .app_data_dir()
+            .ok()
+            .and_then(|dir| std::fs::canonicalize(dir).ok())
+            .map(|dir| parent_canonical.starts_with(&dir))
+            .unwrap_or(false);
+        let temp_ok = std::fs::canonicalize(std::env::temp_dir())
+            .map(|dir| parent_canonical.starts_with(&dir))
+            .unwrap_or(false);
+        if !app_dir_ok && !temp_ok {
+            return Err(format!(
+                "出于安全考虑，拒绝把可执行/脚本文件写入该目录: {}",
+                parent_canonical.display()
+            ));
+        }
+    }
+
+    Ok(candidate)
 }
 
 #[tauri::command]
-pub async fn sys_save_binary_file(path: String, content: Vec<u8>) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+pub async fn sys_save_text_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let target = validate_write_target(&app, &path)?;
+    std::fs::write(&target, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sys_save_binary_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: Vec<u8>,
+) -> Result<(), String> {
+    let target = validate_write_target(&app, &path)?;
+    std::fs::write(&target, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -762,6 +888,9 @@ pub async fn sys_save_vrc_config(content: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Result<(), String> {
+    // dest_path 由前端提供，必须经过与普通写文件相同的校验，
+    // 否则 `fs::copy` 会变成一个「用数据库内容覆盖任意文件」的原语。
+    let target = validate_write_target(&app, &dest_path)?;
     if let Ok(app_dir) = app.path().app_data_dir() {
         let database_path = app_dir.join("vrcdog.db");
         let legacy_path = app_dir.join("livehime.db");
@@ -771,7 +900,7 @@ pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Re
             legacy_path
         };
         if source_path.exists() {
-            std::fs::copy(&source_path, &dest_path).map_err(|e| format!("Backup failed: {}", e))?;
+            std::fs::copy(&source_path, &target).map_err(|e| format!("Backup failed: {}", e))?;
             return Ok(());
         }
         return Err("Database file not found".to_string());
@@ -781,9 +910,31 @@ pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Re
 
 #[tauri::command]
 pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Result<(), String> {
+    let trimmed = src_path.trim();
+    if trimmed.is_empty() {
+        return Err("Restore source path is empty".to_string());
+    }
+    let source = PathBuf::from(trimmed);
+    if !source.is_absolute() || !source.is_file() {
+        return Err("Restore source must be an existing absolute file path".to_string());
+    }
+    // 只接受 .db / .sqlite / 无扩展名的数据库文件，且不得来自受保护的系统目录
+    let ext = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !ext.is_empty() && !matches!(ext.as_str(), "db" | "sqlite" | "sqlite3" | "bak") {
+        return Err("Restore source must be a database file (.db/.sqlite)".to_string());
+    }
+    if let Some(parent) = source.parent() {
+        if let Ok(parent_canonical) = parent.canonicalize() {
+            ensure_not_protected_dir(&parent_canonical)?;
+        }
+    }
     if let Ok(app_dir) = app.path().app_data_dir() {
         let database_path = app_dir.join("vrcdog.db");
-        std::fs::copy(&src_path, &database_path).map_err(|e| format!("Restore failed: {}", e))?;
+        std::fs::copy(&source, &database_path).map_err(|e| format!("Restore failed: {}", e))?;
         return Ok(());
     }
     Err("Cannot resolve app data directory".to_string())
@@ -1172,5 +1323,52 @@ pub async fn sys_apply_proxy(
 
     let _ = app.emit("app://proxy-updated", effective);
     Ok(())
+}
+
+#[cfg(test)]
+mod write_guard_tests {
+    use super::{ensure_not_protected_dir, protected_write_roots, SCRIPT_LIKE_EXT};
+
+    #[test]
+    fn protected_roots_are_discovered() {
+        // 至少应当能识别出 Windows 系统目录（非 Windows 平台允许为空）
+        #[cfg(target_os = "windows")]
+        assert!(!protected_write_roots().is_empty());
+        #[cfg(not(target_os = "windows"))]
+        let _ = protected_write_roots();
+    }
+
+    #[test]
+    fn system_directories_are_rejected() {
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(windir) = std::env::var("WINDIR") {
+                if let Ok(canonical) = std::fs::canonicalize(&windir) {
+                    assert!(ensure_not_protected_dir(&canonical).is_err());
+                    assert!(ensure_not_protected_dir(&canonical.join("System32")).is_err());
+                }
+            }
+        }
+        // 用户目录必须放行，否则「导出日志到桌面」这类功能会被误伤
+        if let Some(home) = dirs::home_dir() {
+            if let Ok(canonical) = std::fs::canonicalize(&home) {
+                assert!(ensure_not_protected_dir(&canonical).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn script_extensions_cover_persistence_vectors() {
+        for ext in ["bat", "cmd", "ps1", "vbs", "lnk", "exe", "dll", "reg"] {
+            assert!(
+                SCRIPT_LIKE_EXT.contains(&ext),
+                "{ext} 应当被列为可执行/脚本类扩展名"
+            );
+        }
+        // 普通导出格式不应被限制
+        for ext in ["txt", "json", "csv", "xlsx", "log", "db"] {
+            assert!(!SCRIPT_LIKE_EXT.contains(&ext), "{ext} 不应被限制");
+        }
+    }
 }
 

@@ -71,10 +71,30 @@ pub async fn vrct_translate_image(request: PhotoTranslateRequest) -> crate::AppR
     })
 }
 
+/// 把前端传入的 OCR 语言标签收敛为 `[A-Za-z0-9-]` 白名单，最长 20 字符。
+///
+/// 该值会被内联进 PowerShell 脚本的字符串字面量（`"{lang}"`），而 PowerShell 的
+/// **双引号**字符串会展开 `$(...)` 与反引号，单引号字符串又需要转义——任何转义方案
+/// 都容易被绕过。这里改用白名单过滤：合法语言标签（`zh-Hans-CN`、`ja`、`en-US`…）
+/// 本来就只有字母、数字和连字符，过滤后既不可能构造出引号，也不影响正常识别。
+fn sanitize_lang_tag(raw: &str) -> String {
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(20)
+        .collect();
+    if cleaned.is_empty() {
+        "auto".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// OCR a user-selected image without persisting a processed copy.
 pub async fn extract_text_from_image(path: &std::path::Path, ocr_lang: &str) -> Result<String, String> {
     let image_path = path.to_string_lossy().replace('\'', "''");
-    let lang = ocr_lang.replace('\'', "''");
+    let lang = sanitize_lang_tag(ocr_lang).replace('\'', "''");
     let script = format!(r#"
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null = [Windows.Media.Ocr.OcrEngine,Windows.Foundation.UniversalApiContract,ContentType=WindowsRuntime]
@@ -154,6 +174,9 @@ try {{
         ocr_lang: &str,
         image_enhance: bool,
     ) -> Result<String, String> {
+        // 语言标签来自前端配置（OvrConfig.ocr_language），必须白名单化后才能内联进
+        // PowerShell 脚本；否则 `"` / `$()` 可闭合字符串并以当前用户身份执行任意命令。
+        let lang = sanitize_lang_tag(ocr_lang);
         let enhance_block = if image_enhance {
             r#"
 # Image Enhancement: Sharpen + Contrast boost
@@ -240,7 +263,7 @@ try {{
 }}
 "#,
             enhance = enhance_block,
-            lang = ocr_lang
+            lang = lang
         );
 
         let output = tokio::task::spawn_blocking(move || {
@@ -298,5 +321,47 @@ try {{
         } else {
             Ok(ocr_text)
         }
+    }
+}
+
+#[cfg(test)]
+mod lang_tag_tests {
+    use super::sanitize_lang_tag;
+
+    #[test]
+    fn keeps_legitimate_language_tags() {
+        assert_eq!(sanitize_lang_tag("zh-Hans-CN"), "zh-Hans-CN");
+        assert_eq!(sanitize_lang_tag("en-US"), "en-US");
+        assert_eq!(sanitize_lang_tag("ja"), "ja");
+        assert_eq!(sanitize_lang_tag("  auto  "), "auto");
+    }
+
+    #[test]
+    fn strips_powershell_metacharacters() {
+        // 典型注入载荷：闭合双引号后追加命令
+        let payload = "\"); Start-Process calc; #";
+        let cleaned = sanitize_lang_tag(payload);
+        assert!(!cleaned.contains('"'));
+        assert!(!cleaned.contains(';'));
+        assert!(!cleaned.contains('$'));
+        assert!(!cleaned.contains(' '));
+        // 子表达式注入 `$(...)` 同样被过滤成普通字符
+        let sub = sanitize_lang_tag("$(Start-Process calc)");
+        assert!(!sub.contains('$'));
+        assert!(!sub.contains('('));
+        assert!(!sub.contains(')'));
+    }
+
+    #[test]
+    fn empty_input_falls_back_to_auto() {
+        assert_eq!(sanitize_lang_tag(""), "auto");
+        assert_eq!(sanitize_lang_tag("   "), "auto");
+        assert_eq!(sanitize_lang_tag("\";;"), "auto");
+    }
+
+    #[test]
+    fn caps_length() {
+        let long = "a".repeat(500);
+        assert_eq!(sanitize_lang_tag(&long).len(), 20);
     }
 }

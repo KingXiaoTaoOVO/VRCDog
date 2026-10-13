@@ -420,14 +420,28 @@ fso.DeleteFile WScript.ScriptFullName, True
 }
 
 /// Write the bootstrapper `.vbs` file to `%TEMP%`. Returns the path.
+///
+/// 安全要点：文件名使用随机 nonce 并以 `create_new`（O_EXCL）创建。
+/// 旧实现用 `pid + 秒级时间戳` 命名再 `fs::write`（截断写），同机其它进程可以
+/// 预测路径并抢先创建 / 用符号链接替换，从而让随后由 `wscript` 启动的引导脚本
+/// （可能触发 UAC 提权）执行攻击者指定的内容。
 fn write_bootstrap_script(pid: u32) -> Result<PathBuf, String> {
+    use std::io::Write;
+
     let tmp_dir = std::env::temp_dir();
     std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| format!("无法创建临时目录: {e}"))?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let script = tmp_dir.join(format!("vrcdog-update-{}-{}.vbs", pid, stamp));
-    std::fs::write(&script, render_silent_bootstrap_script().as_bytes())
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let script = tmp_dir.join(format!("vrcdog-update-{}-{}.vbs", pid, nonce));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&script)
+        .map_err(|e| format!("无法创建引导脚本: {e}"))?;
+    file.write_all(render_silent_bootstrap_script().as_bytes())
         .map_err(|e| format!("无法写入引导脚本: {e}"))?;
+    file.flush()
+        .map_err(|e| format!("无法落盘引导脚本: {e}"))?;
     Ok(script)
 }
 
