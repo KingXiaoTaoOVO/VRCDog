@@ -4428,7 +4428,21 @@ async fn search_midishow_webview(
         }
         if (id && !seen.has(id)) {
           seen.add(id);
-          const title = (link && link.textContent) ? link.textContent.trim() : ('MIDI #' + id);
+          let rawTitle = (link && link.textContent) ? link.textContent.trim() : ('MIDI #' + id);
+          const titleEl = link ? link.querySelector('.title, .name, [class*="title"], [class*="name"], h3, h4, h5, strong') : null;
+          if (titleEl && titleEl.textContent && titleEl.textContent.trim()) {
+            rawTitle = titleEl.textContent.trim();
+          }
+          if (rawTitle.includes('•')) {
+            rawTitle = rawTitle.split('•')[0].trim();
+          }
+          for (const m of ['Uploaded at', 'uploaded at', '上传人', 'Artist:', 'Author:', 'Uploader:']) {
+            const idx = rawTitle.indexOf(m);
+            if (idx !== -1) {
+              rawTitle = rawTitle.slice(0, idx).trim();
+            }
+          }
+          const title = rawTitle || ('MIDI #' + id);
           const artistEl = card.querySelector('.artist, .author, [class*="artist"], [class*="author"]');
           const artist = artistEl ? (artistEl.textContent || '').trim() : '';
           const page_url = href.startsWith('http') ? href : ('https://www.midishow.com' + href);
@@ -6388,7 +6402,17 @@ fn clean_midishow_text(value: &str) -> String {
         .unwrap_or(&text)
         .trim()
         .to_string();
-    for marker in ["上传人", "下载", "评分", "Artist:", "Author:", "Uploader:"] {
+    for marker in [
+        "•",
+        "Uploaded at",
+        "uploaded at",
+        "上传人",
+        "下载",
+        "评分",
+        "Artist:",
+        "Author:",
+        "Uploader:",
+    ] {
         if let Some((before, _)) = cleaned.split_once(marker) {
             cleaned = before.trim().to_string();
         }

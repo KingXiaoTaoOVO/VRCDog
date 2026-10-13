@@ -1106,6 +1106,21 @@ const downloadFromUrl = async () => {
   }
 };
 
+const cleanOnlineTitle = (raw: string): string => {
+  if (!raw) return '';
+  let cleaned = raw.trim();
+  if (cleaned.includes('•')) {
+    cleaned = cleaned.split('•')[0].trim();
+  }
+  for (const marker of ['Uploaded at', 'uploaded at', '上传人', 'Artist:', 'Author:', 'Uploader:']) {
+    const idx = cleaned.indexOf(marker);
+    if (idx !== -1) {
+      cleaned = cleaned.slice(0, idx).trim();
+    }
+  }
+  return cleaned.replace(/\s+/g, ' ').trim() || raw.trim();
+};
+
 const searchOnline = async () => {
   const keyword = onlineKeyword.value.trim();
   if (!keyword || onlineLoading.value) return;
@@ -1130,7 +1145,10 @@ const searchOnline = async () => {
       maxResults: 40,
     });
     if (requestId !== onlineSearchRequestId) return;
-    onlineResults.value = results;
+    onlineResults.value = results.map(item => ({
+      ...item,
+      title: cleanOnlineTitle(item.title),
+    }));
     addLog(t('vrpiano.midishow_returned_results', { count: results.length }));
   } catch (e: any) {
     if (requestId !== onlineSearchRequestId) return;
@@ -1171,9 +1189,10 @@ const previewOnline = async (song: VrpianoOnlineSong) => {
 const downloadOnline = async (song: VrpianoOnlineSong) => {
   onlineBusyId.value = song.id;
   try {
+    const cleanTitle = cleanOnlineTitle(song.title);
     const downloaded = await VrpianoApi.downloadMidishow({
       midiId: song.id,
-      title: song.title,
+      title: cleanTitle || song.title,
       coverUrl: song.cover_url || null,
       source: song.source || null,
       pageUrl: song.page_url || null,
@@ -2989,23 +3008,23 @@ onUnmounted(async () => {
             <div class="online-results">
               <div v-for="item in onlineResults" :key="item.id" class="online-row">
                 <div class="online-meta">
-                  <div class="flex items-center gap-1.5 flex-wrap">
+                  <div class="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
                     <span
                       class="text-[10px] font-bold px-1.5 py-0.5 rounded leading-none shrink-0"
                       :class="item.source === 'bitmidi' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : item.source === 'local' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-primary/15 text-primary border border-primary/30'"
                     >
                       {{ item.source === 'bitmidi' ? 'BitMidi' : item.source === 'local' ? '本地' : 'MidiShow' }}
                     </span>
-                    <strong class="text-[13px] text-text-strong">{{ item.title }}</strong>
+                    <strong class="text-[13px] text-text-strong font-medium truncate flex-1 min-w-0" :title="item.title">{{ item.title }}</strong>
                   </div>
-                  <small>{{ item.artist || t('vrpiano.unknown_artist') }} · ID {{ item.id }}</small>
+                  <small class="text-[11px] text-text-sub truncate block min-w-0" :title="`${item.artist || t('vrpiano.unknown_artist')} · ID ${item.id}`">{{ item.artist || t('vrpiano.unknown_artist') }} · ID {{ item.id }}</small>
                 </div>
                 <div class="online-actions">
                   <button :title="t('vrpiano.preview_online')" :disabled="onlineBusyId === item.id" @click="previewOnline(item)">
                     <Loader2 v-if="onlineBusyId === item.id" :size="15" class="spin" />
                     <Headphones v-else :size="15" />
                   </button>
-                  <button :title="t('vrpiano.download_to_library')" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
+                  <button class="download-btn" :title="t('vrpiano.download_to_library')" :disabled="onlineBusyId === item.id" @click="downloadOnline(item)">
                     <Download :size="15" />
                   </button>
                   <button v-if="item.source !== 'local'" :title="t('vrpiano.open_webpage')" @click="openOnlinePage(item)">
@@ -6116,10 +6135,14 @@ select option:hover {
 }
 
 .online-results {
-  max-height: 260px;
+  max-height: 280px;
   min-height: 120px;
   overflow-y: auto;
-  display: grid;
+  overflow-x: hidden;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   align-content: start;
   gap: 8px;
 }
@@ -6128,22 +6151,45 @@ select option:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   gap: 10px;
-  padding: 10px;
+  padding: 8px 12px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--vp-surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vp-border) 60%, transparent);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.online-row:hover {
+  background: color-mix(in srgb, var(--vp-surface) 95%, transparent);
+  border-color: color-mix(in srgb, var(--vp-primary, #6366f1) 40%, transparent);
 }
 
 .online-meta {
+  flex: 1 1 0%;
   min-width: 0;
-  display: grid;
-  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .online-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   flex-shrink: 0;
+}
+
+.online-actions button.download-btn:hover:not(:disabled) {
+  color: var(--vp-primary, #6366f1);
+  background: color-mix(in srgb, var(--vp-primary, #6366f1) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vp-primary, #6366f1) 40%, transparent);
 }
 
 .log-pane {
