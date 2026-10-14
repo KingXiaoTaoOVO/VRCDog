@@ -45,6 +45,15 @@ async function prepare() {
     console.log('Skipping embedded Python runtime preparation outside Windows.');
     return;
   }
+  const marker = path.join(RUNTIME_DIR, 'vrcdog-runtime.json');
+  try {
+    const raw = await readFile(marker, 'utf8');
+    const data = JSON.parse(raw);
+    if (data.pythonVersion === PYTHON_VERSION) {
+      console.log(`Embedded Python runtime already up to date: ${RUNTIME_DIR}`);
+      return;
+    }
+  } catch {}
   await mkdir(CACHE_DIR, { recursive: true });
   const archive = path.join(CACHE_DIR, PYTHON_ARCHIVE);
   const pipWheel = path.join(CACHE_DIR, `pip-${PIP_VERSION}-py3-none-any.whl`);
