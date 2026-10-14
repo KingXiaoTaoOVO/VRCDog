@@ -1,6 +1,6 @@
 use axum::{
     body::{Body, Bytes},
-    extract::{ws::WebSocketUpgrade, ConnectInfo, Extension, Path, Query, State},
+    extract::{ws::WebSocketUpgrade, ConnectInfo, DefaultBodyLimit, Extension, Path, Query, State},
     http::{header::{CONTENT_TYPE, HeaderMap, HeaderValue}, StatusCode},
     middleware,
     response::{Html, IntoResponse, Response},
@@ -829,7 +829,19 @@ async fn disconnect(
     Json(json!({ "status": "ok" }))
 }
 
-async fn check_status(State(state): State<AppState>, Path(user_id): Path<String>) -> Json<Value> {
+/// 只允许查询**自己**的封禁/冻结状态。
+///
+/// `require_client_token` 已经把 token 对应的 user_id 放进 request extension，
+/// 但本函数原先直接采信路径里的 `{user_id}`：任何一台已注册设备（任何登录用户）
+/// 都能读出别人的封禁原因与到期时间。现在与已验证身份比对后再返回。
+async fn check_status(
+    State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
+    Path(user_id): Path<String>,
+) -> Json<Value> {
+    if let Err(e) = assert_client_owner(&verified_user_id, &user_id) {
+        return e;
+    }
     let data = state.data.read().await;
     if let Some(ban) = data.bans.get(&user_id) {
         if !ban_is_expired(ban) {
@@ -847,7 +859,16 @@ async fn check_status(State(state): State<AppState>, Path(user_id): Path<String>
     Json(json!({ "status": "ok", "reason": null }))
 }
 
-async fn get_features(State(state): State<AppState>, Path(user_id): Path<String>) -> Json<Value> {
+/// 功能/菜单/主题权限只发给归属账号本人（同 `check_status`）：
+/// 否则任何已注册设备都能读出别人被下发了哪些权限开关。
+async fn get_features(
+    State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
+    Path(user_id): Path<String>,
+) -> Json<Value> {
+    if let Err(e) = assert_client_owner(&verified_user_id, &user_id) {
+        return e;
+    }
     let data = state.data.read().await;
     let default_role = data.roles.values().find(|role| role.is_default);
     let user_role = data
@@ -886,7 +907,16 @@ async fn get_features(State(state): State<AppState>, Path(user_id): Path<String>
     }))
 }
 
-async fn client_surveys(State(state): State<AppState>, Path(user_id): Path<String>) -> Json<Value> {
+/// 待答问卷只发给归属账号本人（同 `check_status`）：
+/// 原先直接采信路径 `{user_id}`，任何已注册设备都能读出别人的问卷进度与作答状态。
+async fn client_surveys(
+    State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
+    Path(user_id): Path<String>,
+) -> Json<Value> {
+    if let Err(e) = assert_client_owner(&verified_user_id, &user_id) {
+        return e;
+    }
     let data = state.data.read().await;
     let surveys = survey::pending_surveys(
         data.survey_settings.enabled,
@@ -977,10 +1007,20 @@ struct UploadQuery {
 
 async fn client_upload_file(
     State(state): State<AppState>,
+    Extension(verified_user_id): Extension<String>,
     Query(params): Query<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // 路径里的 user_id 只用于写审计日志，但如果不校验，任何已注册设备都能把附件
+    // 记到别人名下（污染答卷归属与审计记录）。
+    if verified_user_id != params.user_id {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "Client token does not match claimed user_id",
+        )
+            .into_response();
+    }
     if body.is_empty() {
         return (StatusCode::BAD_REQUEST, "empty file").into_response();
     }
@@ -1036,6 +1076,15 @@ async fn client_upload_file(
     Json(payload).into_response()
 }
 
+/// 按文件名取回答附件。
+///
+/// 访问控制现状（诚实记录，尚未做到「按上传者隔离」）：
+/// 文件名是 `sha256(当前时间 + 递增序号 + 文件内容)` 的十六进制串，2^256 空间、不可枚举，
+/// 服务端也没有列表接口，因此只有拿到该 URL 的人（也就是上传者本人，或后来能看到这份
+/// 答卷的管理员）才读得到内容。但服务端**没有维护 file_id → user_id 的归属表**，
+/// 所以任何持有合法 client token 的设备，只要知道文件名就能取到内容 —— 例如
+/// 同一次会话里被共享出去的链接。真正的隔离需要落一张归属表或改用短期签名 URL，
+/// 已在 `.scratch/defect-followups-2026-10-14/issues/09` 里登记。
 async fn client_get_upload(State(state): State<AppState>, Path(raw): Path<String>) -> Response {
     if raw.is_empty()
         || raw.contains('/')
@@ -2022,7 +2071,15 @@ fn router(state: AppState) -> Router {
         .route("/api/client/surveys/submit", post(client_submit_survey))
         .route("/api/client/surveys/click", post(client_click_survey))
         .route("/api/client/surveys/dismiss", post(client_dismiss_survey))
-        .route("/api/client/surveys/upload", post(client_upload_file))
+        // `Bytes` 提取器默认有 2 MiB 的请求体上限，而下面 handler 自己写的是
+        // `MAX_UPLOAD_BYTES = 10 MiB`（超限时返回带说明文案的 413）。
+        // 不抬高这个路由的限制，2–10 MiB 的问卷附件会在进入 handler 之前就被
+        // axum 用一个没有说明的 413 拒掉，`MAX_UPLOAD_BYTES` 形同虚设。
+        .route(
+            "/api/client/surveys/upload",
+            post(client_upload_file)
+                .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES as usize)),
+        )
         .route("/api/client/uploads/{file_id}", get(client_get_upload))
         .route(
             "/api/client/survey-history/{user_id}",
@@ -2241,5 +2298,32 @@ mod admin_auth_tests {
         assert_eq!(admin_auth_lock_remaining(IP_C), 0, "IP_C 不应受 IP_B 影响");
         admin_auth_record_success(IP_B);
         admin_auth_record_success(IP_C);
+    }
+}
+#[cfg(test)]
+mod client_ownership_tests {
+    use super::*;
+
+    /// `/api/client/*` 的归属校验：路径 / 查询里声明的 user_id 必须与 token 验证出来的身份一致。
+    /// `require_client_token` 中间件已经把验证过的 user_id 放进 request extension，
+    /// 各 handler 必须比对它 —— 否则任何一台已注册设备都能读别人的封禁状态、
+    /// 权限开关、问卷进度，或把附件记到别人名下。
+    #[test]
+    fn owner_check_accepts_only_the_matching_identity() {
+        assert!(assert_client_owner("u1", "u1").is_ok());
+
+        let rejected = assert_client_owner("u1", "u2")
+            .err()
+            .expect("身份不一致必须被拒绝");
+        assert_eq!(rejected.0["status"], json!("auth_failed"));
+    }
+
+    #[test]
+    fn empty_claimed_user_is_rejected() {
+        // `/api/client/features/` 这种空路径参数不能被当成合法身份
+        let rejected = assert_client_owner("u1", "")
+            .err()
+            .expect("空的声明身份必须被拒绝");
+        assert_eq!(rejected.0["status"], json!("auth_failed"));
     }
 }

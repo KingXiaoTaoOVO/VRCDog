@@ -158,6 +158,14 @@ export const useUiStore = defineStore('ui', () => {
      await DbApi.saveSetting({ key: 'custom_nav_config', value: JSON.stringify(customNavConfig.value) });
   };
 
+  /// 清空服务端下发的权限。登出时必须调用：`fetchServerFeatures` 失败会静默保留旧值，
+  /// 换账号后侧边栏和主题列表会继续按「上一个账号」的权限过滤。
+  const resetServerPerms = () => {
+    serverMenuPerms.value = {};
+    serverThemePerms.value = {};
+    serverModePerms.value = {};
+  };
+
   const fetchServerFeatures = async (baseUrl: string, user: any) => {
     if (!baseUrl || !user) return;
     const uid = user.id || user.displayName;
@@ -226,6 +234,7 @@ export const useUiStore = defineStore('ui', () => {
     loadCustomNavConfig,
     saveCustomNavConfig,
     fetchServerFeatures,
+    resetServerPerms,
     fetchServerStatus,
     getStatusColor
   };

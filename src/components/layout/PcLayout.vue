@@ -421,9 +421,9 @@ const themeStyles = computed(() => {
           >{{ $t('status.sync_ago', { time: lastSyncAgo }) }}</span>
         </div>
 
-        <!-- VRChat 实时推送管道（WebSocket） -->
+        <!-- VRChat 实时推送管道（WebSocket） - 静默降级：未连接时隐藏，不显示灰色或错误卡片 -->
         <div
-          v-if="wsState.everConnected || wsState.phase !== 'idle'"
+          v-if="wsState.connected"
           class="px-2.5 py-1.5 rounded-xl border text-[10px] font-bold flex items-center justify-between transition-all duration-200 shadow-2xs"
           :class="pipelineClass"
           :title="pipelineStatusTitle"

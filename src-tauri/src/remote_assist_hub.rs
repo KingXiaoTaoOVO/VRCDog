@@ -30,6 +30,9 @@ struct Peer {
     password_hash: [u8; 32],
     /// 每个 Peer 独立的随机 salt，防止彩虹表攻击（R5）
     salt: [u8; 16],
+    /// 本次「注册」的唯一标识。同一条 device_id 被新连接顶掉后，旧连接退出时
+    /// 不能把自己的注册删掉——它已经不是当前注册了（见 `remove_peer`）。
+    registration: u128,
     hostname: String,
     public_key: String,
     accepting: bool,
@@ -57,7 +60,7 @@ impl RemoteAssistHub {
             }
         });
 
-        let mut registered_id: Option<String> = None;
+        let mut registered: Option<(String, u128)> = None;
         while let Some(Ok(message)) = socket_rx.next().await {
             match message {
                 Message::Text(text) => {
@@ -75,9 +78,11 @@ impl RemoteAssistHub {
                         );
                         continue;
                     };
-                    if registered_id.is_none() {
+                    if registered.is_none() {
                         match self.register_peer(value, outgoing_tx.clone()).await {
-                            Ok(device_id) => registered_id = Some(device_id),
+                            Ok((device_id, registration)) => {
+                                registered = Some((device_id, registration))
+                            }
                             Err(message) => {
                                 let _ = send_json(
                                     &outgoing_tx,
@@ -87,8 +92,11 @@ impl RemoteAssistHub {
                         }
                         continue;
                     }
-                    self.handle_peer_message(registered_id.as_deref().unwrap_or_default(), value)
-                        .await;
+                    let current_id = registered
+                        .as_ref()
+                        .map(|(id, _)| id.clone())
+                        .unwrap_or_default();
+                    self.handle_peer_message(&current_id, value).await;
                 }
                 Message::Ping(payload) => {
                     let _ = outgoing_tx.try_send(Message::Pong(payload));
@@ -98,17 +106,20 @@ impl RemoteAssistHub {
             }
         }
 
-        if let Some(device_id) = registered_id {
-            self.remove_peer(&device_id).await;
+        if let Some((device_id, registration)) = registered {
+            self.remove_peer(&device_id, registration).await;
         }
         writer.abort();
     }
 
+    /// 注册设备。返回 `(device_id, registration)`，其中 `registration` 是本次连接的
+    /// 唯一身份标识，连接断开时必须凭它调用 `remove_peer`，否则旧连接会把顶掉自己的
+    /// 新连接给删掉（见 `remove_peer`）。
     async fn register_peer(
         &self,
         value: Value,
         sender: mpsc::Sender<Message>,
-    ) -> Result<String, String> {
+    ) -> Result<(String, u128), String> {
         if value.get("type").and_then(Value::as_str) != Some("register") {
             return Err("The first message must register the device".into());
         }
@@ -148,10 +159,12 @@ impl RemoteAssistHub {
             }
         }
 
+        let registration = uuid::Uuid::new_v4().as_u128();
         let peer = Peer {
             sender: sender.clone(),
             password_hash: hash_password(&password, &salt_arr),
             salt: salt_arr,
+            registration,
             hostname,
             public_key,
             accepting: value
@@ -175,7 +188,7 @@ impl RemoteAssistHub {
             &sender,
             json!({"type": "registered", "device_id": device_id}),
         );
-        Ok(device_id)
+        Ok((device_id, registration))
     }
 
     async fn handle_peer_message(&self, device_id: &str, value: Value) {
@@ -374,8 +387,22 @@ impl RemoteAssistHub {
         }
     }
 
-    async fn remove_peer(&self, device_id: &str) {
+    /// 连接退出时注销设备。
+    ///
+    /// 必须带 `registration` 身份校验：同设备重连时新连接会顶掉旧连接并发出 `replaced`，
+    /// 旧 socket 随后走到这里。若无条件 `peers.remove(device_id)`，就会把**刚注册成功的
+    /// 新连接**一起删掉——设备明明在线，远控列表里却显示离线，定向到它的中继请求石沉大海。
+    async fn remove_peer(&self, device_id: &str, registration: u128) {
         let mut state = self.inner.write().await;
+        let is_current_registration = state
+            .peers
+            .get(device_id)
+            .map(|peer| peer.registration == registration)
+            .unwrap_or(false);
+        if !is_current_registration {
+            // 已被更新的连接接管，这条旧连接不能动注册表。
+            return;
+        }
         state.peers.remove(device_id);
         let affected: Vec<(String, String)> = state
             .sessions
@@ -487,5 +514,38 @@ mod hub_tests {
             .register_peer(register_payload("fresh-device", "any"), tx)
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn stale_connection_cannot_unregister_the_replacement() {
+        let hub = RemoteAssistHub::default();
+        let (old_tx, _old_rx) = mpsc::channel::<Message>(8);
+        let (device_id, old_reg) = hub
+            .register_peer(register_payload("dev-c", "secret"), old_tx)
+            .await
+            .expect("first registration");
+
+        // 同一设备重连：口令一致，新注册顶掉旧连接
+        let (new_tx, _new_rx) = mpsc::channel::<Message>(8);
+        let (_, new_reg) = hub
+            .register_peer(register_payload("dev-c", "secret"), new_tx)
+            .await
+            .expect("reconnection");
+        assert_ne!(old_reg, new_reg, "每次注册必须有独立身份");
+
+        // 旧 socket 收到 `replaced` 后退出。它的清理不能把刚建立的新注册删掉，
+        // 否则设备在线却显示离线、定向中继全部丢失。
+        hub.remove_peer(&device_id, old_reg).await;
+        let state = hub.inner.read().await;
+        assert!(
+            state.peers.contains_key("dev-c"),
+            "旧连接退出把新注册一并注销了"
+        );
+        assert_eq!(state.peers.get("dev-c").unwrap().registration, new_reg);
+        drop(state);
+
+        // 当前连接自己退出时，必须正常注销。
+        hub.remove_peer(&device_id, new_reg).await;
+        assert!(!hub.inner.read().await.peers.contains_key("dev-c"));
     }
 }

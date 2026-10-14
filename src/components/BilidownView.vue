@@ -254,7 +254,13 @@ const searchVideo = async () => {
     }
 };
 
+// 分P 详情是异步补全的：先点 A 再点 B 时，A 的慢响应会后到并把 A 的标题/cid
+// 写回 videoInfo，而下载按钮正是按 videoInfo + selectedParsedIndex 取参的，
+// 结果就是「界面显示 B、实际下载 A」。
+let parsedInfoReqId = 0;
+
 const selectParsedItem = async (item: any, index: number) => {
+    const reqId = ++parsedInfoReqId;
     selectedParsedIndex.value = index;
     const fallbackInfo = {
         bvid: item.bvid,
@@ -269,6 +275,7 @@ const selectParsedItem = async (item: any, index: number) => {
 
     try {
         const res: any = await invoke('bili_get_video_info', { bvid: item.bvid, sessdata: sessdata.value });
+        if (reqId !== parsedInfoReqId) return;
         if (res.code === 0 && res.data) {
             videoInfo.value = res.data;
             videoInfo.value.cid = item.cid || videoInfo.value.cid;
@@ -280,14 +287,22 @@ const selectParsedItem = async (item: any, index: number) => {
 };
 
 const downloadParsedItem = async (item: any) => {
-    await invoke('bili_download_video', {
-        bvid: item.bvid,
-        cid: item.cid || 0,
-        title: item.title,
-        owner: item.owner || '',
-        cover: item.cover || '',
-        sessdata: sessdata.value
-    });
+    // 这里原本是一个裸 `await invoke(...)`：模板里 `@click="downloadParsedItem(item).then(loadTasks)"`
+    // 没有 .catch，失败只会变成 unhandled rejection —— 用户看到的就是「点了没反应」。
+    try {
+        await invoke('bili_download_video', {
+            bvid: item.bvid,
+            cid: item.cid || 0,
+            title: item.title,
+            owner: item.owner || '',
+            cover: item.cover || '',
+            sessdata: sessdata.value
+        });
+    } catch (e: any) {
+        const detail = e?.message ? String(e.message) : String(e);
+        errorMsg.value = t('bilidown.download_error') + detail;
+        showToast(errorMsg.value, 'error');
+    }
 };
 
 const downloadAllParsed = async () => {
@@ -354,6 +369,9 @@ const downloadVideo = async () => {
         await loadTasks();
     } catch (e: any) {
         errorMsg.value = t('bilidown.download_error') + e.toString();
+    } finally {
+        // 原来只在 catch 里复位：成功时如果没收到那条 100% 的进度事件，
+        // 「下载」按钮会一直禁用，界面上看像是卡住了。
         isDownloading.value = false;
     }
 };

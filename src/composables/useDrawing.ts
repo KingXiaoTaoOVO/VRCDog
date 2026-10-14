@@ -229,20 +229,33 @@ export function useDrawing() {
     }, 120);
   });
 
+  let disposed = false;
+
   onMounted(async () => {
     if (canvasEl.value) resizeObserver?.observe(canvasEl.value);
     try {
       [status.value, plan.value] = await Promise.all([DrawingApi.getStatus(), DrawingApi.getPlan()]);
+      if (disposed) return;
       if (plan.value) sourcePath.value = plan.value.source_path;
-    } catch (value) { showError(value); }
-    unlistenStatus = await listen<DrawingStatus>('vrdrawing_status', event => {
+    } catch (value) { if (!disposed) showError(value); }
+    // `await` 之后组件可能已经卸载，而 onUnmounted 跑在这之前，拿到的 unlistenStatus 还是 null，
+    // 于是这个事件监听永远没人负责解绑：反复进出绘画页会不断累积监听器与整张画布的重新渲染。
+    const unlisten = await listen<DrawingStatus>('vrdrawing_status', event => {
+      if (disposed) return;
       status.value = event.payload;
     });
+    if (disposed) {
+      unlisten();
+      return;
+    }
+    unlistenStatus = unlisten;
     await nextTick();
+    if (disposed) return;
     renderPlan();
   });
 
   onUnmounted(() => {
+    disposed = true;
     resizeObserver?.disconnect();
     if (configTimer !== null) window.clearTimeout(configTimer);
     if (resizeTimer !== null) window.clearTimeout(resizeTimer);

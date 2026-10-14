@@ -3583,7 +3583,9 @@ fn message_color(msg: &DanmakuMessage, default: [u8; 3]) -> [u8; 3] {
 
 fn parse_hex_rgb(hex: &str, fallback: [u8; 3]) -> [u8; 3] {
     let value = hex.trim_start_matches('#');
-    if value.len() < 6 {
+    // 同 `vr_ui::parse_hex_rgb`：`len()` 是字节数，非 ASCII 输入按字节切片会踩到
+    // 多字节字符中间直接 panic，而这里的颜色串来自用户可配的弹幕设置。
+    if value.len() < 6 || !value.is_ascii() {
         return fallback;
     }
     let r = u8::from_str_radix(&value[0..2], 16).unwrap_or(fallback[0]);
@@ -3705,5 +3707,24 @@ fn draw_char(
                 pixels[idx + 3] = pixels[idx + 3].max(alpha);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod color_parse_tests {
+    use super::parse_hex_rgb;
+
+    #[test]
+    fn parses_normal_hex_with_fallback() {
+        assert_eq!(parse_hex_rgb("#12ff00", [1, 2, 3]), [18, 255, 0]);
+        assert_eq!(parse_hex_rgb("ab", [9, 9, 9]), [9, 9, 9]);
+    }
+
+    #[test]
+    fn multi_byte_color_does_not_panic() {
+        // 弹幕颜色来自用户设置，多字节输入曾在字节切片处 panic 并打死渲染线程。
+        assert_eq!(parse_hex_rgb("＃ff0000", [7, 7, 7]), [7, 7, 7]);
+        assert_eq!(parse_hex_rgb("半透明颜色", [1, 2, 3]), [1, 2, 3]);
+        assert_eq!(parse_hex_rgb("#🐶ffffff", [4, 5, 6]), [4, 5, 6]);
     }
 }

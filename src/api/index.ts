@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { vrcdogClientTokenHeaders } from './clientToken';
 import { AuthApi } from './auth';
 import { UserApi } from './user';
 import { FriendApi } from './friend';
@@ -1609,7 +1610,12 @@ export async function uploadSurveyFile(
   });
   const res = await fetch(`${base}/api/client/surveys/upload?${query.toString()}`, {
     method: 'POST',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+      // 这条上传走的是原生 fetch，没有经过 requestInternal，
+      // 必须自己带上 client token，否则服务端的 require_client_token 会直接 401。
+      ...vrcdogClientTokenHeaders(`${base}/api/client/surveys/upload`),
+    },
     body: file,
   });
   if (!res.ok) {

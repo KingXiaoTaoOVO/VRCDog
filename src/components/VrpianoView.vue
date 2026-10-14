@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CircleStop,
   Clock3,
+  Copy,
   Download,
   Edit3,
   ExternalLink,
@@ -1944,6 +1945,9 @@ const formatLoopMidiProgress = (p: LoopMidiInstallProgress): string => {
   return p.message || t('vrpiano.loopmidi_installing');
 };
 
+// loopMIDI 安装后的状态轮询定时器（挂在组件作用域，卸载时必须清）
+let loopMidiPollTimer: number | null = null;
+
 const installLoopMidi = async () => {
   if (!isTauri() || loopMidiInstalling.value) return;
   loopMidiInstalling.value = true;
@@ -1958,11 +1962,20 @@ const installLoopMidi = async () => {
   try {
     await VrpianoApi.installLoopMidi();
     let attempts = 0;
-    const pollInterval = window.setInterval(async () => {
+    // 这个轮询最长会跑 30 次（90 秒）。必须挂在组件作用域上并在 onUnmounted 里清掉，
+    // 否则离开钢琴页之后它仍会每 3 秒发一次 IPC 状态查询、并往已销毁的响应式对象里写值。
+    if (loopMidiPollTimer !== null) window.clearInterval(loopMidiPollTimer);
+    loopMidiPollTimer = window.setInterval(async () => {
       attempts++;
       await refreshLoopMidiStatus();
+      if (vrpianoDisposed) {
+        window.clearInterval(loopMidiPollTimer!);
+        loopMidiPollTimer = null;
+        return;
+      }
       if (loopMidiStatus.value?.installed || attempts >= 30) {
-        clearInterval(pollInterval);
+        window.clearInterval(loopMidiPollTimer!);
+        loopMidiPollTimer = null;
         loopMidiInstalling.value = false;
         if (loopMidiStatus.value?.installed) {
           addLog(t('vrpiano.loopmidi_installed_success'));
@@ -2168,6 +2181,10 @@ watch(outputMode, (newMode) => {
 
 onUnmounted(async () => {
   vrpianoDisposed = true;
+  if (loopMidiPollTimer !== null) {
+    window.clearInterval(loopMidiPollTimer);
+    loopMidiPollTimer = null;
+  }
   isStarting = false; // reset re-entrancy guard on teardown
   loading.value = false; // ensure loading spinner doesn't get stuck on navigation
 
@@ -2921,23 +2938,24 @@ onUnmounted(async () => {
                   <span>{{ loginError }}</span>
                 </p>
                 <p class="login-hint">{{ t('vrpiano.silent_login_hint') }}</p>
-                <p v-if="accountLoading" class="login-status" aria-live="polite">
-                  <Loader2 :size="15" class="spin" />
-                  {{ midishowLoginStatus.message }}
-                </p>
                 <div class="login-form-actions">
-                  <button type="submit" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
+                  <button type="submit" class="login-submit-btn" :disabled="accountLoading || !midishowAccount.trim() || !midishowPassword">
                     <Loader2 v-if="accountLoading" :size="16" class="spin" />
                     <LogIn v-else :size="16" />
-                    <span>{{ accountLoading ? t('vrpiano.signing_in') : t('vrpiano.sign_in') }}</span>
+                    <span>{{ accountLoading ? (midishowLoginStatus.message || t('vrpiano.signing_in')) : t('vrpiano.sign_in') }}</span>
                   </button>
-                  <button type="button" class="account-btn ghost" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
-                    <Loader2 v-if="externalLinkLoading" :size="15" class="spin" />
-                    <ExternalLink v-else :size="15" /> {{ t('vrpiano.register') }}
-                  </button>
-                  <button type="button" class="account-btn ghost" :title="t('vrpiano.copy_registration_link')" :disabled="accountLoading" @click="copySignupUrl">
-                    {{ t('vrpiano.copy_link') }}
-                  </button>
+                  <div class="login-secondary-links">
+                    <button type="button" class="login-link-btn" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
+                      <Loader2 v-if="externalLinkLoading" :size="13" class="spin" />
+                      <ExternalLink v-else :size="13" />
+                      <span>{{ t('vrpiano.register') }}</span>
+                    </button>
+                    <span class="link-separator">·</span>
+                    <button type="button" class="login-link-btn" :title="t('vrpiano.copy_registration_link')" :disabled="accountLoading" @click="copySignupUrl">
+                      <Copy :size="13" />
+                      <span>{{ t('vrpiano.copy_link') }}</span>
+                    </button>
+                  </div>
                 </div>
               </form>
 
@@ -2969,14 +2987,17 @@ onUnmounted(async () => {
                 </p>
                 <p class="login-hint">{{ t('vrpiano.cookie_import_guide_tip') }}</p>
                 <div class="login-form-actions">
-                  <button type="submit" :disabled="accountLoading || !midishowCookie.trim()">
+                  <button type="submit" class="login-submit-btn" :disabled="accountLoading || !midishowCookie.trim()">
                     <Loader2 v-if="accountLoading" :size="16" class="spin" />
                     <LogIn v-else :size="16" />
                     <span>{{ accountLoading ? t('vrpiano.saving') : t('vrpiano.import_and_save') }}</span>
                   </button>
-                  <button type="button" class="account-btn ghost" @click="copyCookieExtractCommand">
-                    {{ t('vrpiano.copy_f12_command') }}
-                  </button>
+                  <div class="login-secondary-links">
+                    <button type="button" class="login-link-btn" @click="copyCookieExtractCommand">
+                      <Copy :size="13" />
+                      <span>{{ t('vrpiano.copy_f12_command') }}</span>
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>
@@ -5955,17 +5976,22 @@ select option:hover {
 }
 
 .login-tabs {
-  display: flex;
-  gap: 8px;
+  display: inline-flex;
+  gap: 4px;
+  background: color-mix(in srgb, var(--vp-border) 25%, transparent);
+  padding: 3px;
+  border-radius: 9999px;
+  border: 1px solid var(--vp-border);
+  width: fit-content;
 }
 
 .login-tab-pill {
-  padding: 6px 14px;
+  padding: 6px 16px;
   font-size: 12px;
-  font-weight: 650;
-  border-radius: 6px;
-  border: 1px solid var(--vp-border);
-  background: var(--vp-panel);
+  font-weight: 700;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
   color: var(--vp-muted);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -5973,24 +5999,24 @@ select option:hover {
 
 .login-tab-pill:hover {
   color: var(--vp-text);
-  border-color: var(--vp-accent);
+  background: color-mix(in srgb, var(--vp-primary) 12%, transparent);
 }
 
 .login-tab-pill.active {
-  background: var(--vp-accent);
-  color: #fff;
-  border-color: var(--vp-accent);
+  background: var(--vp-primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--vp-primary) 35%, transparent);
 }
 
 .login-form {
-  padding: 10px;
-  border-radius: 8px;
+  padding: 12px;
+  border-radius: 10px;
   background: var(--vp-surface);
   box-shadow: inset 0 0 0 1px var(--vp-border);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .login-field {
@@ -6014,23 +6040,19 @@ select option:hover {
   color: var(--vp-text);
   background: color-mix(in srgb, var(--vp-panel) 76%, transparent);
   outline: none;
+  transition: border-color 0.15s ease;
 }
 
-.login-hint,
-.login-status {
+.login-form input:focus {
+  border-color: var(--vp-primary);
+}
+
+.login-hint {
   grid-column: 1 / -1;
   margin: 0;
   color: var(--vp-dim);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.login-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--vp-primary);
-  font-weight: 750;
 }
 
 .login-error {
@@ -6045,25 +6067,75 @@ select option:hover {
   line-height: 1.5;
 }
 
-.login-form button {
-  min-width: 92px;
-  padding: 0 12px;
-}
-
 .login-form-actions {
   grid-column: 1 / -1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
 }
 
-.login-form-actions button {
-  min-width: 0;
+.login-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--vp-primary);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--vp-primary) 25%, transparent);
+}
+
+.login-submit-btn:hover:not(:disabled) {
+  background: var(--vp-primary-hover);
+  transform: translateY(-1px);
+}
+
+.login-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.login-secondary-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.login-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--vp-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-radius: 4px;
+}
+
+.login-link-btn:hover:not(:disabled) {
+  color: var(--vp-primary);
+  background: color-mix(in srgb, var(--vp-primary) 8%, transparent);
+}
+
+.link-separator {
+  color: var(--vp-border-strong);
+  font-size: 11px;
 }
 
 .online-head strong {

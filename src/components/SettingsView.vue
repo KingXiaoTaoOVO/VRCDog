@@ -591,8 +591,16 @@ const resetListLayout = () => {
   toast.info('List layout reset to defaults');
 };
 
+// 「列表布局」与「条目读取设置」两行原本各有一个「配置」按钮，
+// 但 resetTableLayout 只弹一句 "Table layout reset to defaults" 的 toast，什么都不改 ——
+// 用户点了提示成功、设置却原封不动。这里让它真正重置读取相关的两项默认值。
 const resetTableLayout = () => {
-  toast.info('Table layout reset to defaults');
+  config.value.pollInterval = 30;
+  config.value.cacheLimit = 5;
+  // 与上面的 resetListLayout 保持同样的文案风格（这两条 toast 目前都是英文字面量）。
+  // 不要写成 `t('不存在的 key') || '...'`：vue-i18n 对缺失 key 会返回 key 本身（真值），
+  // 那样 toast 会直接显示 "settings.xxx" 这种字符串。
+  toast.info('Entry reading settings reset to defaults');
 };
 
 onMounted(async () => {

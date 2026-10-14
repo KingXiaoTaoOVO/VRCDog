@@ -17,7 +17,10 @@ pub struct VrUiRenderer;
 impl VrUiRenderer {
     pub fn parse_hex_rgb(hex: &str) -> [u8; 3] {
         let hex = hex.trim_start_matches('#');
-        if hex.len() >= 6 {
+        // `hex.len()` 是**字节**数，直接按 `[0..2]` 这类字节下标切片会在多字节 UTF-8
+        // 字符中间切断而 panic（例如设置里被填成全角 `＃ffffff` 或中文颜色名）。
+        // 先确认纯 ASCII，字节下标才一定落在字符边界上。
+        if hex.len() >= 6 && hex.is_ascii() {
             let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(255);
             let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(255);
             let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(255);
@@ -1268,5 +1271,29 @@ fn build_vr_menu_items(
             ],
             _ => vec![mib("返回主菜单")],
         },
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::VrUiRenderer;
+
+    #[test]
+    fn parses_normal_hex_colors() {
+        assert_eq!(VrUiRenderer::parse_hex_rgb("#ff8800"), [255, 136, 0]);
+        assert_eq!(VrUiRenderer::parse_hex_rgb("102030"), [16, 32, 48]);
+        assert_eq!(VrUiRenderer::parse_hex_rgb(""), [255, 255, 255]);
+        // 非法十六进制位退回默认值，而不是 panic
+        assert_eq!(VrUiRenderer::parse_hex_rgb("zz8800"), [255, 136, 0]);
+    }
+
+    #[test]
+    fn multi_byte_input_does_not_panic() {
+        // `hex.len()` 是字节数：全角 `＃` 占 3 字节，旧实现在字节下标 2 处切片
+        // 正好落在多字节字符中间 → panic，而颜色串来自用户可配的覆盖层设置。
+        assert_eq!(VrUiRenderer::parse_hex_rgb("＃ffffff"), [255, 255, 255]);
+        assert_eq!(VrUiRenderer::parse_hex_rgb("红色高亮色"), [255, 255, 255]);
+        assert_eq!(VrUiRenderer::parse_hex_rgb("🎨ff0000"), [255, 255, 255]);
+        assert_eq!(VrUiRenderer::parse_hex_rgb("#éééééé"), [255, 255, 255]);
     }
 }

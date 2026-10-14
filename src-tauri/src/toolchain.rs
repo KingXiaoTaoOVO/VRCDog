@@ -360,6 +360,34 @@ fn create_optimized_client() -> AppResult<reqwest::Client> {
         .map_err(|e| format!("构建下载引擎失败: {}", e).into())
 }
 
+/// 把「各区块已完成字节之和」钳制在文件总大小内。
+/// 区块重试、服务端多送字节等情况都可能让求和超过 total，直接拿来算进度会显示 100%+，
+/// 并让完整性校验误判成「下载完成」。
+fn clamp_total(sum: u64, total: u64) -> u64 {
+    if total == 0 {
+        0
+    } else {
+        sum.min(total)
+    }
+}
+
+/// 单个区块的完成字节数永远不能超过该区块自身的长度。
+fn clamp_up(done: u64, len: u64) -> u64 {
+    done.min(len)
+}
+
+/// 把外部安装程序放到阻塞线程池里等待。
+///
+/// Unity / Unity Hub / ALCOM / PowerShell 解压一跑就是几十秒到几分钟，
+/// 直接在 `async fn` 里调用 `Command::status()` 会把一个 tokio worker 占死，
+/// 期间其它 IPC 命令、事件推送、心跳都会被拖慢甚至卡住。
+async fn wait_for_child(mut cmd: std::process::Command) -> AppResult<std::process::ExitStatus> {
+    tauri::async_runtime::spawn_blocking(move || cmd.status())
+        .await
+        .map_err(|e| AppError::from(format!("安装任务崩溃: {e}")))?
+        .map_err(|e| AppError::from(format!("无法运行安装程序: {e}")))
+}
+
 async fn download_file(
     app_handle: AppHandle,
     target: &str,
@@ -404,19 +432,27 @@ async fn download_file(
     file.set_len(total_size)
         .map_err(|e| format!("无法预分配磁盘空间: {}", e))?;
     let shared_file = Arc::new(Mutex::new(tokio::fs::File::from_std(file)));
-    let downloaded_bytes = Arc::new(AtomicU64::new(0));
+    // 每个区块各自记录「本区块已完成字节数」，而不是往全局计数器 fetch_add：
+    // 区块重试时旧的 `fetch_add(data.len())` 会把同一批字节重复累加，进度能冲到 100% 以上，
+    // 并让下面的完整性校验误判成「下载完成」。
+    let chunk_progress: Arc<Vec<AtomicU64>> =
+        Arc::new((0..num_chunks as usize).map(|_| AtomicU64::new(0)).collect());
+    // 任一区块彻底失败时置位，其余区块协作式退出，不再继续写盘占带宽。
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut tasks = vec![];
 
     let progress_target = target.to_string();
-    let progress_downloaded = downloaded_bytes.clone();
+    let progress_chunks = chunk_progress.clone();
+    let progress_cancelled = cancelled.clone();
     let progress_app_handle = app_handle.clone();
 
     let reporter_task = tokio::spawn(async move {
-        let mut last_bytes = 0;
+        let mut last_bytes = 0u64;
         let mut last_time = tokio::time::Instant::now();
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            let current = progress_downloaded.load(Ordering::Relaxed);
+            let current =
+                clamp_total(progress_chunks.iter().map(|c| c.load(Ordering::Relaxed)).sum(), total_size);
             let now = tokio::time::Instant::now();
             let elapsed = now.duration_since(last_time).as_secs_f64();
             let speed = ((current - last_bytes) as f64 / elapsed) / 1024.0 / 1024.0;
@@ -431,7 +467,7 @@ async fn download_file(
                     status: format!("极速多线程下载中 ({:.1} MB/s) ... {:.1}%", speed, progress),
                 },
             );
-            if current >= total_size {
+            if current >= total_size || progress_cancelled.load(Ordering::Relaxed) {
                 break;
             }
         }
@@ -440,16 +476,25 @@ async fn download_file(
     for i in 0..num_chunks {
         let start = i * chunk_size;
         let end = std::cmp::min(start + chunk_size - 1, total_size - 1);
+        let chunk_len = end - start + 1;
         let client_c = client.clone();
         let url_c = url.to_string();
         let sem_c = semaphore.clone();
         let file_c = shared_file.clone();
-        let downloaded_c = downloaded_bytes.clone();
+        let progress_c = chunk_progress.clone();
+        let cancelled_c = cancelled.clone();
+        let index = i as usize;
 
         let task = tokio::spawn(async move {
-            let _permit = sem_c.acquire().await.unwrap();
+            let _permit = sem_c
+                .acquire()
+                .await
+                .map_err(|e| format!("下载信号量已关闭: {e}"))?;
             let mut retries = 3;
             loop {
+                if cancelled_c.load(Ordering::Relaxed) {
+                    return Err("下载已取消".to_string());
+                }
                 let req = client_c
                     .get(&url_c)
                     .header(RANGE, format!("bytes={}-{}", start, end));
@@ -459,14 +504,25 @@ async fn download_file(
                         let mut current_offset = start;
                         let mut chunk_ok = true;
                         while let Some(chunk_res) = stream.next().await {
+                            if cancelled_c.load(Ordering::Relaxed) {
+                                return Err("下载已取消".to_string());
+                            }
                             match chunk_res {
                                 Ok(data) => {
                                     let mut f = file_c.lock().await;
-                                    f.seek(SeekFrom::Start(current_offset)).await.unwrap();
-                                    f.write_all(&data).await.unwrap();
+                                    // 磁盘满 / 句柄失效时这里是实打实的 IO 错误，不能 unwrap panic：
+                                    // panic 只会让这个任务变成 JoinError，而旧的写法会在这之前
+                                    // 直接 return，把其余区块和进度上报任务全部留在后台。
+                                    if let Err(e) = f.seek(SeekFrom::Start(current_offset)).await {
+                                        return Err(format!("定位写入偏移失败: {e}"));
+                                    }
+                                    if let Err(e) = f.write_all(&data).await {
+                                        return Err(format!("写入文件失败: {e}"));
+                                    }
                                     drop(f);
                                     current_offset += data.len() as u64;
-                                    downloaded_c.fetch_add(data.len() as u64, Ordering::Relaxed);
+                                    let done = clamp_up(current_offset - start, chunk_len);
+                                    progress_c[index].store(done, Ordering::Relaxed);
                                 }
                                 Err(_) => {
                                     chunk_ok = false;
@@ -481,6 +537,7 @@ async fn download_file(
                 }
                 retries -= 1;
                 if retries == 0 {
+                    cancelled_c.store(true, Ordering::Relaxed);
                     return Err(format!("无法下载区块: {}-{}", start, end));
                 }
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -490,17 +547,51 @@ async fn download_file(
         tasks.push(task);
     }
 
+    // 收敛顺序很关键：先等**所有**区块任务结束，再取消进度上报任务。
+    // 原来的 `task.await??` 在第一个错误处就直接 return 了：既没有 await 剩余的区块任务
+    // （JoinHandle 被 drop 只是 detach，任务仍在跑），也没有 abort 上报任务，
+    // 于是下载失败后后台会残留最多 8 个继续占带宽/写盘的任务，
+    // 外加一个每 500ms 无限 emit `install_progress` 的循环（current 永远等不到 total_size）。
+    let mut first_error: Option<String> = None;
     for task in tasks {
-        task.await.map_err(|e| format!("线程崩溃: {}", e))??;
+        let failed = match task.await {
+            Err(e) => {
+                if first_error.is_none() {
+                    first_error = Some(format!("线程崩溃: {e}"));
+                }
+                true
+            }
+            Ok(Err(e)) => {
+                // 「下载已取消」是协作退出的信号，不是根因：真正的原因在失败的那条区块里。
+                // 若把它当成 first_error，用户看到的就是无意义的「下载已取消」。
+                if first_error.is_none() && e != "下载已取消" {
+                    first_error = Some(e);
+                }
+                true
+            }
+            Ok(Ok(_)) => false,
+        };
+        if failed {
+            cancelled.store(true, Ordering::Relaxed);
+        }
     }
+    cancelled.store(true, Ordering::Relaxed);
+    reporter_task.abort();
     let _ = reporter_task.await;
+
+    if let Some(e) = first_error {
+        return Err(e.into());
+    }
 
     {
         let mut f = shared_file.lock().await;
         f.flush().await.map_err(|e| format!("刷盘失败: {}", e))?;
     }
 
-    let actual_downloaded = downloaded_bytes.load(Ordering::Relaxed);
+    let actual_downloaded = clamp_total(
+        chunk_progress.iter().map(|c| c.load(Ordering::Relaxed)).sum(),
+        total_size,
+    );
     if actual_downloaded < total_size {
         return Err(format!(
             "下载不完整：期望 {} 字节，实际只下载了 {} 字节",
@@ -709,15 +800,23 @@ pub async fn install_software(
             ffmpeg_dir.display(),
             ffmpeg_dir.display()
         );
-        let status = Command::new("powershell")
-            .args(["-Command", &ps_cmd])
-            .status();
+        let mut extractor = Command::new("powershell");
+        extractor.args(["-Command", &ps_cmd]);
+        let extract_ok = match wait_for_child(extractor).await {
+            Ok(status) => status.success(),
+            Err(e) => {
+                if auto_delete {
+                    let _ = fs::remove_file(&dest_path);
+                }
+                return Err(e);
+            }
+        };
 
         if auto_delete {
             let _ = fs::remove_file(&dest_path);
         }
 
-        if status.map(|s| s.success()).unwrap_or(false) {
+        if extract_ok {
             let _ = app_handle.emit(
                 "install_progress",
                 ProgressPayload {
@@ -763,7 +862,7 @@ pub async fn install_software(
             },
         );
 
-        match cmd.status() {
+        match wait_for_child(cmd).await {
             Ok(exit_status) => {
                 if !exit_status.success() {
                     let code = exit_status.code().unwrap_or(-1);
@@ -781,7 +880,7 @@ pub async fn install_software(
                     }
                 }
             }
-            Err(e) => return Err(format!("无法运行安装程序: {}", e).into()),
+            Err(e) => return Err(e),
         }
 
         let unity_exe = Path::new(&unity_install_dir)
@@ -807,7 +906,7 @@ pub async fn install_software(
         cmd.args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]);
     }
 
-    match cmd.status() {
+    match wait_for_child(cmd).await {
         Ok(status) if status.success() => {
             if auto_delete {
                 let _ = fs::remove_file(&dest_path);
@@ -823,6 +922,37 @@ pub async fn install_software(
             Ok(())
         }
         Ok(status) => Err(format!("安装程序异常退出，代码: {}", status).into()),
-        Err(e) => Err(format!("无法运行安装程序: {}", e).into()),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod download_progress_tests {
+    use super::{clamp_total, clamp_up};
+
+    #[test]
+    fn total_progress_never_exceeds_file_size() {
+        // 区块重试会重复累加，求和可能超过 total；进度必须被钳制。
+        assert_eq!(clamp_total(1_500, 1_000), 1_000);
+        assert_eq!(clamp_total(600, 1_000), 600);
+        // total 为 0（服务端没给 Content-Length）时不产生除零式假进度。
+        assert_eq!(clamp_total(123, 0), 0);
+    }
+
+    #[test]
+    fn per_chunk_progress_is_capped_by_chunk_length() {
+        assert_eq!(clamp_up(10, 4), 4);
+        assert_eq!(clamp_up(3, 4), 3);
+    }
+
+    #[test]
+    fn sum_of_chunks_reflects_real_downloaded_bytes() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let chunks: Vec<AtomicU64> = (0..3).map(|_| AtomicU64::new(0)).collect();
+        chunks[0].store(clamp_up(20, 20), Ordering::Relaxed);
+        chunks[1].store(clamp_up(20, 20), Ordering::Relaxed);
+        chunks[2].store(clamp_up(5, 10), Ordering::Relaxed);
+        let sum: u64 = chunks.iter().map(|c| c.load(Ordering::Relaxed)).sum();
+        assert_eq!(clamp_total(sum, 50), 45);
     }
 }

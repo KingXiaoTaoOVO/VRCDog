@@ -58,6 +58,7 @@
     ],
     "resources": [
       "../src-python/*.py",
+      "src-python/*.py",
       "../src-python/midishow-downloader/package.json",
       "../src-python/midishow-downloader/dist/*",
       "../src-python/midishow-downloader/node_modules/**/*",

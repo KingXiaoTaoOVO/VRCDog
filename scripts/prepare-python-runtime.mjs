@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -20,6 +20,84 @@ const PIP_WHEEL_URL = 'https://files.pythonhosted.org/packages/62/36/a3aed958d60
 const PIP_WHEEL_SHA256 = '931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad';
 const PIP_VERSION = '26.2';
 const WINDOWS_TAR = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+
+// 运行时内容的唯一真相：Python 版本 + pip 来源 + 依赖清单。
+// 任何一项变化都必须让已经存在的 runtime 重新构建（见 isRuntimeUpToDate 的签名比较）。
+const PACKAGES = [
+  'requests==2.32.5',
+  'beautifulsoup4==4.14.2',
+  'certifi==2026.5.20',
+  'soupsieve==2.8.4',
+  'charset-normalizer==3.4.9',
+  'idna==3.18',
+  'urllib3==2.7.0',
+  'typing-extensions==4.16.0',
+  'pyaudiowpatch==0.2.12.8',
+  'SpeechRecognition==3.17.0',
+  'faster-whisper==1.2.1',
+  'webrtcvad-wheels==2.0.14',
+  'pycaw==20251023',
+  'edge-tts==6.1.12',
+  'numpy==2.2.6',
+  'onnxruntime==1.22.0',
+  'websocket-client==1.8.0',
+  'sherpa-onnx==1.12.40',
+];
+
+// 构建后与「复用已缓存 runtime」时都跑同一条冒烟测试，确保依赖真的可用。
+const SMOKE_IMPORTS = 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, webrtcvad, pycaw, edge_tts, numpy, onnxruntime, websocket, sherpa_onnx, json; print(json.dumps({"ok": True}))';
+
+const RUNTIME_SIGNATURE = createHash('sha256')
+  .update(JSON.stringify({ pythonVersion: PYTHON_VERSION, pipVersion: PIP_VERSION, pipWheelUrl: PIP_WHEEL_URL, packages: PACKAGES }))
+  .digest('hex');
+
+const isolatedEnv = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONUTF8: '1' };
+
+/**
+ * 判断磁盘上已有的 runtime 是否**真的**可用。
+ *
+ * 原来的判断只有一句 `data.pythonVersion === PYTHON_VERSION`（commit b919254 加的
+ * 「跳过重复下载」优化），后果是：
+ * - 往依赖清单里加一个包、或升级某个包，只要没顺手改 Python 版本号，构建就直接跳过 ——
+ *   缺包被推迟成运行时的 ImportError，而且**重新构建也修不好**，只能手动删目录；
+ * - marker 里明明写着自己生成的 `packages` 列表，却从不拿来比对；
+ * - 半途中断留下的残缺目录、被杀软隔离掉的 `.pyd` / site-packages，一律被判成 "already up to date"。
+ *
+ * 现在要求三者同时成立：签名一致（Python 版本 + pip 来源 + 依赖清单）、`python.exe` 存在、
+ * 依赖导入冒烟测试真的跑得通。任何一条不满足就重新构建，并打印原因。
+ */
+async function isRuntimeUpToDate(marker) {
+  const rebuild = (why) => {
+    console.log(`Rebuilding embedded Python runtime: ${why}`);
+    return false;
+  };
+
+  let data;
+  try {
+    data = JSON.parse(await readFile(marker, 'utf8'));
+  } catch {
+    return rebuild('marker is missing or unreadable');
+  }
+
+  if (data.pythonVersion !== PYTHON_VERSION) return rebuild(`python ${data.pythonVersion} != ${PYTHON_VERSION}`);
+  if (data.signature !== RUNTIME_SIGNATURE) return rebuild('dependency signature changed');
+
+  const python = path.join(RUNTIME_DIR, 'python.exe');
+  try {
+    await access(python);
+  } catch {
+    return rebuild('python.exe is missing');
+  }
+
+  try {
+    await run(python, ['-I', '-c', SMOKE_IMPORTS], { env: isolatedEnv, stdio: 'ignore' });
+  } catch {
+    return rebuild('dependency import smoke test failed');
+  }
+
+  console.log(`Embedded Python runtime already up to date: ${RUNTIME_DIR}`);
+  return true;
+}
 
 const run = (command, args, options = {}) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: 'inherit', windowsHide: true, ...options });
@@ -46,14 +124,7 @@ async function prepare() {
     return;
   }
   const marker = path.join(RUNTIME_DIR, 'vrcdog-runtime.json');
-  try {
-    const raw = await readFile(marker, 'utf8');
-    const data = JSON.parse(raw);
-    if (data.pythonVersion === PYTHON_VERSION) {
-      console.log(`Embedded Python runtime already up to date: ${RUNTIME_DIR}`);
-      return;
-    }
-  } catch {}
+  if (await isRuntimeUpToDate(marker)) return;
   await mkdir(CACHE_DIR, { recursive: true });
   const archive = path.join(CACHE_DIR, PYTHON_ARCHIVE);
   const pipWheel = path.join(CACHE_DIR, `pip-${PIP_VERSION}-py3-none-any.whl`);
@@ -72,7 +143,6 @@ async function prepare() {
   await writeFile(pthFile, pth.replace('#import site', 'import site'), 'utf8');
 
   const python = path.join(stagedRuntime, 'python.exe');
-  const isolatedEnv = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONUTF8: '1' };
 
   // 直接解压 pip wheel 到 site-packages, 替代原来的 get-pip.py bootstrap。
   // 之后所有调用统一走 `python -m pip`, 不依赖 Scripts/ 下的 entry point。
@@ -84,50 +154,15 @@ async function prepare() {
   await run(python, [
     '-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location',
     '--no-cache-dir', '--only-binary=:all:', '--no-compile',
-    'requests==2.32.5',
-    'beautifulsoup4==4.14.2',
-    'certifi==2026.5.20',
-    'soupsieve==2.8.4',
-    'charset-normalizer==3.4.9',
-    'idna==3.18',
-    'urllib3==2.7.0',
-    'typing-extensions==4.16.0',
-    'pyaudiowpatch==0.2.12.8',
-    'SpeechRecognition==3.17.0',
-    'faster-whisper==1.2.1',
-    'webrtcvad-wheels==2.0.14',
-    'pycaw==20251023',
-    'edge-tts==6.1.12',
-    'numpy==2.2.6',
-    'onnxruntime==1.22.0',
-    'websocket-client==1.8.0',
-    'sherpa-onnx==1.12.40',
+    ...PACKAGES,
   ], { env: isolatedEnv });
-  await run(python, ['-I', '-c', 'import requests, bs4, certifi, pyaudiowpatch, speech_recognition, faster_whisper, webrtcvad, pycaw, edge_tts, numpy, onnxruntime, websocket, sherpa_onnx, json; print(json.dumps({"ok": True}))'], { env: isolatedEnv });
+  await run(python, ['-I', '-c', SMOKE_IMPORTS], { env: isolatedEnv });
 
   await writeFile(path.join(stagedRuntime, 'vrcdog-runtime.json'), JSON.stringify({
     pythonVersion: PYTHON_VERSION,
     architecture: 'windows-x64',
-    packages: [
-      'requests==2.32.5',
-      'beautifulsoup4==4.14.2',
-      'certifi==2026.5.20',
-      'soupsieve==2.8.4',
-      'charset-normalizer==3.4.9',
-      'idna==3.18',
-      'urllib3==2.7.0',
-      'typing-extensions==4.16.0',
-      'pyaudiowpatch==0.2.12.8',
-      'SpeechRecognition==3.17.0',
-      'faster-whisper==1.2.1',
-      'webrtcvad-wheels==2.0.14',
-      'pycaw==20251023',
-      'edge-tts==6.1.12',
-      'numpy==2.2.6',
-      'onnxruntime==1.22.0',
-      'websocket-client==1.8.0',
-      'sherpa-onnx==1.12.40',
-    ],
+    signature: RUNTIME_SIGNATURE,
+    packages: PACKAGES,
     source: PYTHON_URL,
     archiveSha256: PYTHON_SHA256,
   }, null, 2));

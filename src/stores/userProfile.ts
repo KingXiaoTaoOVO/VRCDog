@@ -162,8 +162,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
   };
 
   // Open the profile for a specific user
-  const openProfile = async (userId: string, prefillData: VrcUser | null = null) => {
-    targetUserId.value = userId;
+  const openProfile = async (userId: string, prefillData: VrcUser | null = null) => {    targetUserId.value = userId;
     isOpen.value = true;
 
     // Add to navigation history
@@ -172,6 +171,12 @@ export const useUserProfileStore = defineStore('userProfile', () => {
 
     _loadProfile(userId, prefillData, true);
   };
+
+  /// 用户详情面板是**单例复用**的（Store-driven Modal）：所有 ref 由同一个 store 持有。
+  /// 因此每个 await 之后都必须确认「当前目标仍然是发起请求时的那个人」，
+  /// 否则从 A 快速跳到 B 时，A 的慢响应会陆续落到 B 的面板上——
+  /// 分组、世界、头像、共同好友、收藏状态全部串号， loading 旗标也会被提前灭掉。
+  const isStillTarget = (userId: string) => targetUserId.value === userId;
 
   // Internal load function (shared by openProfile and goBack)
   const _loadProfile = async (userId: string, prefillData: VrcUser | null, resetState: boolean) => {
@@ -201,6 +206,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     // Optimistic load
     const baseCacheKey = `user_${userId}`;
     DbApi.getApiCache({ key: baseCacheKey }).then(cachedStr => {
+      if (!isStillTarget(userId)) return;
       if (cachedStr && !baseInfo.value) { // Don't override if prefillData was set and better
         try {
           const cachedData = JSON.parse(cachedStr);
@@ -212,17 +218,20 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     
     Promise.allSettled([
       VrcApi.request(`/users/${userId}`).then(res => {
+        if (!isStillTarget(userId)) return;
         baseInfo.value = res;
         DbApi.saveApiCache({ key: baseCacheKey, data: JSON.stringify(res) }).catch(() => {});
       }),
       DbApi.getNote({ userId }).then((res: { note?: string } | null | undefined) => {
+        if (!isStillTarget(userId)) return;
         if (res && res.note) {
           localNote.value = res.note;
         }
       }),
       resolveMyId()
     ]).finally(() => {
-      isLoadingBase.value = false;
+      // 目标已经换成别人时不能灭灯，否则新用户的骨架屏会提前变成空数据
+      if (isStillTarget(userId)) isLoadingBase.value = false;
     });
     
     // Note: Other tabs will trigger their own fetch when selected or we can prefetch them
@@ -264,6 +273,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     try {
       // Optimistic load from DB
       const cachedStr = await DbApi.getApiCache({ key: cacheKey });
+      if (!isStillTarget(userId)) return;
       if (cachedStr) {
         try {
           const cachedData = JSON.parse(cachedStr);
@@ -276,6 +286,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
 
       // Background fetch
       const res = await VrcApi.request(`/users/${userId}/groups`);
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(res)) {
         groups.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -283,7 +294,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     } catch (err) {
       console.warn("Failed to fetch user groups", err);
     } finally {
-      isLoadingGroups.value = false;
+      if (isStillTarget(userId)) isLoadingGroups.value = false;
     }
   };
 
@@ -294,6 +305,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     try {
       // Optimistic load
       const cachedStr = await DbApi.getApiCache({ key: cacheKey });
+      if (!isStillTarget(userId)) return;
       if (cachedStr) {
         try {
           const cachedData = JSON.parse(cachedStr);
@@ -306,6 +318,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
 
       // Background fetch
       const res = await VrcApi.request('/worlds', { method: 'GET', params: { userId: userId, n: 60 } });
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(res)) {
         createdWorlds.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -313,7 +326,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     } catch (err) {
       console.warn("Failed to fetch created worlds", err);
     } finally {
-      isLoadingWorlds.value = false;
+      if (isStillTarget(userId)) isLoadingWorlds.value = false;
     }
   };
 
@@ -322,6 +335,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     const cacheKey = `fav_worlds_${userId}`;
     try {
       const currentUserId = await resolveMyId();
+      if (!isStillTarget(userId)) return;
 
       if (!currentUserId || userId !== currentUserId) {
         favoriteWorlds.value = [];
@@ -330,6 +344,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
 
       // Optimistic load 缓存
       const cachedStr = await DbApi.getApiCache({ key: cacheKey });
+      if (!isStillTarget(userId)) return;
       if (cachedStr) {
         try {
           const cachedData = JSON.parse(cachedStr);
@@ -342,6 +357,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       // 真实拉取（VRChat 收藏世界 API 只能查自己的，看他人时会 404，这里 catch 掉）
       try {
         const res = await VrcApi.getFavoriteWorlds({ n: 100, offset: 0 });
+        if (!isStillTarget(userId)) return;
         if (Array.isArray(res)) {
           favoriteWorlds.value = res;
           DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -350,7 +366,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
         // 看他人收藏夹通常 403/404，保持本地缓存即可
       }
     } finally {
-      isLoadingFavWorlds.value = false;
+      if (isStillTarget(userId)) isLoadingFavWorlds.value = false;
     }
   };
   
@@ -360,12 +376,14 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     
     try {
       const currentUserId = await resolveMyId();
+      if (!isStillTarget(userId)) return;
       if (!currentUserId || userId !== currentUserId) {
         createdAvatars.value = [];
         return;
       }
 
       const cachedStr = await DbApi.getApiCache({ key: cacheKey });
+      if (!isStillTarget(userId)) return;
       if (cachedStr) {
         try {
           const cachedData = JSON.parse(cachedStr);
@@ -377,6 +395,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       }
 
       const res = await VrcApi.request('/avatars', { method: 'GET', params: { userId: userId, n: 60 } });
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(res)) {
         createdAvatars.value = res;
         DbApi.saveApiCache({ key: cacheKey, data: JSON.stringify(res) }).catch(() => {});
@@ -386,7 +405,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
         console.warn("Failed to fetch created avatars", err);
       }
     } finally {
-      isLoadingAvatars.value = false;
+      if (isStillTarget(userId)) isLoadingAvatars.value = false;
     }
   };
 
@@ -394,13 +413,14 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingActivity.value = true;
     try {
       const logs = await DbApi.getFriendLogs({ userId, limit: 100 });
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(logs)) {
         activityLogs.value = logs;
       }
     } catch (err) {
       console.warn("Failed to fetch activity logs", err);
     } finally {
-      isLoadingActivity.value = false;
+      if (isStillTarget(userId)) isLoadingActivity.value = false;
     }
   };
 
@@ -408,6 +428,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingMutual.value = true;
     try {
       const res = await VrcApi.getMutualFriends({ userId });
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(res)) {
         mutualFriends.value = res;
       } else {
@@ -415,9 +436,9 @@ export const useUserProfileStore = defineStore('userProfile', () => {
       }
     } catch (err) {
       console.warn("Failed to fetch mutual friends", err);
-      mutualFriends.value = [];
+      if (isStillTarget(userId)) mutualFriends.value = [];
     } finally {
-      isLoadingMutual.value = false;
+      if (isStillTarget(userId)) isLoadingMutual.value = false;
     }
   };
 
@@ -425,19 +446,21 @@ export const useUserProfileStore = defineStore('userProfile', () => {
     isLoadingMutualGroups.value = true;
     try {
       const res = await VrcApi.getMutualGroups({ userId });
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(res)) mutualGroups.value = res;
       else mutualGroups.value = [];
     } catch (err) {
       console.warn("Failed to fetch mutual groups", err);
-      mutualGroups.value = [];
+      if (isStillTarget(userId)) mutualGroups.value = [];
     } finally {
-      isLoadingMutualGroups.value = false;
+      if (isStillTarget(userId)) isLoadingMutualGroups.value = false;
     }
   };
 
   const checkIsFavorite = async (userId: string) => {
     try {
       const favorites = await VrcApi.getFavorites({ type: 'friend', n: 100 });
+      if (!isStillTarget(userId)) return;
       if (Array.isArray(favorites)) {
         const fav = favorites.find((f: any) => f.favoriteId === userId);
         favoriteId.value = fav ? fav.id : null;
@@ -449,9 +472,11 @@ export const useUserProfileStore = defineStore('userProfile', () => {
 
   const toggleFavorite = async () => {
     if (!targetUserId.value) return;
+    const userId = targetUserId.value;
     try {
       if (favoriteId.value) {
         await VrcApi.deleteFavorite(favoriteId.value);
+        if (!isStillTarget(userId)) return;
         favoriteId.value = null;
       } else {
         const res = await VrcApi.addFavorite({
@@ -459,6 +484,7 @@ export const useUserProfileStore = defineStore('userProfile', () => {
           favoriteId: targetUserId.value,
           tags: ['group_0'] // Default group
         });
+        if (!isStillTarget(userId)) return;
         if (res && res.id) {
           favoriteId.value = res.id;
         }

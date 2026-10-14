@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { mergeCookiesAndSave, normalizeAuthCookieJson } from './cookies';
 import { isDebugLogEnabled } from './debugConfig';
+import { vrcdogClientTokenHeaders } from './clientToken';
 import { ServerApi } from './serverClient';
 
 const VRCHAT_API_ORIGIN = 'https://api.vrchat.cloud';
@@ -467,7 +468,11 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
   const method = (options.method || 'GET').toUpperCase();
   let reqUrl = buildVrchatApiUrl(url);
   let bodyStr = null;
-  const headers: any = { ...options.headers };
+  // 自动为「已注册的那台 VRCDog 服务器」附加 client token（按 origin 钉死，不会外泄到别处）。
+  // 自托管服务端的 `/api/client/*` 全部要求 `x-vrcdog-client-token`（服务端 `require_client_token`），
+  // 而过去只有心跳和 disconnect 带了头，问卷 / 功能权限等接口一直在静默 401。
+  // 调用方显式传入的同名头优先，方便心跳/登出这类自己管理 token 的路径。
+  const headers: any = { ...vrcdogClientTokenHeaders(reqUrl), ...options.headers };
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 30000, 1000), 120000);
 
   if (options.params && method !== 'GET') {

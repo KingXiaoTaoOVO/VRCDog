@@ -99,11 +99,19 @@ export const useEntityModalStore = defineStore('entityModal', () => {
   const groupPermissions = ref<string[]>([]);
   const loadingGroupData = ref(false);
 
+  // 群详情弹窗同样是单例复用的：快速切换 A/B 两个群时，A 的慢响应会后到并把 A 的
+  // 成员、角色、权限挂到 B 上——而这些都是「管理操作」的输入，串号后果很严重。
+  let groupGen = 0;
+
   const openGroup = async (groupOrId: Record<string, unknown> | string) => {
+    const gen = ++groupGen;
     isGroupOpen.value = true;
     loadingGroup.value = true;
     errorMsg.value = '';
-    
+
+    // 必须连 selectedGroup 一起清（`openWorld` 就是这么做的），
+    // 否则按 id 打开群 B 时，面板会先把上一个群 A 的名字和头像渲染出来。
+    selectedGroup.value = null;
     groupMembers.value = [];
     groupRoles.value = [];
     groupJoinRequests.value = [];
@@ -116,20 +124,23 @@ export const useEntityModalStore = defineStore('entityModal', () => {
       }
 
       const fullGroup = await VrcApi.getGroup({ groupId });
+      if (gen !== groupGen) return;
       selectedGroup.value = fullGroup as VrcGroup;
 
-      fetchGroupAdminData(groupId as string);
+      fetchGroupAdminData(groupId as string, gen);
     } catch (err: unknown) {
-      errorMsg.value = (err as Error).message || String(err);
+      if (gen === groupGen) errorMsg.value = (err as Error).message || String(err);
     } finally {
-      loadingGroup.value = false;
+      if (gen === groupGen) loadingGroup.value = false;
     }
   };
 
-  const fetchGroupAdminData = async (groupId: string) => {
+  const fetchGroupAdminData = async (groupId: string, gen = groupGen) => {
+    const isCurrent = () => gen === groupGen;
     loadingGroupData.value = true;
     try {
       const permsRes = await VrcApi.getUserGroupPermissions({ userId: 'me' }) as any;
+      if (!isCurrent()) return;
       if (Array.isArray(permsRes)) {
         const currentGroupPerms = permsRes.find((p) => p.groupId === groupId || p.id === groupId);
         groupPermissions.value = currentGroupPerms?.permissions || [];
@@ -143,19 +154,21 @@ export const useEntityModalStore = defineStore('entityModal', () => {
         VrcApi.getGroupMembers({ groupId }),
         VrcApi.getGroupRoles({ groupId })
       ]);
+      if (!isCurrent()) return;
 
       if (membersRes.status === 'fulfilled') groupMembers.value = membersRes.value;
       if (rolesRes.status === 'fulfilled') groupRoles.value = rolesRes.value;
 
       if (groupPermissions.value.includes('group-join-requests-manage')) {
         const requestsRes = await VrcApi.getGroupJoinRequests({ groupId });
+        if (!isCurrent()) return;
         groupJoinRequests.value = requestsRes;
       }
 
     } catch (err) {
       console.warn("Failed to fetch group admin data", err);
     } finally {
-      loadingGroupData.value = false;
+      if (isCurrent()) loadingGroupData.value = false;
     }
   };
 

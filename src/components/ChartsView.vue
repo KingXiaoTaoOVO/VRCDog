@@ -258,6 +258,10 @@ const networkChartRef = ref<HTMLElement | null>(null);
 let chartInstance: echarts.ECharts | null = null;
 
 const isFetchingMutuals = ref(false);
+// 抓取「相互好友」是一个逐个好友分页的长循环（每个好友还要 sleep 250ms），
+// 组件卸载后它原本会继续跑几分钟：一边打 VRChat API 撞满全局限流（其它页面开始 429），
+// 一边往已经销毁的响应式对象里写数据。这个标志让循环在每次网络往返前检查并退出。
+let graphBuildAborted = false;
 const mutualFetchProgress = ref({ current: 0, total: 0 });
 const mutualGraphReady = ref(false);
 const mutualGraphNodes = ref<any[]>([]);
@@ -266,6 +270,7 @@ const mutualGraphLinks = ref<any[]>([]);
 const fetchMutualFriends = async () => {
   if (isFetchingMutuals.value) return;
   isFetchingMutuals.value = true;
+  graphBuildAborted = false;
   mutualGraphReady.value = false;
   
   const friends = allFriends.value;
@@ -293,12 +298,13 @@ const fetchMutualFriends = async () => {
   };
 
   for (let i = 0; i < friends.length; i++) {
+    if (graphBuildAborted) break;
     const friend = friends[i];
     ensureNode(friend.id, friend.displayName);
     
     try {
       let offset = 0;
-      while (true) {
+      while (!graphBuildAborted) {
         const res = await VrcApi.getMutualFriends({ userId: friend.id, n: 100, offset });
         const mutuals = Array.isArray(res) ? res : (res.data || []);
         if (!mutuals || mutuals.length === 0) break;
@@ -318,6 +324,12 @@ const fetchMutualFriends = async () => {
     mutualFetchProgress.value.current = i + 1;
     // 速率限制，VrcDog 设置的是每秒5次，我们保守一点，每次请求间隔 250ms
     await new Promise(r => setTimeout(r, 250));
+  }
+
+  // 组件已卸载：把状态收干净直接返回，不要再写响应式数据、更不要去渲染图表
+  if (graphBuildAborted) {
+    isFetchingMutuals.value = false;
+    return;
   }
   
   // 简单分配颜色 (用节点 ID hash 或者 连通度分类)
@@ -445,6 +457,7 @@ onMounted(() => {
   window.addEventListener('resize', handleResize);
 });
 onUnmounted(() => {
+  graphBuildAborted = true;
   window.removeEventListener('resize', handleResize);
   if (chartInstance) chartInstance.dispose();
 });

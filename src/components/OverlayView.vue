@@ -46,6 +46,8 @@ const addLog = (payload: LogMessage) => {
   if (logs.value.length > 10) logs.value.pop();
 };
 
+const logListEl = ref<HTMLElement | null>(null);
+
 onMounted(async () => {
   // 监听来自主窗口的翻译日志事件
   unlistenTranslation = await listen('translation-log', (event: any) => {
@@ -53,10 +55,13 @@ onMounted(async () => {
     addLog(payload);
     
     setTimeout(() => {
-      const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 100;
-      if (nearBottom) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
+      // 日志是「最新在上」（addLog 用 unshift），要跟随的是列表容器的顶部。
+      // 外层是 `h-screen overflow-hidden`，window 永远不滚动，
+      // 所以旧的 `window.innerHeight + window.scrollY >= document.body.scrollHeight`
+      // 恒为真、`window.scrollTo` 恒为空转：向上翻看旧译文时会被新消息顶走，视图乱跳。
+      const el = logListEl.value;
+      if (!el) return;
+      if (el.scrollTop <= 24) el.scrollTo({ top: 0, behavior: 'smooth' });
     }, 50);
   });
 
@@ -143,6 +148,7 @@ onUnmounted(() => {
     <!-- 聊天气泡区域 -->
     <div
       v-else
+      ref="logListEl"
       class="space-y-2 flex-1 min-h-0 overflow-y-auto p-3 pb-5 custom-scrollbar"
       data-tauri-drag-region
     >

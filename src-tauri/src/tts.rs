@@ -2,11 +2,73 @@ use crate::{AppError, AppResult};
 use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 const PRESET_FILE: &str = "tts-voice-presets.json";
+
+/// 合成缓存的保留上限：条数 + 存活时间。
+/// VRCDog 是常驻工具，通知 TTS 会持续合成 `cache/tts/{uuid}.wav`，
+/// 而仓库里原本没有任何删除逻辑 —— 目录只会单调变大直到占满磁盘且毫无提示。
+const TTS_CACHE_MAX_FILES: usize = 200;
+const TTS_CACHE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// 计算需要删除的文件（纯函数，便于测试）。
+///
+/// 输入是 `(路径, 修改时间)` 列表，按「新 → 旧」排序后：
+/// 超出 `max_files` 的部分删除；比 `now - max_age` 更老的也删除。
+/// 刚写完的那个文件永远是最新的，一定落在保留区间内，不会把正在播放的音频删掉。
+fn cache_entries_to_remove(
+    mut entries: Vec<(PathBuf, SystemTime)>,
+    now: SystemTime,
+    max_files: usize,
+    max_age: Duration,
+) -> Vec<PathBuf> {
+    entries.sort_by(|left, right| right.1.cmp(&left.1));
+    entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, (path, modified))| {
+            let over_cap = index >= max_files;
+            let expired = modified
+                .elapsed()
+                .map(|age| age > max_age)
+                .unwrap_or(false);
+            if over_cap || expired {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// 清理合成缓存。失败一律忽略：缓存清理绝不能反过来让语音合成报错。
+async fn prune_tts_cache(root: &Path, max_files: usize, max_age: Duration) {
+    let Ok(mut read_dir) = tokio::fs::read_dir(root).await else {
+        return;
+    };
+    let mut entries: Vec<(PathBuf, SystemTime)> = Vec::new();
+    loop {
+        match read_dir.next_entry().await {
+            Ok(Some(entry)) => {
+                if let Ok(meta) = entry.metadata().await {
+                    if meta.is_file() {
+                        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                        entries.push((entry.path(), modified));
+                    }
+                }
+            }
+            Ok(None) | Err(_) => break,
+        }
+    }
+    let now = SystemTime::now();
+    for path in cache_entries_to_remove(entries, now, max_files, max_age) {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,5 +285,81 @@ pub async fn translation_tts_synthesize(app: AppHandle, request: TtsSynthesisReq
     tokio::fs::create_dir_all(&root).await.map_err(|error| AppError::from(error.to_string()))?;
     let output_path = root.join(format!("{}.{extension}", Uuid::new_v4()));
     tokio::fs::write(&output_path, audio).await.map_err(|error| AppError::from(error.to_string()))?;
+    // 写完再清理：刚生成的文件时间戳最新，必然落在保留区间内，
+    // 不会出现「前端还没播完就被自己删掉」。清理失败不影响本次合成。
+    prune_tts_cache(&root, TTS_CACHE_MAX_FILES, TTS_CACHE_MAX_AGE).await;
     Ok(TtsSynthesisResult { provider, voice: request.voice, text: request.text, output_path: output_path.to_string_lossy().into_owned() })
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::cache_entries_to_remove;
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
+
+    fn file_at(name: &str, age: Duration) -> (PathBuf, SystemTime) {
+        (
+            PathBuf::from(name),
+            SystemTime::now() - age,
+        )
+    }
+
+    #[test]
+    fn keeps_the_newest_files_and_drops_the_overflow() {
+        // 全部都没过期，只按条数上限裁剪
+        let entries = vec![
+            file_at("old1.wav", Duration::from_secs(600)),
+            file_at("new1.wav", Duration::from_secs(10)),
+            file_at("old2.wav", Duration::from_secs(900)),
+            file_at("mid.wav", Duration::from_secs(300)),
+        ];
+        let removed = cache_entries_to_remove(entries, SystemTime::now(), 2, Duration::from_secs(3600));
+        let names: Vec<String> = removed
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        // 按「新 → 旧」排序后是 new1, mid, old1, old2；上限 2 => 删掉 old1、old2
+        assert_eq!(
+            names,
+            vec!["old1.wav", "old2.wav"],
+            "应删最旧的、超出上限的部分"
+        );
+    }
+
+    #[test]
+    fn drops_expired_files_even_when_under_the_count_cap() {
+        let entries = vec![
+            file_at("fresh.wav", Duration::from_secs(5)),
+            file_at("stale.wav", Duration::from_secs(8 * 24 * 3600)),
+        ];
+        let removed = cache_entries_to_remove(entries, SystemTime::now(), 200, Duration::from_secs(7 * 24 * 3600));
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].file_name().unwrap(), "stale.wav");
+    }
+
+    #[test]
+    fn never_removes_the_freshest_file() {
+        // 刚写完的那个文件如果被删掉，前端就播不出声音了
+        let entries = vec![file_at("just-written.wav", Duration::from_millis(50))];
+        let removed = cache_entries_to_remove(entries, SystemTime::now(), 1, Duration::from_secs(3600));
+        assert!(removed.is_empty(), "单个新鲜文件绝不能被清理掉");
+    }
+
+    #[test]
+    fn empty_cache_is_fine() {
+        let removed = cache_entries_to_remove(vec![], SystemTime::now(), 10, Duration::from_secs(60));
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn clock_skew_forward_is_not_treated_as_expired() {
+        // 文件系统时间被往回调过（或 NTP 跳变）时，mtime 可能「在未来」：
+        // `elapsed()` 会 Err，此时应当保守地当成未过期保留，而不是删掉。
+        let future = (
+            PathBuf::from("future.wav"),
+            SystemTime::now() + Duration::from_secs(3600),
+        );
+        let removed = cache_entries_to_remove(vec![future], SystemTime::now(), 1, Duration::from_secs(60));
+        assert!(removed.is_empty(), "时间戳超前的文件不应被判定为过期");
+    }
 }

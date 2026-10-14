@@ -446,7 +446,9 @@ async function toggleAutomation() {
           host: endpoint.value.host,
           port: Number(endpoint.value.port),
           intervalMs: Number(automationInterval.value),
-          mappings: mappings.value,
+          // 必须归一化后再发：清空过的输入框会把空串当成 scale 交给 Rust，
+          // 导致 `f64` 反序列化失败、自动化根本起不来。
+          mappings: mappings.value.map(normalizeMapping),
         },
       });
       automationRunning.value = true;
@@ -485,14 +487,42 @@ function sourceRawValue(source: string): number | null {
   return values[source] ?? null;
 }
 
+function finiteNumber(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 数字输入框被清空时 `v-model.number` 留下的是空串，而 `scale` 的类型声明是 number：
+ * - 发给 Rust 会让 `scale: f64` 反序列化失败，整个自动化启动报错却看不出原因；
+ * - 预览里 `Number('' || 0)` 变成乘 0，输出恒等于 offset，看起来像"映射失效"。
+ * 缩放的语义默认必须是 1（不变换），偏移 0，min/max 留空表示不限制。
+ */
+function normalizeMapping(mapping: OscAutomationMapping): OscAutomationMapping {
+  return {
+    ...mapping,
+    scale: finiteNumber(mapping.scale, 1),
+    offset: finiteNumber(mapping.offset, 0),
+    min: optionalNumber(mapping.min),
+    max: optionalNumber(mapping.max),
+  };
+}
+
 function mappingPreview(mapping: OscAutomationMapping) {
   const raw = sourceRawValue(mapping.source);
   if (raw == null) return '--';
-  let value = raw * Number(mapping.scale || 0) + Number(mapping.offset || 0);
-  if (mapping.min != null) value = Math.max(value, Number(mapping.min));
-  if (mapping.max != null) value = Math.min(value, Number(mapping.max));
-  if (mapping.valueType === 'bool') return value >= 0.5 ? 'true' : 'false';
-  if (mapping.valueType === 'int' || mapping.valueType === 'long') return String(Math.round(value));
+  const normalized = normalizeMapping(mapping);
+  let value = raw * normalized.scale + normalized.offset;
+  if (normalized.min != null) value = Math.max(value, normalized.min);
+  if (normalized.max != null) value = Math.min(value, normalized.max);
+  if (normalized.valueType === 'bool') return value >= 0.5 ? 'true' : 'false';
+  if (normalized.valueType === 'int' || normalized.valueType === 'long') return String(Math.round(value));
   return value.toFixed(3);
 }
 

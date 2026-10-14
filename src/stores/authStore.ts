@@ -7,6 +7,7 @@ import { isTauri, invoke } from '@tauri-apps/api/core';
 import type { VrcUser } from '../types/vrc';
 import { setAppLocale, translate } from '../i18n';
 import { normalizeNotificationForDb } from '../api/notificationNormalization';
+import { setVrcdogClientToken } from '../api/clientToken';
 import { useUiStore } from './uiStore';
 import { useFriendsStore } from './friendsStore';
 import { getCookieValue, mergeCookiesAndSave, normalizeAuthCookieJson } from '../api/cookies';
@@ -47,6 +48,45 @@ export const useAuthStore = defineStore('auth', () => {
   let serverRegisterInFlight: Promise<boolean | undefined> | null = null;
   let serverRegisterRetryAt = 0;
   let lastServerRegisterError = '';
+  let reconnectDisplayTimer: ReturnType<typeof setInterval> | null = null;
+  let reconnectAt = 0;
+
+  /** 断线后到下一次重连尝试之间的等待时间（毫秒）。界面文案承诺的是「秒」，所以必须以真实时间戳为准。 */
+  const RECONNECT_WAIT_MS = 30_000;
+
+  /** 依据截止时间刷新倒计时显示；返回「是否已经到了该重试的时候」。 */
+  const syncReconnectCountdown = (): boolean => {
+    const remain = reconnectAt - Date.now();
+    reconnectCountdown.value = remain > 0 ? Math.ceil(remain / 1000) : 0;
+    return remain <= 0;
+  };
+
+  const stopReconnectTicker = () => {
+    if (reconnectDisplayTimer) {
+      clearInterval(reconnectDisplayTimer);
+      reconnectDisplayTimer = null;
+    }
+    reconnectAt = 0;
+  };
+
+  /**
+   * 进入断线等待窗口：按真实时间戳设定重试时刻，并起一个 1s 定时器。
+   * 定时器只做两件事——把「秒」 smoothly 走完（心跳是 15s 一次，不然数字会长时间卡住），
+   * 以及到点时立刻发起一次心跳/重连尝试，而不是干等下一个心跳 tick。
+   */
+  const armReconnectWindow = () => {
+    reconnectAt = Date.now() + RECONNECT_WAIT_MS;
+    syncReconnectCountdown();
+    if (reconnectDisplayTimer) return;
+    reconnectDisplayTimer = setInterval(() => {
+      if (!clientServerUrl.value || !currentUser.value) return;
+      if (serverConnected.value) {
+        stopReconnectTicker();
+        return;
+      }
+      if (syncReconnectCountdown() && !isFetchingHeartbeat) void runHeartbeatTick();
+    }, 1000);
+  };
 
   const getBaseUrl = () => clientServerUrl.value.replace(/\/+$/, '');
   const getClientTokenHeader = () => {
@@ -146,10 +186,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     if (vrcKeepaliveTimer) { clearInterval(vrcKeepaliveTimer); vrcKeepaliveTimer = null; }
+    stopReconnectTicker();
+    reconnectCountdown.value = 0;
     serverConnected.value = true; // reset
     consecutiveFailures = 0;
     currentUser.value = null;
     isLoggedIn.value = false;
+    // 服务端下发的身份必须一起清掉：
+    // clientToken 是「上一个账号」的凭证，服务端用它反查 user_id 并与心跳上报的 user_id 比对，
+    // 带着旧 token 注册新账号会被判 auth_failed，进而触发全屏断线遮罩且无法自愈。
+    // 同理 uiStore 里的菜单/主题/模式权限来自上个账号，登录失败时不会被刷新，
+    // 换账号后侧边栏会继续按上个账号的权限过滤功能。
+    clientToken.value = '';
+    setVrcdogClientToken('', '');
+    uiStore.resetServerPerms();
     resolveSurveyPrompt();
     // Key fix: only return to role selection on full user logout (keepVrcAuth=false)
     // Auth expiry/kick/ban (keepVrcAuth=true) only returns to login page, preserving role choice
@@ -193,6 +243,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (data?.status === 'auth_failed') {
         serverRegisterRetryAt = Date.now() + 15_000;
         serverConnected.value = false;
+        armReconnectWindow();
         console.warn('VRCDog server auth_failed:', data.reason);
         return false;
       }
@@ -201,10 +252,13 @@ export const useAuthStore = defineStore('auth', () => {
       serverRegisterRetryAt = 0;
       lastServerRegisterError = '';
       consecutiveFailures = 0;
+      stopReconnectTicker();
       reconnectCountdown.value = 0;
-      if (data.client_token) {
-        clientToken.value = data.client_token;
-      }
+      // 以服务端本次下发的 token 为准；缺失时清空，绝不沿用上一个账号的 token。
+      clientToken.value = typeof data.client_token === 'string' ? data.client_token : '';
+      // 同步给 API 层：服务端的 `/api/client/*` 全部要求带 `x-vrcdog-client-token`，
+      // 由 request 层按 origin 统一附加，问卷 / 功能权限等接口才不会静默 401。
+      setVrcdogClientToken(clientToken.value, clientServerUrl.value);
       applySurveyStatus(data);
       if (data.status === 'banned') {
         banMessage.value = `Account Banned! Reason: ${data.reason}${data.duration_hours ? t('auto_edf6fe7c') + data.duration_hours + t('auto_2de0d491') : t('auto_6280ae83')}`;
@@ -222,6 +276,7 @@ export const useAuthStore = defineStore('auth', () => {
       } catch (err) {
       serverRegisterRetryAt = Date.now() + 30_000;
       serverConnected.value = false;
+      armReconnectWindow();
       const message = err instanceof Error ? err.message : String(err);
       if (message !== lastServerRegisterError) {
         console.warn(t('auto_149c8616'), err);
@@ -276,6 +331,10 @@ export const useAuthStore = defineStore('auth', () => {
 
     consecutiveFailures = 0;
     reconnectCountdown.value = 0;
+    // 换了服务器 = 换了 token 的归属 origin：先把旧的 client token 作废并同步给 API 层，
+    // 否则 request 层会继续把上一个服务器的 token 往新地址上带（服务端必然 401）。
+    clientToken.value = '';
+    setVrcdogClientToken('', '');
     if (!reconnect || !currentUser.value) return true;
 
     serverConnected.value = false;
@@ -309,74 +368,90 @@ export const useAuthStore = defineStore('auth', () => {
     }, 2 * 60 * 1000);
   };
 
+  const runHeartbeatTick = async () => {
+    if (!clientServerUrl.value || !currentUser.value) return;
+    if (isFetchingHeartbeat) return;
+
+    // 断线状态下必须按「真实时间」判断是否该重试。
+    // 旧实现把 reconnectCountdown 当成秒数（初值 30，界面文案写着 seconds until auto reconnect），
+    // 但递减发生在 15s 一次的心跳 tick 里 —— 实际要等 30 × 15s ≈ 7.5 分钟，
+    // 而这段时间整个界面被 z-[9998] 的断线遮罩全屏挡住。
+    if (!serverConnected.value && !syncReconnectCountdown()) return;
+
+    isFetchingHeartbeat = true;
+    try {
+      const data: any = await VrcApi.request(`${getBaseUrl()}/api/client/heartbeat`, {
+        method: 'POST',
+        params: {
+          user_id: currentUser.value.id || currentUser.value.displayName
+        },
+        headers: getClientTokenHeader(),
+        timeoutMs: 3000,
+        maxRetries: 0,
+        allowExternalHost: true,
+      });
+
+      if (!serverConnected.value) {
+        await registerWithServer(currentUser.value);
+      }
+      serverConnected.value = true;
+      consecutiveFailures = 0;
+      stopReconnectTicker();
+      reconnectCountdown.value = 0;
+
+      if (data.status === 'banned') {
+        banMessage.value = `Account Banned! Reason: ${data.reason}${data.duration_hours ? ' for ' + data.duration_hours + ' hours' : ' permanently'}`;
+        handleLogout(true);
+      } else if (data.status === 'frozen') {
+        banMessage.value = `Account Frozen! Reason: ${data.reason}`;
+        handleLogout(true);
+      } else if (data.status === 'kicked') {
+        banMessage.value = t('auto_e1b5d9e2');
+        handleLogout(true);
+      } else if (data.status === 'register_required') {
+        await registerWithServer(currentUser.value);
+      }
+      if (data.status === 'survey_required' || data.status === 'survey_available' || data.status === 'ok') {
+        applySurveyStatus(data);
+      }
+    } catch (err) {
+      console.warn(t('auto_a46150ae'), err);
+
+      // 服务端重启、或电脑睡眠超过 45s 时，`cleanup_stale_clients` 已经把这台设备
+      // 注册的 client token 从内存里删掉了，心跳于是拿到 401。
+      // 旧逻辑只把失败计入重连倒计时，于是「遮罩 → 30 秒 → 再 401」无限循环，
+      // 只能靠用户手动点「重新连接」。401 的语义就是「服务端不认识这个 token」，
+      // 正确反应是立刻重新注册，而不是继续等下一个周期。
+      const status = (err as any)?.status;
+      if (status === 401 && currentUser.value) {
+        consecutiveFailures = 0;
+        serverRegisterRetryAt = 0;
+        stopReconnectTicker();
+        reconnectCountdown.value = 0;
+        const reRegistered = await registerWithServer(currentUser.value);
+        if (reRegistered) {
+          serverConnected.value = true;
+          return;
+        }
+      }
+
+      consecutiveFailures++;
+      if (consecutiveFailures >= 3) {
+        serverConnected.value = false;
+        armReconnectWindow();
+      }
+    } finally {
+      isFetchingHeartbeat = false;
+    }
+  };
+
   const startHeartbeat = () => {
     startVrcKeepalive();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (!clientServerUrl.value) return;
 
-    // 心跳以 15s 为间隔直接运行，去掉原先 1s 空转 + 计数跳过的做法，减少无谓定时器唤醒
-    heartbeatTimer = setInterval(async () => {
-      if (!clientServerUrl.value || !currentUser.value) return;
-      if (isFetchingHeartbeat) return;
-
-      if (!serverConnected.value) {
-        if (reconnectCountdown.value > 1) {
-          reconnectCountdown.value--;
-          return;
-        }
-        reconnectCountdown.value = 0;
-      }
-
-      isFetchingHeartbeat = true;
-      try {
-        const data: any = await VrcApi.request(`${getBaseUrl()}/api/client/heartbeat`, {
-          method: 'POST',
-          params: {
-            user_id: currentUser.value.id || currentUser.value.displayName
-          },
-          headers: getClientTokenHeader(),
-          timeoutMs: 3000,
-          maxRetries: 0,
-          allowExternalHost: true,
-        });
-
-        if (!serverConnected.value) {
-           await registerWithServer(currentUser.value);
-        }
-        serverConnected.value = true;
-        consecutiveFailures = 0;
-        reconnectCountdown.value = 0;
-
-        if (data.status === 'banned') {
-          banMessage.value = `Account Banned! Reason: ${data.reason}${data.duration_hours ? ' for ' + data.duration_hours + ' hours' : ' permanently'}`;
-          handleLogout(true);
-        } else if (data.status === 'frozen') {
-          banMessage.value = `Account Frozen! Reason: ${data.reason}`;
-          handleLogout(true);
-        } else if (data.status === 'kicked') {
-          banMessage.value = t('auto_e1b5d9e2');
-          handleLogout(true);
-        } else if (data.status === 'register_required') {
-          await registerWithServer(currentUser.value);
-        }
-        if (data.status === 'survey_required' || data.status === 'survey_available' || data.status === 'ok') {
-          applySurveyStatus(data);
-        }
-      } catch (err) {
-        console.warn(t('auto_a46150ae'), err);
-        consecutiveFailures++;
-        if (consecutiveFailures >= 3) {
-          if (serverConnected.value) {
-              serverConnected.value = false;
-              reconnectCountdown.value = 30;
-          } else {
-              reconnectCountdown.value = 30;
-          }
-        }
-      } finally {
-        isFetchingHeartbeat = false;
-      }
-    }, 15000);
+    // 心跳以 15s 为间隔运行；断线后的重试由 1s 的倒计时定时器在到点时立即发起。
+    heartbeatTimer = setInterval(runHeartbeatTick, 15000);
   };
 
   const doSyncFriends = async (): Promise<VrcUser[]> => {

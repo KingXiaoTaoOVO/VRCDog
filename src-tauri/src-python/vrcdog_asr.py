@@ -8,7 +8,9 @@ def main():
     parser = argparse.ArgumentParser(description="VRCDog ASR bridge")
     parser.add_argument("audio_path", help="Path to audio file (WAV)")
     parser.add_argument("--model", default="small", help="Whisper model size")
-    parser.add_argument("--language", default="zh", help="Language code")
+    # 默认必须由 None 走 Whisper 自动识别：原先写死 "zh"，而 Rust 侧只传音频路径，
+    # 于是任何语言的语音输入都被强制按中文解码，英文/日文语音转出来是一堆乱码。
+    parser.add_argument("--language", default=None, help="Language code (default: auto-detect)")
     parser.add_argument("--device", default="cpu", help="Device: cpu or cuda")
     args = parser.parse_args()
 

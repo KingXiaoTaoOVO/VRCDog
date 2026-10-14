@@ -714,8 +714,15 @@ pub async fn sys_open_dir(app_handle: tauri::AppHandle, target: String) -> Resul
 pub async fn sys_register_steamvr_autostart() -> Result<(), String> {
     // Generate vrmanifest file
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe_path.parent().unwrap();
+    // 可执行文件位于盘根（`D:\VrcDog.exe`）时 `parent()` 是 None，路径含非 UTF-8 字符时
+    // `to_str()` 是 None——原来的两处 `unwrap()` 会让这个命令直接 panic，
+    // 用户只会看到「点了 SteamVR 自启没反应」。
+    let dir = exe_path.parent().ok_or("Cannot resolve application directory")?;
     let manifest_path = dir.join("vrcdog_manifest.vrmanifest");
+    let manifest_path_str = manifest_path
+        .to_str()
+        .ok_or("Application path contains non-UTF-8 characters")?
+        .to_string();
 
     let manifest_content = serde_json::json!({
         "source": "VrcDog",
@@ -731,21 +738,28 @@ pub async fn sys_register_steamvr_autostart() -> Result<(), String> {
             }
         }]
     });
+    let manifest_json =
+        serde_json::to_string_pretty(&manifest_content).map_err(|e| e.to_string())?;
 
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&manifest_content).unwrap(),
-    )
-    .map_err(|e| e.to_string())?;
+    // 写文件和调用 `vrpathreg.exe` 都是阻塞操作（后者要同步等待外部进程退出），
+    // 在 `async fn` 里直接做会占死一个 tokio worker，拖慢同一运行时上的其它 IPC 命令。
+    let write_target = manifest_path.clone();
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(&write_target, manifest_json))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("Cannot write vrmanifest: {e}"))?;
 
     // Call vrpathreg to add the manifest
     let vrpathreg =
         "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SteamVR\\bin\\win64\\vrpathreg.exe";
     if std::path::Path::new(vrpathreg).exists() {
-        std::process::Command::new(vrpathreg)
-            .args(["addapp", manifest_path.to_str().unwrap()])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let arg = manifest_path_str.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            std::process::Command::new(vrpathreg).arg("addapp").arg(arg).output()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("vrpathreg failed: {e}"))?;
         Ok(())
     } else {
         Err("Could not find SteamVR vrpathreg.exe".to_string())
@@ -907,7 +921,11 @@ pub async fn sys_save_vrc_config(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Result<(), String> {
+pub async fn sys_backup_database(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::db::DbState>,
+    dest_path: String,
+) -> Result<(), String> {
     // dest_path 由前端提供，必须经过与普通写文件相同的校验，
     // 否则 `fs::copy` 会变成一个「用数据库内容覆盖任意文件」的原语。
     let target = validate_write_target(&app, &dest_path)?;
@@ -920,6 +938,12 @@ pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Re
             legacy_path
         };
         if source_path.exists() {
+            // 库以 WAL 模式打开，未 checkpoint 时最近的写入全部留在 `vrcdog.db-wal` 里。
+            // 只 `fs::copy` 主文件会得到一个静默残缺的备份（最近的活动记录/备注/收藏缺失），
+            // 必须先把 WAL 落盘并截断，再拷贝。
+            state
+                .checkpoint_wal()
+                .map_err(|e| format!("Backup aborted: {e}"))?;
             std::fs::copy(&source_path, &target).map_err(|e| format!("Backup failed: {}", e))?;
             return Ok(());
         }
@@ -929,7 +953,11 @@ pub async fn sys_backup_database(app: tauri::AppHandle, dest_path: String) -> Re
 }
 
 #[tauri::command]
-pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Result<(), String> {
+pub async fn sys_restore_database(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::db::DbState>,
+    src_path: String,
+) -> Result<(), String> {
     let trimmed = src_path.trim();
     if trimmed.is_empty() {
         return Err("Restore source path is empty".to_string());
@@ -954,7 +982,18 @@ pub async fn sys_restore_database(app: tauri::AppHandle, src_path: String) -> Re
     }
     if let Ok(app_dir) = app.path().app_data_dir() {
         let database_path = app_dir.join("vrcdog.db");
-        std::fs::copy(&source, &database_path).map_err(|e| format!("Restore failed: {}", e))?;
+        if !database_path.exists() {
+            return Err("Database file not found".to_string());
+        }
+        // 走 SQLite Online Backup API 而不是 `fs::copy`：直接覆盖在用的主库文件会留下
+        // 与主库不匹配的残留 -wal/-shm，重启后要么丢弃 WAL 内容、要么复活被覆盖前的旧数据。
+        state
+            .restore_from(&source)
+            .map_err(|e| format!("Restore failed: {e}"))?;
+        // 导入完成后把 WAL 落盘截断，保证紧接着的进程重启看到的是一致的主库文件。
+        state
+            .checkpoint_wal()
+            .map_err(|e| format!("Restore applied but {e}"))?;
         return Ok(());
     }
     Err("Cannot resolve app data directory".to_string())

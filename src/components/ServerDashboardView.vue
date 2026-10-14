@@ -892,10 +892,23 @@ const fetchRoles = async () => {
     allRoles.value = data.roles || [];
   } catch { /* ignore */ }
 };
+let pollInFlight = false;
+const pollOnce = async () => {
+  // 请求默认超时是 30s，而轮询间隔只有 5s：远端服务器稍慢一点，
+  // 不带去重的话每 5 秒就会再叠一整轮请求，响应乱序返回互相覆盖，
+  // 仪表盘出现「人数忽多忽少」并给服务器制造请求堆积。
+  if (pollInFlight) return;
+  pollInFlight = true;
+  try {
+    await Promise.allSettled([fetchClients(), fetchUsers(), fetchRoles()]);
+  } finally {
+    pollInFlight = false;
+  }
+};
 const startPolling = () => {
   stopPolling();
-  fetchClients(); fetchUsers(); fetchRoles();
-  pollTimer = setInterval(() => { fetchClients(); fetchUsers(); fetchRoles(); }, 5000);
+  void pollOnce();
+  pollTimer = setInterval(() => { void pollOnce(); }, 5000);
 };
 const stopPolling = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
 

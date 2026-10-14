@@ -3,9 +3,9 @@ use midly::{MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -74,6 +74,7 @@ const MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS: u64 = 300_000;
 /// 手动完成，而不是干等 75s 才超时。
 const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 35_000;
 /// Keep an online search responsive when the proxy or Cloudflare stalls.
+#[allow(dead_code)]
 const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 8;
 #[allow(dead_code)]
 const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 15;
@@ -1310,25 +1311,22 @@ pub async fn vrpiano_midishow_login_status(
         .unwrap_or_default();
     let (last_url, auto_account, auto_password) = runtime;
     let navigated_away = !last_url.is_empty() && !is_midishow_login_url(&last_url);
-    if navigated_away && !auto_account.is_empty() {
-        // 仅在页面已经跳离登录页之后才读 cookie：
-        // 之前每次 500ms 轮询都调用 `read_midishow_browser_cookie`，
-        // 那是一次 WebView2 COM 调用，比较耗时；现在按需触发，主观上"卡顿感"会明显减少。
-        let cookie = read_midishow_browser_cookie(window.clone()).await?;
-        if !cookie.is_empty() {
-            // 不再发起会触发 Cloudflare 拦截的 HTTP 校验请求（该请求从中国网络常被拦，
-            // 会误报「暂时无法确认登录状态」）。改为用「网页已离开登录页 + 存在 cookie」
-            // 作为登录成功判据：登录表单提交成功后页面会跳走、cookie 被写入。
-            persist_midishow_session_with_password(&app, &auto_account, Some(&auto_password), cookie)?;
-            let _ = window.close();
-            let status = VrpianoMidishowLoginStatus {
-                state: "signed_in".to_string(),
-                message: format!("已登录 {auto_account}"),
-                username: Some(auto_account),
-            };
-            update_midishow_login_runtime(&status);
-            let _ = app.emit("vrpiano_midishow_login_status", status.clone());
-            return Ok(status);
+    let title = window.title().unwrap_or_default();
+    let has_submit_or_success_signal = title.contains("VRCDOG_MIDISHOW:submitted") || title.contains("VRCDOG_MIDISHOW:ready");
+    if (navigated_away || (elapsed > 1000 && has_submit_or_success_signal)) && !auto_account.is_empty() {
+        if let Ok(cookie) = read_midishow_browser_cookie(window.clone()).await {
+            if !cookie.is_empty() && (navigated_away || cookie.contains("_identity")) {
+                persist_midishow_session_with_password(&app, &auto_account, Some(&auto_password), cookie)?;
+                let _ = window.close();
+                let status = VrpianoMidishowLoginStatus {
+                    state: "signed_in".to_string(),
+                    message: format!("已登录 {auto_account}"),
+                    username: Some(auto_account),
+                };
+                update_midishow_login_runtime(&status);
+                let _ = app.emit("vrpiano_midishow_login_status", status.clone());
+                return Ok(status);
+            }
         }
     }
     if elapsed >= MIDISHOW_LOGIN_FALLBACK_MS && current_state == "waiting" {
@@ -3977,12 +3975,17 @@ pub fn midi_note_to_name(note: u8) -> Option<&'static str> {
 }
 
 pub fn note_name_to_sharp(name: &str) -> String {
-    if let Some(pos) = name.find('+') {
-        let note_letter = &name[0..1];
-        let octave = &name[1..pos];
-        format!("{}#{}", note_letter, octave)
-    } else {
-        name.to_string()
+    // 原实现用 `find('+')` 的**字节**下标去切 `&name[0..1]` / `&name[1..pos]`：
+    // 只有首字符是 ASCII 时字节 1 才落在字符边界上。遇到全角音符名（`Ｃ4+`）会 panic，
+    // 而音符名可能来自解析的外部乐谱数据；`"+4"` 这种还会造成 start > end 直接崩。
+    match name.split_once('+') {
+        Some((head, tail)) => {
+            let mut chars = head.chars();
+            let note_letter: String = chars.next().map(|c| c.to_string()).unwrap_or_default();
+            let octave: String = chars.collect();
+            format!("{}#{}{}", note_letter, octave, tail)
+        }
+        None => name.to_string(),
     }
 }
 
@@ -4494,8 +4497,8 @@ async fn search_midishow_webview(
     let start = std::time::Instant::now();
     let mut final_results: Option<Vec<VrpianoOnlineSong>> = None;
 
-    while start.elapsed() < Duration::from_secs(12) {
-        tokio::time::sleep(Duration::from_millis(200)).await;
+    while start.elapsed() < Duration::from_secs(8) {
+        tokio::time::sleep(Duration::from_millis(150)).await;
         if let Ok(title) = window.title() {
             if let Some(encoded_data) = title.strip_prefix("VRCDOG_SEARCH_DONE:") {
                 let decoded = urlencoding::decode(encoded_data).unwrap_or_default();
@@ -4704,16 +4707,20 @@ async fn search_midishow(
 
     // 3. 多接口并行查询：Midishow 与 BitMidi
     let midishow_future = async {
-        if let Ok(results) = search_midishow_webview(app, keyword, limit).await {
-            return results;
-        }
         let account = default_midishow_account(app).ok().flatten();
+        // 优先使用轻量快速 HTTP 检索（通常 200~600ms）
         if let Ok(Ok(results)) = tokio::time::timeout(
-            Duration::from_secs(MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS),
+            Duration::from_millis(3500),
             search_midishow_http(Some(app), keyword, limit, account.as_ref()),
         )
         .await
         {
+            if !results.is_empty() {
+                return results;
+            }
+        }
+        // 若 HTTP 请求被拦截或无结果，平滑回退到后台浏览器检索
+        if let Ok(results) = search_midishow_webview(app, keyword, limit).await {
             return results;
         }
         Vec::new()
@@ -5313,7 +5320,11 @@ fn current_time_ms() -> u64 {
 }
 
 fn is_midishow_login_url(url: &str) -> bool {
-    url.starts_with("https://www.midishow.com/") && url.contains("/user/account/login")
+    (url.starts_with("https://www.midishow.com/")
+        || url.starts_with("http://www.midishow.com/")
+        || url.starts_with("https://midishow.com/")
+        || url.starts_with("http://midishow.com/"))
+        && url.contains("/user/account/login")
 }
 
 fn update_midishow_login_runtime(status: &VrpianoMidishowLoginStatus) {
@@ -5415,6 +5426,7 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
   let password = {password_js};
   let attempts = 0;
   let submitted = false;
+  let confirmationSignaled = false;
   const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
   const text = () => ((document.body?.innerText || '') + ' ' + (document.title || '')).replace(/\s+/g, ' ').trim();
   const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
@@ -5423,45 +5435,76 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
     .find((element) => element && element instanceof HTMLInputElement && !element.disabled && element.offsetParent !== null);
   const fill = (element, value) => {{
     if (!element) return false;
+    try {{ element.focus(); }} catch (e) {{}}
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     if (setter) setter.call(element, value); else element.value = value;
     element.dispatchEvent(new Event('input', {{ bubbles: true }}));
     element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+    try {{
+      element.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, key: 'a' }}));
+      element.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true, key: 'a' }}));
+      element.blur();
+    }} catch (e) {{}}
     return true;
   }};
+
+  const tryClickTurnstile = () => {{
+    try {{
+      const cfIframe = document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="cloudflare.com"]');
+      if (cfIframe) {{
+        cfIframe.focus();
+        cfIframe.click();
+        const rect = cfIframe.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {{
+          const targetX = rect.left + 28;
+          const targetY = rect.top + (rect.height / 2);
+          const el = document.elementFromPoint(targetX, targetY);
+          if (el && el !== cfIframe) {{
+            el.click();
+          }}
+        }}
+      }}
+      const cfWrapper = document.querySelector('.cf-turnstile, #turnstile-wrapper, [data-sitekey]');
+      if (cfWrapper) {{
+        cfWrapper.click();
+      }}
+    }} catch (e) {{}}
+  }};
+
   signal('ready');
-  // Wall-clock budget for the auto-fill loop. Independent of the polling interval
-  // so the form_missing timeout doesn't shrink if we tune the interval down.
   const startMs = Date.now();
-  const FORM_MISSING_BUDGET_MS = 35000;
+  const FORM_MISSING_BUDGET_MS = 45000;
   const timer = window.setInterval(() => {{
     attempts += 1;
     const pageText = text();
-    if (hasAny(pageText, ['用户名或密码错误', '账号或密码错误', '密码错误', '账户不存在', '用户不存在', '登录信息有误'])) {{
+    if (hasAny(pageText, ['用户名或密码错误', '账号或密码错误', '密码错误', '账户不存在', '用户不存在', '登录信息有误', 'Incorrect username or password'])) {{
       password = '';
       window.clearInterval(timer);
       signal('credentials_rejected');
       return;
     }}
-    if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证'])) {{
-      window.clearInterval(timer);
-      signal('needs_confirmation');
-      return;
-    }}
-    const hasCfChallenge = hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS']);
+
+    const hasCfChallenge = hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS', '确认您是真人']);
     if (hasCfChallenge) {{
-      if (Date.now() - startMs > 12000) {{
-        window.clearInterval(timer);
+      tryClickTurnstile();
+      if (!confirmationSignaled && (Date.now() - startMs > 3500)) {{
+        confirmationSignaled = true;
         signal('needs_confirmation');
       }}
       return;
     }}
-    if (!location.pathname.includes('/user/account/login')) {{
-      password = '';
-      window.clearInterval(timer);
+
+    if (!location.pathname.includes('/user/account/login') && !location.href.includes('/user/account/login')) {{
+      if (location.hostname.includes('midishow.com')) {{
+        signal('submitted');
+      }}
       return;
     }}
+
+    tryClickTurnstile();
+
     if (submitted) return;
+
     const accountInput = findVisible([
       '#loginform-identity',
       'input[name="LoginForm[identity]"]',
@@ -5482,7 +5525,8 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       'input[name="password"]',
       'input[type="password"]'
     ]);
-    if (!fill(accountInput, account) || !fill(passwordInput, password)) {{
+
+    if (!accountInput || !passwordInput) {{
       if (Date.now() - startMs >= FORM_MISSING_BUDGET_MS) {{
         password = '';
         window.clearInterval(timer);
@@ -5490,16 +5534,36 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       }}
       return;
     }}
+
+    fill(accountInput, account);
+    fill(passwordInput, password);
+
     const form = passwordInput.form || accountInput.form || document.querySelector('#login-form') || document.querySelector('form');
-    const submit = form?.querySelector('button[name="login-button"], button[type="submit"], input[type="submit"]');
+    const submit = form?.querySelector('button[name="login-button"], button[type="submit"], input[type="submit"], .btn-primary, button')
+      || document.querySelector('button[name="login-button"], #login-form button, .btn-primary');
+
     submitted = true;
     signal('submitted');
+
     window.setTimeout(() => {{
-      if (submit instanceof HTMLElement) submit.click();
-      else if (form instanceof HTMLFormElement) form.requestSubmit();
+      try {{
+        if (submit instanceof HTMLElement) {{
+          submit.click();
+        }}
+        if (form instanceof HTMLFormElement) {{
+          if (typeof form.requestSubmit === 'function') {{
+            form.requestSubmit();
+          }} else {{
+            form.submit();
+          }}
+        }}
+        if (window.jQuery && window.jQuery(form).length) {{
+          window.jQuery(form).submit();
+        }}
+      }} catch (e) {{}}
       password = '';
-    }}, 80);
-  }}, 100);
+    }}, 120);
+  }}, 150);
 }})();"#
     )
 }
@@ -6955,7 +7019,24 @@ fn resolve_bridge_script(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, 
         .ok_or_else(|| format!("Bridge script not found: {name}"))
 }
 
-fn run_python_bridge(app: &tauri::AppHandle, script: &str, args: &[&str]) -> Result<String, String> {
+/// 运行 Python bridge 脚本并带回超时上限。
+///
+/// 三个原本会导致「界面永远转圈」的问题：
+/// 1. `Command::output()` 是**同步阻塞**等待，而调用方（`vrpiano_transcribe_audio` /
+///    `vrpiano_synthesize_speech`）都是 `async fn` 命令 —— edge-tts 卡在网络上、
+///    faster-whisper 卡在模型加载上时，会占死一个 tokio worker，整个 IPC 面一起变慢；
+/// 2. **完全没有超时**：脚本挂住（等 stdin、等网络）就永远不返回；
+/// 3. 脚本失败时把 `{"error": "…"}` 打到 **stdout** 再以 1 退出，而旧实现只回传
+///    stderr（通常为空），用户看到的就是一句空白的 `Python bridge failed: `，
+///    两个调用方里的 `error` 分支因此成了死代码。
+///
+/// stdout / stderr 由独立线程持续读取，避免子进程写满管道缓冲后与父进程互相等待。
+fn run_python_bridge_with_timeout(
+    app: &tauri::AppHandle,
+    script: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, String> {
     let python = resolve_python_runtime(app)?;
     let script_path = resolve_bridge_script(app, script)?;
 
@@ -6965,8 +7046,9 @@ fn run_python_bridge(app: &tauri::AppHandle, script: &str, args: &[&str]) -> Res
         .args(args)
         .env("PYTHONNOUSERSITE", "1")
         .env("PYTHONUTF8", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     #[cfg(target_os = "windows")]
     {
@@ -6974,16 +7056,78 @@ fn run_python_bridge(app: &tauri::AppHandle, script: &str, args: &[&str]) -> Res
         command.creation_flags(0x08000000);
     }
 
-    let output = command
-        .output()
+    let mut child = command
+        .spawn()
         .map_err(|e| format!("Failed to run Python bridge: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Python bridge failed: {stderr}"));
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Python bridge stdout unavailable".to_string())?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Python bridge stderr unavailable".to_string())?;
+
+    let stdout_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buffer);
+        buffer
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buffer);
+        buffer
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "Python bridge 超时（{} 秒）：{} 可能卡在网络或模型加载上",
+                        timeout.as_secs(),
+                        script
+                    ));
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                return Err(format!("无法等待 Python bridge 结束: {e}"));
+            }
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&stdout_reader.join().unwrap_or_default()).to_string();
+    let stderr = String::from_utf8_lossy(&stderr_reader.join().unwrap_or_default()).to_string();
+
+    if !status.success() {
+        let stdout_trimmed = stdout.trim();
+        // 优先把脚本自己写的 {"error": "..."} 提取成人话，其次 stderr，最后退出码
+        let detail = serde_json::from_str::<serde_json::Value>(stdout_trimmed)
+            .ok()
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(|e| e.as_str())
+                    .map(str::to_string)
+            })
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                let s = stderr.trim();
+                (!s.is_empty()).then(|| s.to_string())
+            })
+            .or_else(|| {
+                (!stdout_trimmed.is_empty()).then(|| stdout_trimmed.to_string())
+            })
+            .unwrap_or_else(|| format!("exit code {:?}", status.code()));
+        return Err(format!("Python bridge failed: {detail}"));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.trim().to_string())
 }
 
@@ -7015,7 +7159,19 @@ pub async fn vrpiano_transcribe_audio(
     app: tauri::AppHandle,
     audio_path: String,
 ) -> Result<VrpianoTranscriptionResult, String> {
-    let output = run_python_bridge(&app, "vrcdog_asr.py", &[&audio_path])?;
+    // 同步的子进程等待必须离开 async 运行时，否则会占死 tokio worker（见 `run_python_bridge_with_timeout`）。
+    let app_for_bridge = app.clone();
+    let audio_for_bridge = audio_path.clone();
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        run_python_bridge_with_timeout(
+            &app_for_bridge,
+            "vrcdog_asr.py",
+            &[audio_for_bridge.as_str()],
+            Duration::from_secs(300),
+        )
+    })
+    .await
+    .map_err(|e| format!("ASR 任务崩溃: {e}"))??;
     let parsed: serde_json::Value = serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse ASR result: {e}"))?;
 
@@ -7075,7 +7231,20 @@ pub async fn vrpiano_synthesize_speech(
         "--output", &output_path_str,
     ];
 
-    let output = run_python_bridge(&app, "vrcdog_tts.py", &args)?;
+    // 同 ASR：子进程等待放到阻塞线程池，并给网络型的 edge-tts 一个明确上限。
+    let app_for_bridge = app.clone();
+    let owned_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        let arg_refs: Vec<&str> = owned_args.iter().map(String::as_str).collect();
+        run_python_bridge_with_timeout(
+            &app_for_bridge,
+            "vrcdog_tts.py",
+            &arg_refs,
+            Duration::from_secs(120),
+        )
+    })
+    .await
+    .map_err(|e| format!("TTS 任务崩溃: {e}"))??;
     let parsed: serde_json::Value = serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse TTS result: {e}"))?;
 
@@ -7209,6 +7378,10 @@ mod vrpiano_download_tests {
         assert_eq!(super::midi_note_to_name(108), Some("C8"));
         assert_eq!(super::note_name_to_sharp("C4+"), "C#4");
         assert_eq!(super::note_name_to_sharp("A0+"), "A#0");
+        // 多字节与畸形输入绝不能 panic（旧实现在字节下标 1 处切片会崩）
+        assert_eq!(super::note_name_to_sharp("Ｃ4+"), "Ｃ#4");
+        assert_eq!(super::note_name_to_sharp("+4"), "#4");
+        assert_eq!(super::note_name_to_sharp("C4"), "C4");
     }
 
     #[test]

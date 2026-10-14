@@ -124,20 +124,6 @@ impl DbState {
                 data TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
-            CREATE INDEX IF NOT EXISTS idx_activity_user ON friend_activity(user_id);
-            CREATE INDEX IF NOT EXISTS idx_activity_time ON friend_activity(recorded_at);
-            CREATE INDEX IF NOT EXISTS idx_activity_user_date ON friend_activity(user_id, date_key);
-            CREATE INDEX IF NOT EXISTS idx_friend_log_time ON friend_log(created_at);
-            CREATE INDEX IF NOT EXISTS idx_friend_log_type ON friend_log(event_type);
-            CREATE INDEX IF NOT EXISTS idx_friend_log_user_id ON friend_log(user_id, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_friends_status ON friends(status);
-            CREATE INDEX IF NOT EXISTS idx_game_log_time ON game_log(time);
-            CREATE INDEX IF NOT EXISTS idx_game_log_event_type ON game_log(event_type, time DESC);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_game_log_unique ON game_log(time, event_type, content);
-            CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_bili_tasks_status ON bili_tasks(status);
-            
             CREATE TABLE IF NOT EXISTS bili_tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bvid TEXT NOT NULL,
@@ -156,18 +142,14 @@ impl DbState {
         )
         .map_err(|e| format!("无法初始化数据库表: {e}"))?;
 
-        // Apply schema migrations gracefully for existing users
-        let _ = conn.execute(
-            "ALTER TABLE friend_activity ADD COLUMN date_key TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        let _ = conn.execute("ALTER TABLE favorite_worlds ADD COLUMN image_url TEXT", []);
+        // Apply schema migrations gracefully for existing users.
+        // 只有「列/约束已经存在」这类幂等错误才允许忽略；其余错误必须暴露出来，
+        // 否则库会停留在半迁移状态，后续 `SELECT 新列` 直接报错却无人知晓原因。
+        apply_migration(&conn, "ALTER TABLE friend_activity ADD COLUMN date_key TEXT NOT NULL DEFAULT ''");
+        apply_migration(&conn, "ALTER TABLE favorite_worlds ADD COLUMN image_url TEXT");
         // Rename column label to name for status_presets if old version existed
-        let _ = conn.execute("ALTER TABLE status_presets RENAME COLUMN label TO name", []);
-        let _ = conn.execute(
-            "ALTER TABLE status_presets ADD COLUMN name TEXT NOT NULL DEFAULT ''",
-            [],
-        );
+        apply_migration(&conn, "ALTER TABLE status_presets RENAME COLUMN label TO name");
+        apply_migration(&conn, "ALTER TABLE status_presets ADD COLUMN name TEXT NOT NULL DEFAULT ''");
         let _ = conn.execute(
             "DELETE FROM notifications
              WHERE COALESCE(TRIM(message), '') = ''
@@ -177,9 +159,142 @@ impl DbState {
             [],
         );
 
+        // 索引必须放在「建表 + 迁移」之后：
+        // 之前它们和建表语句混在同一个批次里，而且排在 `CREATE TABLE bili_tasks` 前面，
+        // 全新安装（空目录）第一启动就会在 `idx_bili_tasks_status` 上报
+        // `no such table: main.bili_tasks`，整个批次中断、`DbState::new` 返回 Err、应用起不来。
+        // 同理 `idx_activity_user_date` 引用 `date_key`，老库要等上面的 ALTER 迁移补完列才存在。
+        // 索引只是性能优化，缺了不该让应用无法启动，因此这里记录错误但不中断。
+        const INDEX_SQL: &str = "
+            CREATE INDEX IF NOT EXISTS idx_activity_user ON friend_activity(user_id);
+            CREATE INDEX IF NOT EXISTS idx_activity_time ON friend_activity(recorded_at);
+            CREATE INDEX IF NOT EXISTS idx_activity_user_date ON friend_activity(user_id, date_key);
+            CREATE INDEX IF NOT EXISTS idx_friend_log_time ON friend_log(created_at);
+            CREATE INDEX IF NOT EXISTS idx_friend_log_type ON friend_log(event_type);
+            CREATE INDEX IF NOT EXISTS idx_friend_log_user_id ON friend_log(user_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_friends_status ON friends(status);
+            CREATE INDEX IF NOT EXISTS idx_game_log_time ON game_log(time);
+            CREATE INDEX IF NOT EXISTS idx_game_log_event_type ON game_log(event_type, time DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_game_log_unique ON game_log(time, event_type, content);
+            CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_bili_tasks_status ON bili_tasks(status);
+            ";
+        if let Err(e) = conn.execute_batch(INDEX_SQL) {
+            eprintln!("[VrcDog] 部分索引创建失败（不影响启动，但查询可能变慢）: {e}");
+            // 整批中断时前面的索引也不会生效，逐条重建一次，尽量把热点索引补齐。
+            for statement in INDEX_SQL.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                if let Err(inner) = conn.execute(statement, []) {
+                    eprintln!("[VrcDog] 跳过索引语句: {inner}");
+                }
+            }
+        }
+
         Ok(Self {
             conn: Arc::new(StdMutex::new(conn)),
         })
+    }
+
+    /// 把 WAL 里尚未落盘的帧写回主库文件并截断 `-wal`。
+    ///
+    /// 备份 / 还原 / 任何「直接拷贝 vrcdog.db 主文件」的操作之前都必须先调用它：
+    /// WAL 模式下最近提交的数据位于 `vrcdog.db-wal`，只拷主文件会得到一个
+    /// 「缺少最近写入」的静默残缺备份，还原时也会因主库与残留 `-wal` 不匹配而丢数据。
+    pub fn checkpoint_wal(&self) -> Result<(), String> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| format!("Database mutex poisoned: {e}"))?;
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|e| format!("WAL checkpoint failed: {e}"))?;
+        Ok(())
+    }
+
+    /// 通过 SQLite Online Backup API 把外部数据库整库导入当前正在使用的连接。
+    ///
+    /// 不能用 `fs::copy` 直接覆盖在用的 `vrcdog.db`：那会留下与主库不匹配的
+    /// `vrcdog.db-wal` / `vrcdog.db-shm`，重启后 SQLite 要么丢弃 WAL 内容、要么用
+    /// 陈旧帧「复活」被覆盖前的数据；活连接的页缓存也可能把旧页回写覆盖新库。
+    /// Backup API 在同一活连接内事务性地重写页面，WAL、页缓存与主文件始终一致，
+    /// 并且源文件必须真是可读的 SQLite 库（顺带把「随便一个 .db 文件」挡在门外）。
+    pub fn restore_from(&self, source: &std::path::Path) -> Result<(), String> {
+        let mut to = self
+            .conn
+            .lock()
+            .map_err(|e| format!("Database mutex poisoned: {e}"))?;
+        let from = Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("Cannot open restore source as SQLite database: {e}"))?;
+        let backup = rusqlite::backup::Backup::new(&from, &mut *to)
+            .map_err(|e| format!("Restore init failed: {e}"))?;
+        backup
+            .run_to_completion(64, std::time::Duration::from_millis(10), None)
+            .map_err(|e| format!("Restore failed: {e}"))?;
+        Ok(())
+    }
+}
+
+/// 收藏世界 upsert：冲突时保留原始 `added_at`，并且只在导入源真的给了图片时才覆盖图片。
+const UPSERT_FAVORITE_WORLD: &str = "
+    INSERT INTO favorite_worlds (world_id, name, image_url, added_at)
+    VALUES (?1, ?2, ?3, COALESCE(
+        (SELECT added_at FROM favorite_worlds WHERE world_id = ?1),
+        datetime('now','localtime')))
+    ON CONFLICT(world_id) DO UPDATE SET
+        name = excluded.name,
+        image_url = COALESCE(excluded.image_url, favorite_worlds.image_url)";
+
+/// 收藏头像 upsert（手动收藏路径，字段均为非空字符串）。
+const UPSERT_FAVORITE_AVATAR: &str = "
+    INSERT INTO favorite_avatars (avatar_id, name, image_url, author_id, author_name)
+    VALUES (?1, ?2, ?3, ?4, ?5)
+    ON CONFLICT(avatar_id) DO UPDATE SET
+        name = excluded.name,
+        image_url = excluded.image_url,
+        author_id = excluded.author_id,
+        author_name = excluded.author_name";
+
+/// 收藏头像 upsert（导入路径：允许缺失字段，用已有值兜底，并保留原始收藏时间）。
+const UPSERT_IMPORTED_AVATAR: &str = "
+    INSERT INTO favorite_avatars (avatar_id, name, image_url, author_id, author_name, added_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(
+        (SELECT added_at FROM favorite_avatars WHERE avatar_id = ?1),
+        datetime('now','localtime')))
+    ON CONFLICT(avatar_id) DO UPDATE SET
+        name = excluded.name,
+        image_url = COALESCE(excluded.image_url, favorite_avatars.image_url),
+        author_id = COALESCE(excluded.author_id, favorite_avatars.author_id),
+        author_name = COALESCE(excluded.author_name, favorite_avatars.author_name)";
+
+/// 备注 upsert：导入源没有 displayName 时保留本地已有显示名。
+const UPSERT_IMPORTED_NOTE: &str = "
+    INSERT INTO notes (user_id, display_name, note, updated_at)
+    VALUES (?1, ?2, ?3, datetime('now','localtime'))
+    ON CONFLICT(user_id) DO UPDATE SET
+        display_name = COALESCE(NULLIF(TRIM(excluded.display_name), ''), notes.display_name),
+        note = excluded.note,
+        updated_at = excluded.updated_at";
+
+/// 判断一条迁移语句的失败是否属于「已经应用过」的幂等错误。
+fn is_benign_migration_error(message: &str) -> bool {
+    let msg = message.to_ascii_lowercase();
+    msg.contains("duplicate column name")
+        || msg.contains("no such column")
+        || msg.contains("already in use")
+        || msg.contains("already exists")
+}
+
+/// 执行一条幂等迁移语句：成功或「已应用」都返回 true；真正的失败会被记录并返回 false。
+fn apply_migration(conn: &Connection, sql: &str) -> bool {
+    match conn.execute(sql, []) {
+        Ok(_) => true,
+        Err(e) => {
+            if is_benign_migration_error(&e.to_string()) {
+                true
+            } else {
+                eprintln!("[VrcDog] schema migration failed: {e} :: {sql}");
+                false
+            }
+        }
     }
 }
 
@@ -200,11 +315,9 @@ pub fn db_add_favorite_world(
     image_url: Option<String>,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT OR REPLACE INTO favorite_worlds (world_id, name, image_url, added_at) VALUES (?1, ?2, ?3, datetime('now','localtime'))",
-        params![world_id, name, image_url],
-    )
-    .map_err(|e| e.to_string())?;
+    // 保留原始收藏时间（同 `db_add_favorite_avatar`）：重复收藏不应把条目顶到列表最前。
+    conn.execute(UPSERT_FAVORITE_WORLD, params![world_id, name, image_url])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -316,9 +429,12 @@ pub fn db_batch_record_friends(
         ).map_err(|e| e.to_string())?;
         for f in &friends {
             let res = stmt.execute(params![f.id, f.displayName, f.status, f.location, date_key]);
-            if res.is_ok() {
-                count += 1;
+            // 不能把 SQL 错误咽掉只少计一个数：否则「今日活动」会静默缺行，
+            // 界面显示成功而数据库里什么都没有。出错就回滚整批并把原因报给前端。
+            if let Err(e) = res {
+                return Err(format!("批量写入好友活动记录失败（第 {} 条）: {}", count + 1, e));
             }
+            count += 1;
         }
     }
     tx.commit().map_err(|e| e.to_string())?;
@@ -753,9 +869,11 @@ pub fn db_batch_save_friends(
                     location,
                     friend_data
                 ]);
-                if res.is_ok() {
-                    count += 1;
+                // 同 `db_batch_record_friends`：SQL 错误必须上报，不能静默丢行。
+                if let Err(e) = res {
+                    return Err(format!("批量保存好友缓存失败（第 {} 条）: {}", count + 1, e));
                 }
+                count += 1;
             }
         }
     }
@@ -899,9 +1017,11 @@ pub fn db_batch_save_notifications(
                 n.details,
                 n.created_at
             ]);
-            if res.is_ok() {
-                count += 1;
+            // 同 `db_batch_record_friends`：SQL 错误必须上报，不能静默丢通知。
+            if let Err(e) = res {
+                return Err(format!("批量保存通知失败（第 {} 条）: {}", count + 1, e));
             }
+            count += 1;
         }
     }
     tx.commit().map_err(|e| e.to_string())?;
@@ -1000,10 +1120,14 @@ pub fn db_add_favorite_avatar(
     author_name: String,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    // 用 upsert 而不是 `INSERT OR REPLACE`：REPLACE 是「删了重插」，未列出的
+    // `added_at` 会退回列默认值变成当前时间。收藏列表按 `added_at DESC` 排序，
+    // 于是重新收藏一个头像会把它跳到列表最前，并丢掉原始收藏时间。
     conn.execute(
-        "INSERT OR REPLACE INTO favorite_avatars (avatar_id, name, image_url, author_id, author_name) VALUES (?1, ?2, ?3, ?4, ?5)",
+        UPSERT_FAVORITE_AVATAR,
         params![avatar_id, name, image_url, author_id, author_name],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1269,9 +1393,7 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
         .or_else(|| value.as_array());
 
     if let Some(list) = notes_candidates {
-        let mut note_stmt = tx.prepare(
-            "INSERT OR REPLACE INTO notes (user_id, display_name, note, updated_at) VALUES (?1, ?2, ?3, datetime('now','localtime'))"
-        ).map_err(|e| e.to_string())?;
+        let mut note_stmt = tx.prepare(UPSERT_IMPORTED_NOTE).map_err(|e| e.to_string())?;
 
         for item in list {
             let user_id = item.get("userId")
@@ -1289,7 +1411,11 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
 
             if let (Some(uid), Some(n)) = (user_id, note) {
                 if !uid.trim().is_empty() && !n.trim().is_empty() {
-                    let _ = note_stmt.execute(params![uid.trim(), display_name.trim(), n.trim()]);
+                    // 原来 `let _ = execute(..)` 把错误全部吞掉却照样 `+1`，
+                    // 于是导入失败也会汇报「成功导入 N 条备注」，用户完全看不出来。
+                    note_stmt
+                        .execute(params![uid.trim(), display_name.trim(), n.trim()])
+                        .map_err(|e| format!("导入备注 {} 失败: {}", uid.trim(), e))?;
                     imported_notes += 1;
                 }
             }
@@ -1303,9 +1429,7 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
         .and_then(|v| v.as_array());
 
     if let Some(list) = worlds_candidates {
-        let mut world_stmt = tx.prepare(
-            "INSERT OR REPLACE INTO favorite_worlds (world_id, name, image_url, added_at) VALUES (?1, ?2, ?3, datetime('now','localtime'))"
-        ).map_err(|e| e.to_string())?;
+        let mut world_stmt = tx.prepare(UPSERT_FAVORITE_WORLD).map_err(|e| e.to_string())?;
 
         for item in list {
             let world_id = item.get("worldId")
@@ -1323,7 +1447,9 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
 
             if let Some(wid) = world_id {
                 if !wid.trim().is_empty() {
-                    let _ = world_stmt.execute(params![wid.trim(), name.trim(), image_url]);
+                    world_stmt
+                        .execute(params![wid.trim(), name.trim(), image_url])
+                        .map_err(|e| format!("导入收藏世界 {} 失败: {}", wid.trim(), e))?;
                     imported_worlds += 1;
                 }
             }
@@ -1337,9 +1463,7 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
         .and_then(|v| v.as_array());
 
     if let Some(list) = avatars_candidates {
-        let mut avatar_stmt = tx.prepare(
-            "INSERT OR REPLACE INTO favorite_avatars (avatar_id, name, image_url, author_id, author_name, added_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now','localtime'))"
-        ).map_err(|e| e.to_string())?;
+        let mut avatar_stmt = tx.prepare(UPSERT_IMPORTED_AVATAR).map_err(|e| e.to_string())?;
 
         for item in list {
             let avatar_id = item.get("avatarId")
@@ -1363,7 +1487,9 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
 
             if let Some(aid) = avatar_id {
                 if !aid.trim().is_empty() {
-                    let _ = avatar_stmt.execute(params![aid.trim(), name.trim(), image_url, author_id, author_name]);
+                    avatar_stmt
+                        .execute(params![aid.trim(), name.trim(), image_url, author_id, author_name])
+                        .map_err(|e| format!("导入收藏头像 {} 失败: {}", aid.trim(), e))?;
                     imported_avatars += 1;
                 }
             }
@@ -1379,3 +1505,345 @@ pub fn db_import_vrcx_data(state: tauri::State<'_, DbState>, json_data: String) 
     })
 }
 
+
+#[cfg(test)]
+mod sql_tests {
+    use super::*;
+    use std::fs;
+
+    /// 用真实的 `DbState::new` 建库，这样测试跑的是生产环境的建表 + 迁移路径。
+    fn temp_db(label: &str) -> (DbState, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "vrcdog-db-{}-{}",
+            label,
+            uuid::Uuid::new_v4().simple()
+        ));
+        let state = DbState::new(dir.clone()).expect("open test database");
+        (state, dir)
+    }
+
+    fn cleanup(dir: &PathBuf) {
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn re_favorite_world_keeps_added_at_and_existing_image() {
+        let (db, dir) = temp_db("fav-world");
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO favorite_worlds (world_id, name, image_url, added_at)
+             VALUES ('w1', 'First', 'https://img/1.png', '2020-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+        // 再次收藏：源没给图片，名字变了
+        conn.execute(UPSERT_FAVORITE_WORLD, params!("w1", "Renamed", None::<&str>))
+            .unwrap();
+        let (name, image, added): (String, Option<String>, String) = conn
+            .query_row(
+                "SELECT name, image_url, added_at FROM favorite_worlds WHERE world_id = 'w1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(name, "Renamed");
+        assert_eq!(
+            image.as_deref(),
+            Some("https://img/1.png"),
+            "导入源缺少图片时不能清空本地已有缩略图"
+        );
+        assert_eq!(added, "2020-01-01 00:00:00", "重复收藏不能重置收藏时间");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn imported_avatar_keeps_metadata_and_favorite_time() {
+        let (db, dir) = temp_db("fav-avatar");
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO favorite_avatars (avatar_id, name, image_url, author_id, author_name, added_at)
+             VALUES ('a1', 'Cool', 'https://img/a.png', 'u_author', 'Author', '2021-06-01 12:00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            UPSERT_IMPORTED_AVATAR,
+            params!("a1", "Renamed", None::<&str>, None::<&str>, None::<&str>),
+        )
+        .unwrap();
+        let (image, author, added): (Option<String>, Option<String>, String) = conn
+            .query_row(
+                "SELECT image_url, author_name, added_at FROM favorite_avatars WHERE avatar_id = 'a1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+
+        // 手动收藏路径（字段全非空）同样必须保留 added_at
+        conn.execute(
+            UPSERT_FAVORITE_AVATAR,
+            params!("a1", "Again", "https://img/b.png", "u2", "Other"),
+        )
+        .unwrap();
+        let added_after_manual: String = conn
+            .query_row(
+                "SELECT added_at FROM favorite_avatars WHERE avatar_id = 'a1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(image.as_deref(), Some("https://img/a.png"));
+        assert_eq!(author.as_deref(), Some("Author"));
+        assert_eq!(added, "2021-06-01 12:00:00");
+        assert_eq!(added_after_manual, "2021-06-01 12:00:00");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn imported_note_without_display_name_keeps_local_display_name() {
+        let (db, dir) = temp_db("note");
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO notes (user_id, display_name, note) VALUES ('u1', 'Alice', 'old')",
+            [],
+        )
+        .unwrap();
+        // 导入文件只有 id + 备注，displayName 缺失 -> 空串
+        conn.execute(UPSERT_IMPORTED_NOTE, params!("u1", "", "new note"))
+            .unwrap();
+        let (name, note): (String, String) = conn
+            .query_row(
+                "SELECT display_name, note FROM notes WHERE user_id = 'u1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(name, "Alice", "导入缺少 displayName 时不能清空本地显示名");
+        assert_eq!(note, "new note", "备注本身应当被导入值覆盖");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn wal_checkpoint_truncates_side_file_so_plain_copy_is_complete() {
+        let (db, dir) = temp_db("wal");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO notes (user_id, display_name, note) VALUES ('u9', 'Nin', 'payload')",
+                [],
+            )
+            .unwrap();
+        }
+        // 未 checkpoint 时，刚写入的行只存在于 vrcdog.db-wal；
+        // 备份只 fs::copy 主文件就会得到一个静默缺数据的备份。
+        db.checkpoint_wal().unwrap();
+        let wal = dir.join("vrcdog.db-wal");
+        let wal_len = fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
+        assert_eq!(wal_len, 0, "TRUNCATE checkpoint 后 -wal 必须为空");
+        let main = fs::read(dir.join("vrcdog.db")).unwrap();
+        assert!(
+            main.windows(7).any(|w| w == b"payload"),
+            "checkpoint 后主库文件必须自带最新写入"
+        );
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn restore_from_replaces_live_database_instead_of_merging() {
+        let (source, src_dir) = temp_db("restore-src");
+        let (target, tgt_dir) = temp_db("restore-dst");
+        {
+            let conn = source.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO notes (user_id, display_name, note) VALUES ('u1', 'Ann', 'hello')",
+                [],
+            )
+            .unwrap();
+        }
+        source.checkpoint_wal().unwrap();
+        {
+            let conn = target.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO notes (user_id, display_name, note) VALUES ('u2', 'Old', 'stale')",
+                [],
+            )
+            .unwrap();
+        }
+        target.checkpoint_wal().unwrap();
+
+        target
+            .restore_from(&src_dir.join("vrcdog.db"))
+            .expect("restore should succeed");
+
+        let conn = target.conn.lock().unwrap();
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap();
+        let restored: String = conn
+            .query_row(
+                "SELECT note FROM notes WHERE user_id = 'u1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let leftover: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE user_id = 'u2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(total, 1, "还原必须是整库替换，不能和旧数据混合");
+        assert_eq!(restored, "hello");
+        assert_eq!(leftover, 0);
+        cleanup(&src_dir);
+        cleanup(&tgt_dir);
+    }
+
+    #[test]
+    fn restore_rejects_a_file_that_is_not_a_database() {
+        let (target, tgt_dir) = temp_db("restore-bad");
+        let junk = std::env::temp_dir().join(format!(
+            "vrcdog-junk-{}.db",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::write(&junk, b"this is definitely not a sqlite database file").unwrap();
+        assert!(
+            target.restore_from(&junk).is_err(),
+            "随便一个 .db 后缀的文件必须被拒绝，而不是覆盖在用库上"
+        );
+        let _ = fs::remove_file(&junk);
+        drop(target);
+        cleanup(&tgt_dir);
+    }
+
+    #[test]
+    fn migration_errors_are_classified() {
+        assert!(is_benign_migration_error("Duplicate column name: name"));
+        assert!(is_benign_migration_error("no such column: label"));
+        assert!(is_benign_migration_error("Column label is already in use"));
+        assert!(!is_benign_migration_error("database is locked"));
+        assert!(!is_benign_migration_error("disk I/O error"));
+    }
+
+    #[test]
+    fn apply_migration_is_idempotent_but_still_reports_real_failures() {
+        let (db, dir) = temp_db("migration");
+        let conn = db.conn.lock().unwrap();
+        let sql = "ALTER TABLE favorite_worlds ADD COLUMN image_url TEXT";
+        assert!(apply_migration(&conn, sql));
+        assert!(
+            apply_migration(&conn, sql),
+            "重复执行同一条迁移必须被当作幂等成功"
+        );
+        assert!(
+            !apply_migration(&conn, "ALTER TABLE no_such_table_xyz ADD COLUMN c TEXT"),
+            "真正失败的迁移语句不能被当成「已应用」悄悄跳过"
+        );
+        drop(conn);
+        cleanup(&dir);
+    }
+
+    /// 全新安装（空数据目录）必须能完整建库。
+    /// 回归 f190405 引入的阻塞性缺陷：`idx_bili_tasks_status` 排在
+    /// `CREATE TABLE bili_tasks` 之前，导致首次启动直接失败。
+    #[test]
+    fn fresh_install_creates_every_table_and_index() {
+        let (db, dir) = temp_db("fresh");
+        let conn = db.conn.lock().unwrap();
+        for table in [
+            "auth",
+            "friend_activity",
+            "notes",
+            "status_presets",
+            "favorite_worlds",
+            "favorite_avatars",
+            "friend_log",
+            "app_settings",
+            "friends",
+            "game_log",
+            "notifications",
+            "api_cache",
+            "bili_tasks",
+        ] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 1, "全新安装必须建出表 {table}");
+        }
+        for index in [
+            "idx_activity_user_date",
+            "idx_game_log_unique",
+            "idx_bili_tasks_status",
+        ] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?1",
+                    [index],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 1, "索引 {index} 必须存在");
+        }
+        drop(conn);
+        cleanup(&dir);
+    }
+
+    /// 老库升级路径：库里已经有一张缺 `date_key` 列的 `friend_activity`，
+    /// 索引建在迁移之前会因「no such column: date_key」中断整个初始化。
+    #[test]
+    fn upgrading_an_old_database_succeeds_and_backfills_columns() {
+        let dir = std::env::temp_dir().join(format!(
+            "vrcdog-db-old-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        {
+            let legacy = Connection::open(dir.join("vrcdog.db")).unwrap();
+            // v5.6 之前的老表结构：没有 date_key
+            legacy
+                .execute_batch(
+                    "CREATE TABLE friend_activity (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        location TEXT,
+                        recorded_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+                     );
+                     INSERT INTO friend_activity (user_id, display_name, status)
+                        VALUES ('u1', 'Legacy', 'online');",
+                )
+                .unwrap();
+        }
+
+        let db = DbState::new(dir.clone()).expect("老库升级必须成功");
+        let conn = db.conn.lock().unwrap();
+        let date_key: String = conn
+            .query_row(
+                "SELECT COALESCE(date_key, '<null>') FROM friend_activity LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(date_key, "", "迁移必须补上 date_key 且保留原有行");
+        let index_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_activity_user_date'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_exists, 1, "迁移后热点索引必须建起来");
+        drop(conn);
+        cleanup(&dir);
+    }
+}

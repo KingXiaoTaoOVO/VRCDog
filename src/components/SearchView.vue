@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { VrcApi, DbApi, SysApi } from "../api";
 import { Search, Users, Globe, Loader2, ExternalLink, UserPlus, Image as ImageIcon, UsersRound, Eye, Shield, Check } from 'lucide-vue-next';
 import VrcAvatar from './VrcAvatar.vue';
@@ -23,9 +23,13 @@ const hasSearched = ref(false);
 import { useEntityModalStore } from '../stores/entityModal';
 const entityStore = useEntityModalStore();
 
+// 连按两次 Enter 时，先发的慢响应会后到并覆盖新结果；切换类型也必须重新取数。
+let searchReqId = 0;
+
 const doSearch = async () => {
   const q = searchQuery.value.trim();
   if (!q) return;
+  const reqId = ++searchReqId;
   loading.value = true;
   errorMsg.value = '';
   hasSearched.value = true;
@@ -41,13 +45,23 @@ const doSearch = async () => {
     } else if (searchType.value === 'groups') {
       res = await VrcApi.searchGroups({ query: q, n: 30, offset: 0 });
     }
+    // 切走类型/重新搜索之后，这一份响应已经属于上一个查询了
+    if (reqId !== searchReqId) return;
     results.value = Array.isArray(res) ? res : [];
   } catch (err: any) {
+    if (reqId !== searchReqId) return;
     errorMsg.value = err.message || err;
   } finally {
-    loading.value = false;
+    if (reqId === searchReqId) loading.value = false;
   }
 };
+
+// 类型按钮原本只改 `searchType`，列表里仍然是上一类型的对象：
+// 世界数据会被喂给 `type="user"` 的资源卡片，字段全对不上（显示空白 / undefined），
+// 点进去还会打开错误的详情页。切换类型后应当立即按新类型重取。
+watch(searchType, () => {
+  if (hasSearched.value && searchQuery.value.trim()) void doSearch();
+});
 
 const openUserDetail = (user: any) => {
   profileStore.openProfile(user.id, user);

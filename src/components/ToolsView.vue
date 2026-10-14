@@ -122,7 +122,12 @@ function inviteTemplateCooldownText(row: InviteTemplateSlot) {
   return t('tools.invite_minutes', { count: min });
 }
 
+// 邀请模板按消息类型（invite / requestInvite / ...）分槽位。快速切换类型时，
+// 先发的那个请求可能后到，把新类型的槽位内容覆盖成旧类型的 —— 保存时会写错槽位。
+let inviteTemplateReqId = 0;
+
 async function loadInviteTemplates(type: InviteMessageType = activeInviteMessageType.value) {
+  const reqId = ++inviteTemplateReqId;
   activeInviteMessageType.value = type;
   inviteTemplateLoading.value = true;
   inviteTemplateStatus.value = { message: '', type: '' };
@@ -131,11 +136,13 @@ async function loadInviteTemplates(type: InviteMessageType = activeInviteMessage
     const userId = (authStore.currentUser as any)?.id;
     if (!userId) throw new Error('Missing current user id');
     const result = await VrcApi.getInviteMessages({ userId, messageType: type });
+    if (reqId !== inviteTemplateReqId) return;
     inviteTemplateSlots.value = normalizeInviteTemplateSlots(result);
   } catch (err: any) {
+    if (reqId !== inviteTemplateReqId) return;
     inviteTemplateStatus.value = { message: err?.message || String(err), type: 'error' };
   } finally {
-    inviteTemplateLoading.value = false;
+    if (reqId === inviteTemplateReqId) inviteTemplateLoading.value = false;
   }
 }
 
@@ -203,6 +210,9 @@ const setRpc = async () => {
 const sendChatboxMessage = async () => {
   const text = chatboxText.value.trim();
   if (!text) return;
+  // 按钮上的 `:disabled` 拦不住 textarea 的 `@keydown.ctrl.enter`，
+  // 连按会在同一个 OSC 通道里交织出两条打字流。
+  if (chatboxStatus.value.loading) return;
   chatboxStatus.value = { loading: true, message: '', type: '' };
   if (chatboxTypingTimer) { clearTimeout(chatboxTypingTimer); chatboxTypingTimer = null; }
   await SysApi.sendOscTyping({ typing: false }).catch(() => {});
@@ -256,15 +266,21 @@ const applyTemplate = (text: string) => {
   chatboxText.value = text;
 };
 
+// 逐字符打字是一个「每个字符一次 OSC 请求 + sleep」的长循环。
+// 没有中止标志时，切走页面后循环仍在继续向 OSC 发送整段文本（VRChat 里会继续打字）。
+let liveTypingAborted = false;
+
 const sendLiveTyping = async (fullText: string) => {
   const charsPerSecond = Math.max(1, chatboxLiveTypingRate.value);
   const delayMs = Math.max(50, Math.round(1000 / charsPerSecond));
   const finalizeMs = Math.max(1000, chatboxLiveTypingFinalize.value * 1000);
   for (let i = 1; i <= fullText.length; i++) {
+    if (liveTypingAborted) return;
     const partial = fullText.slice(0, i);
     await SysApi.sendOscChatbox({ text: partial, complete: false, delaySecs: 0, notification: false });
     await new Promise(r => setTimeout(r, delayMs));
   }
+  if (liveTypingAborted) return;
   await SysApi.sendOscChatbox({ text: fullText, complete: true, delaySecs: chatboxSendDelay.value > 0 ? chatboxSendDelay.value : undefined, notification: chatboxNotification.value || undefined });
 };
 
@@ -423,6 +439,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  liveTypingAborted = true;
   if (vrcStatusTimer) clearInterval(vrcStatusTimer);
   if (chatboxTypingTimer) clearTimeout(chatboxTypingTimer);
   if (unlistenKeepalive) unlistenKeepalive();
