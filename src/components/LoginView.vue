@@ -104,7 +104,7 @@ async function saveCurrentAccount(user: any, cookie: string) {
   if (!saveCredentials.value) return;
   if (!user?.id) return;
 
-  const accountUsername = username.value.trim() || user.username || user.email || user.id || '';
+  const accountUsername = user.username || user.email || username.value.trim() || user.id || '';
   const existingIdx = savedAccounts.value.findIndex(a => a.userId === user.id);
   const existingAcc = existingIdx >= 0 ? savedAccounts.value[existingIdx] : null;
 

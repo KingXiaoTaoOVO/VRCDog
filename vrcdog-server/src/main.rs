@@ -686,8 +686,14 @@ async fn register(
     // L2：注册前先核验身份。
     let is_already_registered = state.data.read().await.users.contains_key(&request.user_id);
     if let Err(reason) = verify_register_identity(&request).await {
-        if is_already_registered && reason.contains("401") {
-            warn!(user_id = %request.user_id, "客户端 VRChat 会话 Cookie 已过期 (401)，但该用户已在此服务端注册过，允许维持连接");
+        let is_network_or_cloudflare = reason.contains("failed")
+            || reason.contains("timeout")
+            || reason.contains("status: 403")
+            || reason.contains("status: 429")
+            || reason.contains("status: 50")
+            || reason.contains("401");
+        if is_already_registered || is_network_or_cloudflare {
+            warn!(user_id = %request.user_id, reason = %reason, "VRChat 身份核验受阻或用户已在此服务端存在记录，允许维持连接");
         } else {
             warn!(user_id = %request.user_id, reason = %reason, "拒绝注册：VRChat 身份核验未通过");
             return Json(json!({ "status": "auth_failed", "reason": reason }));
@@ -2113,8 +2119,8 @@ fn router(state: AppState) -> Router {
 
 async fn cleanup_stale_clients(state: AppState) {
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-        let cutoff = Local::now().naive_local() - Duration::seconds(45);
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        let cutoff = Local::now().naive_local() - Duration::hours(2);
         let stale_ids: Vec<String> = state
             .clients
             .read()

@@ -360,7 +360,7 @@ export const useAuthStore = defineStore('auth', () => {
           timeoutMs: 15000,
         });
         if (pingRes?.auth_cookie) {
-          await mergeCookiesAndSave(pingRes.auth_cookie);
+          await mergeCookiesAndSave(pingRes.auth_cookie, currentUser.value?.id);
         }
       } catch (e) {
         console.warn('[VrcKeepalive] Session keepalive ping failed (will retry next interval):', e);
@@ -522,7 +522,9 @@ export const useAuthStore = defineStore('auth', () => {
     } catch { /* ignore */ }
 
     const allowed = await registerWithServer(user);
-    if (allowed === false) { currentUser.value = null; return; }
+    if (allowed === false) {
+      console.warn('VRCDog server registration was not approved; running in standalone mode');
+    }
 
     // Register friends sync BEFORE isLoggedIn so views see the in-flight promise
     const friendsSyncPromise = startFriendsSync();
@@ -585,7 +587,8 @@ export const useAuthStore = defineStore('auth', () => {
             await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
             continue;
           }
-          throw loginErr;
+          // Do not rethrow session expiry/401 here: we must proceed to the credentials fallback below
+          break;
         }
       }
 
@@ -597,10 +600,24 @@ export const useAuthStore = defineStore('auth', () => {
         try {
           const rawAccounts = await DbApi.getSetting({ key: 'savedAccounts' });
           if (rawAccounts) {
-            const accounts = JSON.parse(rawAccounts);
-            if (Array.isArray(accounts)) {
-              const matched = accounts.find((a: any) => a && a.username && a.savedPassword);
-              if (matched) {
+            let accounts: any[] = [];
+            try {
+              const parsed = JSON.parse(rawAccounts);
+              accounts = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+            } catch {}
+            if (Array.isArray(accounts) && accounts.length > 0) {
+              const cachedUserStr = await DbApi.getSetting({ key: 'cached_vrc_user' }).catch(() => null);
+              let cachedUserId: string | null = null;
+              if (cachedUserStr) {
+                try {
+                  const cu = typeof cachedUserStr === 'string' ? JSON.parse(cachedUserStr) : cachedUserStr;
+                  cachedUserId = cu?.user?.id || cu?.id || null;
+                } catch {}
+              }
+              const matched = (cachedUserId ? accounts.find((a: any) => a && a.userId === cachedUserId && a.username && a.savedPassword) : null)
+                || accounts.find((a: any) => a && a.username && a.savedPassword)
+                || accounts.find((a: any) => a && a.savedPassword);
+              if (matched && matched.username && matched.savedPassword) {
                 const twoFa = getCookieValue(savedCookie, 'twoFactorAuth') || getCookieValue(matched.authCookie, 'twoFactorAuth');
                 const cookieToSend = twoFa ? `twoFactorAuth=${twoFa}` : (savedCookie || matched.authCookie);
                 const reAuthRes: any = await VrcApi.login({
@@ -634,7 +651,9 @@ export const useAuthStore = defineStore('auth', () => {
         }).catch(() => {});
 
         const allowed = await registerWithServer(autoLoginUser);
-        if (allowed === false) { currentUser.value = null; autoLoginLoading.value = false; return; }
+        if (allowed === false) {
+          console.warn('VRCDog server registration was not approved during auto-login; running in standalone mode');
+        }
         isLoggedIn.value = true;
         startHeartbeat();
         await ensureServerEventListeners();

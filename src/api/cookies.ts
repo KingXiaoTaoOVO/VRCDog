@@ -97,7 +97,10 @@ export function getCookieValue(
   return null;
 }
 
-export async function mergeCookiesAndSave(newCookieJson: string | null | undefined): Promise<string | null> {
+export async function mergeCookiesAndSave(
+  newCookieJson: string | null | undefined,
+  targetUserId?: string | null
+): Promise<string | null> {
   const newCookies = parseCookieInput(newCookieJson);
   if (newCookies.length === 0) {
     return null;
@@ -157,19 +160,22 @@ export async function mergeCookiesAndSave(newCookieJson: string | null | undefin
         accounts = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
       } catch {}
       if (Array.isArray(accounts) && accounts.length > 0) {
-        let currentUserId: string | null = null;
-        try {
-          const cachedUserStr = await invoke<string | null>('db_get_setting', { key: 'cached_vrc_user' });
-          if (cachedUserStr) {
-            const cu = typeof cachedUserStr === 'string' ? JSON.parse(cachedUserStr) : cachedUserStr;
-            currentUserId = cu?.user?.id || cu?.id || null;
-          }
-        } catch {}
+        let currentUserId: string | null = targetUserId || null;
+        if (!currentUserId) {
+          try {
+            const cachedUserStr = await invoke<string | null>('db_get_setting', { key: 'cached_vrc_user' });
+            if (cachedUserStr) {
+              const cu = typeof cachedUserStr === 'string' ? JSON.parse(cachedUserStr) : cachedUserStr;
+              currentUserId = cu?.user?.id || cu?.id || null;
+            }
+          } catch {}
+        }
 
         let updated = false;
         for (const acc of accounts) {
-          if ((currentUserId && acc.userId === currentUserId) || (!currentUserId && accounts.length === 1)) {
+          if ((currentUserId && (acc.userId === currentUserId || acc.username === currentUserId)) || (!currentUserId && accounts.length === 1)) {
             acc.authCookie = mergedJson;
+            acc.updatedAt = Date.now();
             updated = true;
           }
         }
