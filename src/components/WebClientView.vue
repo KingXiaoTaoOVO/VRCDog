@@ -68,7 +68,7 @@ onMounted(() => {
     <div class="max-w-3xl mx-auto px-4 py-8">
       <div class="flex items-center justify-between mb-8">
         <div class="flex items-center gap-3">
-          <img :src="currentTheme.logo" class="w-10 h-10 rounded-full border-2 border-border-soft" />
+          <img :src="currentTheme.logo" class="w-10 h-10 rounded-full border border-border-soft" />
           <div>
             <h1 class="text-xl font-bold" :style="{ color: currentTheme.colors.textStrong }">
               {{ t('app.title') || 'VrcDog' }} - Web Client

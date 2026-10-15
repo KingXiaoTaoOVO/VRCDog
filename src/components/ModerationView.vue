@@ -88,7 +88,7 @@ const openPlayerProfile = (m: any) => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -178,7 +178,7 @@ const openPlayerProfile = (m: any) => {
           <div
             v-for="item in filteredModerations"
             :key="item.id"
-            class="relative group bg-surface backdrop-blur-md rounded-3xl border-border-soft hover:border-primary shadow-sm hover:shadow-lg transition-all overflow-hidden flex flex-col "
+            class="relative group bg-surface backdrop-blur-md rounded-2xl border-border-soft hover:border-primary shadow-sm hover:shadow-lg transition-all overflow-hidden flex flex-col "
           >
             <div
               class="flex-1 p-3 cursor-pointer"

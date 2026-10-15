@@ -9,7 +9,7 @@ import { SysApi } from "../api/index";
 import StatusCard, { type ComponentStatus } from "./StatusCard.vue";
 import InstallDialog from "./InstallDialog.vue";
 import { Settings, RefreshCcw, Bone, X, Heart, AlertTriangle, Package } from "lucide-vue-next";
-import dogImg from '../assets/dog.jpg';
+import { currentTheme } from '../theme';
 import unityImg from '../assets/unity.png';
 import vrchatImg from '../assets/vrchat.png';
 import { useI18n } from 'vue-i18n';
@@ -252,7 +252,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -262,7 +262,7 @@ onMounted(() => {
         <div class="w-14 h-14 rounded-2xl overflow-hidden border-border-soft shadow-lg shadow-indigo-200/50 flex-shrink-0 bg-surface flex items-center justify-center">
           <img
             v-if="!dogImageFailed"
-            :src="dogImg"
+            :src="currentTheme.logo"
             class="w-full h-full object-cover"
             alt="VrcDog Logo"
             @error="dogImageFailed = true"
@@ -274,7 +274,7 @@ onMounted(() => {
         </div>
         <div>
           <h1 class="text-3xl font-extrabold text-text tracking-tight mb-1 flex items-center gap-2">
-            {{ t('env.title') }} <Bone class="w-6 h-6 text-primary inline-block animate-bounce" />
+            {{ t('env.title') }} <Bone class="w-6 h-6 text-primary inline-block" />
           </h1>
           <p class="text-text-muted font-bold text-sm">
             {{ t('env.subtitle') }}
@@ -292,7 +292,7 @@ onMounted(() => {
           />
           {{ t('env.check') }}
         </button>
-        <button
+        <button :aria-label="t('a11y.settings')"
           class="p-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text-muted hover:text-primary shadow-sm border-border-soft transition-all active:scale-95"
           @click="showSettings = true"
         >
@@ -341,7 +341,7 @@ onMounted(() => {
       />
 
       <!-- VCC Dependency Management Section -->
-      <div class="col-span-1 md:col-span-3 mt-2 bg-surface backdrop-blur-xl p-6 rounded-3xl border-border-strong shadow-lg shadow-slate-200/40">
+      <div class="col-span-1 md:col-span-3 mt-2 bg-surface backdrop-blur-xl p-6 rounded-2xl border-border-strong shadow-lg shadow-slate-200/40">
         <h2 class="text-xl font-extrabold text-text mb-6 flex items-center gap-3">
           <span class="p-1.5 bg-primary/10 rounded-lg text-primary">
             <Bone :size="20" />
@@ -495,12 +495,12 @@ onMounted(() => {
             class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showUninstallConfirm = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-2xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> {{ t('env.confirm_uninstall') || 'Uninstall?' }}
               </h3>
-              <button
+              <button :aria-label="t('a11y.close')"
                 class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showUninstallConfirm = false"
               >
@@ -540,12 +540,12 @@ onMounted(() => {
             class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showLaunchToolConfirm = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-2xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-primary flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> {{ t('env.select_tool') || 'Select Tool' }}
               </h3>
-              <button
+              <button :aria-label="t('a11y.close')"
                 class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showLaunchToolConfirm = false"
               >
@@ -585,12 +585,12 @@ onMounted(() => {
             class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showUninstallToolSelection = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-2xl shadow-2xl relative z-10 p-6 border-border-strong">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-xl font-extrabold text-red-600 flex items-center gap-2">
                 <AlertTriangle class="w-6 h-6" /> {{ t('env.select_uninstall') || 'Select Tool' }}
               </h3>
-              <button
+              <button :aria-label="t('a11y.close')"
                 class="p-1.5 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showUninstallToolSelection = false"
               >
@@ -630,12 +630,12 @@ onMounted(() => {
             class="absolute inset-0 bg-surface/40 backdrop-blur-sm"
             @click="showSettings = false"
           />
-          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-8 border-border-strong">
+          <div class="bg-surface backdrop-blur-xl w-full max-w-sm rounded-2xl shadow-2xl relative z-10 p-8 border-border-strong">
             <div class="flex justify-between items-center mb-6">
               <h2 class="text-2xl font-extrabold text-text flex items-center gap-2">
                 {{ t('env.settings') }} <Settings class="w-5 h-5 text-primary" />
               </h2>
-              <button
+              <button :aria-label="t('a11y.settings')"
                 class="p-2 rounded-xl hover:bg-surface text-border-strong hover:text-text-muted transition-colors"
                 @click="showSettings = false"
               >
@@ -643,10 +643,10 @@ onMounted(() => {
               </button>
             </div>
             <div class="space-y-4 text-center">
-              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-primary shadow-md mb-4 bg-surface flex items-center justify-center">
+              <div class="w-24 h-24 mx-auto rounded-full overflow-hidden border border-primary shadow-md mb-4 bg-surface flex items-center justify-center">
                 <img
                   v-if="!dogImageFailed"
-                  :src="dogImg"
+                  :src="currentTheme.logo"
                   class="w-full h-full object-cover"
                   alt=""
                   @error="dogImageFailed = true"
@@ -664,7 +664,7 @@ onMounted(() => {
               </p>
               <div class="pt-6 border-border-soft">
                 <p class="text-sm font-bold text-border-strong flex items-center justify-center gap-1.5">
-                  Made with <Heart class="w-4 h-4 text-pink-500 fill-pink-500 animate-pulse" /> for VRChat
+                  Made with <Heart class="w-4 h-4 text-pink-500 fill-pink-500" /> for VRChat
                 </p>
               </div>
             </div>

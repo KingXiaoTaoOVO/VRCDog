@@ -201,7 +201,7 @@ const uploadToVrcPlus = async () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -225,7 +225,7 @@ const uploadToVrcPlus = async () => {
             :placeholder="t('gallery.search_placeholder')"
             class="pl-9 pr-8 py-2 bg-surface rounded-xl border border-border-soft text-sm text-text font-medium outline-none focus:border-primary w-48 transition-all"
           />
-          <button v-if="searchQuery" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text" @click="searchQuery = ''">
+          <button :aria-label="t('a11y.clear_search')" v-if="searchQuery" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text" @click="searchQuery = ''">
             <X :size="14" />
           </button>
         </div>
@@ -252,14 +252,14 @@ const uploadToVrcPlus = async () => {
 
     <div
       ref="containerRef"
-      class="flex-1 bg-surface backdrop-blur-xl border-border-strong rounded-3xl p-6 shadow-lg shadow-slate-200/40 overflow-hidden flex flex-col z-10 relative"
+      class="flex-1 bg-surface backdrop-blur-xl border-border-strong rounded-2xl p-6 shadow-lg shadow-slate-200/40 overflow-hidden flex flex-col z-10 relative"
     >
       <div
         v-if="loading && images.length === 0"
         class="h-full flex flex-col items-center justify-center text-primary"
       >
         <Images
-          class="animate-bounce mb-4"
+          class="mb-4"
           :size="48"
         />
         <p class="font-extrabold text-lg tracking-wide">
@@ -313,7 +313,7 @@ const uploadToVrcPlus = async () => {
               <img
                 :src="img.assetUrl"
                 loading="lazy"
-                class="w-full h-full object-cover transform group-hover:scale-[1.03] transition-transform duration-500"
+                class="w-full h-full object-cover transform transition-transform duration-500"
               >
               
               <!-- Top Star Favorite Button -->
@@ -342,7 +342,7 @@ const uploadToVrcPlus = async () => {
               </div>
 
               <div class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button class="p-2 bg-surface backdrop-blur-md backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white rounded-xl transition-colors">
+                <button :aria-label="t('a11y.preview')" class="p-2 bg-surface backdrop-blur-md backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white rounded-xl transition-colors">
                   <Eye :size="16" />
                 </button>
               </div>
@@ -379,7 +379,7 @@ const uploadToVrcPlus = async () => {
             :src="previewImage.assetUrl"
             class="max-w-full max-h-[70vh] object-contain"
           >
-          <button
+          <button :aria-label="t('a11y.close')"
             class="absolute top-4 right-4 p-2 rounded-xl bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
             @click="previewImage = null"
           >

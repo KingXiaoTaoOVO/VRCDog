@@ -378,7 +378,7 @@ const downloadVideo = async () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -415,7 +415,7 @@ const downloadVideo = async () => {
             <CheckCircle class="w-4 h-4" />
             <span class="text-sm font-bold">{{ t('bilidown.logged_in') }}</span>
           </div>
-          <button
+          <button :aria-label="t('a11y.logout')"
             class="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors"
             @click="handleLogout"
           >
@@ -435,7 +435,7 @@ const downloadVideo = async () => {
     </header>
 
     <div class="flex-1 overflow-y-auto pr-2 pb-8">
-      <div class="bg-surface backdrop-blur-md rounded-3xl p-6 border-border-soft shadow-sm mb-8 transition-all relative overflow-hidden group">
+      <div class="bg-surface backdrop-blur-md rounded-2xl p-6 border-border-soft shadow-sm mb-8 transition-all relative overflow-hidden group">
         <div class="absolute -right-4 -top-4 w-32 h-32 bg-primary/10 rounded-full blur-3xl opacity-50 group-hover:bg-primary-hover transition-colors pointer-events-none" />
         <h2 class="text-lg font-bold text-text mb-4 flex items-center gap-2">
           <Search
@@ -512,12 +512,12 @@ const downloadVideo = async () => {
       >
         <div
           v-if="activeTab === 'bilibili' && videoInfo"
-          class="bg-surface rounded-3xl p-8 shadow-xl shadow-slate-900/5 border-border-soft flex gap-8"
+          class="bg-surface rounded-2xl p-8 shadow-xl shadow-slate-900/5 border-border-soft flex gap-8"
         >
           <div class="w-1/3 aspect-video rounded-2xl overflow-hidden bg-surface border-border-soft relative group flex-shrink-0">
             <img
               :src="videoInfo.pic"
-              class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+              class="w-full h-full object-cover transition-transform duration-500"
               referrerpolicy="no-referrer"
             >
             <div class="absolute bottom-2 right-2 bg-background/80 backdrop-blur-md/70 text-text-inverse text-xs px-2 py-1 rounded-lg font-mono font-bold backdrop-blur-md">
@@ -607,7 +607,7 @@ const downloadVideo = async () => {
                     <span class="block text-xs font-bold truncate">{{ item.title || item.bvid }}</span>
                     <span class="block text-[10px] opacity-70 truncate">{{ item.bvid }}{{ item.cid ? ` - cid ${item.cid}` : '' }}</span>
                   </button>
-                  <button
+                  <button :aria-label="t('a11y.download')"
                     :disabled="isDownloading"
                     class="p-2 rounded-lg bg-surface border-border-soft text-text-muted hover:text-primary disabled:opacity-50"
                     @click="downloadParsedItem(item).then(loadTasks)"
@@ -659,12 +659,12 @@ const downloadVideo = async () => {
       >
         <div
           v-if="activeTab === 'xhs' && xhsInfo"
-          class="bg-surface rounded-3xl p-8 shadow-xl shadow-red-900/5 border-red-100 flex gap-8"
+          class="bg-surface rounded-2xl p-8 shadow-xl shadow-red-900/5 border-red-100 flex gap-8"
         >
           <div class="w-1/3 aspect-auto rounded-2xl overflow-hidden bg-surface border-border-soft relative group flex-shrink-0">
             <img
               :src="xhsInfo.cover"
-              class="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105"
+              class="w-full h-auto object-cover transition-transform duration-500"
               referrerpolicy="no-referrer"
             >
             <div class="absolute top-2 right-2 bg-red-500 text-text-inverse text-xs px-2 py-1 rounded-lg font-bold backdrop-blur-md">
@@ -722,7 +722,7 @@ const downloadVideo = async () => {
       <!-- Tasks List -->
       <div
         v-if="activeTab === 'bilibili' && tasks.length > 0"
-        class="mt-8 bg-surface rounded-3xl p-8 shadow-xl shadow-slate-900/5 border-border-soft"
+        class="mt-8 bg-surface rounded-2xl p-8 shadow-xl shadow-slate-900/5 border-border-soft"
       >
         <h2 class="text-lg font-bold text-text mb-4 flex items-center gap-2">
           <Film class="w-5 h-5 text-primary" />
@@ -874,7 +874,7 @@ const downloadVideo = async () => {
       v-if="showQrModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-surface backdrop-blur-md backdrop-blur-sm"
     >
-      <div class="bg-surface rounded-[32px] p-10 max-w-md w-full mx-4 shadow-2xl flex flex-col items-center text-center">
+      <div class="bg-surface rounded-2xl p-10 max-w-md w-full mx-4 shadow-2xl flex flex-col items-center text-center">
         <h2 class="text-2xl font-bold text-text mb-2">
           {{ t('bilidown.login_title') }}
         </h2>
@@ -882,7 +882,7 @@ const downloadVideo = async () => {
           {{ t('bilidown.login_desc') }}
         </p>
             
-        <div class="w-48 h-48 bg-surface-hover border-2 border-border-soft rounded-2xl p-2 mb-6 relative flex items-center justify-center">
+        <div class="w-48 h-48 bg-surface-hover border border-border-soft rounded-2xl p-2 mb-6 relative flex items-center justify-center">
           <Loader2
             v-if="!qrCodeUrl"
             class="w-8 h-8 animate-spin text-primary"
@@ -914,7 +914,7 @@ const downloadVideo = async () => {
     <!-- Toast Notification -->
     <div
       v-if="toastMessage"
-      class="fixed top-5 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-2xl shadow-xl z-[1000] text-sm font-bold transition-all animate-bounce flex items-center gap-2"
+      class="fixed top-5 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-2xl shadow-xl z-[1000] text-sm font-bold transition-all flex items-center gap-2"
       :class="{
         'bg-emerald-500 text-white shadow-emerald-500/20': toastType === 'success',
         'bg-red-500 text-white shadow-red-500/20': toastType === 'error',

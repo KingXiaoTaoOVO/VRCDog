@@ -3020,7 +3020,7 @@ onUnmounted(async () => {
                 <Link2 :size="16" />
                 <input v-model="urlInput" :placeholder="t('vrpiano.paste_a_direct_midi_url_midishow_link_or')" @keydown.enter="downloadFromUrl">
                 <input v-model="urlFilename" class="name-input" :placeholder="t('vrpiano.save_as')">
-                <button :disabled="onlineLoading || !urlInput.trim()" @click="downloadFromUrl">
+                <button :aria-label="t('a11y.download')" :disabled="onlineLoading || !urlInput.trim()" @click="downloadFromUrl">
                   <Download :size="16" />
                 </button>
               </div>

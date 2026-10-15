@@ -669,7 +669,7 @@ onUnmounted(() => {
           <div class="flex flex-wrap gap-1">
             <span v-for="(msg, idx) in statusMessages" :key="idx" class="inline-flex items-center gap-1 px-2 py-1 bg-surface-hover border border-border-soft rounded text-[10px] font-bold text-text">
               {{ msg }}
-              <button class="hover:text-red-500" @click="removeStatusMessage(idx)"><XCircle :size="10" /></button>
+              <button :aria-label="t('a11y.remove')" class="hover:text-red-500" @click="removeStatusMessage(idx)"><XCircle :size="10" /></button>
             </span>
           </div>
           <div class="flex items-center gap-2">

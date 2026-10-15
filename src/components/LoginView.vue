@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { VrcApi, DbApi } from "../api";
-import { Bone, Key, User, Loader2, Globe, ArrowLeft, Trash2, Settings, ArrowDownToLine, Languages, Check, X, ChevronDown, AlertCircle } from 'lucide-vue-next';
+import { Key, User, Loader2, ArrowLeft, Trash2, Settings, ArrowDownToLine, Languages, Check, X, ChevronDown, AlertCircle } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { getLocaleLabel, localeOptions, normalizeLocale, setAppLocale } from '../i18n';
 import { getVersion } from '@tauri-apps/api/app';
@@ -701,368 +701,346 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex items-center justify-center h-screen bg-[var(--theme-bg-main)] relative overflow-hidden">
-    <!-- VrcDog 风格左上角工具栏 -->
-    <div class="fixed top-4 left-4 z-50 flex gap-2 items-center">
-      <!-- 设置 -->
-      <button
-        class="vrcdog-toolbar-btn cartoon-pill-btn transition-transform hover:scale-105 active:scale-95"
-        :title="t('login.toolbar.settings')"
-        @click="openSettings"
-      >
-        <Settings :size="18" />
+  <div class="login-page">
+    <!-- 左上角工具栏 -->
+    <div class="login-toolbar">
+      <button class="tool-btn" :title="t('login.toolbar.settings')" @click="openSettings">
+        <Settings :size="17" />
       </button>
-      <!-- 检查更新 -->
-      <button
-        class="vrcdog-toolbar-btn cartoon-pill-btn relative transition-transform hover:scale-105 active:scale-95"
-        :title="t('login.toolbar.check_update')"
-        @click="openUpdateDialog"
-      >
-        <ArrowDownToLine :size="18" />
-        <span
-          v-if="updateAvailable"
-          class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[var(--theme-bg-main)] animate-ping"
-          :title="t('login.toolbar.update_available', { version: updateAvailableTag })"
-        />
-        <span
-          v-if="updateAvailable"
-          class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[var(--theme-bg-main)]"
-        />
+      <button class="tool-btn" :title="t('login.toolbar.check_update')" @click="openUpdateDialog">
+        <ArrowDownToLine :size="17" />
+        <template v-if="updateAvailable">
+          <span class="tool-dot tool-dot-ping" />
+          <span class="tool-dot" :title="t('login.toolbar.update_available', { version: updateAvailableTag })" />
+        </template>
       </button>
-      <!-- 语言 -->
-      <div class="relative vrcdog-lang-wrap">
-        <button
-          class="vrcdog-toolbar-btn cartoon-pill-btn transition-transform hover:scale-105 active:scale-95"
-          :title="t('login.toolbar.language')"
-          @click.stop="showLangMenu = !showLangMenu"
-        >
-          <Languages :size="18" />
+      <div class="action-menu vrcdog-lang-wrap">
+        <button class="tool-btn" :title="t('login.toolbar.language')" @click.stop="showLangMenu = !showLangMenu">
+          <Languages :size="17" />
         </button>
         <transition name="vrcdog-menu">
-          <div v-if="showLangMenu" class="vrcdog-lang-menu rounded-2xl border-2 border-[var(--theme-border-soft)] shadow-2xl p-1.5 custom-scrollbar">
+          <div v-if="showLangMenu" class="lang-menu custom-scrollbar">
             <button
               v-for="lang in languages"
               :key="lang.code"
-              class="vrcdog-lang-item rounded-xl transition-all hover:translate-x-1"
+              class="lang-item"
               :class="{ active: preferredLangCode === lang.code }"
               @click="selectLanguage(lang.code)"
             >
               <Check
                 :size="14"
-                class="vrcdog-lang-check"
+                class="lang-check"
                 :style="{ visibility: preferredLangCode === lang.code ? 'visible' : 'hidden' }"
               />
-              <span class="vrcdog-lang-label">{{ lang.label }} ({{ lang.code }})</span>
+              <span class="lang-label">{{ lang.label }} ({{ lang.code }})</span>
             </button>
           </div>
         </transition>
       </div>
     </div>
 
-    <div class="absolute -top-20 -left-20 text-orange-200/40 transform -rotate-12 pointer-events-none">
-      <Bone :size="300" stroke-width="1" />
-    </div>
-    <div class="absolute -bottom-20 -right-20 text-orange-200/40 transform rotate-12 pointer-events-none">
-      <Bone :size="300" stroke-width="1" />
-    </div>
-
-    <!-- 主容器：登录表单 + 已保存账号 -->
-    <div class="flex gap-6 items-stretch justify-center relative z-10 max-w-4xl w-full px-4">
-      <!-- 左侧：登录表单 -->
-      <div class="cartoon-card bg-[var(--theme-surface)]/95 backdrop-blur-xl p-8 rounded-[28px] shadow-2xl w-full max-w-md border-2 border-[var(--theme-border-soft)] flex flex-col">
-        <div class="text-center mb-8">
-          <h1 class="text-3xl font-extrabold text-[var(--theme-text)] mb-2 flex items-center justify-center gap-2 tracking-tight">
-            <Bone class="animate-bounce text-[var(--theme-primary)]" :size="30" /> {{ t('login.title') }}
-          </h1>
-          <p class="text-zinc-400 text-sm">
-            {{ t('login.subtitle') }}
-          </p>
-        </div>
-
-        <div v-if="!show2FA" class="space-y-5">
-          <div>
-            <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1.5">
-              <User :size="16" class="text-[var(--theme-primary)]" /> {{ t('login.username') }}
-            </label>
-            <input
-              v-model="username"
-              type="text"
-              :placeholder="t('login.username')"
-              class="cartoon-input w-full px-4 py-3 rounded-2xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-4 focus:ring-[var(--theme-primary)]/15 outline-none transition-all bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-500 font-medium"
-            >
+    <!-- 主舞台 -->
+    <div class="login-stage" :class="{ single: show2FA }">
+      <!-- 左：登录表单 -->
+      <section class="panel">
+        <header class="brand-head">
+          <img class="brand-logo" :src="currentTheme.logo" alt="">
+          <div class="brand-copy">
+            <h1>{{ t('login.title') }}</h1>
+            <p>{{ t('login.subtitle') }}</p>
           </div>
-          <div>
-            <label class="block text-sm font-bold text-text mb-1 flex items-center gap-1.5">
-              <Key :size="16" class="text-[var(--theme-primary)]" /> {{ t('login.password') }}
-            </label>
-            <input
-              v-model="password"
-              type="password"
-              :placeholder="t('login.password')"
-              class="cartoon-input w-full px-4 py-3 rounded-2xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-4 focus:ring-[var(--theme-primary)]/15 outline-none transition-all bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-500 font-medium"
-              @keyup.enter="handleLogin"
-            >
-          </div>
+        </header>
 
-          <!-- 保存登录数据复选框 -->
-          <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-text-muted)] cursor-pointer select-none">
+        <div v-if="!show2FA" class="panel-body">
+          <label class="theme-field">
+            <span>{{ t('login.username') }}</span>
+            <span class="input-shell">
+              <User :size="16" />
+              <input
+                v-model="username"
+                type="text"
+                autocomplete="username"
+                spellcheck="false"
+                :placeholder="t('login.username')"
+              >
+            </span>
+          </label>
+
+          <label class="theme-field">
+            <span>{{ t('login.password') }}</span>
+            <span class="input-shell">
+              <Key :size="16" />
+              <input
+                v-model="password"
+                type="password"
+                autocomplete="current-password"
+                :placeholder="t('login.password')"
+                @keyup.enter="handleLogin"
+              >
+            </span>
+          </label>
+
+          <label class="checkbox-row">
             <input
               v-model="saveCredentials"
               type="checkbox"
-              class="w-4 h-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-primary)] focus:ring-[var(--theme-primary)] bg-[var(--theme-surface)]"
             >
-            {{ t('login.save_credentials') }}
+            <span>{{ t('login.save_credentials') }}</span>
           </label>
 
           <button
             :disabled="loading"
-            class="cartoon-pill-btn w-full mt-4 bg-primary hover:brightness-110 active:brightness-95 text-white font-extrabold py-3.5 px-4 rounded-2xl shadow-[0_8px_20px_rgba(249,115,22,0.35)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+            class="primary-button bg-primary"
             @click="handleLogin"
           >
-            <Loader2 v-if="loading" class="animate-spin" :size="20" />
+            <Loader2 v-if="loading" class="spin" :size="18" />
             {{ loading ? t('login.btn_logging_in') : t('login.btn_login') }}
           </button>
         </div>
 
-        <div v-else class="space-y-5">
-          <div class="text-center p-4 bg-[var(--theme-surface-hover)] rounded-xl mb-4 border border-[var(--theme-border-soft)]">
-            <Key class="mx-auto text-primary mb-2 animate-pulse" :size="32" />
-            <p class="text-text font-bold">
-              {{ t('login.2fa_title') }}
-            </p>
-            <p class="text-sm text-orange-600/80">
-              {{ t('login.2fa_desc', { method: twoFactorMethodLabel(selectedTwoFactorMethod) }) }}
-            </p>
+        <div v-else class="panel-body">
+          <div class="notice">
+            <Key :size="18" class="notice-icon" />
+            <div>
+              <strong>{{ t('login.2fa_title') }}</strong>
+              <small>{{ t('login.2fa_desc', { method: twoFactorMethodLabel(selectedTwoFactorMethod) }) }}</small>
+            </div>
           </div>
-          <div v-if="twoFactorMethods.length > 1" class="grid grid-cols-2 gap-2" role="radiogroup" :aria-label="t('login.2fa_choose_method')">
+
+          <div
+            v-if="twoFactorMethods.length > 1"
+            class="segmented"
+            role="radiogroup"
+            :aria-label="t('login.2fa_choose_method')"
+          >
             <button
               v-for="method in twoFactorMethods"
               :key="method"
               type="button"
               role="radio"
               :aria-checked="selectedTwoFactorMethod === method"
-              class="cartoon-pill-btn rounded-xl border-2 px-3 py-2 text-sm font-bold transition-all hover:scale-105 active:scale-95"
-              :class="selectedTwoFactorMethod === method
-                ? 'border-[var(--theme-primary)] bg-[var(--theme-primary)] text-white shadow-md'
-                : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface)] text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)]'"
+              class="segment"
+              :class="{ active: selectedTwoFactorMethod === method }"
               @click="selectedTwoFactorMethod = method; twoFactorCode = ''; errorMsg = ''"
             >
               {{ twoFactorMethodLabel(method) }}
             </button>
           </div>
-          <div>
-            <input
-              v-model="twoFactorCode"
-              type="text"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxlength="12"
-              :aria-label="t('login.2fa_placeholder')"
-              :placeholder="t('login.2fa_placeholder')"
-              class="cartoon-input w-full px-4 py-4 rounded-2xl border-2 border-[var(--theme-border-soft)] focus:border-[var(--theme-primary)] focus:ring-4 focus:ring-[var(--theme-primary)]/15 outline-none transition-all bg-[var(--theme-surface)] text-[var(--theme-text)] placeholder-zinc-600 text-center text-2xl tracking-[0.5em] font-mono font-extrabold"
-              @keyup.enter="handle2FA"
-            >
-          </div>
+
+          <label class="theme-field">
+            <span>{{ t('login.2fa_placeholder') }}</span>
+            <span class="input-shell code-shell">
+              <input
+                v-model="twoFactorCode"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="12"
+                :aria-label="t('login.2fa_placeholder')"
+                @keyup.enter="handle2FA"
+              >
+            </span>
+          </label>
+
           <button
             :disabled="loading"
-            class="cartoon-pill-btn w-full mt-4 bg-emerald-500 hover:brightness-110 active:brightness-95 text-white font-extrabold py-3.5 px-4 rounded-2xl shadow-[0_8px_20px_rgba(16,185,129,0.35)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+            class="primary-button"
             @click="handle2FA"
           >
-            <Loader2 v-if="loading" class="animate-spin" :size="20" />
+            <Loader2 v-if="loading" class="spin" :size="18" />
             {{ loading ? t('login.btn_submitting') : t('login.btn_submit_code') }}
           </button>
-          <div class="mt-6 flex justify-center">
-            <button
-              @click="show2FA = false"
-              class="cartoon-pill-btn group relative px-6 py-2.5 rounded-2xl flex items-center justify-center gap-2 font-bold transition-all overflow-hidden bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] border-2 border-[var(--theme-border-soft)] hover:scale-105 active:scale-95"
-            >
-              <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[var(--theme-surface-hover)] to-transparent -translate-x-[100%] group-hover:animate-[shimmer_1.5s_infinite]" />
-              <ArrowLeft class="w-4 h-4 text-zinc-400 group-hover:-translate-x-1 transition-transform" />
-              <span class="text-[var(--theme-text-muted)] group-hover:text-[var(--theme-text)] transition-colors">{{ t('login.btn_cancel') || 'Cancel' }}</span>
-            </button>
-          </div>
+
+          <button class="ghost-button" @click="show2FA = false">
+            <ArrowLeft :size="16" />
+            <span>{{ t('login.btn_cancel') || 'Cancel' }}</span>
+          </button>
         </div>
 
-        <p
-          v-if="errorMsg"
-          class="mt-4 text-center text-red-500 text-sm font-bold animate-pulse"
-        >
-          {{ errorMsg }}
+        <p v-if="errorMsg" class="error-message">
+          <AlertCircle :size="15" />
+          <span>{{ errorMsg }}</span>
         </p>
-      </div>
+      </section>
 
-      <!-- 右侧：已保存的账号（2FA 阶段隐藏） -->
-      <div
-        v-if="!show2FA"
-        class="cartoon-card bg-[var(--theme-surface)]/95 backdrop-blur-xl p-6 rounded-[28px] shadow-2xl w-full max-w-xs border-2 border-[var(--theme-border-soft)] flex flex-col"
-      >
-        <h2 class="text-center text-lg font-extrabold text-[var(--theme-text)] mb-4 flex items-center justify-center gap-1.5">
-          <User :size="18" class="text-[var(--theme-primary)]" />
-          {{ t('login.saved_accounts') }}
-        </h2>
-        <div v-if="savedAccounts.length > 0" class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+      <!-- 右：已保存的账号（2FA 阶段隐藏） -->
+      <aside v-if="!show2FA" class="panel panel-accounts">
+        <header class="panel-head">
+          <User :size="16" />
+          <h2>{{ t('login.saved_accounts') }}</h2>
+        </header>
+
+        <div v-if="savedAccounts.length > 0" class="account-list custom-scrollbar">
           <div
             v-for="account in savedAccounts"
             :key="account.userId"
-            class="vrcdog-saved-account-card flex items-center gap-3 p-3 rounded-2xl cursor-pointer bg-[var(--theme-surface)] hover:bg-[var(--theme-surface-hover)] transition-all duration-200 border-2 border-[var(--theme-border-soft)] hover:border-[var(--theme-primary)]/50 hover:scale-[1.02] active:scale-[0.98] group shadow-sm"
+            class="vrcdog-saved-account-card account-card"
             @click="loginWithSavedAccount(account)"
           >
             <img
               v-if="account.avatarUrl"
               :src="account.avatarUrl"
-              class="w-10 h-10 rounded-2xl object-cover flex-shrink-0 bg-zinc-700 ring-2 ring-[var(--theme-border-soft)]"
+              class="account-avatar"
               @error="($event.target as HTMLImageElement).style.display = 'none'"
             >
-            <div v-else class="w-10 h-10 rounded-2xl bg-zinc-700 flex items-center justify-center flex-shrink-0 ring-2 ring-[var(--theme-border-soft)]">
-              <User :size="18" class="text-zinc-400" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-bold text-[var(--theme-text)] truncate">{{ account.displayName }}</p>
-              <p class="text-xs text-[var(--theme-text-muted)] truncate">{{ account.username }}</p>
-            </div>
+            <span v-else class="account-avatar account-avatar-fallback">
+              <User :size="16" />
+            </span>
+            <span class="account-copy">
+              <strong>{{ account.displayName }}</strong>
+              <small>{{ account.username }}</small>
+            </span>
             <button
-              class="opacity-0 group-hover:opacity-100 transition-all p-1.5 rounded-xl hover:bg-red-500/20 text-zinc-500 hover:text-red-400 hover:scale-110 active:scale-95"
-              @click.stop="deleteSavedAccount(account.userId)"
+              class="account-delete"
               :title="t('login.delete_account')"
+              @click.stop="deleteSavedAccount(account.userId)"
             >
-              <Trash2 :size="16" />
+              <Trash2 :size="15" />
             </button>
           </div>
         </div>
-        <div v-else class="flex-1 flex items-center justify-center">
-          <p class="text-sm text-[var(--theme-text-muted)] text-center">{{ t('login.no_saved_accounts') }}</p>
+
+        <div v-else class="account-empty">
+          <p>{{ t('login.no_saved_accounts') }}</p>
         </div>
-      </div>
+      </aside>
     </div>
-    
+
     <!-- 左下角版本号 -->
-    <div class="absolute bottom-4 left-4 z-50">
-      <span class="text-xs font-mono font-bold text-text-muted/40 bg-surface backdrop-blur px-2 py-1 rounded-lg">v{{ appVersion }}</span>
-    </div>
+    <div class="app-version">v{{ appVersion }}</div>
 
     <!-- ============ 设置弹窗 ============ -->
     <transition name="vrcdog-modal">
-      <div v-if="showSettingsDialog" class="vrcdog-dialog-overlay" @click="showSettingsDialog = false">
-        <div class="vrcdog-dialog-panel cartoon-card" style="width: 460px;" @click.stop>
-          <div class="vrcdog-dialog-header">
-            <h3 class="vrcdog-dialog-title flex items-center gap-2 font-extrabold">
-              <Settings :size="18" class="text-[var(--theme-primary)]" />
+      <div v-if="showSettingsDialog" class="modal-overlay" @click="showSettingsDialog = false">
+        <div class="modal-panel" style="width: 440px;" @click.stop>
+          <header class="modal-head">
+            <h3>
+              <Settings :size="17" />
               {{ t('login.settings.title') }}
             </h3>
-            <button class="vrcdog-dialog-close transition-transform hover:scale-110 active:scale-95" @click="showSettingsDialog = false"><X :size="18" /></button>
-          </div>
-          <div class="vrcdog-dialog-body">
-            <label class="vrcdog-field-label">{{ t('login.settings.proxy_label') }}</label>
-            <input
-              v-model="settingsProxy"
-              type="text"
-              :placeholder="t('login.settings.proxy_placeholder')"
-              class="vrcdog-input"
-            >
-            <label class="vrcdog-checkbox-row mt-4">
+            <button :aria-label="t('a11y.settings')" class="modal-close" @click="showSettingsDialog = false"><X :size="17" /></button>
+          </header>
+          <div class="modal-body">
+            <label class="theme-field">
+              <span>{{ t('login.settings.proxy_label') }}</span>
+              <span class="input-shell">
+                <input
+                  v-model="settingsProxy"
+                  type="text"
+                  :placeholder="t('login.settings.proxy_placeholder')"
+                >
+              </span>
+            </label>
+            <label class="checkbox-row">
               <input
                 v-model="settingsCustomApiEnabled"
                 type="checkbox"
-                class="w-4 h-4 rounded accent-[var(--theme-primary)]"
               >
               <span>{{ t('login.settings.custom_api_label') }}</span>
             </label>
-            <input
-              v-if="settingsCustomApiEnabled"
-              v-model="settingsCustomApiUrl"
-              type="text"
-              placeholder="https://api.vrchat.cloud/api/1"
-              class="vrcdog-input mt-2"
-            >
+            <label v-if="settingsCustomApiEnabled" class="theme-field">
+              <span>API Endpoint</span>
+              <span class="input-shell">
+                <input
+                  v-model="settingsCustomApiUrl"
+                  type="text"
+                  spellcheck="false"
+                  placeholder="https://api.vrchat.cloud/api/1"
+                >
+              </span>
+            </label>
           </div>
-          <div class="vrcdog-dialog-footer">
-            <button class="vrcdog-btn-primary cartoon-pill-btn" @click="saveSettingsAndRestart">{{ t('login.settings.save_restart') }}</button>
-            <button class="vrcdog-btn-secondary cartoon-pill-btn" @click="showSettingsDialog = false">{{ t('login.settings.close') }}</button>
-          </div>
+          <footer class="modal-foot">
+            <button class="ghost-button" @click="showSettingsDialog = false">{{ t('login.settings.close') }}</button>
+            <button class="primary-button" @click="saveSettingsAndRestart">{{ t('login.settings.save_restart') }}</button>
+          </footer>
         </div>
       </div>
     </transition>
 
     <!-- ============ 更新检查弹窗 ============ -->
     <transition name="vrcdog-modal">
-      <div v-if="showUpdateDialog" class="vrcdog-dialog-overlay" @click="showUpdateDialog = false">
-        <div class="vrcdog-dialog-panel vrcdog-update-panel cartoon-card" style="width: 520px;" @click.stop>
-          <div class="vrcdog-dialog-header">
-            <h3 class="vrcdog-dialog-title flex items-center gap-2 font-extrabold">
-              <span class="w-3 h-3 rounded-full bg-[var(--theme-primary)]" />
+      <div v-if="showUpdateDialog" class="modal-overlay" @click="showUpdateDialog = false">
+        <div class="modal-panel" style="width: 500px;" @click.stop>
+          <header class="modal-head">
+            <h3>
+              <ArrowDownToLine :size="17" />
               {{ t('login.update.title') }}
             </h3>
-            <button class="vrcdog-dialog-close transition-transform hover:scale-110 active:scale-95" @click="showUpdateDialog = false"><X :size="18" /></button>
-          </div>
-          <div class="vrcdog-dialog-body vrcdog-update-dialog-body">
-            <!-- 稳定版 / 测试版 切换 -->
-            <div class="vrcdog-tab-group">
+            <button :aria-label="t('a11y.close')" class="modal-close" @click="showUpdateDialog = false"><X :size="17" /></button>
+          </header>
+          <div class="modal-body">
+            <!-- 稳定版 / 测试版 -->
+            <div class="segmented">
               <button
-                class="vrcdog-tab-pill transition-all"
+                class="segment"
                 :class="{ active: updateChannel === 'stable' }"
                 @click="switchUpdateChannel('stable')"
               >{{ t('login.update.tab_stable') }}</button>
               <button
-                class="vrcdog-tab-pill transition-all"
+                class="segment"
                 :class="{ active: updateChannel === 'beta' }"
                 @click="switchUpdateChannel('beta')"
               >{{ t('login.update.tab_beta') }}</button>
             </div>
 
             <!-- 测试版警告 -->
-            <div v-if="updateChannel === 'beta'" class="vrcdog-warning-box">
-              <AlertCircle :size="18" class="vrcdog-warning-icon" />
+            <div v-if="updateChannel === 'beta'" class="warning-box">
+              <AlertCircle :size="17" />
               <div>
-                <div class="vrcdog-warning-title">{{ t('login.update.beta_warning_title') }}</div>
-                <div class="vrcdog-warning-desc">{{ t('login.update.beta_warning_desc') }}</div>
+                <strong>{{ t('login.update.beta_warning_title') }}</strong>
+                <small>{{ t('login.update.beta_warning_desc') }}</small>
               </div>
             </div>
 
             <!-- 版本下拉 -->
-            <label class="vrcdog-field-label mt-4">{{ t('login.update.version') }}</label>
-            <div class="relative">
-              <button
-                class="vrcdog-version-trigger transition-all hover:border-[var(--theme-primary)]"
-                :disabled="updateLoading || updateChannelReleases.length === 0"
-                @click.stop="showUpdateVersionDropdown = !showUpdateVersionDropdown"
-              >
-                <span>{{ updateLoading ? '...' : (updateSelectedTag || (updateChannelReleases.length === 0 ? t('login.update.no_releases') : '...')) }}</span>
-                <ChevronDown :size="16" class="transition-transform duration-200" :class="{ 'rotate-180': showUpdateVersionDropdown }" />
-              </button>
-              <transition name="vrcdog-menu">
-                <div v-if="showUpdateVersionDropdown" class="vrcdog-version-list custom-scrollbar">
-                  <button
-                    v-for="rel in updateChannelReleases"
-                    :key="rel.tag"
-                    class="vrcdog-version-item transition-all"
-                    :class="{ active: rel.tag === updateSelectedTag }"
-                    @click="updateSelectedTag = rel.tag; showUpdateVersionDropdown = false"
-                  >
-                    <span>{{ rel.tag }}</span>
-                    <Check v-if="rel.tag === updateSelectedTag" :size="14" />
-                  </button>
-                </div>
-              </transition>
-            </div>
+            <label class="theme-field">
+              <span>{{ t('login.update.version') }}</span>
+              <span class="select-wrap">
+                <button
+                  class="select-trigger vrcdog-version-trigger"
+                  :disabled="updateLoading || updateChannelReleases.length === 0"
+                  @click.stop="showUpdateVersionDropdown = !showUpdateVersionDropdown"
+                >
+                  <span>{{ updateLoading ? '...' : (updateSelectedTag || (updateChannelReleases.length === 0 ? t('login.update.no_releases') : '...')) }}</span>
+                  <ChevronDown :size="16" :class="{ rotated: showUpdateVersionDropdown }" />
+                </button>
+                <transition name="vrcdog-menu">
+                  <div v-if="showUpdateVersionDropdown" class="select-list vrcdog-version-list custom-scrollbar">
+                    <button
+                      v-for="rel in updateChannelReleases"
+                      :key="rel.tag"
+                      class="select-item"
+                      :class="{ active: rel.tag === updateSelectedTag }"
+                      @click="updateSelectedTag = rel.tag; showUpdateVersionDropdown = false"
+                    >
+                      <span>{{ rel.tag }}</span>
+                      <Check v-if="rel.tag === updateSelectedTag" :size="14" />
+                    </button>
+                  </div>
+                </transition>
+              </span>
+            </label>
 
             <!-- 是否最新 -->
-            <div v-if="!updateLoading && updateChannel === 'stable'" class="vrcdog-update-status flex items-center gap-2 mt-4">
-              <span v-if="isCurrentLatest" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+            <div v-if="!updateLoading && updateChannel === 'stable'">
+              <span v-if="isCurrentLatest" class="status-pill ok">
                 <Check :size="12" />
                 {{ t('login.update.up_to_date') }}
               </span>
-              <span v-else class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+              <span v-else class="status-pill new">
                 {{ t('login.update.has_new', { version: updateChannelReleases[0]?.tag || '' }) }}
               </span>
             </div>
           </div>
-          <div class="vrcdog-dialog-footer mt-auto">
+          <footer class="modal-foot">
+            <button class="ghost-button" @click="showUpdateDialog = false">{{ t('login.settings.close') }}</button>
             <button
-              class="vrcdog-btn-primary cartoon-pill-btn"
+              class="primary-button"
               :disabled="!updateSelectedTag || updateInstalling"
               @click="downloadUpdate"
             >{{ updateInstalling ? t('login.update.installing', { percent: updateInstallPercent }) : t('login.update.download') }}</button>
-          </div>
+          </footer>
         </div>
       </div>
     </transition>
@@ -1070,57 +1048,185 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ── VrcDog-style toolbar ─────────────────────────────────────── */
-.vrcdog-toolbar-btn {
+/* ══════════════════════════════════════════════════════════════
+   精炼暖色系 · 登录 / 账号入口
+   设计原则：小圆角 + 1px 细描边 + 层次阴影 + 克制动效
+   ══════════════════════════════════════════════════════════════ */
+.login-page {
+  --surface: var(--theme-surface);
+  --surface-hover: var(--theme-surface-hover);
+  --border: var(--theme-border-soft);
+  --border-strong: var(--theme-border-strong);
+  --text: var(--theme-text-strong);
+  --text-base: var(--theme-text);
+  --muted: var(--theme-text-muted);
+  --accent: var(--theme-primary);
+  --accent-hover: var(--theme-primary-hover);
+  --active-bg: var(--theme-active-bg);
+  --glass: var(--theme-glass-effect, blur(24px) saturate(180%));
+
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 72px 28px 44px;
+  overflow: auto;
+  color: var(--text-base);
+  background-color: var(--theme-bg-main);
+}
+
+/* 背景：四点柔和极光（替代原先的方格网格） */
+.login-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(64% 60% at 6% -6%, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 72%),
+    radial-gradient(56% 50% at 96% 2%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 70%),
+    radial-gradient(72% 64% at 92% 104%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 74%),
+    radial-gradient(54% 48% at 6% 98%, color-mix(in srgb, var(--accent) 11%, transparent) 0%, transparent 70%);
+}
+
+/* 背景：中心提亮，把视线收拢到内容区，同时压住光晕让面板更清晰 */
+.login-page::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(78% 66% at 50% 46%,
+    color-mix(in srgb, var(--theme-bg-main) 58%, transparent) 0%,
+    transparent 74%);
+}
+
+/* ── 工具栏 ─────────────────────────────────────────────────── */
+.login-toolbar {
+  position: fixed;
+  z-index: 60;
+  top: 18px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-btn {
+  position: relative;
+  width: 38px;
+  height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--theme-text-muted);
-  border: 1px solid transparent;
-  transition: background 0.15s, color 0.15s;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  color: var(--text-base);
+  background: color-mix(in srgb, var(--surface-hover) 86%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text) 8%, transparent), inset 0 1px rgba(255, 255, 255, 0.7);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
   cursor: pointer;
-}
-.vrcdog-toolbar-btn:hover {
-  background: var(--theme-surface-hover);
-  color: var(--theme-text);
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
 }
 
-/* ── Language menu ─────────────────────────────────────────── */
-.vrcdog-lang-wrap { position: relative; }
-.vrcdog-lang-menu {
-  position: absolute;
-  top: 44px;
-  left: 0;
-  z-index: 9999;
-  width: 270px;
-  max-height: 360px;
-  overflow-y: auto;
-  background: var(--theme-surface);
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  padding: 6px 0;
+.tool-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: var(--surface-hover);
 }
-.vrcdog-lang-item {
+
+.tool-btn:active { transform: scale(0.96); }
+
+.tool-btn:focus-visible,
+.lang-item:focus-visible,
+.primary-button:focus-visible,
+.ghost-button:focus-visible,
+.segment:focus-visible,
+.account-card:focus-visible,
+.account-delete:focus-visible,
+.select-trigger:focus-visible,
+.select-item:focus-visible,
+.modal-close:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 2px;
+}
+
+.tool-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--theme-bg-main);
+}
+
+.tool-dot-ping {
+  animation: tool-ping 1.7s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes tool-ping {
+  0% { transform: scale(1); opacity: 0.65; }
+  75%, 100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* ── 语言菜单 ───────────────────────────────────────────────── */
+.action-menu { position: relative; }
+
+.lang-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 9px);
+  left: 0;
+  box-sizing: border-box;
+  width: 268px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-hover) 94%, var(--theme-bg-main));
+  box-shadow: 0 18px 46px color-mix(in srgb, var(--text) 16%, transparent), inset 0 1px rgba(255, 255, 255, 0.7);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
+}
+
+.lang-item {
+  width: 100%;
+  min-height: 34px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 14px;
-  font-size: 14px;
-  color: var(--theme-text);
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-base);
   background: transparent;
-  border: none;
-  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
   text-align: left;
+  cursor: pointer;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
 }
-.vrcdog-lang-item:hover { background: var(--theme-surface-hover); }
-.vrcdog-lang-check { flex-shrink: 0; color: var(--theme-primary); }
-.vrcdog-lang-label {
+
+.lang-item:hover {
+  border-color: var(--border);
+  background: var(--surface-hover);
+}
+
+.lang-item.active {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--accent);
+  background: var(--active-bg);
+}
+
+.lang-check { flex: 0 0 auto; color: var(--accent); }
+
+.lang-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1128,247 +1234,747 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-/* ── Dialog overlay & panel ───────────────────────────────── */
-.vrcdog-dialog-overlay {
+/* ── 主舞台 ─────────────────────────────────────────────────── */
+.login-stage {
+  position: relative;
+  z-index: 1;
+  width: min(880px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 20px;
+}
+
+.login-stage.single {
+  grid-template-columns: minmax(0, 440px);
+  justify-content: center;
+}
+
+.panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 44%),
+    color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow:
+    0 26px 70px color-mix(in srgb, var(--text) 13%, transparent),
+    0 3px 10px color-mix(in srgb, var(--text) 5%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.7);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
+}
+
+/* ── 品牌头部 ───────────────────────────────────────────────── */
+.brand-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-logo {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 11px;
+  object-fit: cover;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.brand-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.brand-copy h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.brand-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── 表单 ───────────────────────────────────────────────────── */
+.panel-body {
+  display: grid;
+  gap: 16px;
+}
+
+.theme-field {
+  display: grid;
+  gap: 7px;
+  color: var(--text-base);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.input-shell {
+  box-sizing: border-box;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-hover) 62%, transparent);
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.input-shell:focus-within {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-hover) 88%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.input-shell > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: color 150ms ease;
+}
+
+.input-shell:focus-within > svg { color: var(--accent); }
+
+.input-shell input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.input-shell input::placeholder {
+  color: var(--muted);
+  font-weight: 500;
+  opacity: 0.72;
+}
+
+.code-shell input {
+  text-align: center;
+  font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+}
+
+.code-shell input::placeholder {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-indent: 0;
+  opacity: 0.6;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-base);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-row input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-radius: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── 按钮 ───────────────────────────────────────────────────── */
+.primary-button {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 13.5px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+  transition: background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.primary-button:active:not(:disabled) { transform: translateY(0) scale(0.99); }
+
+.primary-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  box-shadow: none;
+}
+
+.ghost-button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-base);
+  background: color-mix(in srgb, var(--surface-hover) 55%, transparent);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.ghost-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.ghost-button:active { transform: scale(0.985); }
+
+.panel-body > .primary-button,
+.panel-body > .ghost-button { width: 100%; }
+
+.spin { animation: spin 0.8s linear infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 2FA ────────────────────────────────────────────────────── */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--active-bg) 62%, transparent);
+}
+
+.notice-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.notice strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.notice small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-hover) 52%, transparent);
+}
+
+.segment {
+  min-height: 38px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.segment:hover { color: var(--text-base); }
+
+.segment.active {
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+/* ── 错误提示 ───────────────────────────────────────────────── */
+.error-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #dc2626 28%, transparent);
+  border-radius: 10px;
+  color: #c62828;
+  background: color-mix(in srgb, #dc2626 7%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.error-message svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* ── 已保存账号 ─────────────────────────────────────────────── */
+.panel-accounts { padding: 24px; }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 15px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head > svg { color: var(--accent); }
+
+.panel-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.account-list {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding-right: 3px;
+  overflow-y: auto;
+}
+
+.account-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-hover) 55%, transparent);
+  cursor: pointer;
+  transition: border-color 170ms ease, background-color 170ms ease, transform 170ms ease, box-shadow 170ms ease;
+}
+
+.account-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-hover));
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.account-card:active { transform: translateY(0) scale(0.995); }
+
+.account-avatar {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.account-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.account-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.account-copy strong,
+.account-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.account-delete {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 150ms ease, background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.account-card:hover .account-delete,
+.account-card:focus-within .account-delete { opacity: 1; }
+
+.account-delete:hover {
+  border-color: color-mix(in srgb, #dc2626 26%, transparent);
+  color: #dc2626;
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+}
+
+.account-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 18px 6px;
+  text-align: center;
+}
+
+.account-empty p {
+  max-width: 210px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.65;
+}
+
+/* ── 版本号 ─────────────────────────────────────────────────── */
+.app-version {
+  position: fixed;
+  z-index: 50;
+  bottom: 16px;
+  left: 20px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-hover) 70%, transparent);
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ── 弹窗 ───────────────────────────────────────────────────── */
+.modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
+  padding: 24px;
+  background: color-mix(in srgb, var(--theme-bg-main) 58%, rgba(0, 0, 0, 0.5));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
-.vrcdog-dialog-panel {
-  background: var(--theme-surface);
-  border: 2px solid var(--theme-border-soft);
-  border-radius: 24px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+
+.modal-panel {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--theme-bg-main);
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.28);
 }
-.vrcdog-update-panel {
-  min-height: 440px;
-}
-.vrcdog-dialog-header {
+
+.modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 22px 12px 22px;
+  gap: 12px;
+  padding: 20px 22px 14px;
 }
-.vrcdog-dialog-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--theme-text);
+
+.modal-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
 }
-.vrcdog-dialog-close {
-  width: 32px; height: 32px;
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--theme-text-muted);
-  border: 1px solid transparent;
-  cursor: pointer;
+
+.modal-head h3 > svg { color: var(--accent); }
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   display: inline-flex;
-  align-items: center; justify-content: center;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
 }
-.vrcdog-dialog-close:hover { background: var(--theme-surface-hover); color: var(--theme-text); }
-.vrcdog-dialog-body {
-  padding: 4px 22px 16px 22px;
+
+.modal-close:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.modal-body {
+  display: grid;
+  gap: 14px;
+  padding: 0 22px 4px;
   overflow-y: auto;
 }
-.vrcdog-update-dialog-body {
-  overflow: visible !important;
-  position: relative;
-}
-.vrcdog-dialog-footer {
+
+.modal-foot {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 22px 18px 22px;
+  gap: 9px;
+  padding: 16px 22px 20px;
 }
 
-/* ── Form controls ───────────────────────────────────────── */
-.vrcdog-field-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--theme-text);
-  margin-bottom: 6px;
-}
-.vrcdog-input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 2px solid var(--theme-border-soft);
-  border-radius: 14px;
-  background: var(--theme-bg-main);
-  color: var(--theme-text);
-  font-size: 14px;
-  outline: none;
-  transition: all 0.2s;
-}
-.vrcdog-input:focus {
-  border-color: var(--theme-primary);
-  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.15);
-}
-.vrcdog-checkbox-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--theme-text);
-  cursor: pointer;
-}
-
-/* ── Buttons ─────────────────────────────────────────────── */
-.vrcdog-btn-primary {
-  padding: 10px 22px;
-  border-radius: 16px;
-  background: var(--theme-primary);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.3);
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.vrcdog-btn-primary:hover {
-  filter: brightness(1.1);
-  transform: scale(1.02);
-}
-.vrcdog-btn-primary:active {
-  transform: scale(0.98);
-}
-.vrcdog-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
-.vrcdog-btn-secondary {
-  padding: 10px 20px;
-  border-radius: 16px;
-  background: transparent;
-  color: var(--theme-text);
-  font-size: 14px;
-  font-weight: 600;
-  border: 2px solid var(--theme-border-soft);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.vrcdog-btn-secondary:hover { background: var(--theme-surface-hover); transform: scale(1.02); }
-.vrcdog-btn-secondary:active { transform: scale(0.98); }
-
-/* ── Tab pills (stable / beta) ───────────────────────────── */
-.vrcdog-tab-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 5px;
-  border-radius: 16px;
-  background: var(--theme-bg-main);
-  border: 2px solid var(--theme-border-soft);
-  margin-bottom: 12px;
-}
-.vrcdog-tab-pill {
-  padding: 10px 16px;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--theme-text-muted);
-  font-size: 14px;
-  font-weight: 700;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.vrcdog-tab-pill.active {
-  background: var(--theme-surface);
-  color: var(--theme-text);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-}
-
-/* ── Beta warning box ────────────────────────────────────── */
-.vrcdog-warning-box {
+.warning-box {
   display: flex;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 2px solid rgba(239, 68, 68, 0.35);
-  margin-top: 12px;
+  gap: 11px;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, #ef4444 30%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, #ef4444 7%, transparent);
 }
-.vrcdog-warning-icon { color: #ef4444; flex-shrink: 0; margin-top: 2px; }
-.vrcdog-warning-title { font-weight: 700; color: #ef4444; font-size: 14px; }
-.vrcdog-warning-desc { color: #ef4444; font-size: 13px; opacity: 0.9; margin-top: 2px; line-height: 1.4; }
 
-/* ── Version dropdown ────────────────────────────────────── */
-.vrcdog-version-trigger {
+.warning-box > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #ef4444;
+}
+
+.warning-box strong {
+  display: block;
+  color: #dc2626;
+  font-size: 12.5px;
+}
+
+.warning-box small {
+  display: block;
+  margin-top: 2px;
+  color: color-mix(in srgb, #dc2626 88%, transparent);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* ── 版本下拉 ───────────────────────────────────────────────── */
+.select-wrap { position: relative; display: block; }
+
+.select-trigger {
+  box-sizing: border-box;
   width: 100%;
+  min-height: 46px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border: 2px solid var(--theme-border-soft);
-  border-radius: 16px;
-  background: var(--theme-bg-main);
-  color: var(--theme-text);
-  font-size: 14px;
-  font-weight: 600;
+  gap: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-hover) 62%, transparent);
+  font-size: 13px;
+  font-weight: 650;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 150ms ease, background-color 150ms ease;
 }
-.vrcdog-version-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
-.vrcdog-version-list {
+
+.select-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.select-trigger:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.select-trigger svg { transition: transform 200ms ease; }
+
+.select-trigger svg.rotated { transform: rotate(180deg); }
+
+.select-list {
   position: absolute;
+  z-index: 90;
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 60;
-  max-height: 220px;
+  box-sizing: border-box;
+  max-height: 216px;
   overflow-y: auto;
-  background: var(--theme-surface);
-  border: 2px solid var(--theme-border-soft);
-  border-radius: 18px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   padding: 6px;
-  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--theme-bg-main);
+  box-shadow: 0 20px 50px color-mix(in srgb, var(--text) 18%, transparent);
 }
-.vrcdog-version-item {
+
+.select-item {
+  width: 100%;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--theme-text);
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-base);
   background: transparent;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 650;
   text-align: left;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.vrcdog-version-item:hover {
-  background: var(--theme-surface-hover);
-  transform: translateX(4px);
-}
-.vrcdog-version-item.active {
-  color: var(--theme-primary);
-  background: rgba(249, 115, 22, 0.12);
+  cursor: pointer;
+  transition: background-color 130ms ease;
 }
 
-.vrcdog-update-status {
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--theme-text-muted);
+.select-item:hover { background: var(--surface-hover); }
+
+.select-item.active {
+  color: var(--accent);
+  background: var(--active-bg);
 }
 
-/* ── Transitions ────────────────────────────────────────── */
-.vrcdog-modal-enter-active, .vrcdog-modal-leave-active { transition: opacity 0.18s; }
-.vrcdog-modal-enter-from, .vrcdog-modal-leave-to { opacity: 0; }
-.vrcdog-modal-enter-active .vrcdog-dialog-panel,
-.vrcdog-modal-leave-active .vrcdog-dialog-panel { transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.vrcdog-modal-enter-from .vrcdog-dialog-panel { transform: scale(0.92); }
-.vrcdog-modal-leave-to .vrcdog-dialog-panel { transform: scale(0.92); }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
 
-.vrcdog-menu-enter-active, .vrcdog-menu-leave-active { transition: opacity 0.15s, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.vrcdog-menu-enter-from, .vrcdog-menu-leave-to { opacity: 0; transform: translateY(-8px) scale(0.96); }
+.status-pill.ok {
+  border: 1px solid color-mix(in srgb, #059669 24%, transparent);
+  color: #059669;
+  background: color-mix(in srgb, #059669 10%, transparent);
+}
+
+.status-pill.new {
+  border: 1px solid color-mix(in srgb, #d97706 26%, transparent);
+  color: #b45309;
+  background: color-mix(in srgb, #d97706 12%, transparent);
+}
+
+/* ── 过渡 ───────────────────────────────────────────────────── */
+.vrcdog-modal-enter-active,
+.vrcdog-modal-leave-active { transition: opacity 0.18s ease; }
+
+.vrcdog-modal-enter-from,
+.vrcdog-modal-leave-to { opacity: 0; }
+
+.vrcdog-modal-enter-active .modal-panel,
+.vrcdog-modal-leave-active .modal-panel { transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1); }
+
+.vrcdog-modal-enter-from .modal-panel,
+.vrcdog-modal-leave-to .modal-panel { transform: translateY(8px) scale(0.985); }
+
+.vrcdog-menu-enter-active,
+.vrcdog-menu-leave-active { transition: opacity 0.15s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
+
+.vrcdog-menu-enter-from,
+.vrcdog-menu-leave-to { opacity: 0; transform: translateY(-6px) scale(0.985); }
+
+/* ── 响应式 ─────────────────────────────────────────────────── */
+@media (max-width: 820px) {
+  .login-page { place-items: start center; }
+
+  .login-stage {
+    grid-template-columns: minmax(0, 460px);
+    justify-content: center;
+  }
+
+  .panel-accounts { min-height: 176px; }
+}
+
+@media (max-height: 720px) and (min-width: 821px) {
+  .login-page { place-items: start center; }
+}
+
+@media (max-width: 480px) {
+  .login-page { padding: 70px 12px 26px; }
+  .panel { padding: 20px; }
+  .panel-accounts { padding: 18px; }
+  .brand-copy h1 { font-size: 19px; }
+  .modal-overlay { padding: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .panel,
+  .tool-btn,
+  .lang-menu {
+    background: var(--theme-bg-main);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
 </style>

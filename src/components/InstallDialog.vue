@@ -70,13 +70,13 @@ const selectFolder = async () => {
         />
         
         <!-- Dialog -->
-        <div class="bg-surface backdrop-blur-xl w-full max-w-md rounded-[32px] shadow-2xl relative z-10 transform transition-all p-8 border-4 border-border-strong">
+        <div class="bg-surface backdrop-blur-xl w-full max-w-md rounded-2xl shadow-2xl relative z-10 transform transition-all p-8 border border-border-strong">
           <div class="flex justify-between items-center mb-6">
             <h2 class="text-2xl font-extrabold text-text">
               {{ title }}
             </h2>
-            <button
-              class="btn-cute p-2 rounded-full hover:bg-primary-hover text-text-muted transition-colors"
+            <button :aria-label="t('a11y.close')"
+              class="p-2 rounded-full hover:bg-primary-hover text-text-muted transition-colors"
               @click="emit('close')"
             >
               <X class="w-6 h-6" />
@@ -92,7 +92,7 @@ const selectFolder = async () => {
               <label class="block text-sm font-bold text-text mb-2">{{ t('install_dialog.choose_toy') }}</label>
               <div class="grid grid-cols-2 gap-3">
                 <button 
-                  class="btn-cute p-4 rounded-[20px] border-2 transition-all text-left bg-surface"
+                  class="p-4 rounded-2xl border transition-all text-left bg-surface"
                   :class="selectedTool === 'vcc' ? 'border-primary bg-surface-hover shadow-md shadow-indigo-200' : 'border-border-soft hover:border-primary'"
                   @click="selectedTool = 'vcc'"
                 >
@@ -117,7 +117,7 @@ const selectFolder = async () => {
                   </p>
                 </button>
                 <button 
-                  class="btn-cute p-4 rounded-[20px] border-2 transition-all text-left bg-surface"
+                  class="p-4 rounded-2xl border transition-all text-left bg-surface"
                   :class="selectedTool === 'alcom' ? 'border-primary bg-surface-hover shadow-md shadow-indigo-200' : 'border-border-soft hover:border-primary'"
                   @click="selectedTool = 'alcom'"
                 >
@@ -151,10 +151,10 @@ const selectFolder = async () => {
                 <input 
                   v-model="installPath"
                   type="text" 
-                  class="flex-1 bg-surface-hover border-2 border-border-soft rounded-[20px] px-4 py-3 text-text font-medium focus:outline-none  focus:bg-surface transition-colors"
+                  class="flex-1 bg-surface-hover border border-border-soft rounded-2xl px-4 py-3 text-text font-medium focus:outline-none  focus:bg-surface transition-colors"
                 >
-                <button 
-                  class="btn-cute px-5 py-3 bg-surface hover:bg-primary-hover rounded-[20px] border-2 border-border-soft text-primary font-bold shadow-sm transition-colors flex items-center justify-center"
+                <button :aria-label="t('a11y.select_folder')" 
+                  class="px-5 py-3 bg-surface hover:bg-primary-hover rounded-2xl border border-border-soft text-primary font-bold shadow-sm transition-colors flex items-center justify-center"
                   @click="selectFolder"
                 >
                   <FolderOpen class="w-5 h-5" />
@@ -163,9 +163,9 @@ const selectFolder = async () => {
             </div>
             
             <!-- Options -->
-            <div class="bg-surface-hover p-4 rounded-[20px] border-2 border-border-soft">
+            <div class="bg-surface-hover p-4 rounded-2xl border border-border-soft">
               <label class="flex items-center gap-3 cursor-pointer group">
-                <div class="relative flex items-center justify-center w-6 h-6 rounded-lg border-2 border-primary bg-surface group-hover:border-border-soft transition-colors">
+                <div class="relative flex items-center justify-center w-6 h-6 rounded-lg border border-primary bg-surface group-hover:border-border-soft transition-colors">
                   <input
                     v-model="autoDeleteInstaller"
                     type="checkbox"
@@ -191,14 +191,14 @@ const selectFolder = async () => {
             
             <button
               v-if="props.isVccSelection && isCurrentToolInstalled"
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30 transition-transform active:scale-95 flex items-center justify-center gap-2"
               @click="emit('uninstall', selectedTool)"
             >
               {{ t('install_dialog.uninstall') }}
             </button>
             <button
               v-else
-              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary text-white hover:brightness-110 shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              class="flex-1 py-3 px-6 rounded-2xl font-bold bg-primary text-white hover:brightness-110 shadow-lg shadow-primary/30 transition-transform active:scale-95 flex items-center justify-center gap-2"
               @click="handleConfirm"
             >
               {{ t('install_dialog.install') }}

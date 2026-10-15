@@ -129,7 +129,7 @@ const handleWorldUpload = async (e: Event) => {
           :url="entityStore.selectedWorld.imageUrl || entityStore.selectedWorld.thumbnailImageUrl"
           custom-class="w-full h-full object-cover"
         />
-        <button
+        <button :aria-label="t('a11y.close')"
           class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
           @click="entityStore.closeWorld()"
         >
@@ -265,7 +265,7 @@ const handleWorldUpload = async (e: Event) => {
           :url="entityStore.selectedAvatar.imageUrl || entityStore.selectedAvatar.thumbnailImageUrl"
           custom-class="w-full h-full object-cover"
         />
-        <button
+        <button :aria-label="t('a11y.close')"
           class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
           @click="entityStore.closeAvatar()"
         >
@@ -337,7 +337,7 @@ const handleWorldUpload = async (e: Event) => {
           :url="entityStore.selectedGroup.bannerUrl"
           custom-class="w-full h-full object-cover opacity-80"
         />
-        <button
+        <button :aria-label="t('a11y.close')"
           class="absolute top-4 right-4 p-2 rounded-full bg-surface backdrop-blur-md hover:bg-background/80 backdrop-blur-md/60 text-white backdrop-blur transition-colors flex items-center justify-center"
           @click="entityStore.closeGroup()"
         >
@@ -346,7 +346,7 @@ const handleWorldUpload = async (e: Event) => {
       </div>
       <div class="p-6 relative">
         <div class="flex gap-4 mb-4">
-          <div class="w-20 h-20 -mt-12 rounded-xl border-4 border-border-strong shadow-md bg-surface flex-shrink-0 relative z-10 overflow-hidden">
+          <div class="w-20 h-20 -mt-12 rounded-xl border border-border-strong shadow-md bg-surface flex-shrink-0 relative z-10 overflow-hidden">
             <VrcAvatar
               :user="entityStore.selectedGroup"
               :url="entityStore.selectedGroup.iconUrl"
@@ -509,13 +509,13 @@ const handleWorldUpload = async (e: Event) => {
               </div>
             </div>
             <div class="flex gap-2">
-              <button
+              <button :aria-label="t('a11y.accept')"
                 class="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
                 @click="handleJoinRequest(req.id, 'accept')"
               >
                 <Check :size="16" />
               </button>
-              <button
+              <button :aria-label="t('a11y.reject')"
                 class="p-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
                 @click="handleJoinRequest(req.id, 'reject')"
               >

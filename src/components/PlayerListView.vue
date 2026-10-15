@@ -411,7 +411,7 @@ const openPlayerProfile = async (player: Player) => {
           class="h-full flex flex-col items-center justify-center text-blue-500 opacity-70"
         >
           <Bone
-            class="animate-bounce mb-4"
+            class="mb-4"
             :size="48"
           />
           <p class="font-bold text-sm tracking-wide">

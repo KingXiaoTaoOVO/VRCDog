@@ -154,7 +154,7 @@ const runMenuAction = (action: () => void | Promise<void>) => {
       <img 
         v-if="imageUrl && !imageError"
         :src="imageUrl" 
-        class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+        class="w-full h-full object-cover transition-transform duration-700 ease-out"
         referrerpolicy="no-referrer"
         @error="imageError = true" 
       >
@@ -190,8 +190,8 @@ const runMenuAction = (action: () => void | Promise<void>) => {
       >
         <div class="flex justify-end relative">
           <!-- Context Menu Button -->
-         <button 
-           class="p-2 bg-[var(--theme-bg-main)]/40 backdrop-blur-md hover:bg-[var(--theme-bg-main)]/60 rounded-xl text-white transition-all hover:scale-105 active:scale-95"
+         <button :aria-label="t('a11y.more')" 
+           class="p-2 bg-[var(--theme-bg-main)]/40 backdrop-blur-md hover:bg-[var(--theme-bg-main)]/60 rounded-xl text-white transition-all active:scale-95"
            @click.stop="toggleMenu"
          >
             <MoreVertical :size="16" />

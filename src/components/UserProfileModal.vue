@@ -1818,7 +1818,7 @@ watch(activeTab, (tab) => {
 
           <!-- ── BREADCRUMB NAVIGATION ──────────────────────────── -->
           <div v-if="navHistory.length > 0" class="flex items-center gap-1 px-4 pt-3 pb-1 text-sm shrink-0" style="color: var(--theme-text-muted);">
-            <button class="flex items-center gap-1 hover:opacity-80 transition-opacity" style="color: var(--theme-primary);" @click="navigateBack">
+            <button :aria-label="t('a11y.back')" class="flex items-center gap-1 hover:opacity-80 transition-opacity" style="color: var(--theme-primary);" @click="navigateBack">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </button>
             <template v-for="(item, idx) in navHistory" :key="idx">
@@ -2053,7 +2053,7 @@ watch(activeTab, (tab) => {
               <div class="flex gap-1 mt-auto">
                 <!-- Star / Favorite (查看自己时不显示) -->
                 <div v-if="!isSelf" class="relative fav-menu-wrap">
-                  <button class="icon-btn" :class="{ active: profileStore.isFavorite }" @click.stop="showFavPicker = !showFavPicker; if (showFavPicker) loadFavGroups()">
+                  <button :aria-label="t('a11y.favorite')" class="icon-btn" :class="{ active: profileStore.isFavorite }" @click.stop="showFavPicker = !showFavPicker; if (showFavPicker) loadFavGroups()">
                     <Star :size="16" :fill="profileStore.isFavorite ? 'currentColor' : 'none'" />
                   </button>
                   <!-- Fav group picker -->
@@ -2071,7 +2071,7 @@ watch(activeTab, (tab) => {
                 </div>
                 <!-- More -->
                 <div class="relative more-menu-wrap">
-                  <button class="icon-btn" @click.stop="showMoreMenu = !showMoreMenu">
+                  <button :aria-label="t('a11y.more')" class="icon-btn" @click.stop="showMoreMenu = !showMoreMenu">
                     <MoreHorizontal :size="16" />
                   </button>
                   <transition name="dropdown">
@@ -2146,7 +2146,7 @@ watch(activeTab, (tab) => {
             </div>
 
             <!-- Close -->
-            <button class="icon-btn self-start ml-1" @click="profileStore.closeProfile"><X :size="16" /></button>
+            <button :aria-label="t('a11y.close')" class="icon-btn self-start ml-1" @click="profileStore.closeProfile"><X :size="16" /></button>
           </div>
 
           <!-- ── TABS ───────────────────────────────────────────── -->
@@ -2397,7 +2397,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeTab === 'mutual'">
               <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <button class="icon-btn-sm" :disabled="profileStore.isLoadingMutual" @click="profileStore.fetchMutualFriends(profileStore.targetUserId!)">
+                  <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" :disabled="profileStore.isLoadingMutual" @click="profileStore.fetchMutualFriends(profileStore.targetUserId!)">
                     <RefreshCcw :size="14" :class="{ 'animate-spin': profileStore.isLoadingMutual }" />
                   </button>
                   <span class="text-sm" style="color: var(--theme-text-soft);">
@@ -2431,7 +2431,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeTab === 'groups'">
               <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <button class="icon-btn-sm" :disabled="profileStore.isLoadingGroups" @click="profileStore.fetchGroups(profileStore.targetUserId!)">
+                  <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" :disabled="profileStore.isLoadingGroups" @click="profileStore.fetchGroups(profileStore.targetUserId!)">
                     <RefreshCcw :size="14" :class="{ 'animate-spin': profileStore.isLoadingGroups }" />
                   </button>
                   <span class="text-sm" style="color: var(--theme-text-soft);">{{ t('user_profile.list.total', { count: groupedGroups.total }) }}</span>
@@ -2505,7 +2505,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeTab === 'created_worlds'">
               <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <button class="icon-btn-sm" :disabled="profileStore.isLoadingWorlds" @click="profileStore.fetchCreatedWorlds(profileStore.targetUserId!)">
+                  <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" :disabled="profileStore.isLoadingWorlds" @click="profileStore.fetchCreatedWorlds(profileStore.targetUserId!)">
                     <RefreshCcw :size="14" :class="{ 'animate-spin': profileStore.isLoadingWorlds }" />
                   </button>
                   <span class="text-sm" style="color: var(--theme-text-soft);">{{ t('user_profile.list.total', { count: profileStore.createdWorlds.length }) }}</span>
@@ -2560,7 +2560,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeTab === 'fav_worlds'">
               <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <button class="icon-btn-sm" :disabled="(profileStore as any).isLoadingFavWorlds" @click="(profileStore as any).fetchFavoriteWorlds(profileStore.targetUserId!)">
+                  <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" :disabled="(profileStore as any).isLoadingFavWorlds" @click="(profileStore as any).fetchFavoriteWorlds(profileStore.targetUserId!)">
                     <RefreshCcw :size="14" :class="{ 'animate-spin': (profileStore as any).isLoadingFavWorlds }" />
                   </button>
                   <span class="text-sm" style="color: var(--theme-text-soft);">{{ t('user_profile.list.total', { count: ((profileStore as any).favoriteWorlds || []).length }) }}</span>
@@ -2607,7 +2607,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeTab === 'created_avatars'">
               <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <button class="icon-btn-sm" :disabled="profileStore.isLoadingAvatars" @click="profileStore.fetchCreatedAvatars(profileStore.targetUserId!)">
+                  <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" :disabled="profileStore.isLoadingAvatars" @click="profileStore.fetchCreatedAvatars(profileStore.targetUserId!)">
                     <RefreshCcw :size="14" :class="{ 'animate-spin': profileStore.isLoadingAvatars }" />
                   </button>
                   <span class="text-sm" style="color: var(--theme-text-soft);">{{ t('user_profile.list.total', { count: profileStore.createdAvatars.length }) }}</span>
@@ -2656,7 +2656,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeTab === 'activity'">
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-2">
-                  <button class="icon-btn-sm" @click="refreshActivityData">
+                  <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" @click="refreshActivityData">
                     <RefreshCcw :size="14" :class="{ 'animate-spin': profileStore.isLoadingActivity }" />
                   </button>
                   <span class="text-sm" style="color: var(--theme-text-soft);">{{ t('user_profile.activity.online_events', { count: activityEventCount }) }}</span>
@@ -2779,8 +2779,8 @@ watch(activeTab, (tab) => {
             <!-- RAW JSON TAB (Collapsible Tree) -->
             <template v-else-if="activeTab === 'raw_json'">
               <div class="flex items-center gap-2 mb-3">
-                <button class="icon-btn-sm" @click="profileStore.openProfile(profileStore.targetUserId!)"><RefreshCcw :size="14" /></button>
-                <button class="icon-btn-sm" @click="copyRawJson"><Download :size="14" /></button>
+                <button :aria-label="t('a11y.refresh')" class="icon-btn-sm" @click="profileStore.openProfile(profileStore.targetUserId!)"><RefreshCcw :size="14" /></button>
+                <button :aria-label="t('a11y.copy_json')" class="icon-btn-sm" @click="copyRawJson"><Download :size="14" /></button>
               </div>
               <div class="rounded-lg p-3 overflow-auto font-mono text-xs" style="background: var(--theme-surface); border: 1px solid var(--theme-border-soft); max-height: 500px; color: var(--theme-text);">
                 <JsonTree :data="profileStore.baseInfo" :depth="0" />
@@ -2813,7 +2813,7 @@ watch(activeTab, (tab) => {
             <template v-else-if="activeEditor === 'send_invite'">{{ t('user_profile.editor.send_invite_title') }}</template>
             <template v-else-if="activeEditor === 'send_invite_request'">{{ t('user_profile.editor.send_request_title') }}</template>
           </h3>
-          <button class="icon-btn-sm" @click="closeEditor"><X :size="14" /></button>
+          <button :aria-label="t('a11y.close')" class="icon-btn-sm" @click="closeEditor"><X :size="14" /></button>
         </div>
 
         <!-- Body -->
@@ -2837,7 +2837,7 @@ watch(activeTab, (tab) => {
                 <div v-for="(l, i) in bioLinksDraft" :key="i" class="flex items-center gap-2 p-2 rounded text-sm" style="background: var(--theme-surface-hover);">
                   <img :src="getFaviconUrl(l)" class="w-4 h-4 rounded shrink-0" @error="($event.target as HTMLImageElement).style.display = 'none'">
                   <span class="flex-1 truncate" style="color: var(--theme-text);">{{ l }}</span>
-                  <button class="icon-btn-sm" @click="removeBioLink(i)"><Trash2 :size="12" /></button>
+                  <button :aria-label="t('a11y.remove_link')" class="icon-btn-sm" @click="removeBioLink(i)"><Trash2 :size="12" /></button>
                 </div>
                 <div v-if="bioLinksDraft.length < 3" class="flex items-center gap-2">
                   <input
@@ -3124,12 +3124,12 @@ watch(activeTab, (tab) => {
         <img :src="previewImageUrl || avatarImageUrl" class="max-w-[80vw] max-h-[70vh] object-contain transition-all duration-300" :style="{ transform: `scale(${imageScale}) rotate(${imageRotation}deg)` }" />
       </div>
       <div class="flex gap-3 p-4 mb-4 rounded-xl shrink-0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);">
-        <button class="preview-btn" @click.stop="handleZoomOut"><ZoomOut :size="20" /></button>
-        <button class="preview-btn" @click.stop="handleZoomIn"><ZoomIn :size="20" /></button>
-        <button class="preview-btn" @click.stop="handleRotateCw"><RotateCw :size="20" /></button>
-        <button class="preview-btn" @click.stop="handleResetImage"><RotateCcw :size="20" /></button>
-        <button class="preview-btn" @click.stop="handleDownloadImage"><Download :size="20" /></button>
-        <button class="preview-btn" @click.stop="toggleImagePreview"><X :size="20" /></button>
+        <button :aria-label="t('a11y.zoom_out')" class="preview-btn" @click.stop="handleZoomOut"><ZoomOut :size="20" /></button>
+        <button :aria-label="t('a11y.zoom_in')" class="preview-btn" @click.stop="handleZoomIn"><ZoomIn :size="20" /></button>
+        <button :aria-label="t('a11y.rotate_cw')" class="preview-btn" @click.stop="handleRotateCw"><RotateCw :size="20" /></button>
+        <button :aria-label="t('a11y.reset_image')" class="preview-btn" @click.stop="handleResetImage"><RotateCcw :size="20" /></button>
+        <button :aria-label="t('a11y.download')" class="preview-btn" @click.stop="handleDownloadImage"><Download :size="20" /></button>
+        <button :aria-label="t('a11y.close')" class="preview-btn" @click.stop="toggleImagePreview"><X :size="20" /></button>
       </div>
     </div>
   </transition>

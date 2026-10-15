@@ -1150,7 +1150,7 @@ onUnmounted(() => {
             <div class="queue-list">
               <div v-for="(item, index) in chatQueue" :key="`${item}-${index}`">
                 <span>{{ item }}</span>
-                <button @click="chatQueue.splice(index, 1)"><X :size="13" /></button>
+                <button :aria-label="t('a11y.remove_from_queue')" @click="chatQueue.splice(index, 1)"><X :size="13" /></button>
               </div>
               <p v-if="chatQueue.length === 0" class="empty-text">{{t('osc.queue_mode_sends_messages_in_order') }}</p>
             </div>

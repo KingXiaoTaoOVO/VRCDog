@@ -134,7 +134,7 @@ const formatArgs = (args: any) => {
    <!-- 悬浮触发按钮 -->
    <button
      v-if="!isVisible && isMasterEnabled"
-     class="fixed bottom-4 right-4 z-[999] bg-[var(--theme-bg-main)]/90 hover:bg-[var(--theme-bg-main)]/80 text-primary p-3 rounded-full shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all hover:scale-110 border border-primary/50 flex items-center justify-center group"
+     class="fixed bottom-4 right-4 z-[999] bg-[var(--theme-bg-main)]/90 hover:bg-[var(--theme-bg-main)]/80 text-primary p-3 rounded-full shadow-[0_0_15px_rgba(var(--theme-primary),0.3)] transition-all border border-primary/50 flex items-center justify-center group"
      @click="isVisible = true"
    >
      <Terminal :size="20" />

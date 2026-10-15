@@ -1150,7 +1150,7 @@ const getKeyDisplay = (val: string) => {
       </div>
     </header>
 
-    <div class="h-[650px] flex-shrink-0 mb-8 bg-surface backdrop-blur-md border-border-soft rounded-3xl shadow-lg flex overflow-hidden">
+    <div class="h-[650px] flex-shrink-0 mb-8 bg-surface backdrop-blur-md border-border-soft rounded-2xl shadow-lg flex overflow-hidden">
       <!-- 宸︿晶瀵艰埅 -->
       <div class="w-48 bg-surface border-primary p-4 space-y-2 overflow-y-auto custom-scrollbar">
         <button
@@ -2301,7 +2301,7 @@ const getKeyDisplay = (val: string) => {
                 <img
                   v-if="!vrLogoLoadFailed"
                   :src="currentTheme.logo"
-                  class="w-6 h-6 rounded-full border-2 shadow-sm"
+                  class="w-6 h-6 rounded-full border shadow-sm"
                   :style="{ borderColor: currentTheme.colors.borderStrong }"
                   alt=""
                   @error="vrLogoLoadFailed = true"
@@ -2346,7 +2346,7 @@ const getKeyDisplay = (val: string) => {
                   <button
                     v-for="tab in vrDashboardTabs"
                     :key="tab.key"
-                    class="vr-dash-tab btn-cute"
+                    class="vr-dash-tab "
                     :class="{ 'vr-dash-tab-active': vrDashboardTab === tab.key }"
                     @click="vrDashboardTab = tab.key"
                   >
@@ -2577,7 +2577,7 @@ const getKeyDisplay = (val: string) => {
                     <img
                       v-if="!vrLogoLoadFailed"
                       :src="currentTheme.logo"
-                      class="w-12 h-12 rounded-full border-2 shadow-md mb-2"
+                      class="w-12 h-12 rounded-full border shadow-md mb-2"
                       :style="{ borderColor: currentTheme.colors.borderStrong }"
                       alt=""
                       @error="vrLogoLoadFailed = true"

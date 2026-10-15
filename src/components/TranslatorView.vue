@@ -1346,7 +1346,7 @@ onUnmounted(async () => {
 </script>
 
 <template>
-  <div class="h-full min-h-0 flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full min-h-0 flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <header class="flex items-center justify-between gap-4 mb-5 shrink-0 z-10 flex-wrap">
       <h2 class="text-3xl font-extrabold text-text flex items-center gap-3 tracking-tight min-w-0">
         <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary shrink-0">
@@ -1625,7 +1625,7 @@ onUnmounted(async () => {
                   {{ tt('translator.mic_passthrough_desc', '将物理麦克风声音近 0 延迟实时拷贝直通推入虚拟声卡（CABLE Input），TTS 语音合成播报时自动暂停避让。无需第三方复杂跳线！') }}
                 </span>
               </div>
-              <button
+              <button :aria-label="t('a11y.mic_passthrough')"
                 type="button"
                 :class="micPassthrough ? 'bg-primary text-white' : 'bg-surface border-border-soft text-text-muted'"
                 class="relative w-11 h-6 rounded-full transition-colors shrink-0"
@@ -1748,7 +1748,7 @@ onUnmounted(async () => {
                   <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.source_lang', '我的语言 (Source)') }}</label>
                   <CustomSelect v-model="sourceLang" :options="speechLanguageOptions" />
                 </div>
-                <button class="mb-0.5 w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-primary transition-colors" @click="swapMyLanguages">
+                <button :aria-label="t('a11y.swap_languages')" class="mb-0.5 w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-primary transition-colors" @click="swapMyLanguages">
                   <RefreshCw :size="16" />
                 </button>
                 <div class="min-w-0">
@@ -1850,7 +1850,7 @@ onUnmounted(async () => {
                   <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.source_lang', '源语言') }}</label>
                   <CustomSelect v-model="otherSourceLang" :options="speechLanguageOptions" />
                 </div>
-                <button class="mb-0.5 w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-primary transition-colors" @click="swapOtherLanguages">
+                <button :aria-label="t('a11y.swap_languages')" class="mb-0.5 w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-primary transition-colors" @click="swapOtherLanguages">
                   <RefreshCw :size="16" />
                 </button>
                 <div class="min-w-0">
@@ -1906,7 +1906,7 @@ onUnmounted(async () => {
                   <span class="text-sm font-bold text-text block">{{t('translator.self_suppress') }}</span>
                   <span class="text-[11px] text-text-muted">{{t('translator.pause_listen_while_you_speak_to_avoid_ec') }}</span>
                 </div>
-                <button
+                <button :aria-label="t('a11y.self_suppress')"
                   type="button"
                   :class="selfSuppress ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
                   class="relative w-11 h-6 rounded-full transition-colors shrink-0"
@@ -1989,7 +1989,7 @@ onUnmounted(async () => {
 
               <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
                 <span class="text-sm font-bold text-text">{{t('translator.asr_correction') }}</span>
-                <button
+                <button :aria-label="t('a11y.correction')"
                   type="button"
                   :class="correctionEnabled ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
                   class="relative w-11 h-6 rounded-full transition-colors shrink-0"
@@ -2016,7 +2016,7 @@ onUnmounted(async () => {
 
               <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
                 <span class="text-xs font-bold text-text">{{ tt('translator.keep_speaker_context', '保持说话人上下文') }}</span>
-                <button
+                <button :aria-label="t('a11y.keep_speaker_context')"
                   type="button"
                   :class="keepSpeakerContext ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
                   class="relative w-11 h-6 rounded-full transition-colors shrink-0"
@@ -2064,7 +2064,7 @@ onUnmounted(async () => {
               <label class="min-w-0"><span class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt('translator.voice_hotkey', '语音开关快捷键') }}</span><input v-model="voiceToggleHotkey" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" @change="checkTranslationHotkeys"></label>
             </div>
             <div v-if="hotkeyConflicts.length" class="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-[11px] text-red-500 font-bold">{{ hotkeyConflicts.map((item) => `${item.hotkey}: ${item.reason}`).join('；') }}</div>
-            <div v-if="keywordActions.length" class="mt-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1"><div v-for="(action, index) in keywordActions" :key="index" class="grid grid-cols-[1fr_1fr_80px_80px_100px_34px] gap-2 items-center"><input v-model="action.keyword" :placeholder="tt('translator.keyword', '关键词')" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><input v-model="action.address" placeholder="/avatar/parameters/Name" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><CustomSelect v-model="action.valueType" :options="[{ label: 'Float', value: 'float' }, { label: 'Int', value: 'int' }, { label: 'Bool', value: 'bool' }, { label: 'Double', value: 'double' }]" /><input v-model.number="action.value" type="number" step="0.1" placeholder="值" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><input v-model.number="action.cooldownMs" type="number" min="0" step="100" placeholder="冷却 ms" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><button class="w-8 h-8 rounded-lg text-text-muted hover:text-red-500" @click="removeKeywordAction(index)"><Trash2 :size="14" /></button></div></div>
+            <div v-if="keywordActions.length" class="mt-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1"><div v-for="(action, index) in keywordActions" :key="index" class="grid grid-cols-[1fr_1fr_80px_80px_100px_34px] gap-2 items-center"><input v-model="action.keyword" :placeholder="tt('translator.keyword', '关键词')" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><input v-model="action.address" placeholder="/avatar/parameters/Name" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><CustomSelect v-model="action.valueType" :options="[{ label: 'Float', value: 'float' }, { label: 'Int', value: 'int' }, { label: 'Bool', value: 'bool' }, { label: 'Double', value: 'double' }]" /><input v-model.number="action.value" type="number" step="0.1" placeholder="值" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><input v-model.number="action.cooldownMs" type="number" min="0" step="100" placeholder="冷却 ms" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><button :aria-label="t('a11y.delete')" class="w-8 h-8 rounded-lg text-text-muted hover:text-red-500" @click="removeKeywordAction(index)"><Trash2 :size="14" /></button></div></div>
             <p class="mt-3 text-[10px] text-text-muted">{{ tt('translator.runtime_version', '翻译能力清单') }}: {{ runtimeVersion }} <button class="ml-2 text-primary font-bold hover:underline" @click="updateTranslationRuntime">{{ tt('translator.update_now', '立即检查更新') }}</button></p>
           </section>
 
@@ -2167,7 +2167,7 @@ onUnmounted(async () => {
               <ClipboardList class="text-primary" :size="20" />
               {{t('translator.translation_history') }}
             </h3>
-            <button class="w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-red-500 transition-colors" @click="clearHistory">
+            <button :aria-label="t('a11y.clear_history')" class="w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-red-500 transition-colors" @click="clearHistory">
               <RotateCcw :size="15" />
             </button>
           </div>
@@ -2209,13 +2209,13 @@ onUnmounted(async () => {
 
     <!-- VB-Audio Cable Setup Guide Modal -->
     <div v-if="showCableGuide" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div class="bg-surface border border-border-strong rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-4">
+      <div class="bg-surface border border-border-strong rounded-2xl p-6 max-w-xl w-full shadow-2xl space-y-4">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2 text-primary font-black text-base">
             <Volume2 :size="20" />
             <span>{{ tt('translator.cable_guide_title', 'VB-Audio 虚拟声卡配置向导 (VRCLT 同款)') }}</span>
           </div>
-          <button class="p-1 rounded-xl hover:bg-surface-hover text-text-muted" @click="showCableGuide = false">
+          <button :aria-label="t('a11y.close')" class="p-1 rounded-xl hover:bg-surface-hover text-text-muted" @click="showCableGuide = false">
             <X :size="18" />
           </button>
         </div>

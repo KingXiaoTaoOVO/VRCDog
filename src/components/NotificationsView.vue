@@ -292,7 +292,7 @@ const canAcceptNotification = (notif: VrcNotification) => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -304,7 +304,7 @@ const canAcceptNotification = (notif: VrcNotification) => {
         </span>
         {{ t('notifications.title') }}
       </h1>
-      <button
+      <button :aria-label="t('a11y.refresh')"
         :disabled="loading"
         class="p-2.5 rounded-xl bg-surface border-border-soft shadow-sm text-text-muted hover:text-primary hover:border-primary transition-all disabled:opacity-50"
         @click="refreshNotifications"
@@ -392,7 +392,7 @@ const canAcceptNotification = (notif: VrcNotification) => {
           :key="notif.id" 
           class="bg-surface backdrop-blur-xl rounded-2xl p-4 border-border-soft shadow-sm flex items-start gap-4 transition-all hover:border-primary hover:shadow-md group"
         >
-          <div class="w-12 h-12 rounded-2xl bg-primary/10 border-primary flex items-center justify-center flex-shrink-0 text-primary group-hover:scale-105 transition-transform">
+          <div class="w-12 h-12 rounded-2xl bg-primary/10 border-primary flex items-center justify-center flex-shrink-0 text-primary transition-transform">
             <component
               :is="getNotificationIcon(notif.type)"
               :size="24"
@@ -415,7 +415,7 @@ const canAcceptNotification = (notif: VrcNotification) => {
           </div>
 
           <div class="flex flex-col gap-2 flex-shrink-0">
-            <button
+            <button :aria-label="t('a11y.accept')"
               v-if="canAcceptNotification(notif)"
               :disabled="processingId === notif.id"
               class="w-10 h-10 rounded-xl bg-green-500 text-white hover:bg-green-600 transition-colors flex items-center justify-center shadow-sm disabled:opacity-50"
@@ -431,7 +431,7 @@ const canAcceptNotification = (notif: VrcNotification) => {
                 :size="20"
               />
             </button>
-            <button 
+            <button :aria-label="t('a11y.reject')" 
               :disabled="processingId === notif.id"
               class="w-10 h-10 rounded-xl bg-surface text-text-muted hover:bg-red-50 hover:text-red-500 hover:hover:border-red-200 transition-all flex items-center justify-center disabled:opacity-50"
               @click="rejectNotification(notif)"

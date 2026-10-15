@@ -115,7 +115,7 @@ onMounted(() => fetchPresets());
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -128,7 +128,7 @@ onMounted(() => fetchPresets());
         {{ t('status_presets.title') }}
       </h2>
       <button
-        class="bg-primary hover:bg-primary text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-primary/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+        class="bg-primary hover:bg-primary text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-sm shadow-primary/30 flex items-center gap-2 transition-all active:scale-95"
         @click="showForm = !showForm"
       >
         <Plus :size="16" /> {{ t('status_presets.add_preset') }}

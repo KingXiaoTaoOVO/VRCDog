@@ -620,7 +620,7 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
               <div class="flex-1 bg-surface rounded-lg px-3 py-2 font-mono text-lg font-bold text-text-strong tracking-wider border border-border-soft">
                 {{ showPassword ? (deviceInfo?.password || '---') : '••••••••' }}
               </div>
-              <button
+              <button :aria-label="t('a11y.show_password')"
                 class="p-2 rounded-lg bg-surface hover:bg-surface-hover border border-border-soft transition-colors"
                 @click="showPassword = !showPassword"
               >
@@ -743,7 +743,7 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
             >
               <Maximize2 :size="14" />
             </button>
-            <button
+            <button :aria-label="t('a11y.disconnect')"
               class="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"
               @click="disconnectSession(session.session_id)"
             >
@@ -789,7 +789,7 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
             class="flex-1 bg-surface border border-border-soft rounded-lg px-3 py-2 text-sm text-text-strong placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50 transition-all"
             @keyup.enter="sendChat"
           />
-          <button
+          <button :aria-label="t('a11y.send')"
             class="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-sm transition-all disabled:opacity-50"
             :disabled="!chatInput.trim()"
             @click="sendChat"
@@ -909,7 +909,7 @@ const activeSessions = computed(() => sessions.value.filter(s => s.status !== 'd
         <div class="space-y-3">
           <label class="flex items-center justify-between cursor-pointer">
             <span class="text-sm text-text">{{ t('remote_assist.accept_connections') }}</span>
-            <button
+            <button :aria-label="t('a11y.toggle_connections')"
               class="w-10 h-5 rounded-full transition-all relative"
               :class="acceptingConnections ? 'bg-primary' : 'bg-red-400/60'"
               @click="toggleAcceptConnections"

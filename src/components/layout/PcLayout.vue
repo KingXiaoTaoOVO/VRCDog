@@ -82,10 +82,12 @@ const dataServiceKey = computed(() => {
     default: return 'status.data_offline';
   }
 });
+// 与下方实时管道卡片保持一致：用主色 10% 透明度打底，能跟着主题色与背景融合，
+// 而不是固定的 emerald-50 浅底（那种冷调浅底铺在暖色主题上会显脏）。
 const dataServiceClass = computed(() => ({
-  'bg-emerald-50 border-emerald-200 text-emerald-600': dataServiceStatus.value === 'online',
-  'bg-amber-50 border-amber-200 text-amber-700': dataServiceStatus.value === 'stale',
-  'bg-slate-50 border-slate-200 text-slate-500': dataServiceStatus.value === 'offline',
+  'bg-emerald-500/10 border-emerald-500/25 text-emerald-600': dataServiceStatus.value === 'online',
+  'bg-amber-500/10 border-amber-500/25 text-amber-700': dataServiceStatus.value === 'stale',
+  'bg-slate-500/10 border-slate-500/25 text-slate-500': dataServiceStatus.value === 'offline',
 }));
 const lastSyncAgo = computed(() => {
   const last = dataHealth.lastSuccessAt;
@@ -120,14 +122,8 @@ const pipelineClass = computed(() => ({
   'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400': !wsState.connected && wsState.phase === 'failed',
   'bg-slate-500/10 border-slate-500/25 text-slate-500': !wsState.connected && wsState.phase === 'idle',
 }));
-const menuSectionBg = computed(() => {
-  switch (currentTheme.value.id) {
-    case 'cat': return '#f5fff8';
-    case 'helmet': return '#fff6f7';
-    case 'mono': return '#ffffff';
-    default: return '#fffaf0';
-  }
-});
+// 菜单标题区底色由 theme.ts 统一提供，避免把主题色硬编码进布局组件
+const menuSectionBg = computed(() => currentTheme.value.colors.menuHeaderBg);
 
 watch(showVrcDogMenu, (visible) => {
   if (!visible) {
@@ -203,38 +199,14 @@ const visibleSidebarTabs = computed(() => {
   return activeSidebarTabs.value.filter(tab => !managedSubKeys.value.has(tab.key));
 });
 
-// 动态注入 CSS 变量
-const themeStyles = computed(() => {
-  const colors = currentTheme.value.colors;
-  return {
-    '--theme-bg-main': colors.bgMain,
-    '--theme-surface': colors.surface,
-    '--theme-surface-hover': colors.surfaceHover,
-    '--theme-blob1': colors.blob1,
-    '--theme-blob2': colors.blob2,
-    '--theme-border-soft': colors.borderSoft,
-    '--theme-border-strong': colors.borderStrong,
-    '--theme-text': colors.text,
-    '--theme-text-strong': colors.textStrong,
-    '--theme-text-soft': colors.textSoft,
-    '--theme-text-muted': colors.textMuted,
-    '--theme-primary': colors.primaryBtnBg,
-    '--theme-primary-hover': colors.primaryBtnHover,
-    '--theme-active-bg': colors.activeBg,
-    '--theme-glass-effect': colors.glassEffect,
-    '--theme-terminal-bg': colors.terminalBg,
-  };
-});
 </script>
 
 <template>
   <div
     class="flex h-screen overflow-hidden relative"
-    :style="themeStyles"
   >
-    <!-- 背景装饰色块 -->
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
+    <!-- 背景光斑由 App.vue 壳层统一渲染（此布局根节点透明），此处不再重复，
+         否则会与壳层那组完全重叠、把背景浓度叠加成两倍 -->
 
     <!-- 侧边栏 -->
     <aside
@@ -242,7 +214,7 @@ const themeStyles = computed(() => {
     >
       <div class="flex items-center gap-2.5 mb-2">
         <div
-          class="w-10 h-10 rounded-full overflow-hidden border-2 bg-surface flex-shrink-0"
+          class="w-10 h-10 rounded-full overflow-hidden border bg-surface flex-shrink-0"
           :style="{ borderColor: currentTheme.colors.borderStrong }"
         >
           <img
@@ -297,7 +269,7 @@ const themeStyles = computed(() => {
           <!-- 父级 tab（带子菜单） -->
           <div v-if="isGroupParent(tab.key)">
             <button
-              class="w-full flex items-center gap-3 px-3 rounded-xl font-bold transition-all text-left text-[13px] hover:scale-[1.01] active:scale-[0.98]"
+              class="w-full flex items-center gap-3 px-3 rounded-xl font-bold transition-colors text-left text-[13px] hover:bg-[var(--theme-surface-hover)]"
               :class="currentDensity.navClass"
               :style="activeTab === tab.key || subMenuGroups[tab.key]?.some(c => c.key === activeTab)
                 ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
@@ -318,7 +290,7 @@ const themeStyles = computed(() => {
                 <button
                   v-for="child in subMenuGroups[tab.key]"
                   :key="child.key"
-                  class="w-full flex items-center gap-2.5 px-3 rounded-lg font-medium transition-all text-left text-[12px] hover:scale-[1.01] active:scale-[0.98]"
+                  class="w-full flex items-center gap-2.5 px-3 rounded-lg font-medium transition-colors text-left text-[12px] hover:bg-[var(--theme-surface-hover)]"
                   :class="currentDensity.childClass"
                   :style="activeTab === child.key
                     ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
@@ -335,7 +307,7 @@ const themeStyles = computed(() => {
           <!-- 普通 tab -->
           <button
             v-else
-            class="w-full flex items-center gap-3 px-3 rounded-xl font-bold transition-all text-left text-[13px] hover:scale-[1.01] active:scale-[0.98]"
+            class="w-full flex items-center gap-3 px-3 rounded-xl font-bold transition-colors text-left text-[13px] hover:bg-[var(--theme-surface-hover)]"
             :class="currentDensity.navClass"
             :style="activeTab === tab.key
               ? { backgroundColor: currentTheme.colors.activeBg, color: currentTheme.colors.textStrong }
@@ -372,7 +344,7 @@ const themeStyles = computed(() => {
         :style="{ boxShadow: 'inset 0 1px 0 ' + currentTheme.colors.borderSoft }"
       >
         <div 
-          class="flex items-center gap-2.5 cursor-pointer hover:bg-background/10 p-2 -ml-1 rounded-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.98] relative"
+          class="flex items-center gap-2.5 cursor-pointer hover:bg-background/10 p-2 -ml-1 rounded-2xl transition-colors duration-200 relative"
           @click="showVrcDogMenu = !showVrcDogMenu"
         >
           <VrcAvatar
@@ -453,7 +425,7 @@ const themeStyles = computed(() => {
             <button
               v-if="canRetryPipeline && !wsState.connected"
               type="button"
-              class="inline-flex items-center justify-center w-5 h-5 rounded-lg hover:bg-black/10 dark:hover:bg-white/15 transition-all active:scale-90"
+              class="inline-flex items-center justify-center w-5 h-5 rounded-lg hover:bg-black/10 dark:hover:bg-white/15 transition-colors"
               :title="$t('status.pipeline_retry_button')"
               :aria-label="$t('status.pipeline_retry_button')"
               @click="retryPipeline"
@@ -486,13 +458,13 @@ const themeStyles = computed(() => {
 
         <div class="flex gap-2 pt-0.5">
           <button
-            class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-orange-500 hover:bg-orange-500/10 font-bold text-xs transition-all duration-200 active:scale-95"
+            class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-orange-500 hover:bg-orange-500/10 font-bold text-xs transition-colors duration-200"
             @click="uiStore.appMode = null"
           >
             <Monitor :size="13" /> {{ $t('app.reselect_mode') }}
           </button>
           <button
-            class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-red-500 hover:bg-red-500/10 font-bold text-xs transition-all duration-200 active:scale-95"
+            class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-red-500 hover:bg-red-500/10 font-bold text-xs transition-colors duration-200"
             @click="() => authStore.handleLogout(false)"
           >
             <LogOut :size="13" /> {{ $t('app.logout') }}

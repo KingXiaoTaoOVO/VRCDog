@@ -18,6 +18,8 @@ interface Theme {
     textSoft: string;   // 柔和文字 (Subtitles)
     textMuted: string;  // 灰暗文字 (Disabled/Metadata)
     activeBg: string;
+    /** 用户菜单标题区底色（比 surface 略深一档，用于区分区块） */
+    menuHeaderBg: string;
     primaryBtnBg: string;
     primaryBtnHover: string;
     terminalBg: string;
@@ -51,6 +53,7 @@ export const themes: Record<ThemeId, Theme> = {
       textSoft: '#451a03',
       textMuted: '#76584d',  // 灰褐
       activeBg: 'rgba(251, 191, 36, 0.25)',
+      menuHeaderBg: '#fffaf0',
       primaryBtnBg: '#d97706',
       primaryBtnHover: '#b45309',
       terminalBg: 'rgba(10, 10, 10, 0.95)',
@@ -75,6 +78,7 @@ export const themes: Record<ThemeId, Theme> = {
       textSoft: '#064e3b',
       textMuted: '#4f7668',  // 灰绿
       activeBg: 'rgba(20, 184, 166, 0.2)',
+      menuHeaderBg: '#f5fff8',
       primaryBtnBg: '#059669',
       primaryBtnHover: '#047857',
       terminalBg: 'rgba(10, 10, 10, 0.95)',
@@ -99,6 +103,7 @@ export const themes: Record<ThemeId, Theme> = {
       textSoft: '#4c0519',
       textMuted: '#805d68',  // 灰玫
       activeBg: 'rgba(244, 114, 182, 0.2)',
+      menuHeaderBg: '#fff6f7',
       primaryBtnBg: '#e11d48',
       primaryBtnHover: '#be123c',
       terminalBg: 'rgba(10, 10, 10, 0.95)',
@@ -123,6 +128,7 @@ export const themes: Record<ThemeId, Theme> = {
       textSoft: '#0f172a',
       textMuted: '#64748b',  // 板岩灰
       activeBg: 'rgba(148, 163, 184, 0.2)',
+      menuHeaderBg: '#ffffff',
       primaryBtnBg: '#475569',
       primaryBtnHover: '#334155',
       terminalBg: 'rgba(10, 10, 10, 0.95)',

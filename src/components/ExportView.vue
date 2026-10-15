@@ -264,7 +264,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 还原备份 -->
-      <div class="bg-surface rounded-2xl border-2 border-red-500/30 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
+      <div class="bg-surface rounded-2xl border border-red-500/30 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
         <div class="absolute -right-8 -top-8 w-32 h-32 bg-red-500/10 rounded-full blur-2xl pointer-events-none" />
         <div class="relative z-10 p-4 flex items-center gap-4">
           <div class="shrink-0 w-12 h-12 bg-red-500/10 rounded-xl flex items-center justify-center">

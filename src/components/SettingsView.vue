@@ -657,7 +657,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
           : 'text-[var(--theme-text-soft)] hover:bg-[var(--theme-surface-hover)] hover:text-[var(--theme-primary)]'"
         @click="activeTab = tab.id"
       >
-        <component :is="tab.icon" class="w-5 h-5 shrink-0 transition-transform group-hover:scale-110" />
+        <component :is="tab.icon" class="w-5 h-5 shrink-0 transition-transform" />
         <span class="font-medium text-sm">{{ t(tab.label) }}</span>
       </button>
 
@@ -996,7 +996,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                 </div>
                 <button
                   :disabled="isCheckingUpdate"
-                  class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-text-strong transition-all disabled:opacity-50 flex items-center gap-2 hover:scale-105 active:scale-95"
+                  class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-text-strong transition-all disabled:opacity-50 flex items-center gap-2 active:scale-95"
                   @click="checkForUpdates(false)"
                 >
                   <span v-if="isCheckingUpdate" class="w-3.5 h-3.5 border-border-soft border-t-transparent rounded-full animate-spin" />
@@ -1171,13 +1171,13 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
                 <div class="flex gap-4 p-3 mt-2">
                   <button
-                    class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
+                    class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all flex items-center gap-2 active:scale-95"
                     @click="testTTS"
                   >
                     <Play class="w-3.5 h-3.5" /> {{ t('settings.play_test') || 'Play Test' }}
                   </button>
                   <button
-                    class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
+                    class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all flex items-center gap-2 active:scale-95"
                     @click="testNotification"
                   >
                     <Bell class="w-3.5 h-3.5" /> {{ t('settings.send_notification') || 'Test Notify' }}
@@ -1604,7 +1604,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   </div>
                 </div>
                 <div v-if="config.remoteAvatarDbEnabled" class="flex justify-end pt-2 px-3">
-                  <button class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all hover:scale-105 active:scale-95">
+                  <button class="px-4 py-1.5 bg-[var(--theme-surface-hover)]/60 backdrop-blur-md hover:bg-[var(--theme-surface-hover)]/90 backdrop-blur-md border border-border-soft rounded-xl text-[13px] text-[var(--theme-text-muted)] hover:text-text-strong transition-all active:scale-95">
                     {{ t('settings.contribute_avatar') || 'Contribute Avatar Data' }}
                   </button>
                 </div>
@@ -1673,7 +1673,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
             <div class="space-y-2">
               <!-- Network Settings -->
-              <div class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all hover:scale-[1.01]">
+              <div class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all">
                 <div class="flex items-center gap-4">
                   <div class="p-2 bg-blue-500/10 rounded-lg text-blue-400">
                     <Globe :size="18" />
@@ -1697,7 +1697,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
               <!-- Hardware Acceleration -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group active:scale-[0.99]"
                 @click="config.hardwareAcceleration = !config.hardwareAcceleration"
               >
                 <div class="flex items-center gap-4">
@@ -1722,7 +1722,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
               <!-- OSC Automation -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group active:scale-[0.99]"
                 @click="config.oscAutomation = !config.oscAutomation"
               >
                 <div class="flex items-center gap-4">
@@ -1773,13 +1773,13 @@ const selectInterfaceLanguage = (nextLocale: string) => {
             <div class="space-y-4">
               <div class="flex gap-3">
                 <button
-                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group hover:scale-[1.01] active:scale-[0.99]"
+                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group active:scale-[0.99]"
                   @click="pickFolderForConfig('cache_directory')"
                 >
                   <HardDrive :size="16" class="group-hover:text-primary" /> Set Cache Dir
                 </button>
                 <button
-                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group hover:scale-[1.01] active:scale-[0.99]"
+                  class="flex-1 px-4 py-3 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 border border-white/5 rounded-2xl text-xs text-[var(--theme-text-muted)] hover:text-text transition-all flex items-center justify-center gap-2 group active:scale-[0.99]"
                   @click="pickFolderForConfig('camera_res_dir')"
                 >
                   <Camera :size="16" class="group-hover:text-primary" /> Set Photo Dir
@@ -1884,7 +1884,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
             <div class="space-y-3">
               <!-- Enable Overlay -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group active:scale-[0.99]"
                 @click="config.vrOverlayEnabled = !config.vrOverlayEnabled"
               >
                 <div class="flex items-center gap-4">
@@ -1928,7 +1928,7 @@ const selectInterfaceLanguage = (nextLocale: string) => {
 
               <!-- Wrist Mode -->
               <div 
-                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-[1.01] active:scale-[0.99]"
+                class="flex items-center justify-between p-4 bg-[var(--theme-surface)]/40 hover:bg-[var(--theme-surface-hover)]/50 rounded-2xl border border-white/5 transition-all cursor-pointer group active:scale-[0.99]"
                 @click="config.wristMode = !config.wristMode"
               >
                 <div class="flex items-center gap-4">

@@ -35,8 +35,7 @@ import DebugConsole from './components/DebugConsole.vue';
 import WebClientView from './components/WebClientView.vue';
 
 // Assets
-import dogImg from './assets/dog.jpg';
-import { AlertTriangle, Ban, Link2, Loader2, RefreshCcw } from 'lucide-vue-next';
+import { AlertTriangle, Ban, Link2, Loader2, LockKeyhole, RefreshCcw, Server } from 'lucide-vue-next';
 import { setAppLocale } from './i18n';
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -613,26 +612,40 @@ if (typeof window !== 'undefined') {
 
   <div
     v-else-if="!isTauri() && appRole === 'server' && !webAdminPasswordSubmitted"
-    class="w-full h-screen flex flex-col items-center justify-center bg-background"
+    class="gate-page"
   >
-    <div class="w-full max-w-sm px-4">
-      <h2 class="text-xl font-bold text-text-strong mb-4 text-center">{{ $t('app.admin_verify') }}</h2>
-      <p class="text-text-muted text-sm mb-4 text-center">{{ $t('app.admin_verify_desc') }}</p>
-      <input
-        v-model="webAdminPassword"
-        type="password"
-        class="theme-field mb-3"
-        :placeholder="$t('app.root_password')"
-        @keydown.enter="submitWebAdminPassword"
-      />
-      <p v-if="webAdminPasswordError" class="text-red-500 text-sm mb-3">{{ webAdminPasswordError }}</p>
-      <button
-        @click="submitWebAdminPassword"
-        class="w-full py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90"
-      >
+    <section class="gate-panel">
+      <header class="gate-head">
+        <span class="gate-icon"><Server :size="18" /></span>
+        <div class="gate-copy">
+          <h2>{{ $t('app.admin_verify') }}</h2>
+          <p>{{ $t('app.admin_verify_desc') }}</p>
+        </div>
+      </header>
+
+      <label class="gate-field">
+        <span>{{ $t('app.root_password') }}</span>
+        <span class="gate-input-shell">
+          <LockKeyhole :size="16" />
+          <input
+            v-model="webAdminPassword"
+            type="password"
+            autocomplete="current-password"
+            :placeholder="$t('app.root_password')"
+            @keydown.enter="submitWebAdminPassword"
+          >
+        </span>
+      </label>
+
+      <p v-if="webAdminPasswordError" class="gate-error">
+        <AlertTriangle :size="15" />
+        <span>{{ webAdminPasswordError }}</span>
+      </p>
+
+      <button class="gate-submit" @click="submitWebAdminPassword">
         {{ $t('app.verify') }}
       </button>
-    </div>
+    </section>
   </div>
 
   <ServerDashboardView
@@ -652,8 +665,8 @@ if (typeof window !== 'undefined') {
     class="w-full h-screen flex flex-col items-center justify-center bg-background"
   >
     <img
-      :src="dogImg"
-      class="w-24 h-24 rounded-full border-4 border-border-soft shadow-xl mb-6 animate-pulse"
+      :src="currentTheme.logo"
+      class="w-24 h-24 rounded-2xl border border-border-strong shadow-lg mb-6"
     >
     <Loader2
       class="animate-spin text-primary mb-3"
@@ -742,7 +755,7 @@ if (typeof window !== 'undefined') {
       <div class="bg-surface border border-red-500/30 rounded-2xl p-8 max-w-sm mx-4 text-center shadow-2xl">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
           <svg
-            class="w-8 h-8 text-red-400 animate-pulse"
+            class="w-8 h-8 text-red-400"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -812,4 +825,173 @@ if (typeof window !== 'undefined') {
 .fade-enter-from > div:nth-child(2) { opacity: 0; transform: translateY(30px) scale(0.9); }
 .fade-leave-active > div:nth-child(2) { transition: all 0.2s ease-in; }
 .fade-leave-to > div:nth-child(2) { opacity: 0; transform: scale(0.95); }
+
+/* ── 管理员验证入口 · 精炼暖色系 ─────────────────────────────── */
+.gate-page {
+  --border: var(--theme-border-soft);
+  --border-strong: var(--theme-border-strong);
+  --text: var(--theme-text-strong);
+  --text-base: var(--theme-text);
+  --muted: var(--theme-text-muted);
+  --accent: var(--theme-primary);
+  --accent-hover: var(--theme-primary-hover);
+  --surface: var(--theme-surface);
+  --surface-hover: var(--theme-surface-hover);
+  --glass: var(--theme-glass-effect, blur(24px) saturate(180%));
+
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 24px;
+  color: var(--text-base);
+  background-color: var(--theme-bg-main);
+}
+
+.gate-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(56% 46% at 50% 2%, color-mix(in srgb, var(--accent) 13%, transparent) 0%, transparent 64%);
+}
+
+.gate-panel {
+  box-sizing: border-box;
+  width: min(400px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 44%),
+    color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow:
+    0 26px 70px color-mix(in srgb, var(--text) 13%, transparent),
+    0 3px 10px color-mix(in srgb, var(--text) 5%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.7);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
+}
+
+.gate-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gate-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.gate-copy { min-width: 0; display: grid; gap: 3px; }
+.gate-copy h2 { margin: 0; color: var(--text); font-size: 16px; font-weight: 800; line-height: 1.25; }
+.gate-copy p { margin: 0; color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.45; }
+
+.gate-field {
+  display: grid;
+  gap: 7px;
+  color: var(--text-base);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gate-input-shell {
+  box-sizing: border-box;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-hover) 62%, transparent);
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.gate-input-shell:focus-within {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-hover) 88%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.gate-input-shell > svg { flex: 0 0 auto; color: var(--muted); }
+.gate-input-shell:focus-within > svg { color: var(--accent); }
+
+.gate-input-shell input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.gate-input-shell input::placeholder { color: var(--muted); font-weight: 500; opacity: 0.72; }
+
+.gate-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #dc2626 28%, transparent);
+  border-radius: 10px;
+  color: #c62828;
+  background: color-mix(in srgb, #dc2626 7%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.gate-error svg { flex: 0 0 auto; margin-top: 1px; }
+
+.gate-submit {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 13.5px;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+  transition: background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.gate-submit:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.gate-submit:active { transform: translateY(0) scale(0.99); }
+
+.gate-submit:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 2px;
+}
 </style>

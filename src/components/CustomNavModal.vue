@@ -113,7 +113,7 @@ const saveAndClose = () => {
       <!-- Header -->
       <div class="flex items-center justify-between px-4 py-3 bg-surface-hover/70">
         <h2 class="text-[15px] font-bold text-text">{{ $t('auto_966ed89c') }}</h2>
-        <button class="p-1.5 hover:bg-surface-active/80 rounded-md transition-colors text-text-muted hover:text-text" @click="emit('close')">
+        <button :aria-label="t('a11y.close')" class="p-1.5 hover:bg-surface-active/80 rounded-md transition-colors text-text-muted hover:text-text" @click="emit('close')">
           <X class="w-4 h-4" />
         </button>
       </div>
@@ -157,7 +157,7 @@ const saveAndClose = () => {
             </span>
 
             <!-- Visibility Toggle (like eye or check) -->
-            <button 
+            <button :aria-label="t('a11y.toggle_visibility')" 
               class="w-6 h-6 flex items-center justify-center rounded transition-colors"
               :class="item.visible ? 'bg-primary text-white shadow-sm shadow-primary/20' : 'bg-surface text-transparent ring-1 ring-border-soft hover:ring-border-strong'"
               @click="toggleVisibility(index)"

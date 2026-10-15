@@ -218,7 +218,7 @@ const inviteMyself = async (worldId: string, instanceId: string) => {
       <div class="flex items-center gap-2">
         <span class="text-xs font-bold px-3 py-1 rounded-full bg-green-500/10 text-green-400">{{ t('locations.online_count', { count: totalOnline }) }}</span>
         <span class="text-xs font-bold px-3 py-1 rounded-full bg-surface text-text-muted">{{ t('locations.offline_count', { count: offlineFriends.length }) }}</span>
-        <button
+        <button :aria-label="t('a11y.refresh')"
           class="p-2 rounded-full bg-surface hover:bg-primary/10 text-primary shadow-sm border-primary transition-colors"
           @click="fetchLocations"
         >

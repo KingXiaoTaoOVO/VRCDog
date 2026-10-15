@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* dark: 变体仅在显式加上 .dark 类时生效。
+   VRCDog 的四套主题（dog / cat / helmet / mono）全部是浅色设计，如果沿用 Tailwind
+   默认的 prefers-color-scheme 策略，用户在系统里开启暗色模式时，散落在各组件里的
+   dark: 工具类会局部生效，在浅色主题上盖出深色污块。这里改为显式类名触发。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary: var(--theme-primary, #f59e0b);
   --color-primary-hover: var(--theme-primary-hover, #d97706);
@@ -118,15 +124,21 @@
   backdrop-filter: var(--theme-glass-effect, blur(24px) saturate(180%));
   -webkit-backdrop-filter: var(--theme-glass-effect, blur(24px) saturate(180%));
   border: 1px solid var(--theme-border-soft) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.03), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-  border-radius: 20px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    0 18px 48px color-mix(in srgb, var(--theme-text-strong, #1e293b) 8%, transparent),
+    0 2px 8px color-mix(in srgb, var(--theme-text-strong, #1e293b) 4%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, background-color 0.22s ease, transform 0.22s ease;
 }
 
 .glass-panel-hover:hover {
   background: var(--theme-surface-hover);
   border: 1px solid var(--theme-border-strong) !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 22px 56px color-mix(in srgb, var(--theme-text-strong, #1e293b) 11%, transparent),
+    0 3px 10px color-mix(in srgb, var(--theme-text-strong, #1e293b) 5%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.7);
   transform: translateY(-2px);
 }
 
@@ -141,40 +153,6 @@
   padding: 16px;
 }
 
-.terminal-text {
-  color: #10b981; /* 经典黑客绿 */
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-/* 柔和按钮 */
-.btn-gentle {
-  @apply px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2;
-  background: var(--theme-surface);
-  color: var(--theme-text-strong);
-  border: 1px solid var(--theme-border-soft);
-}
-
-.btn-gentle:hover {
-  background: var(--theme-active-bg);
-  border-color: var(--theme-border-strong);
-  transform: translateY(-1px);
-}
-
-.btn-gentle:active {
-  transform: scale(0.96);
-}
-
-.btn-primary {
-  background: var(--theme-primary-btn-bg);
-  color: white;
-  @apply shadow-lg shadow-primary/20;
-}
-
-.btn-primary:hover {
-  background: var(--theme-primary-btn-hover);
-}
-
 .disabled-readable-btn:disabled {
   background: var(--theme-surface-hover) !important;
   color: var(--theme-text-strong) !important;
@@ -187,71 +165,9 @@
   color: var(--theme-text-strong) !important;
 }
 
-button.bg-primary\/10,
-button.bg-primary\/15,
-button.hover\:bg-primary\/10:hover,
-button.hover\:bg-primary\/15:hover,
-button.bg-primary\/20,
-button.hover\:bg-primary\/20:hover,
-button.bg-primary\/25,
-button.hover\:bg-primary\/25:hover,
-button.bg-primary\/30,
-button.hover\:bg-primary\/30:hover,
-button.bg-primary\/40,
-button.hover\:bg-primary\/40:hover,
-label.cursor-pointer.bg-primary\/10,
-label.cursor-pointer.bg-primary\/15,
-label.cursor-pointer.bg-primary\/20,
-label.cursor-pointer.hover\:bg-primary\/10:hover {
-  background: var(--theme-primary) !important;
-  color: #fff !important;
-  border-color: var(--theme-primary) !important;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--theme-primary) 24%, transparent);
-}
-
-button.bg-primary\/10 svg,
-button.bg-primary\/15 svg,
-button.bg-primary\/20 svg,
-button.bg-primary\/25 svg,
-button.bg-primary\/30 svg,
-button.bg-primary\/40 svg,
-label.cursor-pointer.bg-primary\/10 svg {
-  color: #fff !important;
-}
-
-button.bg-primary\/10 *,
-button.bg-primary\/15 *,
-button.bg-primary\/20 *,
-button.bg-primary\/25 *,
-button.bg-primary\/30 *,
-button.bg-primary\/40 *,
-label.cursor-pointer.bg-primary\/10 *,
-label.cursor-pointer.bg-primary\/15 *,
-label.cursor-pointer.bg-primary\/20 * {
-  color: #fff !important;
-}
-
-button.hover\:bg-primary\/10:hover svg,
-button.hover\:bg-primary\/15:hover svg,
-button.hover\:bg-primary\/20:hover svg,
-button.hover\:bg-primary\/25:hover svg,
-button.hover\:bg-primary\/30:hover svg,
-button.hover\:bg-primary\/40:hover svg,
-label.cursor-pointer.hover\:bg-primary\/10:hover svg {
-  color: #fff !important;
-}
-
-button.hover\:bg-primary\/10:hover *,
-button.hover\:bg-primary\/15:hover *,
-button.hover\:bg-primary\/20:hover *,
-button.hover\:bg-primary\/25:hover *,
-button.hover\:bg-primary\/30:hover *,
-button.hover\:bg-primary\/40:hover *,
-label.cursor-pointer.hover\:bg-primary\/10:hover * {
-  color: #fff !important;
-}
-
-/* 背景动态色块 */
+/* 背景装饰光斑（静态）
+   旋转一个 60vw + blur(120px) 的图层会让浏览器每帧重新栅格化，是持续的 GPU 开销，
+   而视觉上与静态几乎无差别 —— 因此改为静态定位。 */
 .blob {
   position: fixed;
   width: 60vw;
@@ -261,12 +177,7 @@ label.cursor-pointer.hover\:bg-primary\/10:hover * {
   z-index: -1;
   opacity: 0.4;
   pointer-events: none;
-  animation: blob-rotate 30s infinite linear;
-}
-
-@keyframes blob-rotate {
-  from { transform: rotate(0deg) translate(5%, 5%); }
-  to { transform: rotate(360deg) translate(5%, 5%); }
+  transform: translate(5%, 5%);
 }
 
 .blob-1 {
@@ -279,7 +190,6 @@ label.cursor-pointer.hover\:bg-primary\/10:hover * {
   background: var(--theme-blob2);
   bottom: -20%;
   right: -10%;
-  animation-direction: reverse;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -305,91 +215,3 @@ label.cursor-pointer.hover\:bg-primary\/10:hover * {
     transform: scale(1);
   }
 }
-
-/* ── 卡通动效与丝滑弹簧交互体系 ──────────────────────────── */
-@keyframes cartoonBounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-
-@keyframes cartoonFloat {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-5px) rotate(1deg); }
-}
-
-@keyframes cartoonPop {
-  0% { transform: scale(0.94); opacity: 0; }
-  60% { transform: scale(1.03); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-@keyframes cartoonWiggle {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-3deg); }
-  75% { transform: rotate(3deg); }
-}
-
-.animate-cartoon-bounce {
-  animation: cartoonBounce 2.5s ease-in-out infinite;
-}
-
-.animate-cartoon-float {
-  animation: cartoonFloat 4s ease-in-out infinite;
-}
-
-.animate-cartoon-pop {
-  animation: cartoonPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.animate-cartoon-wiggle {
-  animation: cartoonWiggle 1.8s ease-in-out infinite;
-}
-
-/* 丝滑果冻/弹簧反馈卡片与按钮 */
-.cartoon-card {
-  border-radius: 24px;
-  background: var(--theme-surface);
-  border: 2px solid var(--theme-border-soft);
-  box-shadow: 0 10px 30px -6px rgba(0, 0, 0, 0.05);
-  transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.cartoon-card:hover {
-  transform: translateY(-2px) scale(1.01);
-  border-color: var(--theme-border-strong);
-  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.08);
-}
-
-.cartoon-pill-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 9999px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.cartoon-pill-btn:hover {
-  transform: translateY(-2px) scale(1.04);
-}
-
-.cartoon-pill-btn:active {
-  transform: translateY(0) scale(0.96);
-}
-
-.cartoon-input {
-  border-radius: 18px;
-  border: 2px solid var(--theme-border-soft);
-  background: var(--theme-surface);
-  color: var(--theme-text);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.cartoon-input:focus {
-  border-color: var(--theme-primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-primary) 18%, transparent);
-  transform: translateY(-1px);
-}
-

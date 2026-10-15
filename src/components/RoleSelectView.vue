@@ -441,416 +441,6 @@ onBeforeUnmount(() => {
 });
 </script>
 
-<style scoped>
-@layer legacy {
-.role-page {
-  --surface: v-bind('themeConfig.colors.surface');
-  --surface-hover: v-bind('themeConfig.colors.surfaceHover');
-  --border: rgba(125, 79, 35, 0.14);
-  --border-strong: rgba(112, 67, 28, 0.24);
-  --text: v-bind('themeConfig.colors.textStrong');
-  --muted: v-bind('themeConfig.colors.textSoft');
-  --primary: v-bind('themeConfig.colors.primaryBtnBg');
-  --primary-hover: v-bind('themeConfig.colors.primaryBtnHover');
-  position: relative;
-  isolation: isolate;
-  width: 100vw;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  padding: 68px 28px 32px;
-  overflow: auto;
-  background: #e9eff1 !important;
-}
-
-.role-page::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  pointer-events: none;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.top-actions {
-  position: fixed;
-  z-index: 20;
-  top: 18px;
-  right: 18px;
-}
-
-.mascot-watermark {
-  position: fixed;
-  left: max(28px, 7vw);
-  bottom: -56px;
-  z-index: -1;
-  width: min(360px, 34vw);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  object-fit: cover;
-  opacity: 0.075;
-  filter: saturate(0.75);
-  pointer-events: none;
-}
-
-button,
-input,
-select {
-  font: inherit;
-}
-
-.language-select,
-.secondary-button {
-  border: 1px solid rgba(120, 75, 33, 0.14);
-  color: var(--text);
-  background: rgba(255, 252, 245, 0.7);
-}
-
-.language-select {
-  position: relative;
-  width: min(190px, calc(100vw - 32px));
-  min-height: 42px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  border-radius: 8px;
-  padding: 0 12px;
-  box-shadow: 0 10px 28px rgba(35, 49, 55, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(20px) saturate(145%);
-  -webkit-backdrop-filter: blur(20px) saturate(145%);
-}
-
-.language-select select {
-  width: 100%;
-  min-width: 0;
-  height: 40px;
-  border: 0;
-  outline: 0;
-  appearance: none;
-  color: var(--text);
-  background: transparent;
-  font-size: 13px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.language-select > svg { color: var(--primary); }
-.language-select > svg:last-child { pointer-events: none; }
-
-.language-select:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 15%, transparent), 0 10px 28px rgba(90, 54, 22, 0.1);
-}
-
-.role-panel {
-  position: relative;
-  width: min(720px, 100%);
-  box-sizing: border-box;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  border-radius: 8px;
-  padding: 32px;
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 28px 80px rgba(34, 48, 54, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(30px) saturate(150%);
-  -webkit-backdrop-filter: blur(30px) saturate(150%);
-}
-
-.panel-glint {
-  position: absolute;
-  inset: 0 auto auto 12%;
-  width: 68%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.98), transparent);
-  pointer-events: none;
-}
-
-.brand-block {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 26px;
-}
-
-.brand-block img {
-  width: 68px;
-  height: 68px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 2px solid rgba(255, 255, 255, 0.82);
-  box-shadow: 0 12px 26px rgba(93, 56, 23, 0.17);
-}
-
-.brand-block h1,
-.brand-block p {
-  margin: 0;
-}
-
-.brand-block h1 {
-  font-size: 28px;
-  letter-spacing: 0;
-}
-
-.brand-block p,
-.role-choice span,
-.section-title span,
-.theme-field small {
-  color: var(--muted);
-}
-
-.role-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.role-choice {
-  position: relative;
-  min-height: 174px;
-  overflow: hidden;
-  border: 1px solid rgba(123, 77, 34, 0.12);
-  border-radius: 8px;
-  padding: 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 10px;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.48);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
-}
-
-.role-choice:first-child {
-  border-top: 3px solid #0f766e;
-}
-
-.role-choice:last-child {
-  border-top: 3px solid #c2410c;
-}
-
-.role-choice:hover {
-  border-color: color-mix(in srgb, var(--primary) 54%, rgba(255, 255, 255, 0.5));
-  transform: translateY(-3px);
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: 0 15px 32px rgba(87, 51, 20, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.94);
-}
-
-.role-choice:focus-visible {
-  outline: 4px solid color-mix(in srgb, var(--primary) 18%, transparent);
-  outline-offset: 2px;
-}
-
-.config-section {
-  display: grid;
-  gap: 16px;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.section-title > svg {
-  color: var(--primary);
-}
-
-.section-title div {
-  display: grid;
-  gap: 2px;
-}
-
-.section-title span {
-  font-size: 12px;
-}
-
-.theme-field {
-  display: grid;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.theme-field small {
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.input-shell {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.38);
-}
-
-.input-shell:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
-}
-
-.input-shell svg {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.input-shell input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  color: var(--text);
-  background: transparent;
-}
-
-.server-mode-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 5px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.38);
-}
-
-.server-mode-switch button {
-  min-height: 40px;
-  border: 0;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--muted);
-  background: transparent;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.server-mode-switch button.active {
-  color: white;
-  background: var(--primary);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--primary) 24%, transparent);
-}
-
-.mode-description {
-  min-height: 46px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.3);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.mode-description svg {
-  flex-shrink: 0;
-  color: var(--primary);
-}
-
-.error-message {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #dc2626;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.action-row {
-  display: grid;
-  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1.3fr);
-  gap: 10px;
-}
-
-.secondary-button,
-.primary-button {
-  min-height: 42px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.secondary-button:hover {
-  background: var(--surface-hover);
-}
-
-.primary-button {
-  border: 0;
-  color: white;
-  background: var(--primary);
-}
-
-.primary-button:hover:not(:disabled) {
-  background: var(--primary-hover);
-}
-
-.primary-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.spin {
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@media (max-width: 560px) {
-  .role-page {
-    place-items: start center;
-    padding: 72px 14px 20px;
-  }
-
-  .role-panel {
-    padding: 18px;
-  }
-
-  .brand-block img {
-    width: 56px;
-    height: 56px;
-  }
-
-  .brand-block h1 { font-size: 23px; }
-
-  .role-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .role-choice { min-height: 132px; }
-
-  .mascot-watermark { width: 220px; }
-}
-
-@media (max-height: 620px) and (min-width: 561px) {
-  .role-page { place-items: start center; }
-  .role-panel { padding: 22px; }
-  .brand-block { margin-bottom: 18px; }
-  .role-choice { min-height: 142px; }
-}
-}
-</style>
 
 <style scoped>
 .role-page {
@@ -878,9 +468,10 @@ select {
   color: var(--text);
   background-color: var(--page-bg) !important;
   background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px) !important;
-  background-size: 44px 44px !important;
+    radial-gradient(64% 60% at 6% -6%, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 72%),
+    radial-gradient(56% 50% at 96% 2%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 70%),
+    radial-gradient(72% 64% at 92% 104%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 74%),
+    radial-gradient(54% 48% at 6% 98%, color-mix(in srgb, var(--accent) 11%, transparent) 0%, transparent 70%) !important;
 }
 
 .role-page::before {
@@ -889,8 +480,9 @@ select {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: color-mix(in srgb, var(--page-bg) 86%, transparent);
-  mask-image: linear-gradient(to bottom, transparent, black 38%, black 72%, transparent);
+  background: radial-gradient(80% 68% at 50% 48%,
+    color-mix(in srgb, var(--page-bg) 28%, transparent) 0%,
+    transparent 76%);
 }
 
 button,
@@ -1291,15 +883,14 @@ button {
 }
 
 .role-choice:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
   background:
     linear-gradient(135deg,
       color-mix(in srgb, var(--accent) 8%, var(--surface-hover)) 0%,
       color-mix(in srgb, var(--accent) 3%, var(--surface)) 100%);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
-    0 0 18px 2px color-mix(in srgb, var(--accent) 22%, transparent),
-    0 14px 30px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 12px 26px color-mix(in srgb, var(--accent) 13%, transparent),
     0 2px 6px color-mix(in srgb, var(--text) 6%, transparent),
     inset 0 1px rgba(255, 255, 255, 0.62);
   transform: translateY(-2px);
@@ -1310,32 +901,13 @@ button {
   border-color: var(--accent);
   background:
     linear-gradient(135deg,
-      color-mix(in srgb, var(--accent) 10%, var(--surface-hover)) 0%,
+      color-mix(in srgb, var(--accent) 13%, var(--surface-hover)) 0%,
       color-mix(in srgb, var(--accent) 4%, var(--surface)) 100%);
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent),
-    0 0 28px 5px color-mix(in srgb, var(--accent) 42%, transparent),
-    0 16px 36px color-mix(in srgb, var(--accent) 24%, transparent),
-    inset 0 1px rgba(255, 255, 255, 0.66);
+    0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent),
+    0 12px 26px color-mix(in srgb, var(--accent) 15%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.62);
   transform: translateY(-2px);
-  animation: role-choice-glow 1.6s ease-in-out infinite;
-}
-
-@keyframes role-choice-glow {
-  0%, 100% {
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent),
-      0 0 28px 5px color-mix(in srgb, var(--accent) 42%, transparent),
-      0 16px 36px color-mix(in srgb, var(--accent) 24%, transparent),
-      inset 0 1px rgba(255, 255, 255, 0.66);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
-      0 0 36px 7px color-mix(in srgb, var(--accent) 55%, transparent),
-      0 16px 36px color-mix(in srgb, var(--accent) 26%, transparent),
-      inset 0 1px rgba(255, 255, 255, 0.7);
-  }
 }
 
 .role-choice:active {
@@ -1628,7 +1200,6 @@ button {
 @media (max-width: 520px) {
   .role-page {
     padding: 78px 12px 18px;
-    background-size: 34px 34px !important;
   }
 
   .top-actions {

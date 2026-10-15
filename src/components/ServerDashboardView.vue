@@ -1,14 +1,11 @@
 <template>
   <div 
-    class="h-screen w-screen flex flex-col bg-background text-text font-mono p-4 relative overflow-hidden transition-colors duration-500"
-    :style="themeStyles"
+    class="h-screen w-screen flex flex-col text-text font-mono p-4 relative overflow-hidden transition-colors duration-500"
   >
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
      <div class="absolute inset-0 bg-[var(--theme-bg-main)]/10 pointer-events-none" />
 
-    <!-- Animated background grid -->
-    <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTAgNjBMMjAgNjBMMjAgMEwwIDBaIiBmaWxsPSIjMThBMEZCIi8+PHBhdGggZD0iTTYwIDBMMCAwTDAgMjBMNjAgMjBaIiBmaWxsPSIjMThBMEZCIi8+PC9nPjwvc3ZnPg==')] opacity-10 pointer-events-none" />
+    <!-- 背景极光光晕（替代原先的 SVG 方格网格） -->
+    <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(64% 60% at 6% -6%, color-mix(in srgb, var(--theme-primary) 26%, transparent) 0%, transparent 72%), radial-gradient(56% 50% at 96% 2%, color-mix(in srgb, var(--theme-primary) 14%, transparent) 0%, transparent 70%), radial-gradient(72% 64% at 92% 104%, color-mix(in srgb, var(--theme-primary) 18%, transparent) 0%, transparent 74%), radial-gradient(54% 48% at 6% 98%, color-mix(in srgb, var(--theme-primary) 11%, transparent) 0%, transparent 70%);" />
 
     <!-- Top Bar -->
     <div class="flex items-center justify-between mb-4 pb-4 border-border-soft shrink-0 relative z-50">
@@ -221,10 +218,10 @@
               @click="selectUser(c.user_id)"
             >
               <div class="relative">
-                <div class="absolute inset-0 bg-primary blur-sm opacity-50 animate-pulse" />
+                <div class="absolute inset-0 bg-primary blur-sm opacity-25" />
                 <img
                   :src="c.avatar_url"
-                  class="w-10 h-10 rounded-full border-2 border-primary/30 object-cover relative z-10"
+                  class="w-10 h-10 rounded-full border border-primary/30 object-cover relative z-10"
                   @error="(e) => (e.target as HTMLImageElement).src='https://assets.vrchat.com/www/images/default_avatar.png'"
                 >
               </div>
@@ -338,7 +335,7 @@
                     <div class="flex items-center gap-3">
                       <div class="relative">
                         <img :src="u.avatar_url" class="w-8 h-8 rounded-full border border-border-soft object-cover" @error="(e) => (e.target as HTMLImageElement).src='https://assets.vrchat.com/www/images/default_avatar.png'">
-                        <div v-if="u.is_online" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-surface rounded-full" />
+                        <div v-if="u.is_online" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border border-surface rounded-full" />
                       </div>
                       <div class="min-w-0">
                         <div class="text-xs font-bold text-text truncate">{{ u.display_name }}</div>
@@ -704,7 +701,7 @@
       v-if="toastMessage"
       class="fixed top-8 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-primary/20 backdrop-blur-md border-primary/30 text-cyan-50 rounded-xl shadow-md shadow-primary/50 z-[1000] text-sm font-black tracking-widest transition-all uppercase flex items-center gap-2"
     >
-      <div class="w-2 h-2 bg-primary rounded-full animate-pulse" />
+      <div class="w-2 h-2 bg-primary rounded-full" />
       {{ toastMessage }}
     </div>
   </div>
@@ -725,29 +722,6 @@ import { useI18n } from 'vue-i18n';
 import { SysApi, DbApi, VrcApi } from '../api';
 import { useStorage } from '@vueuse/core';
 import { getLocaleLabel, getNextLocale, setAppLocale } from '../i18n';
-
-// 动态注入 CSS 变量
-const themeStyles = computed(() => {
-  const colors = themes[currentThemeId.value]?.colors || themes.dog.colors;
-  return {
-    '--theme-bg-main': colors.bgMain,
-    '--theme-surface': colors.surface,
-    '--theme-surface-hover': colors.surfaceHover,
-    '--theme-blob1': colors.blob1,
-    '--theme-blob2': colors.blob2,
-    '--theme-border-soft': colors.borderSoft,
-    '--theme-border-strong': colors.borderStrong,
-    '--theme-text-strong': colors.textStrong,
-    '--theme-text-soft': colors.textSoft,
-    '--theme-active-bg': colors.activeBg,
-    '--theme-primary-btn-bg': colors.primaryBtnBg,
-    '--theme-primary-btn-hover': colors.primaryBtnHover,
-    '--theme-terminal-bg': colors.terminalBg,
-    '--theme-glass-effect': colors.glassEffect,
-    '--theme-primary': colors.primaryBtnBg,
-    '--theme-primary-hover': colors.primaryBtnHover,
-  };
-});
 
 const { t, locale } = useI18n();
 const props = withDefaults(defineProps<{

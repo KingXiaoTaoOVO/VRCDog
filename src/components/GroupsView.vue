@@ -186,7 +186,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-3xl relative overflow-hidden">
+  <div class="h-full flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
     <!-- Subtle Background Glow -->
     <div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none -z-10" />
     <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
@@ -210,7 +210,7 @@ onMounted(() => {
             :placeholder="t('groups.search_placeholder')"
           >
         </div>
-        <button
+        <button :aria-label="t('a11y.refresh')"
           :disabled="loading"
           class="p-2.5 rounded-xl bg-surface border-border-soft shadow-sm text-text-muted hover:text-primary hover:border-primary transition-all disabled:opacity-50"
           @click="fetchGroups"
@@ -291,7 +291,7 @@ onMounted(() => {
           />
           <!-- 磨砂渐变遮罩 -->
           <div class="absolute inset-0 bg-gradient-to-t from-surface via-surface/40 to-transparent"></div>
-          <button
+          <button :aria-label="t('a11y.close')"
             class="absolute top-4 right-4 p-2 rounded-full bg-surface/50 hover:bg-background/80 backdrop-blur-md text-text transition-colors z-20 flex items-center justify-center"
             @click="selectedGroup = null"
           >
@@ -302,7 +302,7 @@ onMounted(() => {
         <div class="px-6 relative flex flex-col flex-1 min-h-0 -mt-16 z-10">
           <!-- 头部信息 -->
           <div class="flex gap-5 mb-6 shrink-0 items-end">
-            <div class="w-28 h-28 rounded-2xl border-4 border-surface shadow-xl bg-surface flex-shrink-0 relative overflow-hidden">
+            <div class="w-28 h-28 rounded-2xl border border-surface shadow-xl bg-surface flex-shrink-0 relative overflow-hidden">
               <VrcAvatar
                 :user="selectedGroup"
                 :url="selectedGroup.iconUrl"

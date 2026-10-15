@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onMounted, watch } from 'vue';
+import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useUiStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { storeToRefs } from 'pinia';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
+import { SysApi } from '../../api';
 import VrcAvatar from '../VrcAvatar.vue';
 import {
   Glasses,
@@ -92,26 +93,31 @@ watch(
   },
 );
 
-const themeStyles = computed(() => {
-  const colors = currentTheme.value.colors;
-  return {
-    '--theme-bg-main': colors.bgMain,
-    '--theme-surface': colors.surface,
-    '--theme-surface-hover': colors.surfaceHover,
-    '--theme-blob1': colors.blob1,
-    '--theme-blob2': colors.blob2,
-    '--theme-border-soft': colors.borderSoft,
-    '--theme-border-strong': colors.borderStrong,
-    '--theme-text': colors.text,
-    '--theme-text-strong': colors.textStrong,
-    '--theme-text-soft': colors.textSoft,
-    '--theme-text-muted': colors.textMuted,
-    '--theme-primary': colors.primaryBtnBg,
-    '--theme-primary-hover': colors.primaryBtnHover,
-    '--theme-active-bg': colors.activeBg,
-    '--theme-glass-effect': colors.glassEffect,
-    '--theme-terminal-bg': colors.terminalBg,
-  };
+// ── VR 运行时状态 ─────────────────────────────────────────────────
+// 侧边栏的「SteamVR 运行中」指示器此前是写死的常绿点，无论运行时是否存在都亮着，
+// 会误导用户。这里改为周期性向主进程查询真实状态。
+// 初值取 false：在首次查询返回前宁可显示「未运行」，也不要谎报「运行中」。
+const vrRuntimeRunning = ref(false);
+let vrRuntimeTimer: number | null = null;
+
+async function refreshVrRuntime() {
+  try {
+    vrRuntimeRunning.value = await SysApi.checkSteamVR();
+  } catch {
+    vrRuntimeRunning.value = false;
+  }
+}
+
+onMounted(() => {
+  void refreshVrRuntime();
+  vrRuntimeTimer = window.setInterval(refreshVrRuntime, 10000);
+});
+
+onBeforeUnmount(() => {
+  if (vrRuntimeTimer !== null) {
+    window.clearInterval(vrRuntimeTimer);
+    vrRuntimeTimer = null;
+  }
 });
 
 const getStatusColor = (status: string) => {
@@ -144,11 +150,8 @@ const vrTabs = computed(() => [
 <template>
   <div
     class="flex h-screen overflow-hidden relative"
-    :style="[themeStyles, { background: 'var(--theme-bg-main)' }]"
   >
-    <!-- 主题感知装饰光斑（与 PC 端一致的 blob 实现） -->
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
+    <!-- 背景光斑与底色由 App.vue 壳层统一提供，此布局根节点保持透明 -->
 
     <!-- 侧边栏（主题感知，匹配 PC 端配色） -->
     <aside
@@ -156,7 +159,7 @@ const vrTabs = computed(() => [
     >
       <div class="flex items-center gap-2.5 mb-4">
         <div
-          class="w-10 h-10 rounded-full overflow-hidden border-2 bg-surface flex-shrink-0"
+          class="w-10 h-10 rounded-full overflow-hidden border bg-surface flex-shrink-0"
           :style="{ borderColor: 'var(--theme-border-strong)' }"
         >
           <img
@@ -208,13 +211,16 @@ const vrTabs = computed(() => [
           {{ t('layout.vr_status') || 'VR Status' }}
         </h3>
         <div class="flex items-center gap-2 text-[11px] font-medium" :style="{ color: 'var(--theme-text-soft)' }">
-          <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span>{{ $t('auto_656cc53f') }}</span>
+          <div
+            class="w-2 h-2 rounded-full"
+            :class="vrRuntimeRunning ? 'bg-emerald-500' : 'bg-rose-400'"
+          />
+          <span>{{ vrRuntimeRunning ? t('layout.vr_runtime_running') : t('layout.vr_runtime_stopped') }}</span>
         </div>
         <div class="flex items-center gap-2 text-[11px] font-medium" :style="{ color: 'var(--theme-text-muted)' }">
           <div
             class="w-2 h-2 rounded-full"
-            :class="currentUser ? 'bg-green-400' : 'bg-surface-hover'"
+            :class="currentUser ? 'bg-emerald-500' : 'bg-surface-hover'"
           />
           <span>{{ currentUser?.displayName || t('layout.not_logged_in') }}</span>
         </div>
@@ -261,7 +267,7 @@ const vrTabs = computed(() => [
               }"
             >
               <span
-                class="w-1.5 h-1.5 rounded-full inline-block animate-pulse"
+                class="w-1.5 h-1.5 rounded-full inline-block"
                 :class="getStatusColor(currentUser?.status || 'offline')"
               />
               {{ $t('status.' + (currentUser?.status?.replace(' ', '_') || 'offline')) }}
@@ -275,7 +281,7 @@ const vrTabs = computed(() => [
           :class="
             serverConnected
               ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-              : 'bg-red-500/10 border-red-500/20 text-red-400 animate-pulse'
+              : 'bg-red-500/10 border-red-500/20 text-red-400'
           "
         >
           <div

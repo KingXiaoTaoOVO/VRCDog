@@ -149,7 +149,7 @@ const openDetails = async (day: number, hour: number) => {
           class="h-full flex flex-col items-center justify-center text-primary font-bold opacity-70"
         >
           <CalendarHeart
-            class="animate-bounce mb-4"
+            class="mb-4"
             :size="48"
           />
           <p class="font-extrabold text-lg tracking-wide">
