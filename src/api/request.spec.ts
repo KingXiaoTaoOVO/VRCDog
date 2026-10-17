@@ -214,4 +214,40 @@ describe('request GET coalescing', () => {
     expect(expired).toHaveBeenCalled();
     window.removeEventListener('vrc-auth-expired', expired);
   });
+
+  it('caches non-auth 404 GET responses to prevent spamming non-existent endpoints', async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'vrc_execute') {
+        return {
+          status: 404,
+          data: JSON.stringify({ error: { message: 'Avatar not found', status_code: 404 } }),
+        };
+      }
+      return null;
+    });
+
+    const vrcExecuteCalls = () => mocks.invoke.mock.calls.filter((c: any) => c[0] === 'vrc_execute');
+
+    // First request reaches native bridge and fails with 404
+    await expect(request('/avatars/avtr_missing')).rejects.toMatchObject({
+      code: 'VRCHAT_HTTP_ERROR',
+      status: 404,
+    });
+    expect(vrcExecuteCalls().length).toBe(1);
+
+    // Second request within cache window immediately fails from negative cache without calling vrc_execute
+    await expect(request('/avatars/avtr_missing')).rejects.toMatchObject({
+      code: 'VRCHAT_HTTP_ERROR',
+      status: 404,
+    });
+    expect(vrcExecuteCalls().length).toBe(1);
+
+    // Request with dedupe: false clears the cache and calls vrc_execute again
+    await expect(request('/avatars/avtr_missing', { dedupe: false })).rejects.toMatchObject({
+      code: 'VRCHAT_HTTP_ERROR',
+      status: 404,
+    });
+    expect(vrcExecuteCalls().length).toBe(2);
+  });
 });
+

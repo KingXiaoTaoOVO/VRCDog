@@ -184,7 +184,15 @@ const rateLimitState = {
   lastRateLimitTime: 0,
 };
 
+interface FailedGetRecord {
+  status: number;
+  message: string;
+  time: number;
+}
+
 const pendingGetRequests = new Map<string, Promise<unknown>>();
+const failedGetRequests = new Map<string, FailedGetRecord>();
+const FAILED_GET_CACHE_MS = 5 * 60 * 1000; // 5 minutes negative cache for 404/403 (matches VRCX bailing request pattern)
 
 function recordRateLimit(retryAfterMs: number) {
   rateLimitState.retryAfterMs = retryAfterMs;
@@ -432,6 +440,12 @@ export function request<T = any>(url: string, options: RequestOptions = {}): Pro
   const method = (options.method || 'GET').toUpperCase();
   const hasRequestHeaders = Boolean(options.headers && Object.keys(options.headers).length > 0);
   if (method !== 'GET' || options.dedupe === false || options.authCookie || hasRequestHeaders) {
+    if (method === 'GET' && options.dedupe === false) {
+      try {
+        const key = getGetRequestKey(url, options);
+        failedGetRequests.delete(key);
+      } catch { /* ignore */ }
+    }
     return requestInternal<T>(url, options);
   }
 
@@ -441,6 +455,20 @@ export function request<T = any>(url: string, options: RequestOptions = {}): Pro
   } catch (error) {
     return Promise.reject(error);
   }
+
+  // Fast-fail if recent 404/403 to prevent hammering server (matches VRCX bailing logic)
+  const failed = failedGetRequests.get(key);
+  if (failed) {
+    if (Date.now() - failed.time < FAILED_GET_CACHE_MS) {
+      return Promise.reject(new VrcRequestError(failed.message, {
+        code: failed.status === 403 ? 'VRCHAT_PERMISSION_DENIED' : 'VRCHAT_HTTP_ERROR',
+        status: failed.status,
+        url,
+      }));
+    }
+    failedGetRequests.delete(key);
+  }
+
   const pending = pendingGetRequests.get(key) as Promise<T> | undefined;
   if (pending) return pending;
 
@@ -651,6 +679,12 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
 
       // Success
       if (res.status >= 200 && res.status < 300) {
+        if (method === 'GET') {
+          try {
+            const key = getGetRequestKey(url, options);
+            failedGetRequests.delete(key);
+          } catch { /* ignore */ }
+        }
         if (
           res.auth_cookie &&
           parsed &&
@@ -660,6 +694,28 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
           (parsed as any).auth_cookie = res.auth_cookie;
         }
         return parsed;
+      }
+
+      // Cache non-auth 404 / 403 GET failures so rapid UI switching does not repeatedly spam VRChat's API
+      if (
+        method === 'GET' &&
+        isVrchat &&
+        (res.status === 404 || res.status === 403) &&
+        !reqUrl.includes('/auth/user') &&
+        !reqUrl.includes('/config')
+      ) {
+        try {
+          const key = getGetRequestKey(url, options);
+          if (failedGetRequests.size >= 500) {
+            const oldest = failedGetRequests.keys().next().value;
+            if (oldest !== undefined) failedGetRequests.delete(oldest);
+          }
+          failedGetRequests.set(key, {
+            status: res.status,
+            message: errorMessage || (res.status === 404 ? 'Not Found' : 'Forbidden'),
+            time: Date.now(),
+          });
+        } catch { /* ignore */ }
       }
 
       // Non-retryable error - classify and throw
