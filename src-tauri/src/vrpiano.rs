@@ -70,9 +70,7 @@ const MIDISHOW_LOGIN_TIMEOUT_MS: u64 = 75_000;
 /// When the login window is shown for the user to solve a Cloudflare / captcha
 /// challenge manually, give them a much longer window than the automatic fill.
 const MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS: u64 = 300_000;
-/// 自动填充迟迟没进展（页面被 Cloudflare 卡住、加载过慢）时，把窗口弹出来让用户
-/// 手动完成，而不是干等 75s 才超时。
-const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 35_000;
+const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 6_000;
 /// Keep an online search responsive when the proxy or Cloudflare stalls.
 #[allow(dead_code)]
 const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 8;
@@ -1312,39 +1310,32 @@ pub async fn vrpiano_midishow_login_status(
     let (last_url, auto_account, auto_password) = runtime;
     let navigated_away = !last_url.is_empty() && !is_midishow_login_url(&last_url);
     let title = window.title().unwrap_or_default();
-    let has_submit_or_success_signal = title.contains("VRCDOG_MIDISHOW:submitted") || title.contains("VRCDOG_MIDISHOW:ready");
-    if (navigated_away || (elapsed > 1000 && has_submit_or_success_signal)) && !auto_account.is_empty() {
-        if let Ok(cookie) = read_midishow_browser_cookie(window.clone()).await {
-            if !cookie.is_empty() && (navigated_away || cookie.contains("_identity")) {
-                persist_midishow_session_with_password(&app, &auto_account, Some(&auto_password), cookie)?;
-                let _ = window.close();
-                let status = VrpianoMidishowLoginStatus {
-                    state: "signed_in".to_string(),
-                    message: format!("已登录 {auto_account}"),
-                    username: Some(auto_account),
-                };
-                update_midishow_login_runtime(&status);
-                let _ = app.emit("vrpiano_midishow_login_status", status.clone());
-                return Ok(status);
-            }
-        }
-    }
-    if elapsed >= MIDISHOW_LOGIN_FALLBACK_MS && current_state == "waiting" {
-        let already_visible = window.is_visible().unwrap_or(false);
-        if !already_visible {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-        return Ok(finish_midishow_login(
-            &app,
-            "needs_confirmation",
-            "自动登录未完成，请在弹出的登录窗口中手动完成登录",
-        ));
-    }
 
-    let title = window.title().unwrap_or_default();
     if let Some(signal) = parse_midishow_login_title(&title) {
         match signal {
+            MidishowLoginSignal::Success(detected_name) => {
+                if let Ok(cookie) = read_midishow_browser_cookie(window.clone()).await {
+                    if !cookie.is_empty() {
+                        let username = if !detected_name.is_empty() && detected_name != "MidishowUser" {
+                            detected_name
+                        } else if !auto_account.is_empty() {
+                            auto_account.clone()
+                        } else {
+                            "Midishow 用户".to_string()
+                        };
+                        persist_midishow_session_with_password(&app, &username, Some(&auto_password), cookie)?;
+                        let _ = window.close();
+                        let status = VrpianoMidishowLoginStatus {
+                            state: "signed_in".to_string(),
+                            message: format!("已登录 {username}"),
+                            username: Some(username),
+                        };
+                        update_midishow_login_runtime(&status);
+                        let _ = app.emit("vrpiano_midishow_login_status", status.clone());
+                        return Ok(status);
+                    }
+                }
+            }
             MidishowLoginSignal::CredentialsRejected => {
                 let _ = window.close();
                 return Ok(finish_midishow_login(
@@ -1370,15 +1361,56 @@ pub async fn vrpiano_midishow_login_status(
                 ));
             }
             MidishowLoginSignal::FormMissing => {
-                let _ = window.close();
+                let already_visible = window.is_visible().unwrap_or(false);
+                if !already_visible {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let current = current_midishow_login_status();
+                if current.state == "needs_confirmation" {
+                    return Ok(current);
+                }
                 return Ok(finish_midishow_login(
                     &app,
-                    "failed",
-                    "暂时无法完成登录，请稍后重试",
+                    "needs_confirmation",
+                    "正在等待登录页面加载，请在窗口中操作",
                 ));
             }
             MidishowLoginSignal::Submitted | MidishowLoginSignal::Ready => {}
         }
+    }
+
+    if navigated_away && !auto_account.is_empty() {
+        if let Ok(cookie) = read_midishow_browser_cookie(window.clone()).await {
+            let has_session_token = cookie.contains("_identity")
+                || cookie.contains("PHPSESSID")
+                || cookie.contains("midishow");
+            if !cookie.is_empty() && has_session_token {
+                persist_midishow_session_with_password(&app, &auto_account, Some(&auto_password), cookie)?;
+                let _ = window.close();
+                let status = VrpianoMidishowLoginStatus {
+                    state: "signed_in".to_string(),
+                    message: format!("已登录 {auto_account}"),
+                    username: Some(auto_account),
+                };
+                update_midishow_login_runtime(&status);
+                let _ = app.emit("vrpiano_midishow_login_status", status.clone());
+                return Ok(status);
+            }
+        }
+    }
+
+    if elapsed >= MIDISHOW_LOGIN_FALLBACK_MS && current_state == "waiting" {
+        let already_visible = window.is_visible().unwrap_or(false);
+        if !already_visible {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        return Ok(finish_midishow_login(
+            &app,
+            "needs_confirmation",
+            "自动登录未完成，请在弹出的登录窗口中手动完成登录",
+        ));
     }
 
     // Cloudflare overwrites document.title with "Just a moment…" on its own page,
@@ -5303,10 +5335,11 @@ fn midishow_client(app: Option<&tauri::AppHandle>) -> Result<reqwest::Client, St
         .map_err(|e| format!("Failed to create Midishow client: {e}"))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum MidishowLoginSignal {
     Ready,
     Submitted,
+    Success(String),
     CredentialsRejected,
     NeedsConfirmation,
     FormMissing,
@@ -5377,9 +5410,19 @@ fn finish_midishow_login(
 
 fn parse_midishow_login_title(title: &str) -> Option<MidishowLoginSignal> {
     let signal = title.strip_prefix(MIDISHOW_LOGIN_TITLE_PREFIX)?;
-    match signal.trim().to_ascii_lowercase().as_str() {
+    let trimmed = signal.trim();
+    if let Some(username) = trimmed.strip_prefix("success:") {
+        let decoded = urlencoding::decode(username)
+            .map(|s| s.into_owned())
+            .unwrap_or_else(|_| username.to_string())
+            .trim()
+            .to_string();
+        return Some(MidishowLoginSignal::Success(decoded));
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
         "ready" => Some(MidishowLoginSignal::Ready),
         "submitted" => Some(MidishowLoginSignal::Submitted),
+        "success" => Some(MidishowLoginSignal::Success(String::new())),
         "credentials_rejected" => Some(MidishowLoginSignal::CredentialsRejected),
         "needs_confirmation" => Some(MidishowLoginSignal::NeedsConfirmation),
         "form_missing" => Some(MidishowLoginSignal::FormMissing),
@@ -5392,16 +5435,61 @@ fn midishow_login_monitor_script() -> String {
         r#"(() => {{
   if (window.__vrcdogMidishowLoginMonitorStarted) return;
   window.__vrcdogMidishowLoginMonitorStarted = true;
+
+  try {{
+    Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+  }} catch (e) {{}}
+
   const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
   const text = () => ((document.body?.innerText || '') + ' ' + (document.title || '')).replace(/\s+/g, ' ').trim();
   const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
+
+  const detectLoggedInUser = () => {{
+    try {{
+      const nameSelectors = [
+        '.user-name',
+        '.username',
+        '.nickname',
+        '.user-display-name',
+        '#header .user-name',
+        '#header .username',
+        'a[href*="/user/home"]',
+        'a[href*="/user/profile"]',
+        'a[href^="/user/"]',
+        'a[href*="/user/"] span',
+        '.nav a[href*="/user/"]',
+        '.navbar a[href*="/user/"]'
+      ];
+      for (const sel of nameSelectors) {{
+        const el = document.querySelector(sel);
+        if (el) {{
+          const txt = el.textContent?.trim();
+          if (txt && !['登录', '注册', 'login', 'register', 'vip', '开通vip'].includes(txt.toLowerCase())) {{
+            return txt.replace(/[\r\n\t]+/g, ' ').trim();
+          }}
+        }}
+      }}
+      const logoutLink = document.querySelector('a[href*="/logout"], a[href*="logout"]');
+      const avatar = document.querySelector('img[src*="avatar"], .user-avatar, .header-avatar, .avatar');
+      if (logoutLink || avatar) {{
+        return 'MidishowUser';
+      }}
+    }} catch (e) {{}}
+    return null;
+  }};
+
   const inspect = () => {{
+    const user = detectLoggedInUser();
+    if (user) {{
+      signal('success:' + encodeURIComponent(user));
+      return true;
+    }}
     const pageText = text();
     if (hasAny(pageText, ['用户名或密码错误', '账号或密码错误', '密码错误', '账户不存在', '用户不存在', '登录信息有误'])) {{
       signal('credentials_rejected');
       return true;
     }}
-    if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证'])) {{
+    if (hasAny(pageText, ['验证码', '滑动验证', '安全确认', '人机验证', '请完成验证', 'Just a moment', 'Verify you are human'])) {{
       signal('needs_confirmation');
       return true;
     }}
@@ -5422,6 +5510,11 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
         r#"(() => {{
   if (window.__vrcdogMidishowLoginStarted) return;
   window.__vrcdogMidishowLoginStarted = true;
+
+  try {{
+    Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+  }} catch (e) {{}}
+
   const account = {account_js};
   let password = {password_js};
   let attempts = 0;
@@ -5430,6 +5523,41 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
   const signal = (value) => {{ document.title = '{MIDISHOW_LOGIN_TITLE_PREFIX}' + value; }};
   const text = () => ((document.body?.innerText || '') + ' ' + (document.title || '')).replace(/\s+/g, ' ').trim();
   const hasAny = (source, patterns) => patterns.some((pattern) => source.includes(pattern));
+
+  const detectLoggedInUser = () => {{
+    try {{
+      const nameSelectors = [
+        '.user-name',
+        '.username',
+        '.nickname',
+        '.user-display-name',
+        '#header .user-name',
+        '#header .username',
+        'a[href*="/user/home"]',
+        'a[href*="/user/account"]',
+        'a[href*="/user/profile"]',
+        'a[href*="/user/"] span',
+        '.nav a[href*="/user/"]',
+        '.navbar a[href*="/user/"]'
+      ];
+      for (const sel of nameSelectors) {{
+        const el = document.querySelector(sel);
+        if (el) {{
+          const txt = el.textContent?.trim();
+          if (txt && !['登录', '注册', 'login', 'register', 'vip', '开通vip'].includes(txt.toLowerCase())) {{
+            return txt.replace(/[\r\n\t]+/g, ' ').trim();
+          }}
+        }}
+      }}
+      const logoutLink = document.querySelector('a[href*="/logout"], a[href*="logout"]');
+      const avatar = document.querySelector('img[src*="avatar"], .user-avatar, .header-avatar, .avatar');
+      if (logoutLink || avatar) {{
+        return account || 'MidishowUser';
+      }}
+    }} catch (e) {{}}
+    return null;
+  }};
+
   const findVisible = (selectors) => selectors
     .map((selector) => document.querySelector(selector))
     .find((element) => element && element instanceof HTMLInputElement && !element.disabled && element.offsetParent !== null);
@@ -5448,34 +5576,25 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
     return true;
   }};
 
-  const tryClickTurnstile = () => {{
-    try {{
-      const cfIframe = document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="cloudflare.com"]');
-      if (cfIframe) {{
-        cfIframe.focus();
-        cfIframe.click();
-        const rect = cfIframe.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {{
-          const targetX = rect.left + 28;
-          const targetY = rect.top + (rect.height / 2);
-          const el = document.elementFromPoint(targetX, targetY);
-          if (el && el !== cfIframe) {{
-            el.click();
-          }}
-        }}
-      }}
-      const cfWrapper = document.querySelector('.cf-turnstile, #turnstile-wrapper, [data-sitekey]');
-      if (cfWrapper) {{
-        cfWrapper.click();
-      }}
-    }} catch (e) {{}}
-  }};
-
   signal('ready');
   const startMs = Date.now();
-  const FORM_MISSING_BUDGET_MS = 45000;
+  const FORM_MISSING_BUDGET_MS = 30000;
   const timer = window.setInterval(() => {{
     attempts += 1;
+
+    // 1. Check if user is already logged in (avatar, username, or logout button present)
+    const loggedInUser = detectLoggedInUser();
+    if (loggedInUser) {{
+      password = '';
+      window.clearInterval(timer);
+      signal('success:' + encodeURIComponent(loggedInUser));
+      if (location.pathname.includes('/user/account/login') || location.href.includes('/user/account/login')) {{
+        try {{ location.href = 'https://www.midishow.com/'; }} catch (e) {{}}
+      }}
+      return;
+    }}
+
+    // 2. Check for explicit login rejection
     const pageText = text();
     if (hasAny(pageText, ['用户名或密码错误', '账号或密码错误', '密码错误', '账户不存在', '用户不存在', '登录信息有误', 'Incorrect username or password'])) {{
       password = '';
@@ -5484,14 +5603,15 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       return;
     }}
 
+    // 3. Check for Cloudflare / Turnstile challenges
     const hasCfChallenge = hasAny(pageText, ['Just a moment', 'Verify you are human', 'Checking your browser', 'cf-chl', 'cf-mitigated', 'cdn-cgi', 'Enable JavaScript', 'Attention Required', 'DDoS', '确认您是真人']);
-    if (hasCfChallenge) {{
-      tryClickTurnstile();
-      if (!confirmationSignaled && (Date.now() - startMs > 3500)) {{
+    const hasTurnstileIframe = !!document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="cloudflare.com"], .cf-turnstile, #turnstile-wrapper, [data-sitekey]');
+
+    if (hasCfChallenge || hasTurnstileIframe) {{
+      if (!confirmationSignaled) {{
         confirmationSignaled = true;
         signal('needs_confirmation');
       }}
-      return;
     }}
 
     if (!location.pathname.includes('/user/account/login') && !location.href.includes('/user/account/login')) {{
@@ -5500,10 +5620,6 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       }}
       return;
     }}
-
-    tryClickTurnstile();
-
-    if (submitted) return;
 
     const accountInput = findVisible([
       '#loginform-identity',
@@ -5535,8 +5651,32 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       return;
     }}
 
-    fill(accountInput, account);
-    fill(passwordInput, password);
+    // Ensure Remember Me is checked so Yii2 sets long-lived _identity cookie
+    const rememberInput = document.querySelector('#loginform-rememberme, input[name="LoginForm[rememberMe]"], input[type="checkbox"][name*="remember"]');
+    if (rememberInput && !rememberInput.checked) {{
+      try {{
+        rememberInput.checked = true;
+        rememberInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+      }} catch (e) {{}}
+    }}
+
+    // Pre-fill inputs
+    if (!accountInput.value) {{
+      fill(accountInput, account);
+    }}
+    if (!passwordInput.value && password) {{
+      fill(passwordInput, password);
+    }}
+
+    if (submitted) return;
+
+    // If Turnstile is on page, check if human has solved it
+    if (hasTurnstileIframe) {{
+      const turnstileResponse = document.querySelector('input[name="cf-turnstile-response"]');
+      if (!turnstileResponse || !turnstileResponse.value) {{
+        return;
+      }}
+    }}
 
     const form = passwordInput.form || accountInput.form || document.querySelector('#login-form') || document.querySelector('form');
     const submit = form?.querySelector('button[name="login-button"], button[type="submit"], input[type="submit"], .btn-primary, button')
@@ -5549,42 +5689,52 @@ fn midishow_login_script(account_js: &str, password_js: &str) -> String {
       try {{
         if (submit instanceof HTMLElement) {{
           submit.click();
-        }}
-        if (form instanceof HTMLFormElement) {{
+        }} else if (form instanceof HTMLFormElement) {{
           if (typeof form.requestSubmit === 'function') {{
             form.requestSubmit();
           }} else {{
             form.submit();
           }}
         }}
-        if (window.jQuery && window.jQuery(form).length) {{
-          window.jQuery(form).submit();
-        }}
       }} catch (e) {{}}
       password = '';
-    }}, 120);
-  }}, 150);
+    }}, 200);
+  }}, 200);
 }})();"#
     )
 }
 
 async fn read_midishow_browser_cookie(window: tauri::WebviewWindow) -> Result<String, String> {
-    let cookies = tauri::async_runtime::spawn_blocking(move || {
-        let url = MIDISHOW_ACCOUNT_URL
-            .parse::<tauri::Url>()
-            .map_err(|_| "登录地址不可用".to_string())?;
-        window
-            .cookies_for_url(url)
-            .map_err(|_| "暂时无法读取登录状态".to_string())
+    let raw = tauri::async_runtime::spawn_blocking(move || {
+        let candidate_urls = [
+            MIDISHOW_ACCOUNT_URL,
+            MIDISHOW_LOGIN_URL,
+            "https://www.midishow.com/",
+            "https://midishow.com/",
+        ];
+        let mut raw_pairs = Vec::new();
+        let mut seen = HashSet::new();
+        for candidate in candidate_urls {
+            if let Ok(url) = candidate.parse::<tauri::Url>() {
+                if let Ok(list) = window.cookies_for_url(url) {
+                    for cookie in list {
+                        let key = cookie.name().to_ascii_lowercase();
+                        if seen.insert(key) {
+                            raw_pairs.push(format!("{}={}", cookie.name(), cookie.value()));
+                        }
+                    }
+                }
+            }
+        }
+        if raw_pairs.is_empty() {
+            Err("暂时无法读取登录状态".to_string())
+        } else {
+            Ok(raw_pairs.join("; "))
+        }
     })
     .await
     .map_err(|_| "暂时无法读取登录状态".to_string())??;
 
-    let raw = cookies
-        .iter()
-        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-        .collect::<Vec<_>>()
-        .join("; ");
     normalize_midishow_cookie_header(&raw).map_err(|_| "暂时无法读取登录状态".to_string())
 }
 
@@ -7347,6 +7497,14 @@ mod vrpiano_download_tests {
         assert_eq!(
             parse_midishow_login_title("VRCDOG_MIDISHOW:needs_confirmation"),
             Some(MidishowLoginSignal::NeedsConfirmation)
+        );
+        assert_eq!(
+            parse_midishow_login_title("VRCDOG_MIDISHOW:success:Happy_906756"),
+            Some(MidishowLoginSignal::Success("Happy_906756".to_string()))
+        );
+        assert_eq!(
+            parse_midishow_login_title("VRCDOG_MIDISHOW:success"),
+            Some(MidishowLoginSignal::Success(String::new()))
         );
         assert_eq!(parse_midishow_login_title("普通页面"), None);
     }

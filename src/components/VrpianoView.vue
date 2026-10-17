@@ -765,14 +765,9 @@ const startMidishowLoginPolling = () => {
 const toggleMidishowLogin = () => {
   midishowLoginOpen.value = !midishowLoginOpen.value;
   if (midishowLoginOpen.value) {
-    // 展开时也清空，避免上一次的明文账号/密码残留以及浏览器自动填充的值
-    midishowAccount.value = '';
-    midishowPassword.value = '';
-    loginError.value = '';
-  } else {
-    // 收起时清空输入，避免明文账号/密码残留在表单中
-    midishowAccount.value = '';
-    midishowPassword.value = '';
+    if (!midishowAccount.value && defaultMidishowAccount.value?.username) {
+      midishowAccount.value = defaultMidishowAccount.value.username;
+    }
     loginError.value = '';
   }
 };
@@ -781,7 +776,7 @@ const loginMidishow = async () => {
   const account = midishowAccount.value.trim();
   const password = midishowPassword.value;
   if (!account || !password) {
-    loginError.value =t('vrpiano.enter_your_midishow_account_and_password');
+    loginError.value = t('vrpiano.enter_your_midishow_account_and_password');
     return;
   }
   accountLoading.value = true;
@@ -789,14 +784,12 @@ const loginMidishow = async () => {
   error.value = ''; // 清除顶部错误条（上一轮登录失败残留的提示）
   try {
     const next = await VrpianoApi.midishowLogin({ account, password });
-    midishowPassword.value = '';
     await applyMidishowLoginStatus(next);
     if (next.state !== 'signed_in') {
       startMidishowLoginPolling();
       addLog(t('vrpiano.signing_in_to_midishow_automatically'));
     }
   } catch (e) {
-    midishowPassword.value = '';
     accountLoading.value = false;
     loginError.value = formatVrpianoError(e);
     addLog(t('vrpiano.midishow_signin_not_completed', { error: loginError.value }));
@@ -3571,14 +3564,22 @@ h1 {
   color: var(--vp-muted);
   background: var(--vp-panel);
   box-shadow: inset 0 0 0 1px var(--vp-border);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.library-search input {
+.library-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--vp-primary), 0 0 0 3px color-mix(in srgb, var(--vp-primary) 18%, transparent);
+}
+
+.library-search input,
+.library-search input:focus,
+.library-search input:focus-visible {
   min-width: 0;
-  border: 0;
-  outline: none;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
   color: var(--vp-text);
-  background: transparent;
+  background: transparent !important;
   font-size: 12px;
 }
 
@@ -3619,7 +3620,7 @@ select {
   outline: none;
 }
 
-input:focus,
+input:not(.input-row input):not(.library-search input):focus,
 select:focus {
   border-color: var(--vp-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 18%, transparent);
@@ -6170,6 +6171,11 @@ select option:hover {
   border-radius: 8px;
   background: var(--vp-surface);
   box-shadow: inset 0 0 0 1px var(--vp-border);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.input-row:focus-within {
+  box-shadow: inset 0 0 0 1px var(--vp-primary), 0 0 0 3px color-mix(in srgb, var(--vp-primary) 18%, transparent);
 }
 
 .input-row:has(.name-input) {
@@ -6177,15 +6183,23 @@ select option:hover {
 }
 
 .input-row.download-row {
-  grid-template-columns: auto minmax(0, 1.35fr) minmax(132px, 0.65fr) auto;
+  grid-template-columns: auto minmax(0, 1.35fr) minmax(140px, 0.65fr) auto;
 }
 
-.input-row input {
+.input-row input,
+.input-row input:focus,
+.input-row input:focus-visible {
   min-width: 0;
-  border: 0;
+  border: 0 !important;
   color: var(--vp-text);
-  background: transparent;
-  outline: none;
+  background: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.download-row .name-input {
+  border-left: 0 !important;
+  padding-left: 8px !important;
 }
 
 .online-form button {
@@ -6207,7 +6221,7 @@ select option:hover {
 }
 
 .online-results {
-  max-height: 280px;
+  max-height: 380px;
   min-height: 120px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -6217,17 +6231,19 @@ select option:hover {
   flex-direction: column;
   align-content: start;
   gap: 8px;
+  padding: 2px;
 }
 
 .online-row {
+  flex-shrink: 0 !important;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
-  gap: 10px;
+  gap: 12px;
   padding: 8px 12px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--vp-surface) 82%, transparent);
@@ -6247,7 +6263,27 @@ select option:hover {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  justify-content: center;
+  gap: 4px;
+}
+
+.online-meta strong {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--vp-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.online-meta small {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--vp-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .online-actions {
@@ -6372,7 +6408,6 @@ select option:hover {
 .theme-field input:focus,
 .login-form input:focus,
 .login-form textarea:focus,
-.input-row:focus-within,
 .control-grid input[type="number"]:focus {
   border-color: var(--vp-border-strong);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--vp-primary) 16%, transparent);
@@ -6484,7 +6519,6 @@ select option:hover {
   .midishow-account,
   .login-form,
   .player-head,
-  .online-row,
   .action-row {
     align-items: stretch;
     flex-direction: column;

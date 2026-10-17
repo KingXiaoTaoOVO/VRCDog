@@ -3307,7 +3307,7 @@
     "search": "搜索",
     "open_midishow_search_in_browser": "在浏览器打开 Midishow 官方搜索",
     "paste_a_direct_midi_url_midishow_link_or": "粘贴 MIDI 直链、Midishow 链接或 ID",
-    "save_as": "保存名",
+    "save_as": "自定义文件名 (可选)",
     "unknown_artist": "未知作者",
     "preview_online": "在线试听",
     "download_to_library": "下载到曲库",
