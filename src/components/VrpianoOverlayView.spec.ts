@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   stop: vi.fn(),
   togglePause: vi.fn(),
+  seek: vi.fn(),
   previewSong: vi.fn(),
   setHotkeys: vi.fn(),
   startVrchatOsc: vi.fn(),
@@ -93,6 +94,7 @@ vi.mock('../api', () => ({
     start: mocks.start,
     stop: mocks.stop,
     togglePause: mocks.togglePause,
+    seek: mocks.seek,
     previewSong: mocks.previewSong,
     setHotkeys: mocks.setHotkeys,
     startVrchatOsc: mocks.startVrchatOsc,
@@ -144,6 +146,10 @@ describe('VrpianoOverlayView appearance controls', () => {
     });
     mocks.togglePause.mockImplementation(async () => {
       mocks.status = { ...mocks.status, paused: !mocks.status.paused };
+      return { ...mocks.status };
+    });
+    mocks.seek.mockImplementation(async ({ positionMs }: { positionMs: number }) => {
+      mocks.status = { ...mocks.status, elapsed_ms: positionMs, progress: positionMs / (mocks.status.duration_ms || 1) };
       return { ...mocks.status };
     });
     mocks.previewSong.mockImplementation(async () => undefined);
@@ -236,6 +242,32 @@ describe('VrpianoOverlayView appearance controls', () => {
     await flushPromises();
     expect(mocks.togglePause).toHaveBeenCalledOnce();
     expect(primary.text()).toContain('继续');
+
+    wrapper.unmount();
+  });
+
+  it('seeks the backend when the progress bar is dragged', async () => {
+    mocks.status = {
+      ...mocks.status,
+      running: true,
+      song_path: 'C:/songs/test.mid',
+      duration_ms: 240_000,
+      elapsed_ms: 60_000,
+      progress: 0.25,
+    };
+    const wrapper = mount(VrpianoOverlayView);
+    await flushPromises();
+
+    const track = wrapper.get('.progress-track');
+    track.element.getBoundingClientRect = () => ({ left: 0, width: 200, top: 0, height: 6, right: 200, bottom: 6, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    track.element.dispatchEvent(new MouseEvent('pointerdown', { clientX: 100, button: 0, bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('.progress-meta').text()).toContain('50%');
+
+    track.element.dispatchEvent(new MouseEvent('pointerup', { clientX: 100, button: 0, bubbles: true }));
+    await flushPromises();
+    expect(mocks.seek).toHaveBeenCalledWith({ positionMs: 120_000 });
 
     wrapper.unmount();
   });

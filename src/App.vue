@@ -498,6 +498,8 @@ onMounted(async () => {
     
     if (isLoggedIn.value) {
       authStore.startFriendsSync();
+      // 窗口重载后走的是这条路径（不经过 handleLoginSuccess），后台刷新定时器也要重新挂上。
+      void authStore.configureDataRefresh();
     }
 
   }

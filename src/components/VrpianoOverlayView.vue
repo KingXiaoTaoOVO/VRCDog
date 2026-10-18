@@ -187,7 +187,97 @@ const playbackLabel = computed(() => {
   if (status.value.running) return t('vrpiano_overlay.playing');
   return t('vrpiano_overlay.idle');
 });
-const progressStyle = computed(() => ({ width: `${Math.round(progress.value * 10000) / 100}%` }));
+// ---- 进度条拖动定位 ----
+// 拖动过程中只更新本地预览位置（seekPreviewMs），松手才真正下发 seek，
+// 避免每一帧都往播放线程写定位请求。
+const seekPreviewMs = ref<number | null>(null);
+const seekDragging = ref(false);
+const progressTrackRef = ref<HTMLElement | null>(null);
+const canSeek = computed(() => Boolean(status.value.running && status.value.duration_ms > 0));
+const displayRatio = computed(() => {
+  if (seekPreviewMs.value !== null) {
+    const duration = Math.max(1, status.value.duration_ms);
+    return Math.min(1, Math.max(0, seekPreviewMs.value / duration));
+  }
+  return progress.value;
+});
+const displayElapsedMs = computed(() => (seekPreviewMs.value !== null ? seekPreviewMs.value : status.value.elapsed_ms));
+const progressStyle = computed(() => ({ width: `${Math.round(displayRatio.value * 10000) / 100}%` }));
+
+const seekRatioFromClientX = (clientX: number) => {
+  const el = progressTrackRef.value;
+  if (!el) return 0;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return 0;
+  return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+};
+
+const seekTargetFromClientX = (clientX: number) => {
+  const duration = status.value.duration_ms;
+  if (!duration) return 0;
+  return Math.round(seekRatioFromClientX(clientX) * duration);
+};
+
+const onSeekPointerDown = (event: PointerEvent) => {
+  if (!canSeek.value) return;
+  if (event.button !== 0) return;
+  seekDragging.value = true;
+  seekPreviewMs.value = seekTargetFromClientX(event.clientX);
+  (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+};
+
+const onSeekPointerMove = (event: PointerEvent) => {
+  if (!seekDragging.value) return;
+  seekPreviewMs.value = seekTargetFromClientX(event.clientX);
+};
+
+const commitSeek = async (positionMs: number) => {
+  if (!canSeek.value) return;
+  const target = Math.min(status.value.duration_ms, Math.max(0, Math.round(positionMs)));
+  try {
+    applyStatus(await VrpianoApi.seek({ positionMs: target }));
+  } catch (e: any) {
+    error.value = e?.message || String(e);
+  }
+};
+
+const onSeekPointerUp = async (event: PointerEvent) => {
+  if (!seekDragging.value) return;
+  seekDragging.value = false;
+  const target = seekPreviewMs.value;
+  seekPreviewMs.value = null;
+  (event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
+  if (target !== null) await commitSeek(target);
+};
+
+const onSeekPointerCancel = () => {
+  seekDragging.value = false;
+  seekPreviewMs.value = null;
+};
+
+const nudgeSeek = async (deltaMs: number) => {
+  if (!canSeek.value) return;
+  await commitSeek(status.value.elapsed_ms + deltaMs);
+};
+
+const onSeekKeydown = (event: KeyboardEvent) => {
+  if (!canSeek.value) return;
+  const step = event.shiftKey ? 30_000 : 5_000;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+    event.preventDefault();
+    void nudgeSeek(-step);
+  } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    void nudgeSeek(step);
+  } else if (event.key === 'Home') {
+    event.preventDefault();
+    void commitSeek(0);
+  } else if (event.key === 'End') {
+    event.preventDefault();
+    void commitSeek(status.value.duration_ms);
+  }
+};
 const hotkeys = computed(() => [
   { key: 'F1', label: primaryPlaybackLabel.value },
   ...(hasStartedPlayback.value ? [{ key: 'F2', label: t('vrpiano_overlay.restart') }] : []),
@@ -649,11 +739,32 @@ onUnmounted(() => {
 
     <section class="progress-panel">
       <div class="progress-meta">
-        <span>{{ formatTime(status.elapsed_ms) }}</span>
-        <span>{{ Math.round(progress * 100) }}%</span>
+        <span>{{ formatTime(displayElapsedMs) }}</span>
+        <span>{{ Math.round(displayRatio * 100) }}%</span>
         <span>{{ formatTime(status.duration_ms) }}</span>
       </div>
-      <div class="progress-track"><div class="progress-fill" :style="progressStyle" /></div>
+      <div
+        ref="progressTrackRef"
+        class="progress-track"
+        data-no-drag
+        :class="{ seekable: canSeek, dragging: seekDragging }"
+        role="slider"
+        tabindex="0"
+        :aria-label="t('vrpiano_overlay.seek_progress')"
+        :aria-valuemin="0"
+        :aria-valuemax="status.duration_ms || 0"
+        :aria-valuenow="Math.round(displayElapsedMs)"
+        :aria-valuetext="`${formatTime(displayElapsedMs)} / ${formatTime(status.duration_ms)}`"
+        :aria-disabled="!canSeek"
+        @pointerdown="onSeekPointerDown"
+        @pointermove="onSeekPointerMove"
+        @pointerup="onSeekPointerUp"
+        @pointercancel="onSeekPointerCancel"
+        @keydown="onSeekKeydown"
+      >
+        <div class="progress-fill" :style="progressStyle" />
+        <span class="progress-thumb" :style="{ left: progressStyle.width }" />
+      </div>
     </section>
 
     <nav class="transport" data-no-drag :aria-label="t('vrpiano_overlay.playback_controls')">
@@ -1172,11 +1283,25 @@ input {
 }
 
 .progress-track {
+  position: relative;
   height: 6px;
   margin-top: 7px;
-  overflow: hidden;
   border-radius: 3px;
   background: color-mix(in srgb, var(--theme-text) 12%, transparent);
+  overflow: visible;
+}
+
+.progress-track.seekable {
+  cursor: pointer;
+  /* 视觉上还是 6px 的细条，但上下各扩 7px 的透明热区，方便在小窗里点中 */
+  padding: 7px 0;
+  margin-top: 0;
+  background-clip: content-box;
+}
+
+.progress-track.seekable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-primary) 60%, transparent);
+  outline-offset: 3px;
 }
 
 .progress-fill {
@@ -1184,6 +1309,30 @@ input {
   border-radius: inherit;
   background: var(--theme-primary);
   transition: width 180ms linear;
+}
+
+.progress-track.dragging .progress-fill {
+  transition: none;
+}
+
+.progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--theme-primary);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--theme-text) 35%, transparent);
+  transform: translateY(-50%) scale(0);
+  transition: transform 140ms ease;
+  pointer-events: none;
+}
+
+.progress-track.seekable:hover .progress-thumb,
+.progress-track.dragging .progress-thumb,
+.progress-track.seekable:focus-visible .progress-thumb {
+  transform: translateY(-50%) scale(1);
 }
 
 .transport {

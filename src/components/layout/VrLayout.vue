@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { storeToRefs } from 'pinia';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
 import { SysApi } from '../../api';
+import { vrcStatusLabelKey } from '../../utils/vrcStatus';
 import VrcAvatar from '../VrcAvatar.vue';
 import {
   Glasses,
@@ -270,7 +271,7 @@ const vrTabs = computed(() => [
                 class="w-1.5 h-1.5 rounded-full inline-block"
                 :class="getStatusColor(currentUser?.status || 'offline')"
               />
-              {{ $t('status.' + (currentUser?.status?.replace(' ', '_') || 'offline')) }}
+              {{ $t(vrcStatusLabelKey(currentUser?.status)) }}
             </p>
           </div>
         </div>

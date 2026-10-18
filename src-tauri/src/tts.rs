@@ -32,10 +32,10 @@ fn cache_entries_to_remove(
         .enumerate()
         .filter_map(|(index, (path, modified))| {
             let over_cap = index >= max_files;
-            let expired = modified
-                .elapsed()
-                .map(|age| age > max_age)
-                .unwrap_or(false);
+            // 用传入的 `now` 做比较而不是 `modified.elapsed()`，保证函数对同一输入是确定的；
+            // `duration_since` 在 mtime 超前于 now 时报 Err（文件系统时间被往回调过 /
+            // NTP 跳变），此时保守地当作未过期保留。
+            let expired = matches!(now.duration_since(modified), Ok(age) if age > max_age);
             if over_cap || expired {
                 Some(path)
             } else {

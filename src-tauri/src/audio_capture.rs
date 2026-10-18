@@ -305,13 +305,35 @@ pub fn vrct_start_audio_capture(
     silence_timeout: Option<f32>,
     speaker_context_idle_sec: Option<f32>,
     mic_idle_disconnect_sec: Option<f32>,
+    whisper_device: Option<String>,
+    whisper_compute_type: Option<String>,
+    groq_api_key: Option<String>,
+    openai_api_key: Option<String>,
+    custom_whisper_url: Option<String>,
+    custom_whisper_key: Option<String>,
+    deepgram_api_key: Option<String>,
+    deepgram_model: Option<String>,
+    word_filter: Option<Vec<String>>,
 ) -> AppResult<()> {
     if !matches!(source.as_str(), "mic" | "speaker") {
         return Err(AppError::from("Audio source must be `mic` or `speaker`"));
     }
-    if !matches!(engine.as_str(), "cloud" | "local" | "whisper" | "sensevoice" | "sherpa" | "tencent_realtime" | "aliyun_realtime") {
+    if !matches!(
+        engine.as_str(),
+        "cloud"
+            | "local"
+            | "whisper"
+            | "sensevoice"
+            | "sherpa"
+            | "tencent_realtime"
+            | "aliyun_realtime"
+            | "groq_whisper"
+            | "openai_whisper"
+            | "custom_whisper"
+            | "deepgram"
+    ) {
         return Err(AppError::from(
-            "STT engine must be `cloud`, `local`, `whisper`, `sensevoice`, `sherpa`, `tencent_realtime` or `aliyun_realtime`",
+            "STT engine must be `cloud`, `local`, `whisper`, `sensevoice`, `sherpa`, `tencent_realtime`, `aliyun_realtime`, `groq_whisper`, `openai_whisper`, `custom_whisper` or `deepgram`",
         ));
     }
 
@@ -378,6 +400,35 @@ pub fn vrct_start_audio_capture(
         .arg(target_process.clone().unwrap_or_else(|| "VRChat.exe".into()))
         .arg("--self-suppress-seconds")
         .arg(self_suppress_seconds.unwrap_or(0.0).to_string());
+    if let Some(dev) = whisper_device {
+        command.arg("--whisper-device").arg(dev);
+    }
+    if let Some(ct) = whisper_compute_type {
+        command.arg("--whisper-compute-type").arg(ct);
+    }
+    if let Some(key) = groq_api_key {
+        command.arg("--groq-api-key").arg(key);
+    }
+    if let Some(key) = openai_api_key {
+        command.arg("--openai-api-key").arg(key);
+    }
+    if let Some(url) = custom_whisper_url {
+        command.arg("--custom-whisper-url").arg(url);
+    }
+    if let Some(key) = custom_whisper_key {
+        command.arg("--custom-whisper-key").arg(key);
+    }
+    if let Some(key) = deepgram_api_key {
+        command.arg("--deepgram-api-key").arg(key);
+    }
+    if let Some(model) = deepgram_model {
+        command.arg("--deepgram-model").arg(model);
+    }
+    if let Some(filter) = word_filter {
+        if let Ok(json_str) = serde_json::to_string(&filter) {
+            command.arg("--word-filter").arg(json_str);
+        }
+    }
     if correction_enabled.unwrap_or(false) {
         command.arg("--correction-enabled");
         if let Some(dict_dir) = resolve_dict_dir(&script) {

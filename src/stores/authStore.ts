@@ -11,7 +11,7 @@ import { setVrcdogClientToken } from '../api/clientToken';
 import { useUiStore } from './uiStore';
 import { useFriendsStore } from './friendsStore';
 import { getCookieValue, mergeCookiesAndSave, normalizeAuthCookieJson } from '../api/cookies';
-import { markDataHealthy } from './dataHealth';
+import { markDataHealthy, setDataRefreshIntervalSec } from './dataHealth';
 
 export const useAuthStore = defineStore('auth', () => {
   const uiStore = useUiStore();
@@ -212,6 +212,7 @@ export const useAuthStore = defineStore('auth', () => {
       } catch {}
     }
     uiStore.activeTab = 'social';
+    stopDataRefresh();
     closeWebSocket();
     stopGamelogWatcher();
   };
@@ -503,6 +504,68 @@ export const useAuthStore = defineStore('auth', () => {
     return p;
   };
 
+  /**
+   * 后台数据刷新循环。
+   *
+   * 设置页里那条「后台数据刷新频率」滑块（10–120 秒，默认 30 秒）此前**没有任何消费者**
+   * ——源码和发布产物里 `pollInterval` 都只出现在 SettingsView 自己内部。
+   * 于是好友/状态数据只在登录和进入少数页面时才刷新一次，
+   * 而侧边栏的健康判定是「超过 N 分钟没刷新就算过期」，
+   * 结果就是正常使用十几分钟后一直挂着 amber 的「数据已过期」，
+   * 用户无论怎么调那个滑块都不会变。
+   *
+   * 这里把它接通：按设置的间隔刷新好友列表（含在线状态与本地缓存），
+   * 刷新成功即由 friendsStore 标记数据健康。
+   * 注意这里**不**写 friend_activity：那是热力图的数据源，按 30 秒一次记录会把
+   * 在线好友反复插入成几十万行，快照频率需要单独设计。
+   */
+  let dataRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let dataRefreshInFlight = false;
+
+  const runDataRefreshTick = async () => {
+    if (!isLoggedIn.value || !currentUser.value) return;
+    // 上一轮还没回来就跳过：网络慢时避免请求堆积。
+    if (dataRefreshInFlight) return;
+    dataRefreshInFlight = true;
+    try {
+      await useFriendsStore().backgroundRefresh();
+    } finally {
+      dataRefreshInFlight = false;
+    }
+  };
+
+  const stopDataRefresh = () => {
+    if (dataRefreshTimer) {
+      clearInterval(dataRefreshTimer);
+      dataRefreshTimer = null;
+    }
+  };
+
+  /** 读取持久化的间隔并按需重启定时器；返回实际生效的秒数。 */
+  const configureDataRefresh = async (explicitSec?: number) => {
+    let sec = explicitSec;
+    if (typeof sec !== 'number') {
+      try {
+        const raw = await DbApi.getSetting({ key: 'pollInterval' });
+        // 设置是按 `JSON.stringify(value)` 存的，所以这里要 parse；
+        // 但只有真的解析出数字才采用，坏值（空串 / true / 对象）一律走默认值。
+        if (typeof raw === 'number') {
+          sec = raw;
+        } else if (typeof raw === 'string' && raw.trim() !== '') {
+          const parsed = JSON.parse(raw);
+          if (typeof parsed === 'number') sec = parsed;
+        }
+      } catch {
+        sec = undefined;
+      }
+    }
+    const applied = setDataRefreshIntervalSec(sec);
+    stopDataRefresh();
+    if (!isLoggedIn.value || !currentUser.value) return applied;
+    dataRefreshTimer = setInterval(() => void runDataRefreshTick(), applied * 1000);
+    return applied;
+  };
+
   const handleLoginSuccess = async (user: any) => {
     setLoginGracePeriod(120_000);
     currentUser.value = user;
@@ -538,6 +601,8 @@ export const useAuthStore = defineStore('auth', () => {
     initGamelogWatcher();
     await friendsSyncPromise;
     await initWebsocket();
+    // 首次同步完成后再起后台刷新，避免和登录时的同步叠成两个请求。
+    void configureDataRefresh();
   };
 
   const tryAutoLogin = async () => {
@@ -669,6 +734,7 @@ export const useAuthStore = defineStore('auth', () => {
         void syncInitialNotifications();
         await friendsSyncPromise;
         await initWebsocket();
+        void configureDataRefresh();
       } else if (res?.error) {
         const errMsg = typeof res.error === 'string'
           ? res.error
@@ -803,6 +869,7 @@ export const useAuthStore = defineStore('auth', () => {
     restoreAndAutoLogin,
     startHeartbeat,
     startFriendsSync,
+    configureDataRefresh,
     resolveSurveyPrompt,
     loginGracePeriodUntil,
     setLoginGracePeriod,

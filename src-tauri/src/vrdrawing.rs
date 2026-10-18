@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -58,6 +58,10 @@ pub struct DrawingConfig {
     /// mapped 1:1 to the real VRChat drawing canvas. 0 keeps the legacy sensitivity-only
     /// behavior for backwards compatibility.
     pub canvas_size_px: u32,
+    /// 两次「落笔点击」之间的最小间隔。VRChat 的画笔是**点击切换**式的，
+    /// 快速连点会被当成橡皮擦（抬笔后立刻再落笔尤其容易触发）。
+    /// 之前这个值是硬编码的 550ms；VRC-Draw 用的是 600ms 且可配置，这里对齐。
+    pub min_button_down_ms: u64,
     /// When true, the engine attempts a lightweight 2-opt pass after nearest-neighbour
     /// ordering. Roughly halves aerial pen travel on complex images; cheap relative to the
     /// overall drawing time.
@@ -94,6 +98,7 @@ impl Default for DrawingConfig {
             lift_speed: 1.0,
             pen_settle_ms: 15,
             canvas_size_px: 0,
+            min_button_down_ms: 600,
             two_opt_path: true,
         }
     }
@@ -126,6 +131,8 @@ impl DrawingConfig {
         self.lift_speed = finite_or(self.lift_speed, 1.0).clamp(0.2, 3.0);
         self.pen_settle_ms = self.pen_settle_ms.min(300);
         self.canvas_size_px = self.canvas_size_px.min(8192);
+        // 0 = 关闭防双击保护（留给「画笔不是切换式」的世界），上限 3 秒足够保守。
+        self.min_button_down_ms = self.min_button_down_ms.min(3_000);
         self
     }
 }
@@ -373,7 +380,6 @@ fn report_stage(state: &VrDrawingState, app: &tauri::AppHandle, stage: &str, pro
 }
 
 /// Builds the binary ink mask for the selected mode.
-/// Builds the binary ink mask for the selected mode.
 fn build_ink_mask(raw: &[u8], width: usize, height: usize, config: &DrawingConfig) -> Vec<u8> {
     // `threshold` doubles as a sensitivity control: higher means fewer, stronger
     // lines. The 150 default maps to a scale of 1.0.
@@ -438,41 +444,9 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
         binary = erode_plus(&dilate_plus(&binary, w, h), w, h);
     }
     despeckle(&mut binary, w, h, config.artifact_removal);
-    report_stage(state, app, "skeletonize", 0.6);
-    let mut strokes = if config.mode == "dither" {
-        // Dithering means dots, not centre lines: thinning would erase them all.
-        dots(&binary, w, h)
-    } else {
-        skeletonize(&mut binary, w, h);
-        if config.prune_length > 0 {
-            prune_spurs(&mut binary, w, h, config.prune_length);
-        }
-        report_stage(state, app, "extract", 0.8);
-        extract_strokes(&binary, w, h, config.min_stroke_length)
-    };
-    for stroke in &mut strokes {
-        if config.smooth_window > 1 {
-            stroke.points = smooth_points(&stroke.points, config.smooth_window);
-        }
-        if config.simplify_epsilon > 0.0 {
-            stroke.points = simplify_points(&stroke.points, config.simplify_epsilon);
-        }
-    }
-    strokes.retain(|stroke| stroke.points.len() >= 2);
-    if config.merge_distance > 0.0 && strokes.len() <= 2500 {
-        // The gap tolerance scales with resolution so the result is the same at
-        // any processing size.
-        let resolution = (w.max(h) as f32 / 512.0).max(0.5);
-        strokes = merge_nearby_strokes(strokes, config.merge_distance * resolution);
-    }
-    report_stage(state, app, "optimize", 0.95);
-    if config.optimize_path {
-        strokes = order_strokes(strokes);
-    } else if config.two_opt_path {
-        // Even without nearest-neighbour ordering, a 2-opt pass over the raw extract order
-        // can noticeably reduce aerial travel on complex images.
-        strokes = two_opt_pass(strokes, 2);
-    }
+    let strokes = assemble_strokes(binary, w, h, config, |stage, value| {
+        report_stage(state, app, stage, value)
+    });
     let total_points = strokes.iter().map(|stroke| stroke.points.len()).sum();
     if strokes.is_empty() || total_points < 2 {
         return Err("No drawable lines were found. Adjust threshold, contrast or invert the image".into());
@@ -487,6 +461,105 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     report_stage(state, app, "ready", 1.0);
     Ok(plan)
 }
+
+/// 把「厚块」挖成轮廓：只留下离边界 < `depth` 像素的一圈，内部抹掉。
+///
+/// 照片/立绘经过局部阈值之后，墨迹里除了真正的细线，还有一团团反光、阴影、
+/// 深色物体形成的**面**。直接细化这些面会产出中轴线——预览里就是一堆横平竖直
+/// 的棍状假线（旧版 helmet 样张正中那条水平直线就是这么来的）。
+///
+/// 挖空对细线无损：宽度 ≤ 2×depth 的笔画腐蚀 `depth` 次之后为空，等于原样保留；
+/// 只有真正的大块才会被换成它自己的一圈轮廓，细化后得到闭合曲线。
+fn hollow_thick_regions(data: &[u8], width: usize, height: usize, depth: usize) -> Vec<u8> {
+    let mut core = data.to_vec();
+    for _ in 0..depth {
+        core = erode(&core, width, height);
+    }
+    data.iter()
+        .zip(core.iter())
+        .map(|(&outer, &inner)| u8::from(outer != 0 && inner == 0))
+        .collect()
+}
+
+/// Turns a binary ink mask into the stroke list the executor plays.
+///
+/// Split out of `process_image` so the whole assembly — thinning, extraction,
+/// smoothing with the ink gate, joining, routing — runs under test instead of
+/// only the individual steps.
+fn assemble_strokes(
+    mut mask: Vec<u8>,
+    width: usize,
+    height: usize,
+    config: &DrawingConfig,
+    mut progress: impl FnMut(&str, f32),
+) -> Vec<DrawingStroke> {
+    let (w, h) = (width, height);
+    progress("skeletonize", 0.6);
+    let mut strokes = if config.mode == "dither" {
+        // Dithering means dots, not centre lines: thinning would erase them all.
+        dots(&mask, w, h)
+    } else {
+        let depth = (w.min(h) / 128).clamp(2, 5);
+        mask = hollow_thick_regions(&mask, w, h, depth);
+        // 门禁基准取「挖空之后、细化之前」：细化会原地把 `mask` 削成 1px 中线，
+        // 拿它当判据太严；而挖掉的块心本就不该再被当成合法落点。
+        let ink = mask.clone();
+        skeletonize(&mut mask, w, h);
+        if config.prune_length > 0 {
+            prune_spurs(&mut mask, w, h, config.prune_length);
+        }
+        progress("extract", 0.8);
+        let mut strokes = extract_strokes(&mask, w, h, config.min_stroke_length);
+        for stroke in &mut strokes {
+            let original = std::mem::take(&mut stroke.points);
+            let mut points = original.clone();
+            if config.smooth_window > 1 {
+                points = smooth_points(&points, config.smooth_window);
+            }
+            let smoothed = points.clone();
+            if config.simplify_epsilon > 0.0 {
+                points = simplify_points(&points, config.simplify_epsilon);
+            }
+            // 滑窗均值和纯几何 RDP 都可能把笔画「拉出」原图的墨迹（曲率大处尤其明显，
+            // 表现为线条脱离轮廓）。这里逐级退回：简化结果越界 → 退回平滑结果 →
+            // 仍越界则退回骨架原始点。宁可保留锯齿，也不要画出脱离图像的线。
+            if !all_on_ink(&points, &ink, w, h) {
+                points = if all_on_ink(&smoothed, &ink, w, h) {
+                    smoothed
+                } else {
+                    original
+                };
+            }
+            stroke.points = points;
+        }
+        strokes
+    };
+    strokes.retain(|stroke| stroke.points.len() >= 2);
+    // 无损接续：共享（或紧邻）端点的笔画合成一条连续路径。VRChat 每次重新落笔
+    // 都要等 `min_button_down_ms` 防双击橡皮，所以提笔次数就是绘制时长的下限。
+    // 抖动模式例外：那本来就是一堆独立的点，串起来会把点阵连成一条一条的横线
+    // （点的"方向"是补出来的 0.75px 小横笔，`stroke_join_is_smooth` 比的是假方向）。
+    if config.mode != "dither" {
+        strokes = join_continuous_strokes(strokes);
+    }
+    if config.merge_distance > 0.0 && config.mode != "dither" && strokes.len() <= 2500 {
+        // The gap tolerance scales with resolution so the result is the same at
+        // any processing size.
+        let resolution = (w.max(h) as f32 / 512.0).max(0.5);
+        strokes = merge_nearby_strokes(strokes, config.merge_distance * resolution);
+    }
+    progress("optimize", 0.95);
+    if config.optimize_path {
+        order_strokes(strokes)
+    } else if config.two_opt_path {
+        // Even without nearest-neighbour ordering, a 2-opt pass over the raw extract order
+        // can noticeably reduce aerial travel on complex images.
+        two_opt_pass(strokes, 2)
+    } else {
+        strokes
+    }
+}
+
 
 /// Drops tiny connected components. The limit scales with `artifact_removal` but
 /// stays small by default: the old 3..31 px range erased eyes, text and other
@@ -939,7 +1012,12 @@ fn dots(data: &[u8], width: usize, height: usize) -> Vec<DrawingStroke> {
             .collect();
     }
     centers.into_iter().map(|(x, y)| DrawingStroke {
-        points: vec![DrawingPoint { x, y }, DrawingPoint { x: x + 0.75, y }],
+        // 执行器需要一段有长度的路径才会落笔，所以给点画补一个 0.75px 的小横笔。
+        // 让它以质心居中：以前是从质心向右画，整张点阵会整体右偏约半个点。
+        points: vec![
+            DrawingPoint { x: x - 0.375, y },
+            DrawingPoint { x: x + 0.375, y },
+        ],
     }).collect()
 }
 fn floyd_steinberg(raw: &[u8], width: usize, height: usize, threshold: u8, invert: bool) -> Vec<u8> {
@@ -1003,12 +1081,24 @@ fn erode_plus(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     result
 }
 
+/// 8 邻域腐蚀：抹掉所有贴着背景的像素，图像边缘一律按「边缘外是背景」处理。
+///
+/// 旧实现写的是 `neighbors(..).iter().any(|&index| data[index] == 0)`，
+/// 但 `neighbors()` 只会返回**墨迹**像素的下标，这个 `any` 因此恒为 false ——
+/// `erode` 从来没腐蚀过任何东西。后果不是"少一步美化"：
+/// `silhouette()` 用 `outer != 0 && eroded == 0` 求前景轮廓，腐蚀是恒等变换时
+/// 该表达式恒为 false，于是**照片/立绘的前景轮廓从来没有被加进线稿**。
 fn erode(data: &[u8], width: usize, height: usize) -> Vec<u8> {
-    let mut result = data.to_vec();
+    let mut result = vec![0u8; data.len()];
+    if width < 3 || height < 3 {
+        return result;
+    }
     for y in 1..height - 1 {
         for x in 1..width - 1 {
-            if data[y * width + x] != 0 && neighbors(data, width, height, x, y).iter().any(|&index| data[index] == 0) {
-                result[y * width + x] = 0;
+            let index = y * width + x;
+            // 内部像素：8 个邻居全在图内，全为墨才算留住。
+            if data[index] != 0 && neighbors(data, width, height, x, y).len() == 8 {
+                result[index] = data[index];
             }
         }
     }
@@ -1026,6 +1116,35 @@ fn neighbors(data: &[u8], width: usize, height: usize, x: usize, y: usize) -> Ve
                 let index = ny as usize * width + nx as usize;
                 if data[index] != 0 { result.push(index); }
             }
+        }
+    }
+    result
+}
+
+/// 笔画跟踪专用的邻接表：在 8 邻接基础上加**对角阻断**。
+///
+/// 直接按 8 邻接跟踪骨架有两个老毛病：
+/// - 一条 1px 宽的斜线会在「走对角」和「绕两个直角」之间反复摇摆，笔画出现锯齿/双跟踪；
+/// - 两条线只要在一个角点上相触，就会被当成同一条接通（交叉处错接）。
+///
+/// 规则与 VRC-Draw 的骨架跟踪一致：只有当两条直角邻接**都是背景**时才允许走对角。
+/// 这样对角连接只发生在真正只有对角相邻的地方，直角相邻时一律按正交路径走。
+fn trace_neighbors(data: &[u8], width: usize, height: usize, x: usize, y: usize) -> Vec<usize> {
+    let mut result = Vec::with_capacity(8);
+    for dy in -1isize..=1 {
+        for dx in -1isize..=1 {
+            if dx == 0 && dy == 0 { continue; }
+            let nx = x as isize + dx;
+            let ny = y as isize + dy;
+            if nx < 0 || ny < 0 || nx >= width as isize || ny >= height as isize { continue; }
+            let index = ny as usize * width + nx as usize;
+            if data[index] == 0 { continue; }
+            if dx != 0 && dy != 0 {
+                let horizontal = y * width + nx as usize;
+                let vertical = ny as usize * width + x;
+                if data[horizontal] != 0 || data[vertical] != 0 { continue; }
+            }
+            result.push(index);
         }
     }
     result
@@ -1072,7 +1191,7 @@ fn prune_spurs(data: &mut [u8], width: usize, height: usize, min_length: usize) 
     for _ in 0..4 {
         let mut branches: Vec<Vec<usize>> = Vec::new();
         let mut endpoints: Vec<usize> = (0..data.len())
-            .filter(|&index| data[index] != 0 && neighbors(data, width, height, index % width, index / width).len() == 1)
+            .filter(|&index| data[index] != 0 && trace_neighbors(data, width, height, index % width, index / width).len() == 1)
             .collect();
         endpoints.sort_unstable();
         for start in endpoints {
@@ -1082,14 +1201,14 @@ fn prune_spurs(data: &mut [u8], width: usize, height: usize, min_length: usize) 
             let mut current = start;
             let mut hit_junction = false;
             while branch.len() <= min_length {
-                let candidates: Vec<usize> = neighbors(data, width, height, current % width, current / width)
+                let candidates: Vec<usize> = trace_neighbors(data, width, height, current % width, current / width)
                     .into_iter().filter(|index| *index != previous).collect();
                 if candidates.is_empty() { break; }
                 if candidates.len() > 1 { hit_junction = true; break; }
                 previous = current;
                 current = candidates[0];
                 branch.push(current);
-                if neighbors(data, width, height, current % width, current / width).len() > 2 {
+                if trace_neighbors(data, width, height, current % width, current / width).len() > 2 {
                     hit_junction = true;
                     break;
                 }
@@ -1107,7 +1226,7 @@ fn prune_spurs(data: &mut [u8], width: usize, height: usize, min_length: usize) 
 }
 fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) -> Vec<DrawingStroke> {
     let mut visited = vec![false; data.len()];
-    let mut starts: Vec<usize> = (0..data.len()).filter(|&index| data[index] != 0 && neighbors(data, width, height, index % width, index / width).len() == 1).collect();
+    let mut starts: Vec<usize> = (0..data.len()).filter(|&index| data[index] != 0 && trace_neighbors(data, width, height, index % width, index / width).len() == 1).collect();
     let endpoint_set: HashSet<usize> = starts.iter().copied().collect();
     starts.extend((0..data.len()).filter(|&index| data[index] != 0 && !endpoint_set.contains(&index)));
     let mut strokes = Vec::new();
@@ -1120,7 +1239,7 @@ fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) 
             if visited[current] { break; }
             visited[current] = true;
             points.push(DrawingPoint { x: (current % width) as f32, y: (current / width) as f32 });
-            let candidates: Vec<usize> = neighbors(data, width, height, current % width, current / width).into_iter().filter(|index| !visited[*index]).collect();
+            let candidates: Vec<usize> = trace_neighbors(data, width, height, current % width, current / width).into_iter().filter(|index| !visited[*index]).collect();
             if candidates.is_empty() { break; }
             let next = if let Some(previous) = previous {
                 let px = (current % width) as f32 - (previous % width) as f32;
@@ -1136,7 +1255,7 @@ fn extract_strokes(data: &[u8], width: usize, height: usize, min_length: usize) 
                         // look-ahead: average direction of this candidate's unvisited
                         // neighbours. If continuing through this candidate also keeps the
                         // stroke straight, prefer it over a sharp turn.
-                        let ahead = neighbors(data, width, height, index % width, index / width)
+                        let ahead = trace_neighbors(data, width, height, index % width, index / width)
                             .into_iter()
                             .filter(|n| !visited[*n])
                             .collect::<Vec<_>>();
@@ -1222,13 +1341,352 @@ fn simplify_points(points: &[DrawingPoint], epsilon: f32) -> Vec<DrawingPoint> {
 }
 
 fn point_line_distance(point: &DrawingPoint, start: &DrawingPoint, end: &DrawingPoint) -> f32 {
+    // 到**线段**的距离（投影参数 clamp 到 [0,1]），而不是到无限延长线的距离。
+    // 用无限直线时，闭环或急折处「其实只离端点几个像素」的点会被算出很大的偏移，
+    // RDP 因此误判可以整体塌成两点，笔画在端点处被削平、闭环被撕开。
     let dx = end.x - start.x;
     let dy = end.y - start.y;
-    if dx.abs() + dy.abs() < f32::EPSILON { return (point.x - start.x).hypot(point.y - start.y); }
-    ((dy * point.x - dx * point.y + end.x * start.y - end.y * start.x).abs()) / dx.hypot(dy)
+    let length_sq = dx * dx + dy * dy;
+    if length_sq < f32::EPSILON { return (point.x - start.x).hypot(point.y - start.y); }
+    let t = (((point.x - start.x) * dx + (point.y - start.y) * dy) / length_sq).clamp(0.0, 1.0);
+    (point.x - (start.x + t * dx)).hypot(point.y - (start.y + t * dy))
+}
+
+/// 该点是否仍落在墨迹上（允许 1px 容差：骨架点本来就贴在墨迹边）。
+fn point_on_ink(mask: &[u8], width: usize, height: usize, point: &DrawingPoint) -> bool {
+    let x = point.x.round() as i32;
+    let y = point.y.round() as i32;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 { continue; }
+            if mask[(ny as usize) * width + nx as usize] != 0 { return true; }
+        }
+    }
+    false
+}
+
+fn all_on_ink(points: &[DrawingPoint], mask: &[u8], width: usize, height: usize) -> bool {
+    points.iter().all(|point| point_on_ink(mask, width, height, point))
 }
 
 fn point_distance(a: &DrawingPoint, b: &DrawingPoint) -> f32 { (a.x - b.x).hypot(a.y - b.y) }
+
+/// 端点靠近到这个程度以内就认为是同一个交叉点（骨架像素最多相距 1.414）。
+const JUNCTION_TOL: f32 = 1.6;
+
+struct TrailEdge {
+    /// 对应的输入笔画下标；虚边（提笔移动）没有笔画，用 `usize::MAX`。
+    stroke: usize,
+    left: usize,
+    right: usize,
+    /// 虚边：只为把奇度节点配成偶度而存在，走到这里就抬笔。
+    gap: bool,
+}
+
+/// 把端点相接的笔画无损串成连续路径，最少化提笔次数。
+///
+/// 结构参考 VRC-Draw 的 `PathOptimizer.cpp::BuildTrails`（MIT）：端点建图 →
+/// 连通分量内把奇度节点两两连虚边 → 每个分量求欧拉回路 → 虚边处断开成新笔画。
+///
+/// 为什么是这里最值钱的一步：VRChat 的画笔是**点击切换**式的，相邻两次左键按下
+/// 之间必须等 `min_button_down_ms`（默认 600ms）否则被识别成双击召唤橡皮。
+/// 所以提笔次数就是整幅图耗时的硬性下限——1000 笔光是等待就 10 分钟。
+///
+/// 与 `merge_nearby_strokes` 的区别：这里只在**同一个交叉点**相接（≤1.6px，
+/// 即骨架像素之间的正交/对角相邻），不会在两段之间补出一条原图不存在的长线，
+/// 因此画出来的像素集合与逐笔画绘制完全一致，只是省掉了中间的提笔—移动—落笔。
+///
+/// `extract_strokes` 的 `visited` 是全局的，交叉像素只归属于其中一条笔画，
+/// 其余笔画的端点落在它的相邻像素上，所以必须按距离并查集归并，
+/// 而不能像参考实现那样要求端点坐标严格相等。
+fn join_continuous_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
+    if strokes.len() < 2 {
+        return strokes;
+    }
+    let mut drawable: Vec<usize> = Vec::with_capacity(strokes.len());
+    let mut short: Vec<usize> = Vec::new();
+    for (index, stroke) in strokes.iter().enumerate() {
+        if stroke.points.len() >= 2 {
+            drawable.push(index);
+        } else {
+            short.push(index);
+        }
+    }
+    if drawable.len() < 2 {
+        return strokes;
+    }
+
+    // ── 端点归并成图节点 ────────────────────────────────────────────────────
+    let mut parent: Vec<usize> = (0..drawable.len() * 2).collect();
+    let mut endpoints: Vec<(f32, f32)> = Vec::with_capacity(drawable.len() * 2);
+    for &index in &drawable {
+        let points = &strokes[index].points;
+        endpoints.push((points[0].x, points[0].y));
+        endpoints.push((points[points.len() - 1].x, points[points.len() - 1].y));
+    }
+    // 网格桶做近邻查找，避免 O(n²)。
+    let cell = (JUNCTION_TOL * 2.0) as i64;
+    let mut buckets: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+    for (index, &(x, y)) in endpoints.iter().enumerate() {
+        buckets.entry(((x.floor() as i64).div_euclid(cell), (y.floor() as i64).div_euclid(cell)))
+            .or_default()
+            .push(index);
+    }
+    for (key, candidates) in &buckets {
+        for dx in -1..=1i64 {
+            for dy in -1..=1i64 {
+                let Some(neighbors) = buckets.get(&(key.0 + dx, key.1 + dy)) else { continue };
+                for &a in candidates {
+                    for &b in neighbors {
+                        if b <= a { continue; }
+                        let (ax, ay) = endpoints[a];
+                        let (bx, by) = endpoints[b];
+                        if (ax - bx).hypot(ay - by) <= JUNCTION_TOL {
+                            uf_union(&mut parent, a, b);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut node_of_endpoint: Vec<usize> = vec![0; endpoints.len()];
+    let mut node_pos: Vec<(f32, f32)> = Vec::new();
+    let mut root_to_node: HashMap<usize, usize> = HashMap::new();
+    for (index, &(x, y)) in endpoints.iter().enumerate() {
+        let root = uf_find(&mut parent, index);
+        let id = root_to_node.entry(root).or_insert_with(|| {
+            node_pos.push((x, y));
+            node_pos.len() - 1
+        });
+        node_of_endpoint[index] = *id;
+    }
+
+    let mut edges: Vec<TrailEdge> = Vec::with_capacity(drawable.len());
+    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); node_pos.len()];
+    for (slot, &stroke_index) in drawable.iter().enumerate() {
+        let left = node_of_endpoint[slot * 2];
+        let right = node_of_endpoint[slot * 2 + 1];
+        let id = edges.len();
+        edges.push(TrailEdge { stroke: stroke_index, left, right, gap: false });
+        adjacency[left].push(id);
+        // 自环（首尾同一个节点）要占两个邻接槽位，度数才正确；遍历时靠 `used` 只走一次。
+        adjacency[right].push(id);
+    }
+    let real_edge_count = edges.len();
+
+    let mut components: Vec<Vec<usize>> = Vec::new();
+    let mut seen = vec![false; adjacency.len()];
+    for start in 0..adjacency.len() {
+        if seen[start] || adjacency[start].is_empty() {
+            continue;
+        }
+        seen[start] = true;
+        let mut queue: VecDeque<usize> = VecDeque::from([start]);
+        let mut component = Vec::new();
+        while let Some(node) = queue.pop_front() {
+            component.push(node);
+            for &edge in &adjacency[node] {
+                let next = other_node(&edges[edge], node);
+                if !seen[next] {
+                    seen[next] = true;
+                    queue.push_back(next);
+                }
+            }
+        }
+        components.push(component);
+    }
+
+    // 奇度节点配成虚边（= 一次提笔移动），分量内部才有欧拉回路。
+    for component in &components {
+        let mut odd: Vec<usize> = component
+            .iter()
+            .copied()
+            .filter(|&node| adjacency[node].len() % 2 == 1)
+            .collect();
+        while odd.len() >= 2 {
+            let (a, b) = if odd.len() <= 48 {
+                // 贪心最近配对：虚边就是空笔移动，越短整体路径越短。
+                let mut best = (f32::MAX, 0usize, 0usize);
+                for left in 0..odd.len() - 1 {
+                    for right in left + 1..odd.len() {
+                        let (ax, ay) = node_pos[odd[left]];
+                        let (bx, by) = node_pos[odd[right]];
+                        let distance = (ax - bx).hypot(ay - by);
+                        if distance < best.0 {
+                            best = (distance, left, right);
+                        }
+                    }
+                }
+                (best.1, best.2)
+            } else {
+                // 大分量退化成 O(n log n)：按坐标排序后相邻配对。
+                odd.sort_by(|a, b| {
+                    node_pos[*a].0.partial_cmp(&node_pos[*b].0)
+                        .unwrap_or(CmpOrdering::Equal)
+                        .then_with(|| node_pos[*a].1.partial_cmp(&node_pos[*b].1).unwrap_or(CmpOrdering::Equal))
+                });
+                (0, 1)
+            };
+            let (left, right) = (odd[a], odd[b]);
+            odd.remove(b.max(a));
+            odd.remove(a.min(b));
+            let id = edges.len();
+            edges.push(TrailEdge { stroke: usize::MAX, left, right, gap: true });
+            adjacency[left].push(id);
+            adjacency[right].push(id);
+        }
+    }
+
+    let mut used = vec![false; edges.len()];
+    let mut trails: Vec<DrawingStroke> = Vec::new();
+    for component in &components {
+        let circuit = euler_circuit(component[0], &edges, &adjacency, &mut used, &strokes);
+        append_circuit_trails(&circuit, &edges, &strokes, &mut trails);
+    }
+    for &index in &short {
+        trails.push(strokes[index].clone());
+    }
+    let all_consumed = used.iter().take(real_edge_count).all(|&value| value);
+    // 接续只允许「省掉重复端点」，不允许凭空加点：每条边最多去掉 1 个重合点。
+    // 数量对不上或有条边没走，就退回原样——宁可多提笔，也绝不丢线。
+    let points_in: usize = strokes.iter().map(|stroke| stroke.points.len()).sum();
+    let points_out: usize = trails.iter().map(|stroke| stroke.points.len()).sum();
+    if !all_consumed || points_out > points_in || points_out + real_edge_count < points_in {
+        return strokes;
+    }
+    trails
+}
+
+fn uf_find(parent: &mut Vec<usize>, mut index: usize) -> usize {
+    while parent[index] != index {
+        let grand = parent[parent[index]];
+        parent[index] = grand;
+        index = grand;
+    }
+    index
+}
+
+fn uf_union(parent: &mut Vec<usize>, a: usize, b: usize) {
+    let root_a = uf_find(parent, a);
+    let root_b = uf_find(parent, b);
+    if root_a != root_b {
+        parent[root_b] = root_a;
+    }
+}
+
+fn other_node(edge: &TrailEdge, node: usize) -> usize {
+    if edge.left == node { edge.right } else { edge.left }
+}
+
+/// 从节点这一端「走进笔画」的单位方向，用于选择最顺接的下一条边。
+fn away_tangent(points: &[DrawingPoint], from_start: bool) -> Option<(f32, f32)> {
+    const SPAN: usize = 6;
+    let count = points.len();
+    if count < 2 { return None; }
+    let span = (count - 1).min(SPAN);
+    let (dx, dy) = if from_start {
+        (points[span].x - points[0].x, points[span].y - points[0].y)
+    } else {
+        (points[count - 1 - span].x - points[count - 1].x, points[count - 1 - span].y - points[count - 1].y)
+    };
+    let length = dx.hypot(dy);
+    if length < f32::EPSILON { return None; }
+    Some((dx / length, dy / length))
+}
+
+fn edge_tangent(edge: &TrailEdge, node: usize, strokes: &[DrawingStroke]) -> Option<(f32, f32)> {
+    if edge.gap { return None; }
+    // 端点重合的自环两个分支都指向同一个节点，按正向取，只影响顺接打分。
+    away_tangent(&strokes[edge.stroke].points, edge.left == node)
+}
+
+/// Hierholzer：返回按遍历顺序排列的 (边, 起点节点, 终点节点)。
+fn euler_circuit(
+    start: usize,
+    edges: &[TrailEdge],
+    adjacency: &[Vec<usize>],
+    used: &mut [bool],
+    strokes: &[DrawingStroke],
+) -> Vec<(usize, usize, usize)> {
+    #[derive(Clone, Copy)]
+    struct Frame { node: usize, incoming: Option<usize>, from: usize }
+    let mut stack = vec![Frame { node: start, incoming: None, from: start }];
+    let mut reversed: Vec<(usize, usize, usize)> = Vec::new();
+    while let Some(current) = stack.last().cloned() {
+        // 优先选择方向最顺的实边；虚边（提笔）压到最后，等价于 VRC-Draw 的 score=100。
+        let heading = current
+            .incoming
+            .and_then(|edge| edge_tangent(&edges[edge], current.node, strokes))
+            .map(|(x, y)| (-x, -y));
+        let mut next: Option<usize> = None;
+        let mut best_score = f32::INFINITY;
+        for &edge in &adjacency[current.node] {
+            if used[edge] { continue; }
+            let score = if edges[edge].gap {
+                100.0
+            } else {
+                match (heading, edge_tangent(&edges[edge], current.node, strokes)) {
+                    (Some((ix, iy)), Some((ox, oy))) => 1.0 - (ix * ox + iy * oy),
+                    _ => 0.0,
+                }
+            };
+            if score < best_score {
+                best_score = score;
+                next = Some(edge);
+            }
+        }
+        let Some(edge) = next else {
+            stack.pop();
+            if let Some(incoming) = current.incoming {
+                reversed.push((incoming, current.from, current.node));
+            }
+            continue;
+        };
+        used[edge] = true;
+        let node = other_node(&edges[edge], current.node);
+        stack.push(Frame { node, incoming: Some(edge), from: current.node });
+    }
+    reversed.reverse();
+    reversed
+}
+
+/// 把一条欧拉回路落成笔画：遇到虚边就抬笔，并优先从虚边之后开始，
+/// 免得第一条笔画中间凭空多出一段空笔移动。
+fn append_circuit_trails(
+    circuit: &[(usize, usize, usize)],
+    edges: &[TrailEdge],
+    strokes: &[DrawingStroke],
+    out: &mut Vec<DrawingStroke>,
+) {
+    if circuit.is_empty() { return; }
+    let first = circuit.iter().position(|visit| edges[visit.0].gap)
+        .map(|position| (position + 1) % circuit.len())
+        .unwrap_or(0);
+    let mut current: Vec<DrawingPoint> = Vec::new();
+    for offset in 0..circuit.len() {
+        let (edge, from, _) = circuit[(first + offset) % circuit.len()];
+        if edges[edge].gap {
+            if current.len() >= 2 {
+                out.push(DrawingStroke { points: std::mem::take(&mut current) });
+            }
+            current.clear();
+            continue;
+        }
+        let source = &strokes[edges[edge].stroke].points;
+        let forward = from == edges[edge].left;
+        let anchor = if forward { &source[0] } else { &source[source.len() - 1] };
+        let skip = usize::from(!current.is_empty() && point_distance(current.last().unwrap(), anchor) <= 0.001);
+        if forward {
+            current.extend(source.iter().skip(skip).cloned());
+        } else {
+            current.extend(source.iter().rev().skip(skip).cloned());
+        }
+    }
+    if current.len() >= 2 {
+        out.push(DrawingStroke { points: current });
+    }
+}
 
 fn merge_nearby_strokes(mut strokes: Vec<DrawingStroke>, distance: f32) -> Vec<DrawingStroke> {
     // 防御：丢弃空笔画，避免后续 points.first()/last() 在空集合上 unwrap panic
@@ -1411,9 +1869,27 @@ fn stop_drawing(app: &tauri::AppHandle, state: &VrDrawingState) -> Result<(), St
 
 fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawing, config: DrawingConfig, stop: Arc<AtomicBool>, paused: Arc<AtomicBool>) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
-        if config.focus_vrchat { focus_vrchat_window()?; }
+        // 聚焦只是「尽力而为」。旧实现是 `focus_vrchat_window()?`，而它
+        //  1. 只认窗口标题**恰好等于** "VRChat"（`FindWindowW(None, w!("VRChat"))`），
+        //     标题带上版本号 / 模式后缀就查不到；
+        //  2. 把 `SetForegroundWindow` 返回 FALSE 当致命错误 —— 而 Windows 的前台锁
+        //     在调用方不是前台进程时**合法地**会返回 FALSE。
+        // 结果是「点了开始绘画，一行都没画，只留下一句 focus 错误」。
+        // 现在复用 vrpiano 里那套已验证的做法：容错查找 + AttachThreadInput 绕过前台锁，
+        // 并且只在 VRChat 确实没拿到前台时才报错（那时点击会落到当前前台窗口，画不出东西）。
+        if config.focus_vrchat {
+            crate::vrpiano::focus_vrchat_window();
+        }
         interruptible_sleep(config.start_delay_ms, &stop, &paused);
         if stop.load(Ordering::SeqCst) { return Ok(()); }
+        // 倒计时结束之后才验收前台：这段时间里用户也可以自己点一下 VRChat。
+        // 没拿到前台就报错是对的——否则接下来的点击全落到别的窗口上，
+        // 进度条照样走完、画布上却什么都没有，正是「画不了又没有任何提示」。
+        #[cfg(target_os = "windows")]
+        if config.focus_vrchat && !wait_until_vrchat_foreground() {
+            return Err("无法把 VRChat 切到前台。请先手动聚焦 VRChat 再点开始，或关闭「自动聚焦 VRChat」后用全局快捷键启动。".into());
+        }
+        probe_mouse_input()?;
         let (start_x, start_y) = cursor_position()?;
         let center_x = plan.width as f32 / 2.0;
         let center_y = plan.height as f32 / 2.0;
@@ -1436,19 +1912,23 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
 
         for (index, stroke) in plan.strokes.iter().enumerate() {
             if stop.load(Ordering::SeqCst) { break; }
+            if input_channel_broken() {
+                mouse_left(false);
+                return Err("鼠标注入在绘制过程中被系统拒绝，已抬笔停止。后续笔画不会出现在画布上，请检查前台窗口的权限级别后重新开始。".into());
+            }
             wait_while_paused(&stop, &paused);
             if stop.load(Ordering::SeqCst) { break; }
             mouse_left(false);
             interruptible_sleep(config.lift_delay_ms.min(500), &stop, &paused);
             let first = &stroke.points[0];
-            move_planar(&mut current_x, &mut current_y, first, &config, true, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y);
+            move_planar(&mut current_x, &mut current_y, first, &config, true, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y, config.max_step_px);
             if stop.load(Ordering::SeqCst) { break; }
 
-            // Anti double-click guard (VRC-Draw principle): ensure at least 550ms between
-            // consecutive pen-down clicks to prevent VRChat from invoking the eraser.
+            // 防双击保护（VRC-Draw 原则）：两次落笔点击之间至少间隔
+            // `min_button_down_ms`，否则 VRChat 会把连点识别成橡皮擦。
             let elapsed = last_pen_down.elapsed();
-            if elapsed < Duration::from_millis(550) {
-                let wait = Duration::from_millis(550) - elapsed;
+            if elapsed < Duration::from_millis(config.min_button_down_ms) {
+                let wait = Duration::from_millis(config.min_button_down_ms) - elapsed;
                 interruptible_sleep(wait.as_millis() as u64, &stop, &paused);
             }
             if stop.load(Ordering::SeqCst) { break; }
@@ -1462,8 +1942,13 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
                 interruptible_sleep(config.pen_settle_ms, &stop, &paused);
             }
             if stop.load(Ordering::SeqCst) { break; }
+            // 逐段落笔：把上一段的方向带着走，转角越尖采样越密（见 `step_for_turn`）。
+            let mut incoming: Option<(f32, f32)> = None;
             for point in stroke.points.iter().skip(1) {
-                move_planar(&mut current_x, &mut current_y, point, &config, false, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y);
+                let outgoing = (point.x - current_x, point.y - current_y);
+                let step = step_for_turn(incoming, outgoing, config.max_step_px);
+                move_planar(&mut current_x, &mut current_y, point, &config, false, &stop, &paused, &mut error_x, &mut error_y, scale_x, scale_y, step);
+                incoming = Some(outgoing);
                 if stop.load(Ordering::SeqCst) { break; }
             }
             mouse_left(false);
@@ -1501,12 +1986,28 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
     emit_status(&app, &state);
 }
 
+/// 曲率自适应步长（VRC-Draw 的 `CurvatureStep` 思路）。
+///
+/// 转角越尖，落笔采样就要越密：固定 4px 步长会把尖角「跳」成圆角，
+/// 直角和小角度折线最先失真。返回本段应使用的最大步长（像素）。
+fn step_for_turn(incoming: Option<(f32, f32)>, outgoing: (f32, f32), base: f32) -> f32 {
+    let Some((ix, iy)) = incoming else { return base.max(1.0) };
+    let (ox, oy) = outgoing;
+    let in_len = ix.hypot(iy);
+    let out_len = ox.hypot(oy);
+    if in_len < 1e-3 || out_len < 1e-3 { return base.max(1.0); }
+    let cosine = (ix * ox + iy * oy) / (in_len * out_len);
+    if cosine < 0.55 { (base * 0.5).max(1.0) }
+    else if cosine < 0.9 { (base - 1.0).max(1.0) }
+    else { base.max(1.0) }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn move_planar(current_x: &mut f32, current_y: &mut f32, target: &DrawingPoint, config: &DrawingConfig, pen_up: bool, stop: &AtomicBool, paused: &AtomicBool, error_x: &mut f32, error_y: &mut f32, scale_x: f32, scale_y: f32) {
+fn move_planar(current_x: &mut f32, current_y: &mut f32, target: &DrawingPoint, config: &DrawingConfig, pen_up: bool, stop: &AtomicBool, paused: &AtomicBool, error_x: &mut f32, error_y: &mut f32, scale_x: f32, scale_y: f32, max_step_px: f32) {
     let delta_x = (target.x - *current_x) * scale_x * config.sensitivity;
     let delta_y = (target.y - *current_y) * scale_y * config.sensitivity * config.vertical_stretch;
     let distance = delta_x.hypot(delta_y);
-    let steps = (distance / config.max_step_px).ceil().max(1.0) as usize;
+    let steps = (distance / max_step_px.max(1.0)).ceil().max(1.0) as usize;
     for _ in 0..steps {
         wait_while_paused(stop, paused);
         if stop.load(Ordering::SeqCst) { break; }
@@ -1600,9 +2101,8 @@ fn start_hotkey_monitor() {}
 #[cfg(target_os = "windows")]
 fn mouse_move(dx: i32, dy: i32) {
     if dx == 0 && dy == 0 { return; }
-    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MOVE, MOUSEINPUT};
-    let input = INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, dwFlags: MOUSEEVENTF_MOVE, ..Default::default() } } };
-    unsafe { let _ = SendInput(&[input], std::mem::size_of::<INPUT>() as i32); }
+    use windows::Win32::UI::Input::KeyboardAndMouse::MOUSEEVENTF_MOVE;
+    send_mouse(MOUSEEVENTF_MOVE, dx, dy);
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1610,13 +2110,57 @@ fn mouse_move(_dx: i32, _dy: i32) {}
 
 #[cfg(target_os = "windows")]
 fn mouse_left(down: bool) {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT};
-    let input = INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dwFlags: if down { MOUSEEVENTF_LEFTDOWN } else { MOUSEEVENTF_LEFTUP }, ..Default::default() } } };
-    unsafe { let _ = SendInput(&[input], std::mem::size_of::<INPUT>() as i32); }
+    use windows::Win32::UI::Input::KeyboardAndMouse::{MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP};
+    send_mouse(if down { MOUSEEVENTF_LEFTDOWN } else { MOUSEEVENTF_LEFTUP }, 0, 0);
 }
 
 #[cfg(not(target_os = "windows"))]
 fn mouse_left(_down: bool) {}
+
+/// 落笔前自检注入通道。
+///
+/// `SendInput` 被拒绝时不报错、只返回 0，所以「点了开始、进度条走完了、画布上
+/// 什么也没有」在过去无从判断。这里用一次零位移移动确认系统肯收我们的输入，
+/// 把那种静默失败换成一句能照做的提示。
+/// 注意：光标被应用接管（VRChat 中心锁定，移动完回到原点）**不是**故障，
+/// 那正是相对增量模式能正常工作的场景，所以这里不去校验光标位移。
+#[cfg(target_os = "windows")]
+fn probe_mouse_input() -> Result<(), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::MOUSEEVENTF_MOVE;
+    if send_mouse(MOUSEEVENTF_MOVE, 0, 0) {
+        Ok(())
+    } else {
+        Err("Windows 拒绝了鼠标注入（SendInput 返回 0）。通常是 VRChat 或其他前台窗口以管理员身份运行，而本程序没有——请用「以管理员身份运行」启动 VRCDog，或让两边权限级别一致。".into())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn probe_mouse_input() -> Result<(), String> { Ok(()) }
+
+/// 连续被系统拒绝的注入次数；成功一次就清零。
+#[cfg(target_os = "windows")]
+static SEND_REJECTED: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(target_os = "windows")]
+fn send_mouse(flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_FLAGS, dx: i32, dy: i32) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEINPUT};
+    let input = INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, dwFlags: flags, ..Default::default() } } };
+    if unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) } == 1 {
+        SEND_REJECTED.store(0, Ordering::SeqCst);
+        return true;
+    }
+    SEND_REJECTED.fetch_add(1, Ordering::SeqCst);
+    false
+}
+
+/// 绘制过程中输入通道被掐断（中途切到更高权限的窗口、安全桌面）时及早停下。
+#[cfg(target_os = "windows")]
+fn input_channel_broken() -> bool {
+    SEND_REJECTED.load(Ordering::SeqCst) >= 60
+}
+
+#[cfg(not(target_os = "windows"))]
+fn input_channel_broken() -> bool { false }
 
 #[cfg(target_os = "windows")]
 fn cursor_position() -> Result<(i32, i32), String> {
@@ -1630,26 +2174,22 @@ fn cursor_position() -> Result<(i32, i32), String> {
 #[cfg(not(target_os = "windows"))]
 fn cursor_position() -> Result<(i32, i32), String> { Err("Automatic drawing is currently supported on Windows".into()) }
 
+/// 等待 VRChat 真正成为前台窗口。
+///
+/// 窗口切换是异步的：`SetForegroundWindow` 返回成功后还要一点时间才生效，
+/// 所以这里给最多约 1 秒的宽限，而不是「一次失败就判定画不了」。
 #[cfg(target_os = "windows")]
-fn focus_vrchat_window() -> Result<(), String> {
-    use windows::core::w;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE};
-    let window = unsafe { FindWindowW(None, w!("VRChat")) }.map_err(|_| "VRChat window was not found")?;
-    unsafe {
-        if IsIconic(window).as_bool() { let _ = ShowWindow(window, SW_RESTORE); }
-        if !SetForegroundWindow(window).as_bool() { return Err("VRChat could not be focused. Focus it manually and try again".into()); }
+fn wait_until_vrchat_foreground() -> bool {
+    for _ in 0..8 {
+        if crate::vrpiano::is_vrchat_foreground() { return true; }
+        thread::sleep(Duration::from_millis(120));
     }
-    thread::sleep(Duration::from_millis(350));
-    Ok(())
+    crate::vrpiano::is_vrchat_foreground()
 }
-
-#[cfg(not(target_os = "windows"))]
-fn focus_vrchat_window() -> Result<(), String> { Err("Automatic drawing is currently supported on Windows".into()) }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn simplifies_a_straight_line_to_its_endpoints() {
         let points = (0..10).map(|x| DrawingPoint { x: x as f32, y: 2.0 }).collect::<Vec<_>>();
@@ -1733,27 +2273,17 @@ mod tests {
                 100.0 * before as f32 / raw.len() as f32,
                 100.0 * after_close as f32 / raw.len() as f32,
                 100.0 * after_despeckle as f32 / raw.len() as f32);
-            skeletonize(&mut mask, w, h);
-            let after_skeleton = mask.iter().filter(|&&value| value != 0).count();
+            // 走真实的组装路径（细化 → 提取 → 平滑/简化 + 墨迹门禁 → 接续 → 合并 → 排序）。
+            // 以前这里手抄了一遍后处理，抄漏了墨迹门禁，预览图和实际画出去的东西不是一回事。
+            // 度量在 probe 副本上做，`mask` 保持细化前的原样交给 assemble。
+            let mut probe = mask.clone();
+            skeletonize(&mut probe, w, h);
+            let after_skeleton = probe.iter().filter(|&&value| value != 0).count();
             println!("  DIAG {name}: skeleton px={after_skeleton}");
-            prune_spurs(&mut mask, w, h, config.prune_length);
-            let after_prune = mask.iter().filter(|&&value| value != 0).count();
+            prune_spurs(&mut probe, w, h, config.prune_length);
+            let after_prune = probe.iter().filter(|&&value| value != 0).count();
             println!("  DIAG {name}: after prune px={after_prune}");
-            let mut strokes = extract_strokes(&mask, w, h, config.min_stroke_length);
-            // Mirror process_image's post-processing so the PNG is the real preview.
-            for stroke in &mut strokes {
-                if config.smooth_window > 1 {
-                    stroke.points = smooth_points(&stroke.points, config.smooth_window);
-                }
-                if config.simplify_epsilon > 0.0 {
-                    stroke.points = simplify_points(&stroke.points, config.simplify_epsilon);
-                }
-            }
-            strokes.retain(|stroke| stroke.points.len() >= 2);
-            if config.merge_distance > 0.0 && strokes.len() <= 2500 {
-                strokes = merge_nearby_strokes(strokes, config.merge_distance);
-            }
-            strokes = order_strokes(strokes);
+            let strokes = assemble_strokes(mask, w, h, &config, |_, _| {});
             let points: usize = strokes.iter().map(|stroke| stroke.points.len()).sum();
 
             assert!(strokes.len() > 20, "{name}: expected a rich line drawing, got {} strokes", strokes.len());
@@ -1829,6 +2359,32 @@ mod tests {
         let strokes = dots(&mask, width, height);
         assert_eq!(strokes.len(), 3);
         assert!(strokes.iter().all(|stroke| stroke.points.len() >= 2));
+        // 补出来的小横笔必须以质心居中，否则整张点阵会统一向右偏半个点。
+        for (stroke, (x, y)) in strokes.iter().zip([(2.0f32, 2.0f32), (6.0, 6.0), (10.0, 10.0)]) {
+            let mid = (
+                (stroke.points[0].x + stroke.points[1].x) / 2.0,
+                (stroke.points[0].y + stroke.points[1].y) / 2.0,
+            );
+            assert_eq!(mid, (x, y));
+            assert!((stroke.points[0].x - stroke.points[1].x).abs() < 1.0, "点应当还是个点，不是长划");
+        }
+    }
+
+    #[test]
+    fn dither_dots_are_never_chained_into_lines() {
+        // 抖动模式的点必须一 dot 一笔：接续和合并都会把相邻的点连成横线。
+        let (width, height) = (8usize, 8usize);
+        let mut mask = vec![0u8; width * height];
+        mask[1 * width + 1] = 1;
+        mask[1 * width + 4] = 1;
+        let mut config = DrawingConfig::default();
+        config.mode = "dither".into();
+        let strokes = assemble_strokes(mask, width, height, &config, |_, _| {});
+        assert_eq!(strokes.len(), 2, "两个点不该被接成一笔：{strokes:?}");
+        assert!(
+            strokes.iter().all(|stroke| stroke.points.len() == 2),
+            "每一笔都只该是一个点"
+        );
     }
 
     #[test]
@@ -1911,5 +2467,277 @@ mod tests {
         assert_eq!(config.sensitivity, 1.2);
         assert_eq!(config.max_dimension, MAX_CANVAS_DIMENSION);
         assert_eq!(config.point_delay_ms, 1);
+    }
+
+    // ── 线稿算法升级的回归（参考 references/VRC-Draw, MIT）────────────────────
+
+    #[test]
+    fn hollowing_keeps_thin_lines_and_opens_up_thick_blobs() {
+        let (w, h) = (41usize, 41usize);
+        let mut mask = vec![0u8; w * h];
+        for y in 0..h {
+            for x in 2..5 {
+                mask[y * w + x] = 1;
+            }
+        }
+        for y in 10..31 {
+            for x in 15..36 {
+                mask[y * w + x] = 1;
+            }
+        }
+        let hollowed = hollow_thick_regions(&mask, w, h, 4);
+        let line_before = (0..h).filter(|&y| mask[y * w + 3] != 0).count();
+        let line_after = (0..h).filter(|&y| hollowed[y * w + 3] != 0).count();
+        assert_eq!(line_after, line_before, "宽度 ≤ 2×depth 的细线必须原样保留");
+        assert_eq!(hollowed[20 * w + 25], 0, "大块的中心应当被挖空");
+        assert_ne!(hollowed[10 * w + 25], 0, "大块的边缘必须留下");
+    }
+
+    #[test]
+    fn erode_actually_removes_border_pixels() {
+        // 回归：旧实现用 `neighbors(..).any(|i| data[i] == 0)` 判边界，
+        // 但 `neighbors()` 只返回墨迹下标，该条件恒为 false —— erode 从来没腐蚀过任何东西。
+        let (w, h) = (5usize, 5usize);
+        let solid = vec![1u8; w * h];
+        let eroded = erode(&solid, w, h);
+        let kept: usize = eroded.iter().filter(|&&value| value != 0).count();
+        assert_eq!(kept, 9, "5x5 实心块腐蚀后应当只剩中心 3x3");
+        assert_eq!(eroded[0], 0);
+        assert_eq!(eroded[2 * w + 2], 1);
+    }
+
+    #[test]
+    fn silhouette_produces_a_ring_for_real_sample_images() {
+        // 这才是 erode 失效的真正代价：`outer != 0 && eroded == 0` 恒为 false，
+        // 于是照片/立绘的前景轮廓从来没有被加进线稿。
+        // 用仓库自带样张断言，而不是构造一个理想化色块 —— `adaptive_ink` 是局部阈值，
+        // 合成图与真实图片的响应差别很大，凭想象构造会写出假测试。
+        // `bright_ratio` 必须取 `image_stats` 的那个定义（生产路径传的就是它），
+        // 否则测的是另一个阈值，`silhouette` 的早退分支根本没走到。
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("assets");
+        let mut checked = 0usize;
+        let mut meaningful = 0usize;
+        for name in ["helmet.jpeg", "dog.jpg", "main.png", "unknown.jpeg", "mono.jpeg"] {
+            let path = root.join(name);
+            if !path.is_file() { continue; }
+            let Ok(image) = image::open(&path) else { continue };
+            let luma = image
+                .resize(256, 256, image::imageops::FilterType::Triangle)
+                .to_luma8();
+            let (width, height) = luma.dimensions();
+            let (w, h) = (width as usize, height as usize);
+            let gray = luma.into_raw();
+            let bright_ratio = image_stats(&gray).bright_ratio;
+            let ring = silhouette(&gray, w, h, bright_ratio, 6);
+            let pixels: usize = ring.iter().filter(|&&value| value != 0).count();
+            println!("  DIAG {name}: 前景轮廓 {} px (亮部占比 {bright_ratio:.2})", pixels);
+            checked += 1;
+            if pixels >= 150 {
+                meaningful += 1;
+            }
+        }
+        assert!(checked > 0, "找不到用于断言的样张");
+        assert!(
+            meaningful >= 2,
+            "至少两张样张应当提取出成规模的前景轮廓，否则照片路径少一整层线条"
+        );
+    }
+
+    #[test]
+    fn trace_neighbors_blocks_diagonals_next_to_ink() {
+        let (w, h) = (3usize, 3usize);
+        let mut mask = vec![0u8; w * h];
+        mask[1 * w + 1] = 1; // 中心 (1,1)
+        mask[0 * w + 2] = 1; // 右上对角 (2,0)
+        mask[0 * w + 1] = 1; // 它的垂直邻接也是墨
+        let diagonal = 0 * w + 2;
+        assert!(
+            neighbors(&mask, w, h, 1, 1).contains(&diagonal),
+            "普通 8 邻接会直接走对角"
+        );
+        assert!(
+            !trace_neighbors(&mask, w, h, 1, 1).contains(&diagonal),
+            "两条直角邻接中还有墨时不得走对角（否则交叉处会错接）"
+        );
+    }
+
+    #[test]
+    fn trace_neighbors_still_follows_a_pure_diagonal_line() {
+        // 对角阻断不能把真正的斜线切断：只有对角相邻时必须照样连通。
+        let (w, h) = (4usize, 4usize);
+        let mut mask = vec![0u8; w * h];
+        for index in 0..4usize {
+            mask[index * w + index] = 1;
+        }
+        assert_eq!(
+            trace_neighbors(&mask, w, h, 1, 1).len(),
+            2,
+            "纯对角线的两端都应当可达"
+        );
+    }
+
+    #[test]
+    fn rdp_measures_distance_to_the_segment_not_the_infinite_line() {
+        // 无限直线距离会在端点之外继续放大，导致闭环/急折被 RDP 塌成两点。
+        let start = DrawingPoint { x: 0.0, y: 0.0 };
+        let end = DrawingPoint { x: 10.0, y: 0.0 };
+        let beyond = DrawingPoint { x: 20.0, y: 0.0 };
+        assert_eq!(point_line_distance(&beyond, &start, &end), 10.0);
+        let beside_end = DrawingPoint { x: 10.0, y: 3.0 };
+        assert!(
+            (point_line_distance(&beside_end, &start, &end) - 3.0).abs() < 1e-4,
+            "端点外侧应取到端点的距离"
+        );
+    }
+
+    #[test]
+    fn sharp_turns_use_a_shorter_pen_step() {
+        let base = 4.0;
+        assert_eq!(step_for_turn(None, (1.0, 0.0), base), base, "首段用基准步长");
+        assert_eq!(step_for_turn(Some((1.0, 0.0)), (1.0, 0.0), base), base, "直行不加密");
+        assert_eq!(
+            step_for_turn(Some((1.0, 0.0)), (1.0, 1.0), base),
+            3.0,
+            "约 45° 折角：base - 1"
+        );
+        assert_eq!(
+            step_for_turn(Some((1.0, 0.0)), (0.0, 1.0), base),
+            2.0,
+            "直角：步长减半，否则尖角会被跳成圆角"
+        );
+        assert_eq!(
+            step_for_turn(Some((1.0, 0.0)), (-1.0, 0.0), base),
+            2.0,
+            "折返同样要最密"
+        );
+    }
+
+    #[test]
+    fn step_for_turn_survives_degenerate_segments() {
+        // 零长段（重复点）不能让 cosine 变成 NaN 进而影响步长。
+        assert_eq!(step_for_turn(Some((0.0, 0.0)), (1.0, 0.0), 4.0), 4.0);
+        assert_eq!(step_for_turn(Some((1.0, 0.0)), (0.0, 0.0), 4.0), 4.0);
+        assert_eq!(step_for_turn(Some((1.0, 0.0)), (1.0, 0.0), 0.0), 1.0, "步长下限 1px");
+    }
+
+    #[test]
+    fn ink_gate_detects_points_outside_the_ink() {
+        let (w, h) = (8usize, 1usize);
+        let mut mask = vec![0u8; w * h];
+        for x in 0..4 {
+            mask[x] = 1;
+        }
+        assert!(all_on_ink(
+            &[DrawingPoint { x: 0.0, y: 0.0 }, DrawingPoint { x: 3.0, y: 0.0 }],
+            &mask,
+            w,
+            h
+        ));
+        assert!(!all_on_ink(&[DrawingPoint { x: 7.0, y: 0.0 }], &mask, w, h));
+    }
+
+    fn stroke_of(points: &[(f32, f32)]) -> DrawingStroke {
+        DrawingStroke { points: points.iter().map(|&(x, y)| DrawingPoint { x, y }).collect() }
+    }
+
+    #[test]
+    fn join_merges_strokes_that_meet_at_a_junction() {
+        // 交叉像素只归属于其中一条笔画，其余笔画的端点停在它的相邻像素上（相差 1px）。
+        // VRC-Draw 要求端点坐标严格相等，在这种提取器上会一段都接不起来，
+        // 所以这里改成按 ≤JUNCTION_TOL 的并查集归并。
+        let joined = join_continuous_strokes(vec![
+            stroke_of(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]),
+            stroke_of(&[(2.0, 1.0), (2.0, 2.0)]),
+        ]);
+        assert_eq!(joined.len(), 1, "相接的两段应当一笔走完");
+        let path: Vec<(f32, f32)> = joined[0].points.iter().map(|point| (point.x, point.y)).collect();
+        assert_eq!(path, vec![(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (2.0, 1.0), (2.0, 2.0)]);
+    }
+
+    #[test]
+    fn join_closes_a_square_into_a_single_pen_down() {
+        // 全偶度分量 = 欧拉回路：四条边合成一筆，中间完全不提笔。
+        let joined = join_continuous_strokes(vec![
+            stroke_of(&[(0.0, 0.0), (4.0, 0.0)]),
+            stroke_of(&[(4.0, 0.0), (4.0, 4.0)]),
+            stroke_of(&[(4.0, 4.0), (0.0, 4.0)]),
+            stroke_of(&[(0.0, 4.0), (0.0, 0.0)]),
+        ]);
+        assert_eq!(joined.len(), 1, "闭合线团应当一笔画完");
+        assert_eq!(joined[0].points.len(), 5, "四个重合端点应各省一次，且不许凭空加点");
+    }
+
+    #[test]
+    fn join_leaves_distant_strokes_separate() {
+        // 接续只在同一个连通分量内部做；跨分量的空隙留给 `merge_nearby_strokes`
+        // 按平滑度判断，绝不允许在这里凭空连出一条原图没有的长线。
+        let joined = join_continuous_strokes(vec![
+            stroke_of(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]),
+            stroke_of(&[(60.0, 40.0), (61.0, 40.0), (62.0, 40.0)]),
+        ]);
+        assert_eq!(joined.len(), 2, "相距几十像素的两条线不该被接在一起");
+    }
+
+    #[test]
+    fn pen_up_budget_drops_for_bundled_samples() {
+        // 每次重新落笔都要等 `min_button_down_ms`（默认 600ms）防双击橡皮，
+        // 所以「提笔次数」就是绘制时长的硬性下限：1000 笔光是等待就 10 分钟。
+        // 两个约束：欧拉接续必须真的省下提笔；全流程的提笔数必须留在可用区间内
+        // （挖空厚块会把面换成轮廓，笔画数略增是预期内的，失控增长才要拦）。
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("assets");
+        let config = DrawingConfig::default();
+        let mut samples = 0usize;
+        let mut raw_total = 0usize;
+        let mut joined_total = 0usize;
+        let mut assembled_total = 0usize;
+        for name in ["helmet.jpeg", "dog.jpg", "main.png", "unknown.jpeg", "mono.jpeg"] {
+            let path = root.join(name);
+            if !path.is_file() { continue; }
+            let Ok(image) = image::open(&path) else { continue };
+            let resized = image.resize(config.max_dimension, config.max_dimension, image::imageops::FilterType::Triangle);
+            let gray = image::imageops::blur(&resized.to_luma8(), config.blur);
+            let (width, height) = gray.dimensions();
+            let (w, h) = (width as usize, height as usize);
+            let raw = gray.into_raw();
+            let mut mask = build_ink_mask(&raw, w, h, &config);
+            mask = erode_plus(&dilate_plus(&mask, w, h), w, h);
+            despeckle(&mut mask, w, h, config.artifact_removal);
+
+            let mut probe = mask.clone();
+            skeletonize(&mut probe, w, h);
+            prune_spurs(&mut probe, w, h, config.prune_length);
+            let extracted = extract_strokes(&probe, w, h, config.min_stroke_length);
+
+            let joined_only = join_continuous_strokes(extracted.clone());
+            let strokes = assemble_strokes(mask, w, h, &config, |_, _| {});
+            let points: usize = strokes.iter().map(|stroke| stroke.points.len()).sum();
+            let minutes = (strokes.len() as f32 * config.min_button_down_ms as f32
+                + points as f32 * config.point_delay_ms as f32)
+                / 60_000.0;
+            println!(
+                "  DIAG {name}: 提取 {} 段 → 接续 {} 笔 → 全流程 {} 笔, {points} 点, 提笔等待下限 {minutes:.1} 分钟",
+                extracted.len(),
+                joined_only.len(),
+                strokes.len()
+            );
+            samples += 1;
+            raw_total += extracted.len();
+            joined_total += joined_only.len();
+            assembled_total += strokes.len();
+        }
+        assert!(samples > 0, "找不到用于度量的样张");
+        assert!(
+            joined_total < raw_total,
+            "欧拉接续没有省下任何提笔：{} vs {}",
+            joined_total,
+            raw_total
+        );
+        // 220 笔 × 600ms ≈ 2.2 分钟纯等待，是「一张 512 图值得等」的上限。
+        assert!(
+            assembled_total <= samples * 220,
+            "单图提笔数失控：{} 笔 / {} 幅",
+            assembled_total,
+            samples
+        );
     }
 }

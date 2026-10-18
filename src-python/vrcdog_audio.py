@@ -20,6 +20,10 @@ Enhanced pipeline (VRCDog native audio worker):
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import hmac
+import io
 import json
 import math
 import os
@@ -29,10 +33,11 @@ import sys
 import threading
 import time
 import traceback
-import base64
-import hashlib
-import hmac
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
+import wave
 from urllib.parse import quote, urlencode
 from array import array
 from collections import deque
@@ -443,6 +448,7 @@ class SileroVadWrapper:
 
 class VadWrapper:
     def __init__(self, vad_type: str, aggressiveness: int, threshold: int, silero_model: str = "") -> None:
+        self.vad_type = vad_type
         self.threshold = max(1, threshold)
         self.aggressiveness = max(0, min(3, aggressiveness))
         self.webrtc = None
@@ -464,9 +470,9 @@ class VadWrapper:
                 pass
 
     def _spectral_is_speech(self, frame: array) -> bool:
-        np = self.np
-        if np is None:
+        if self.vad_type == "rms" or self.np is None:
             return frame_rms(frame) >= self.threshold
+        np = self.np
         samples = np.frombuffer(frame.tobytes(), dtype=np.int16).astype(np.float64)
         if samples.size == 0:
             return False
@@ -498,11 +504,80 @@ class VadWrapper:
         return self._spectral_is_speech(frame)
 
 
+def samples_to_wav_bytes(samples: array) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(BYTES_PER_SAMPLE)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(samples.tobytes())
+    return buf.getvalue()
+
+
+def _post_multipart_audio(url: str, headers: dict[str, str], fields: dict[str, str], file_field: str, filename: str, file_data: bytes, content_type: str = "audio/wav") -> bytes:
+    try:
+        import requests
+        files = {file_field: (filename, file_data, content_type)}
+        resp = requests.post(url, headers=headers, data=fields, files=files, timeout=25)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
+        return resp.content
+    except ImportError:
+        boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+        body = bytearray()
+        for k, v in fields.items():
+            body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode("utf-8"))
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{file_field}\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        body.extend(file_data)
+        body.extend(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+        req_headers = dict(headers)
+        req_headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        req = urllib.request.Request(url, data=bytes(body), headers=req_headers, method="POST")
+        with urllib.request.urlopen(req, timeout=25) as response:
+            return response.read()
+
+
+def transcribe_openai_compatible(wav_bytes: bytes, base_url: str, api_key: str, model: str, language: str | None = None) -> str:
+    url = f"{base_url.rstrip('/')}/audio/transcriptions"
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    fields: dict[str, str] = {"model": model or "whisper-1"}
+    if language and language != "auto":
+        fields["language"] = language.split("-")[0]
+    raw = _post_multipart_audio(url, headers, fields, "file", "audio.wav", wav_bytes, "audio/wav")
+    payload = json.loads(raw.decode("utf-8", errors="replace"))
+    return str(payload.get("text", "")).strip()
+
+
+def transcribe_deepgram(wav_bytes: bytes, api_key: str, model: str = "nova-2", language: str | None = None) -> str:
+    params = {"model": model or "nova-2"}
+    if language and language != "auto":
+        params["language"] = language.split("-")[0]
+    else:
+        params["detect_language"] = "true"
+    query = urlencode(params)
+    url = f"https://api.deepgram.com/v1/listen?{query}"
+    headers = {
+        "Authorization": f"Token {api_key}",
+        "Content-Type": "audio/wav",
+    }
+    req = urllib.request.Request(url, data=wav_bytes, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            channel = payload["results"]["channels"][0]
+            alternative = channel["alternatives"][0]
+            return str(alternative.get("transcript", "")).strip()
+    except Exception as exc:
+        raise RuntimeError(f"Deepgram transcription failed: {exc}")
+
+
 # --------------------------------------------------------------------------- #
 # Transcription
 # --------------------------------------------------------------------------- #
 class Transcriber:
-    def __init__(self, engine: str, source_lang: str, model_name: str, sr: Any) -> None:
+    def __init__(self, engine: str, source_lang: str, model_name: str, sr: Any, extra_args: Any = None) -> None:
         self.engine = engine
         self.source_lang = source_lang
         self.language = source_lang.split("-")[0] or "auto"
@@ -511,6 +586,7 @@ class Transcriber:
         self.sherpa = None
         self.sherpa_stream = None
         self.sr = sr
+        self.extra_args = extra_args
         self.realtime_provider = os.environ.get("VRCDOG_REALTIME_PROVIDER", "").strip().lower()
         self.realtime_session = None
         try:
@@ -549,8 +625,11 @@ class Transcriber:
             emit("status", message="loading_model", model=model_name)
             from faster_whisper import WhisperModel
 
-            compute_type = os.environ.get("VRCDOG_WHISPER_COMPUTE", "int8")
-            self.model = WhisperModel(model_name, device="cpu", compute_type=compute_type)
+            whisper_device = getattr(extra_args, "whisper_device", "cpu") if extra_args else "cpu"
+            whisper_device = whisper_device or os.environ.get("VRCDOG_WHISPER_DEVICE", "cpu")
+            compute_type = getattr(extra_args, "whisper_compute_type", "int8") if extra_args else "int8"
+            compute_type = compute_type or os.environ.get("VRCDOG_WHISPER_COMPUTE", "int8")
+            self.model = WhisperModel(model_name, device=whisper_device, compute_type=compute_type)
             emit("status", message="model_ready", model=model_name)
         elif engine == "sensevoice":
             try:
@@ -572,6 +651,30 @@ class Transcriber:
                 emit("status", message="model_ready", model=model_name)
 
     def transcribe(self, samples: array, engine_name: str, is_partial: bool = False) -> str:
+        if self.engine in {"groq_whisper", "openai_whisper", "custom_whisper"}:
+            if is_partial:
+                return ""
+            wav = samples_to_wav_bytes(samples)
+            if self.engine == "groq_whisper":
+                base_url = "https://api.groq.com/openai/v1"
+                api_key = getattr(self.extra_args, "groq_api_key", "") or os.environ.get("VRCDOG_GROQ_API_KEY", "")
+                model = getattr(self.extra_args, "whisper_model", "") or "whisper-large-v3-turbo"
+            elif self.engine == "openai_whisper":
+                base_url = "https://api.openai.com/v1"
+                api_key = getattr(self.extra_args, "openai_api_key", "") or os.environ.get("VRCDOG_OPENAI_API_KEY", "")
+                model = getattr(self.extra_args, "whisper_model", "") or "whisper-1"
+            else:
+                base_url = getattr(self.extra_args, "custom_whisper_url", "") or os.environ.get("VRCDOG_CUSTOM_WHISPER_URL", "http://127.0.0.1:8000/v1")
+                api_key = getattr(self.extra_args, "custom_whisper_key", "") or os.environ.get("VRCDOG_CUSTOM_WHISPER_KEY", "")
+                model = getattr(self.extra_args, "whisper_model", "") or "whisper-1"
+            return transcribe_openai_compatible(wav, base_url, api_key, model, self.language)
+        if self.engine == "deepgram":
+            if is_partial:
+                return ""
+            wav = samples_to_wav_bytes(samples)
+            api_key = getattr(self.extra_args, "deepgram_api_key", "") or os.environ.get("VRCDOG_DEEPGRAM_API_KEY", "")
+            model = getattr(self.extra_args, "deepgram_model", "") or os.environ.get("VRCDOG_DEEPGRAM_MODEL", "nova-2")
+            return transcribe_deepgram(wav, api_key, model, self.language)
         if self.engine in {"tencent_realtime", "aliyun_realtime"} and self.realtime_provider in {"tencent_realtime", "aliyun_realtime"}:
             return self.transcribe_realtime(samples, is_partial)
         if self.sherpa is not None and self.sherpa_stream is not None:
@@ -807,14 +910,25 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
         corrector = ASRCorrector(args.correction_dict_dir) if args.correction_enabled else ASRCorrector(None)
         denoiser = Denoiser(args.denoise_strength)
         vad = VadWrapper(args.vad_type, args.vad_aggressiveness, args.energy_threshold or 150, args.silero_model)
-        transcriber = Transcriber(args.engine, args.source_lang, args.whisper_model, sr)
+        transcriber = Transcriber(args.engine, args.source_lang, args.whisper_model, sr, extra_args=args)
         engine_name = (
             "sensevoice" if (args.engine == "sensevoice" and transcriber.sensevoice is not None)
             else "sherpa" if transcriber.sherpa is not None
             else "whisper" if transcriber.model is not None
-            else args.engine if args.engine in {"tencent_realtime", "aliyun_realtime"}
+            else args.engine if args.engine in {"tencent_realtime", "aliyun_realtime", "groq_whisper", "openai_whisper", "custom_whisper", "deepgram"}
             else "cloud"
         )
+        word_filter_list: list[str] = []
+        raw_filter = getattr(args, "word_filter", "") or ""
+        if raw_filter.strip():
+            raw_s = raw_filter.strip()
+            if raw_s.startswith("["):
+                try:
+                    word_filter_list = [str(item).strip().lower() for item in json.loads(raw_s) if str(item).strip()]
+                except Exception:
+                    word_filter_list = [item.strip().lower() for item in raw_s.split(",") if item.strip()]
+            else:
+                word_filter_list = [item.strip().lower() for item in raw_s.split(",") if item.strip()]
 
         transcribe_queue: queue.Queue[tuple[array, bool]] = queue.Queue(maxsize=4)
         result_queue: queue.Queue[tuple[str, bool]] = queue.Queue()
@@ -915,13 +1029,34 @@ def listen(args: argparse.Namespace, pyaudio: Any, sr: Any) -> None:
                 if args.self_suppress_seconds > 0 and now >= self_suppress_until:
                     self_suppress_until = 0.0
 
-        # Drain queued transcriptions and emit results.
+            # Drain queued transcriptions and emit results in real time
+            while True:
+                try:
+                    text, is_partial = result_queue.get_nowait()
+                except queue.Empty:
+                    break
+                corrected = corrector.apply(text, args.source_lang)
+                if word_filter_list and any(wf in corrected.lower() for wf in word_filter_list):
+                    emit("status", message="word_filtered", text=corrected)
+                    continue
+                if is_partial:
+                    emit("partial", text=corrected, engine=engine_name)
+                else:
+                    emit("result", text=corrected, engine=engine_name)
+                    emit("status", message="listening")
+                    if args.self_suppress_seconds > 0:
+                        self_suppress_until = time.monotonic() + args.self_suppress_seconds
+
+        # Drain remaining queued transcriptions after stop request
         while not transcribe_queue.empty() or not result_queue.empty():
             try:
                 text, is_partial = result_queue.get(timeout=0.3)
             except queue.Empty:
                 break
             corrected = corrector.apply(text, args.source_lang)
+            if word_filter_list and any(wf in corrected.lower() for wf in word_filter_list):
+                emit("status", message="word_filtered", text=corrected)
+                continue
             if is_partial:
                 emit("partial", text=corrected, engine=engine_name)
             else:
@@ -948,7 +1083,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-lang", default="en-US")
     parser.add_argument(
         "--engine",
-        choices=("cloud", "local", "whisper", "sensevoice", "sherpa", "tencent_realtime", "aliyun_realtime"),
+        choices=("cloud", "local", "whisper", "sensevoice", "sherpa", "tencent_realtime", "aliyun_realtime", "groq_whisper", "openai_whisper", "custom_whisper", "deepgram"),
         default="local",
     )
     parser.add_argument("--device-index", type=int)
@@ -958,6 +1093,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--phrase-time-limit", type=float, default=10.0)
     parser.add_argument("--silence-timeout", type=float, default=0.6)
     parser.add_argument("--whisper-model", default=os.environ.get("VRCDOG_WHISPER_MODEL", "tiny"))
+    parser.add_argument("--whisper-device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--whisper-compute-type", default="int8")
+    parser.add_argument("--groq-api-key", default="")
+    parser.add_argument("--openai-api-key", default="")
+    parser.add_argument("--custom-whisper-url", default="")
+    parser.add_argument("--custom-whisper-key", default="")
+    parser.add_argument("--deepgram-api-key", default="")
+    parser.add_argument("--deepgram-model", default="nova-2")
+    parser.add_argument("--word-filter", default="")
     # Enhanced controls ported from MioVRC.
     parser.add_argument("--vad-type", choices=("webrtc", "rms", "silero"), default="webrtc")
     parser.add_argument("--silero-model", default=os.environ.get("VRCDOG_SILERO_VAD_MODEL", ""))

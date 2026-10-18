@@ -39,6 +39,7 @@ const defaultConfig: DrawingConfig = {
   lift_speed: 1,
   pen_settle_ms: 15,
   canvas_size_px: 0,
+  min_button_down_ms: 600,
   two_opt_path: true,
 };
 
@@ -70,6 +71,7 @@ const strokeSectionKeys: (keyof DrawingConfig)[] = [
 const executionSectionKeys: (keyof DrawingConfig)[] = [
   'sensitivity', 'vertical_stretch', 'max_step_px', 'point_delay_ms', 'lift_delay_ms',
   'start_delay_ms', 'focus_vrchat', 'hotkeys_enabled', 'lift_speed', 'pen_settle_ms', 'canvas_size_px',
+  'min_button_down_ms',
 ];
 
 export function useDrawing() {

@@ -106,7 +106,9 @@ const localSongQuery = ref('');
 const status = ref<VrpianoStatus>(emptyStatus());
 const loading = ref(false);
 const onlineLoading = ref(false);
-const ONLINE_SEARCH_TIMEOUT_MS = 35_000;
+// 后端搜索链路：直连（约 4s 上限）→ 只读渲染代理（约 15s 上限）→ 后台浏览器兜底（15s），
+// 这里留出余量，避免前端先把请求判超时、把已经拿到的结果丢掉。
+const ONLINE_SEARCH_TIMEOUT_MS = 50_000;
 let onlineSearchRequestId = 0;
 let onlineSearchTimeout: number | null = null;
 const hasSearchedOnline = ref(false);
@@ -134,6 +136,7 @@ const midishowLoginMode = ref<'password' | 'cookie'>('password');
 const midishowCookie = ref('');
 const midishowCookieAccount = ref('');
 const onlineSearchError = ref('');
+const onlineSearchNotice = ref('');
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   state: 'idle',
@@ -240,6 +243,7 @@ const formatVrpianoError = (e: unknown) => {
 let unlistenStatus: (() => void) | null = null;
 let unlistenOverlayClosed: (() => void) | null = null;
 let unlistenMidishowLogin: (() => void) | null = null;
+let unlistenSearchChallenge: (() => void) | null = null;
 let unlistenPreviewSong: (() => void) | null = null;
 let unlistenVrAction: (() => void) | null = null;
 let unlistenLoopMidiProgress: (() => void) | null = null;
@@ -271,7 +275,85 @@ const filteredSongs = computed(() => {
     return terms.every((term) => haystack.includes(term));
   });
 });
-const progressPercent = computed(() => Math.round(Math.min(1, Math.max(0, status.value.progress || 0)) * 100));
+// ---- 进度条拖动定位（主界面 hero 卡片）----
+const heroTrackRef = ref<HTMLElement | null>(null);
+const heroSeekPreviewMs = ref<number | null>(null);
+const heroSeekDragging = ref(false);
+const canSeekPlayback = computed(() => Boolean(status.value.running && status.value.duration_ms > 0));
+const heroRatio = computed(() => {
+  if (heroSeekPreviewMs.value !== null) {
+    const duration = Math.max(1, status.value.duration_ms);
+    return Math.min(1, Math.max(0, heroSeekPreviewMs.value / duration));
+  }
+  return Math.min(1, Math.max(0, Number(status.value.progress) || 0));
+});
+const progressPercent = computed(() => Math.round(heroRatio.value * 100));
+const heroElapsedMs = computed(() => (heroSeekPreviewMs.value !== null ? heroSeekPreviewMs.value : status.value.elapsed_ms));
+
+const heroSeekTargetFromClientX = (clientX: number) => {
+  const el = heroTrackRef.value;
+  const duration = status.value.duration_ms;
+  if (!el || !duration) return 0;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return 0;
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  return Math.round(ratio * duration);
+};
+
+const commitHeroSeek = async (positionMs: number) => {
+  if (!canSeekPlayback.value) return;
+  const target = Math.min(status.value.duration_ms, Math.max(0, Math.round(positionMs)));
+  try {
+    status.value = await VrpianoApi.seek({ positionMs: target });
+  } catch (e: any) {
+    error.value = e?.message || String(e);
+  }
+};
+
+const onHeroSeekPointerDown = (event: PointerEvent) => {
+  if (!canSeekPlayback.value || event.button !== 0) return;
+  heroSeekDragging.value = true;
+  heroSeekPreviewMs.value = heroSeekTargetFromClientX(event.clientX);
+  (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+};
+
+const onHeroSeekPointerMove = (event: PointerEvent) => {
+  if (!heroSeekDragging.value) return;
+  heroSeekPreviewMs.value = heroSeekTargetFromClientX(event.clientX);
+};
+
+const onHeroSeekPointerUp = async (event: PointerEvent) => {
+  if (!heroSeekDragging.value) return;
+  heroSeekDragging.value = false;
+  const target = heroSeekPreviewMs.value;
+  heroSeekPreviewMs.value = null;
+  (event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
+  if (target !== null) await commitHeroSeek(target);
+};
+
+const onHeroSeekPointerCancel = () => {
+  heroSeekDragging.value = false;
+  heroSeekPreviewMs.value = null;
+};
+
+const onHeroSeekKeydown = (event: KeyboardEvent) => {
+  if (!canSeekPlayback.value) return;
+  const step = event.shiftKey ? 30_000 : 5_000;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+    event.preventDefault();
+    void commitHeroSeek(status.value.elapsed_ms - step);
+  } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    void commitHeroSeek(status.value.elapsed_ms + step);
+  } else if (event.key === 'Home') {
+    event.preventDefault();
+    void commitHeroSeek(0);
+  } else if (event.key === 'End') {
+    event.preventDefault();
+    void commitHeroSeek(status.value.duration_ms);
+  }
+};
 const canTogglePlayback = computed(() => {
   if (!selectedSong.value) return false;
   // When already playing, pause/resume is always allowed (it doesn't set loading).
@@ -310,6 +392,7 @@ const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length ||
 const onlineEmptyText = computed(() => {
   // 搜索进行中：显示"正在搜索"，而不是"未找到"——避免请求未完成时就
   // 误把"未找到 XX 相关结果"展示给用户，让用户以为真的搜不到。
+  if (onlineSearchNotice.value) return onlineSearchNotice.value;
   if (onlineLoading.value) return t('vrpiano.searching');
   if (onlineSearchError.value) return onlineSearchError.value;
   if (!hasSearchedOnline.value) return t('vrpiano.search_by_keyword_or_paste_a_url_or_id_t');
@@ -1124,6 +1207,7 @@ const searchOnline = async () => {
   lastOnlineKeyword.value = keyword;
   onlineResults.value = [];
   onlineSearchError.value = '';
+  onlineSearchNotice.value = '';
   if (onlineSearchTimeout !== null) window.clearTimeout(onlineSearchTimeout);
   onlineSearchTimeout = window.setTimeout(() => {
     onlineSearchTimeout = null;
@@ -2110,6 +2194,15 @@ onMounted(async () => {
     unlistenMidishowLogin = await listen<VrpianoMidishowLoginStatus>('vrpiano_midishow_login_status', (event) => {
       void applyMidishowLoginStatus(event.payload);
     });
+    unlistenSearchChallenge = await listen<string>('vrpiano_midishow_search_challenge', (event) => {
+      // 后台浏览器撞上 Cloudflare 人机验证：窗口已经弹出来了，这里只需要提示用户，
+      // 同时撤掉前端超时，避免把正在等用户点验证的请求提前判死。
+      onlineSearchNotice.value = event.payload || '';
+      if (onlineSearchTimeout !== null) {
+        window.clearTimeout(onlineSearchTimeout);
+        onlineSearchTimeout = null;
+      }
+    });
     unlistenModeSync = await listen<{ mode: 'keyboard' | 'midi' | 'osc' }>('vrpiano-output-mode-sync', (event) => {
       if (event.payload?.mode && ['keyboard', 'midi', 'osc'].includes(event.payload.mode)) {
         if (outputMode.value !== event.payload.mode) {
@@ -2156,6 +2249,7 @@ onMounted(async () => {
     if (unlistenStatus) { unlistenStatus(); unlistenStatus = null; }
     if (unlistenOverlayClosed) { unlistenOverlayClosed(); unlistenOverlayClosed = null; }
     if (unlistenMidishowLogin) { unlistenMidishowLogin(); unlistenMidishowLogin = null; }
+    if (unlistenSearchChallenge) { unlistenSearchChallenge(); unlistenSearchChallenge = null; }
     if (unlistenModeSync) { unlistenModeSync(); unlistenModeSync = null; }
     if (unlistenPreviewSong) { unlistenPreviewSong(); unlistenPreviewSong = null; }
     if (unlistenVrAction) { unlistenVrAction(); unlistenVrAction = null; }
@@ -2189,6 +2283,7 @@ onUnmounted(async () => {
   if (unlistenStatus) unlistenStatus();
   if (unlistenOverlayClosed) unlistenOverlayClosed();
   if (unlistenMidishowLogin) unlistenMidishowLogin();
+  if (unlistenSearchChallenge) unlistenSearchChallenge();
   if (unlistenModeSync) unlistenModeSync();
   if (unlistenPreviewSong) unlistenPreviewSong();
   if (unlistenVrAction) unlistenVrAction();
@@ -2234,7 +2329,7 @@ onUnmounted(async () => {
           @click="toggleHotkeys"
         >
           <ShieldCheck :size="15" />
-          <span>F1 {{ hotkeysEnabled ? t('vrpiano.enabled') : t('vrpiano.disabled') }}</span>
+          <span>{{ t('vrpiano.hotkey_status_label', '快捷键') }}{{ hotkeysEnabled ? t('vrpiano.enabled', '已开启') : t('vrpiano.disabled', '已关闭') }}</span>
         </button>
         <button class="overlay-toggle" :class="{ active: overlayOpen }" :title="overlayOpen ? t('vrpiano.close_overlay') : t('vrpiano.open_overlay')" @click="toggleVrpianoOverlay">
           <PictureInPicture2 :size="15" />
@@ -2447,11 +2542,29 @@ onUnmounted(async () => {
 
           <!-- Hero Progress Track -->
           <div class="hero-progress">
-            <div class="hero-progress-bar">
+            <div
+              ref="heroTrackRef"
+              class="hero-progress-bar"
+              :class="{ seekable: canSeekPlayback, dragging: heroSeekDragging }"
+              role="slider"
+              tabindex="0"
+              :aria-label="t('vrpiano.seek_progress')"
+              :aria-valuemin="0"
+              :aria-valuemax="status.duration_ms || 0"
+              :aria-valuenow="Math.round(heroElapsedMs)"
+              :aria-valuetext="`${formatTime(heroElapsedMs)} / ${formatTime(status.duration_ms)}`"
+              :aria-disabled="!canSeekPlayback"
+              @pointerdown="onHeroSeekPointerDown"
+              @pointermove="onHeroSeekPointerMove"
+              @pointerup="onHeroSeekPointerUp"
+              @pointercancel="onHeroSeekPointerCancel"
+              @keydown="onHeroSeekKeydown"
+            >
               <div class="hero-progress-fill" :style="{ width: `${progressPercent}%` }" />
+              <span class="hero-progress-thumb" :style="{ left: `${progressPercent}%` }" />
             </div>
             <div class="hero-progress-labels">
-              <span>{{ formatTime(status.elapsed_ms) }}</span>
+              <span>{{ formatTime(heroElapsedMs) }}</span>
               <span class="hero-event-desc">{{ status.last_event || t('vrpiano.ready') }}</span>
               <span>{{ formatTime(status.duration_ms) }}</span>
             </div>
@@ -3020,7 +3133,7 @@ onUnmounted(async () => {
             </div>
 
             <div class="online-results">
-              <div v-for="item in onlineResults" :key="item.id" class="online-row">
+              <div v-for="item in onlineResults" :key="`${item.source || 'midishow'}-${item.id}`" class="online-row">
                 <div class="online-meta">
                   <div class="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
                     <span
@@ -4042,11 +4155,25 @@ select option {
 }
 
 .hero-progress-bar {
+  position: relative;
   width: 100%;
   height: 6px;
   border-radius: 9999px;
   background: color-mix(in srgb, var(--vp-muted) 15%, transparent);
-  overflow: hidden;
+  overflow: visible;
+}
+
+/* 可拖动时把热区上下各扩 6px，视觉上仍是 6px 细条 */
+.hero-progress-bar.seekable {
+  padding: 6px 0;
+  margin: -6px 0;
+  background-clip: content-box;
+  cursor: pointer;
+}
+
+.hero-progress-bar.seekable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vp-primary) 55%, transparent);
+  outline-offset: 3px;
 }
 
 .hero-progress-fill {
@@ -4054,6 +4181,31 @@ select option {
   border-radius: 9999px;
   background: linear-gradient(90deg, var(--vp-primary), #f59e0b);
   transition: width 0.15s linear;
+}
+
+.hero-progress-bar.dragging .hero-progress-fill {
+  transition: none;
+}
+
+.hero-progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--vp-primary);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
+  transform: translateY(-50%) scale(0);
+  transition: transform 0.14s ease;
+  pointer-events: none;
+}
+
+.hero-progress-bar.seekable:hover .hero-progress-thumb,
+.hero-progress-bar.dragging .hero-progress-thumb,
+.hero-progress-bar.seekable:focus-visible .hero-progress-thumb {
+  transform: translateY(-50%) scale(1);
 }
 
 .hero-progress-labels {

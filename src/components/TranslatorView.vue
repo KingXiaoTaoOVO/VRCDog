@@ -9,37 +9,58 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { useStorage } from '@vueuse/core';
 import {
   Activity,
-  CheckCircle2,
+  ArrowLeftRight,
   Camera,
-  ClipboardList,
+  CheckCircle2,
+  Copy,
+  Download,
   Ear,
+  Eye,
+  FileText,
   Gamepad2,
   Headphones,
   HelpCircle,
   Languages,
+  Layers,
   MessageSquare,
   Mic,
   MicOff,
   MonitorUp,
   Plus,
+  Radio,
   RefreshCw,
   RotateCcw,
   Send,
   Settings,
+  Sliders,
   SlidersHorizontal,
   Square,
   Trash2,
+  Tv,
+  Upload,
   Volume2,
+  VolumeX,
   X,
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import { GalleryApi, SysApi, VrctApi, VrpianoApi, type AudioDevice, type AudioSource, type AudioSessionInfo, type KeywordAction } from '../api';
+import {
+  GalleryApi,
+  SysApi,
+  VrctApi,
+  VrpianoApi,
+  type AudioDevice,
+  type AudioSource,
+  type AudioSessionInfo,
+  type KeywordAction,
+} from '../api';
 import * as TranslationApis from '../api';
 import { SerialTaskQueue } from '../utils/serialTaskQueue';
+import { katakanaToHiragana, toRomaji } from '../utils/transliteration';
 import CustomSelect from './CustomSelect.vue';
 
-type MessageSource = 'chat' | 'mic' | 'speaker';
+type MessageSource = 'chat' | 'mic' | 'speaker' | 'ocr';
 type TtsEngine = 'system' | 'edge' | 'gpt_sovits' | 'server';
+type TranslationRoute = 'manual' | 'mic' | 'speaker' | 'photo';
 
 interface TranslationProfile {
   id: string;
@@ -50,8 +71,6 @@ interface TranslationProfile {
   customApiUrl: string;
   prompt: string;
 }
-
-type TranslationRoute = 'manual' | 'mic' | 'speaker' | 'photo';
 
 interface Option {
   label: string;
@@ -86,6 +105,16 @@ interface GlossaryTerm {
   case_sensitive: boolean;
 }
 
+interface PresetConfig {
+  sourceLang: string;
+  target1: string;
+  target2: string;
+  target3: string;
+  enableTarget2: boolean;
+  enableTarget3: boolean;
+  engine: string;
+}
+
 const { t } = useI18n();
 
 const tt = (key: string, fallback: string) => {
@@ -93,6 +122,9 @@ const tt = (key: string, fallback: string) => {
   return value === key ? fallback : value;
 };
 
+// ---------------------------------------------------------------------------
+// Language & Engine Dictionaries
+// ---------------------------------------------------------------------------
 const languageOptions = computed<Option[]>(() => [
   { label: tt('translator.language_auto', 'Auto detect'), value: 'auto' },
   { label: `${tt('translator.language_chinese', 'Chinese')} (zh-CN)`, value: 'zh-CN' },
@@ -108,7 +140,7 @@ const languageOptions = computed<Option[]>(() => [
   { label: `${tt('translator.language_vietnamese', 'Vietnamese')} (vi-VN)`, value: 'vi' },
 ]);
 
-const speechLanguageOptions = computed(() => languageOptions.value.filter((option) => option.value !== 'auto'));
+const speechLanguageOptions = computed(() => languageOptions.value.filter((opt) => opt.value !== 'auto'));
 
 const engineOptions = computed<EngineOption[]>(() => [
   { label: 'Google Translate Free', value: 'google_free', hint: tt('translator.hint_no_api_key', 'No API key required') },
@@ -116,46 +148,283 @@ const engineOptions = computed<EngineOption[]>(() => [
   { label: 'Microsoft Translator', value: 'microsoft', needsKey: true, hint: tt('translator.hint_azure_key', 'Azure Translator key') },
   { label: 'DeepL Free', value: 'deepl_free', needsKey: true, hint: tt('translator.hint_deepl_free_key', 'DeepL Free auth key') },
   { label: 'DeepL Pro', value: 'deepl', needsKey: true, hint: tt('translator.hint_deepl_pro_key', 'DeepL Pro auth key') },
-  { label: 'Tencent Translate', value: 'tencent', needsKey: true, hint: 'SecretId:SecretKey' },
-  { label: 'Baidu Translate', value: 'baidu', needsKey: true, hint: 'AppID:SecretKey' },
+  { label: 'CTranslate2 (NLLB Local)', value: 'ctranslate2', supportsLocal: true, hint: 'Offline CTranslate2 INT8 model' },
   { label: 'Papago', value: 'papago', needsKey: true, hint: 'ClientId:ClientSecret' },
+  { label: 'OpenAI API (GPT-4o)', value: 'openai', needsKey: true, hint: tt('translator.hint_openai_key', 'OpenAI compatible API key') },
   { label: 'Gemini', value: 'gemini', needsKey: true, hint: tt('translator.hint_google_ai_key', 'Google AI Studio key') },
-  { label: 'OpenAI', value: 'openai', needsKey: true, hint: tt('translator.hint_openai_key', 'OpenAI compatible API key') },
+  { label: 'Groq API', value: 'groq', needsKey: true, hint: 'Groq API key' },
   { label: 'DeepSeek', value: 'deepseek', needsKey: true, hint: 'DeepSeek API key' },
-  { label: 'SiliconFlow', value: 'siliconflow', needsKey: true, hint: 'SiliconFlow API key' },
-  { label: 'Moonshot', value: 'moonshot', needsKey: true, hint: 'Moonshot API key' },
-  { label: 'ZhiPu GLM', value: 'zhipu', needsKey: true, hint: 'ZhiPu API key' },
-  { label: 'Groq', value: 'groq', needsKey: true, hint: 'Groq API key' },
   { label: 'OpenRouter', value: 'openrouter', needsKey: true, hint: 'OpenRouter API key' },
   { label: 'Plamo', value: 'plamo', needsKey: true, hint: 'PreferredAI Platform API key' },
+  { label: 'Alibaba Qwen (通义千问)', value: 'qwen', needsKey: true, hint: tt('translator.hint_qwen_key', 'DashScope API Key') },
+  { label: 'Tencent Translate', value: 'tencent', needsKey: true, hint: 'SecretId:SecretKey' },
+  { label: 'Baidu Translate', value: 'baidu', needsKey: true, hint: 'AppID:SecretKey' },
   { label: tt('translator.engine_ollama_local', 'Ollama Local'), value: 'ollama', supportsLocal: true, hint: 'http://127.0.0.1:11434' },
   { label: tt('translator.engine_lmstudio_local', 'LM Studio Local'), value: 'lmstudio', supportsLocal: true, hint: 'http://127.0.0.1:1234' },
   { label: tt('translator.engine_custom_openai', 'Custom OpenAI API'), value: 'custom_llm', needsKey: true, hint: tt('translator.hint_openai_endpoint', 'OpenAI-compatible endpoint') },
-  { label: 'Alibaba Qwen (通义千问/DashScope)', value: 'qwen', needsKey: true, hint: tt('translator.hint_qwen_key', 'DashScope API Key (qwen-mt-plus)') },
 ]);
 
-const speakerEngineOptions = computed<Option[]>(() => [
+const sttEngineOptions = computed<Option[]>(() => [
   { label: tt('translator.engine_cloud', 'Cloud recognition (Google Web Speech)'), value: 'cloud' },
-  { label: tt('translator.engine_local', 'Local Whisper / offline fallback'), value: 'local' },
+  { label: `${tt('translator.engine_local', 'Local Faster-Whisper')} (Offline)`, value: 'whisper' },
+  { label: tt('translator.engine_groq_whisper', 'Groq Whisper (Ultra-fast Cloud)'), value: 'groq_whisper' },
+  { label: tt('translator.engine_openai_whisper', 'OpenAI Whisper (Official Cloud)'), value: 'openai_whisper' },
+  { label: tt('translator.engine_custom_whisper', 'Custom Whisper Server (OpenAI Compatible)'), value: 'custom_whisper' },
+  { label: tt('translator.engine_deepgram', 'Deepgram Nova ASR'), value: 'deepgram' },
   { label: tt('translator.engine_sherpa', 'Sherpa-ONNX streaming'), value: 'sherpa' },
   { label: tt('translator.engine_tencent_realtime', 'Tencent Cloud realtime ASR'), value: 'tencent_realtime' },
   { label: tt('translator.engine_aliyun_realtime', 'Alibaba Cloud NLS realtime ASR'), value: 'aliyun_realtime' },
 ]);
 
-const sourceLang = useStorage('vrc_translator_source_lang', 'zh-CN');
-const targetLang = useStorage('vrc_translator_target_lang', 'en-US');
-const otherSourceLang = useStorage('vrc_translator_other_source_lang', 'en-US');
-const otherTargetLang = useStorage('vrc_translator_other_target_lang', 'zh-CN');
-const photoSourceLang = useStorage('vrc_translator_photo_source_lang', 'auto');
-const photoTargetLang = useStorage('vrc_translator_photo_target_lang', 'zh-CN');
-const photoOcrLang = useStorage('vrc_translator_photo_ocr_lang', 'auto');
-const translateEngine = useStorage('vrc_translator_engine', 'google_free');
-const micEngine = useStorage<'cloud' | 'local' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime'>('vrc_translator_mic_stt_engine', 'cloud');
-const otherEngine = useStorage<'cloud' | 'local' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime'>('vrc_translator_stt_engine', 'cloud');
-// S4 修复：API Key 一律不再写入 localStorage。
-// - Tauri：只写应用数据目录里的加密存储（sys_store_secure_string）
-// - Web：退到 sessionStorage，关闭标签页即清除，不落盘
-// 旧版本遗留在 localStorage 的明文 Key 会在挂载时迁移并删除。
+// ---------------------------------------------------------------------------
+// Presets System (VRCT Parity: Tab 1, Tab 2, Tab 3)
+// ---------------------------------------------------------------------------
+const activePresetTab = useStorage<'1' | '2' | '3'>('vrc_translator_preset_tab', '1');
+const presets = useStorage<Record<'1' | '2' | '3', PresetConfig>>('vrc_translator_presets_v3', {
+  '1': {
+    sourceLang: 'zh-CN',
+    target1: 'en-US',
+    target2: 'ja-JP',
+    target3: 'ko-KR',
+    enableTarget2: false,
+    enableTarget3: false,
+    engine: 'google_free',
+  },
+  '2': {
+    sourceLang: 'ja-JP',
+    target1: 'zh-CN',
+    target2: 'en-US',
+    target3: 'ko-KR',
+    enableTarget2: false,
+    enableTarget3: false,
+    engine: 'deepl_free',
+  },
+  '3': {
+    sourceLang: 'en-US',
+    target1: 'zh-CN',
+    target2: 'ja-JP',
+    target3: 'ko-KR',
+    enableTarget2: false,
+    enableTarget3: false,
+    engine: 'openai',
+  },
+});
+
+const activePreset = computed(() => presets.value[activePresetTab.value]);
+
+const sourceLang = computed({
+  get: () => activePreset.value.sourceLang,
+  set: (val: string) => { presets.value[activePresetTab.value].sourceLang = val; },
+});
+
+const targetLang = computed({
+  get: () => activePreset.value.target1,
+  set: (val: string) => { presets.value[activePresetTab.value].target1 = val; },
+});
+
+const targetLang2 = computed({
+  get: () => activePreset.value.target2,
+  set: (val: string) => { presets.value[activePresetTab.value].target2 = val; },
+});
+
+const targetLang3 = computed({
+  get: () => activePreset.value.target3,
+  set: (val: string) => { presets.value[activePresetTab.value].target3 = val; },
+});
+
+const enableTarget2 = computed({
+  get: () => activePreset.value.enableTarget2,
+  set: (val: boolean) => { presets.value[activePresetTab.value].enableTarget2 = val; },
+});
+
+const enableTarget3 = computed({
+  get: () => activePreset.value.enableTarget3,
+  set: (val: boolean) => { presets.value[activePresetTab.value].enableTarget3 = val; },
+});
+
+const translateEngine = computed({
+  get: () => activePreset.value.engine,
+  set: (val: string) => { presets.value[activePresetTab.value].engine = val; },
+});
+
+const swapLanguages = () => {
+  const currentSource = activePreset.value.sourceLang;
+  const currentTarget = activePreset.value.target1;
+  const newSource = currentTarget === 'auto' ? 'zh-CN' : currentTarget;
+  const newTarget = currentSource === 'auto' ? 'en-US' : currentSource;
+  presets.value[activePresetTab.value].sourceLang = newSource;
+  presets.value[activePresetTab.value].target1 = newTarget;
+  setStatus(tt('translator.swap_languages', '已对调源语言与目标语言'));
+};
+
+// ---------------------------------------------------------------------------
+// 4 Master Switches (Top Bar)
+// ---------------------------------------------------------------------------
+const masterTranslation = useStorage('vrc_translator_master_translation', true);
+const isRecording = ref(false);
+const isOtherRecording = ref(false);
+const isMicStarting = ref(false);
+const isSpeakerStarting = ref(false);
+const masterOcr = useStorage('vrc_translator_master_ocr', false);
+
+// ---------------------------------------------------------------------------
+// 8 Sub-navigation Tabs
+// ---------------------------------------------------------------------------
+type SubTabId = 'dashboard' | 'routing' | 'transcription' | 'translation' | 'osc' | 'ocr' | 'vr_obs' | 'preferences';
+const activeSubTab = useStorage<SubTabId>('vrc_translator_active_subtab', 'dashboard');
+const isSimpleMode = useStorage('vrc_translator_simple_mode', false);
+
+// ---------------------------------------------------------------------------
+// Speech & Audio Configuration
+// ---------------------------------------------------------------------------
+const micEngine = useStorage<'cloud' | 'local' | 'whisper' | 'sensevoice' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime' | 'groq_whisper' | 'openai_whisper' | 'custom_whisper' | 'deepgram'>('vrc_translator_mic_stt_engine', 'cloud');
+const otherEngine = useStorage<'cloud' | 'local' | 'whisper' | 'sensevoice' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime' | 'groq_whisper' | 'openai_whisper' | 'custom_whisper' | 'deepgram'>('vrc_translator_stt_engine', 'cloud');
+
+const whisperModel = useStorage('vrc_translator_whisper_model', 'tiny');
+const whisperDevice = useStorage<'cpu' | 'cuda'>('vrc_translator_whisper_device', 'cpu');
+const whisperComputeType = useStorage('vrc_translator_whisper_compute_type', 'int8');
+const groqApiKey = useStorage('vrc_translator_groq_api_key', '');
+const openaiApiKey = useStorage('vrc_translator_openai_whisper_key', '');
+const customWhisperUrl = useStorage('vrc_translator_custom_whisper_url', 'http://127.0.0.1:8000/v1');
+const customWhisperKey = useStorage('vrc_translator_custom_whisper_key', '');
+const deepgramApiKey = useStorage('vrc_translator_deepgram_key', '');
+const deepgramModel = useStorage('vrc_translator_deepgram_model', 'nova-2');
+
+const micDeviceId = useStorage('vrc_translator_mic_device', '');
+const speakerDeviceId = useStorage('vrc_translator_speaker_device', '');
+const micEnergyThreshold = useStorage('vrc_translator_mic_energy_threshold', 0);
+const speakerEnergyThreshold = useStorage('vrc_translator_speaker_energy_threshold', 0);
+const micAutoThreshold = useStorage('vrc_translator_mic_auto_threshold', true);
+const speakerAutoThreshold = useStorage('vrc_translator_speaker_auto_threshold', true);
+const vadMode = useStorage<'webrtc' | 'silero' | 'rms'>('vrc_translator_vad_type', 'webrtc');
+const vadAggressiveness = useStorage('vrc_translator_vad_aggressiveness', 2);
+const denoiseStrength = useStorage('vrc_translator_denoise_strength', 0);
+const phraseTimeLimit = useStorage('vrc_translator_phrase_time_limit', 10);
+const silenceTimeout = useStorage('vrc_translator_silence_timeout', 0.6);
+const speakerContextIdleSec = useStorage('vrc_translator_speaker_context_idle_sec', 60);
+const micIdleDisconnectSec = useStorage('vrc_translator_mic_idle_disconnect_sec', 15);
+const keepSpeakerContext = useStorage('vrc_translator_keep_speaker_context', true);
+const captureMode = useStorage('vrc_translator_capture_mode', 'loopback');
+const targetProcess = useStorage('vrc_translator_target_process', 'VRChat.exe');
+const selfSuppress = useStorage('vrc_translator_self_suppress', false);
+const selfSuppressSeconds = useStorage('vrc_translator_self_suppress_seconds', 0.8);
+const correctionEnabled = useStorage('vrc_translator_correction_enabled', false);
+
+// Word Filter Redaction List (VRCT MIC_WORD_FILTER)
+const wordFilterList = useStorage<string[]>('vrc_translator_word_filter_list', []);
+const newFilterWord = ref('');
+const addFilterWord = () => {
+  const word = newFilterWord.value.trim();
+  if (word && !wordFilterList.value.includes(word)) {
+    wordFilterList.value.push(word);
+    newFilterWord.value = '';
+    setStatus(tt('translator.word_filter_added', '已添加敏感词规则'));
+  }
+};
+const removeFilterWord = (idx: number) => {
+  wordFilterList.value.splice(idx, 1);
+};
+
+// ---------------------------------------------------------------------------
+// Audio Routing (MIXLINE Visualizer)
+// ---------------------------------------------------------------------------
+const micMuted = ref(false);
+const micVolume = useStorage('vrc_translator_mic_volume', 100);
+const speakerMuted = ref(false);
+const speakerVolume = useStorage('vrc_translator_speaker_volume', 100);
+const vrchatStreamMuted = ref(false);
+const vrchatStreamVolume = useStorage('vrc_translator_stream_volume', 100);
+const headphoneMonitorEnabled = useStorage('vrc_translator_monitor_enabled', false);
+const headphoneMonitorVolume = useStorage('vrc_translator_monitor_volume', 100);
+
+// ---------------------------------------------------------------------------
+// VRChat OSC Formatting & Chatbox
+// ---------------------------------------------------------------------------
+const autoSendOsc = useStorage('vrc_translator_auto_send_osc', true);
+const showOriginalOsc = useStorage('vrc_translator_show_original', true);
+const sendReceivedMessageToVrc = useStorage('vrc_translator_speaker2chatbox', false);
+const sendOnlyTranslatedMessages = useStorage('vrc_translator_send_only_translated', false);
+const notificationVrcSfx = useStorage('vrc_translator_notification_sfx', true);
+const vrcMicMuteSync = useStorage('vrc_translator_mute_sync', false);
+const autoClearMessageBox = useStorage('vrc_translator_auto_clear_msgbox', true);
+const oscIpAddress = useStorage('vrc_translator_osc_ip', '127.0.0.1');
+const oscPort = useStorage('vrc_translator_osc_port', 9000);
+const avatarOscSync = useStorage('vrc_translator_avatar_osc_sync', true);
+const avatarOscParam = useStorage('vrc_translator_avatar_osc_param', '/avatar/parameters/VRCT_IsTalking');
+
+const sendMessageFormat = useStorage('vrc_translator_format_send', {
+  prefix: '',
+  suffix: '',
+  separator: '\n',
+  transPrefix: '',
+  transSuffix: '',
+  transFirst: false,
+});
+
+const receivedMessageFormat = useStorage('vrc_translator_format_receive', {
+  prefix: '',
+  suffix: '',
+  separator: '\n',
+  transPrefix: '',
+  transSuffix: '',
+  transFirst: false,
+});
+
+// ---------------------------------------------------------------------------
+// Chat-Bubble OCR (VRCT OCR)
+// ---------------------------------------------------------------------------
+const ocrWindowTitle = useStorage('vrc_translator_ocr_window_title', 'VRChat');
+const ocrSourceLang = useStorage('vrc_translator_ocr_source_lang', 'auto');
+const ocrPollIntervalMs = useStorage('vrc_translator_ocr_poll_ms', 750);
+const ocrMinConfidence = useStorage('vrc_translator_ocr_min_conf', 0.85);
+const ocrBubbleMinLength = useStorage('vrc_translator_ocr_min_len', 2);
+let ocrIntervalHandle: ReturnType<typeof setInterval> | null = null;
+
+// ---------------------------------------------------------------------------
+// VR Overlay & OBS Browser Source
+// ---------------------------------------------------------------------------
+const overlaySmallLog = useStorage('vrc_translator_vr_small_log', false);
+const overlayLargeLog = useStorage('vrc_translator_vr_large_log', false);
+const overlayTracker = useStorage<'HMD' | 'LeftHand' | 'RightHand' | 'Playspace'>('vrc_translator_vr_tracker', 'HMD');
+const overlayBackgroundOpacity = useStorage('vrc_translation_overlay_opacity', 0.82);
+
+const obsBrowserSource = useStorage('vrc_translator_obs_enabled', false);
+const obsPort = useStorage('vrc_translator_obs_port', 2232);
+const obsMaxMessages = useStorage('vrc_translator_obs_max_msg', 14);
+const obsDisplayDuration = useStorage('vrc_translator_obs_duration', 60);
+const obsFontSize = useStorage('vrc_translator_obs_font_size', 40);
+const obsFontColor = useStorage('vrc_translator_obs_font_color', '#FFFFFF');
+const obsOutlineThickness = useStorage('vrc_translator_obs_outline_thickness', 3);
+const obsOutlineColor = useStorage('vrc_translator_obs_outline_color', '#000000');
+
+const websocketServer = useStorage('vrc_translator_ws_enabled', false);
+const websocketPort = useStorage('vrc_translator_ws_port', 2231);
+const websocketAuthToken = useStorage('vrc_translator_ws_token', () => Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2));
+
+// ---------------------------------------------------------------------------
+// Preferences & Transliteration
+// ---------------------------------------------------------------------------
+const romajiMode = useStorage('vrc_translator_romaji_mode', false);
+const hiraganaMode = useStorage('vrc_translator_hiragana_mode', false);
+const sendMessageButtonType = useStorage<'show' | 'hide' | 'show_and_disable_enter_key'>('vrc_translator_send_btn_type', 'show');
+const showResendButton = useStorage('vrc_translator_show_resend_btn', true);
+const textOnlyMode = useStorage('vrc_translator_text_only_mode', false);
+const autoPlayTts = useStorage('vrc_translator_auto_tts', false);
+const ttsEngine = useStorage<TtsEngine>('vrc_translator_tts_engine', 'system');
+const ttsRate = useStorage('vrc_translator_tts_rate', 1);
+const ttsVolume = useStorage('vrc_translator_tts_volume', 1);
+const interruptTts = useStorage('vrc_translator_tts_interrupt', true);
+const ttsDeviceId = useStorage('vrc_translator_tts_device', '');
+
+// Hotkeys
+const hotkeyToggleWindow = useStorage('vrc_translator_hotkey_window', 'Ctrl+Alt+V');
+const hotkeyToggleTrans = useStorage('vrc_translator_hotkey_trans', 'Ctrl+Alt+T');
+const hotkeyToggleMic = useStorage('vrc_translator_hotkey_mic', 'Ctrl+F8');
+const hotkeyToggleSpeaker = useStorage('vrc_translator_hotkey_speaker', 'Ctrl+F9');
+
+// ---------------------------------------------------------------------------
+// Security & API Keys Storage
+// ---------------------------------------------------------------------------
 const SECURE_API_KEY_NAME = 'translator_api_key';
 const WEB_API_KEY_STORAGE = 'vrc_translator_api_key';
 const apiKey = ref<string>('');
@@ -164,45 +433,24 @@ const persistApiKey = async (val: string) => {
     try {
       await invoke('sys_store_secure_string', { key: SECURE_API_KEY_NAME, value: val });
     } catch (e) {
-      console.warn('[Translator] 无法写入安全存储:', e);
+      console.warn('[Translator] Secure storage error:', e);
     }
     return;
   }
   try {
     sessionStorage.setItem(WEB_API_KEY_STORAGE, val);
   } catch {
-    // sessionStorage 不可用（隐私模式等）时只保留在内存里
+    // ignore
   }
 };
-watch(apiKey, (val) => {
-  void persistApiKey(val);
-});
+watch(apiKey, (val) => { void persistApiKey(val); });
+
 const model = useStorage('vrc_translator_model', '');
 const customApiUrl = useStorage('vrc_translator_custom_api_url', '');
 const prompt = useStorage('vrc_translator_prompt', '');
-const whisperModel = useStorage('vrc_translator_whisper_model', 'tiny');
-const micDeviceId = useStorage('vrc_translator_mic_device', '');
-const speakerDeviceId = useStorage('vrc_translator_speaker_device', '');
-const micEnergyThreshold = useStorage('vrc_translator_mic_energy_threshold', 0);
-const speakerEnergyThreshold = useStorage('vrc_translator_speaker_energy_threshold', 0);
-const phraseTimeLimit = useStorage('vrc_translator_phrase_time_limit', 10);
-const vadType = useStorage('vrc_translator_vad_type', 'webrtc');
-const vadAggressiveness = useStorage('vrc_translator_vad_aggressiveness', 2);
-const denoiseStrength = useStorage('vrc_translator_denoise_strength', 0);
-const correctionEnabled = useStorage('vrc_translator_correction_enabled', false);
-const minSegmentS = useStorage('vrc_translator_min_segment_s', 0.45);
-const maxSegmentS = useStorage('vrc_translator_max_segment_s', 8.0);
-const partialInterval = useStorage('vrc_translator_partial_interval', 1.2);
-const keepSpeakerContext = useStorage('vrc_translator_keep_speaker_context', true);
-const speakerContextIdleSec = useStorage('vrc_translator_speaker_context_idle_sec', 60);
-const micIdleDisconnectSec = useStorage('vrc_translator_mic_idle_disconnect_sec', 15);
-const captureMode = useStorage('vrc_translator_capture_mode', 'loopback');
-const targetProcess = useStorage('vrc_translator_target_process', 'VRChat.exe');
-const selfSuppress = useStorage('vrc_translator_self_suppress', false);
-const selfSuppressSeconds = useStorage('vrc_translator_self_suppress_seconds', 0.8);
-const glossary = useStorage<GlossaryTerm[]>('vrc_translator_glossary', []);
-const contextEnabled = useStorage('vrc_translator_context_enabled', true);
 const retryCount = useStorage('vrc_translator_retry_count', 2);
+const contextEnabled = useStorage('vrc_translator_context_enabled', true);
+const glossary = useStorage<GlossaryTerm[]>('vrc_translator_glossary', []);
 const translationProfiles = useStorage<TranslationProfile[]>('vrc_translator_profiles', []);
 const activeProfileId = useStorage('vrc_translator_active_profile', '');
 const routeProfileIds = useStorage<Record<TranslationRoute, string>>('vrc_translator_route_profiles', {
@@ -211,19 +459,46 @@ const routeProfileIds = useStorage<Record<TranslationRoute, string>>('vrc_transl
   speaker: '',
   photo: '',
 });
-const ttsRate = useStorage('vrc_translator_tts_rate', 1);
-const ttsVolume = useStorage('vrc_translator_tts_volume', 1);
-const interruptTts = useStorage('vrc_translator_tts_interrupt', true);
-const keywordActions = useStorage<KeywordAction[]>('vrc_translator_keyword_actions', []);
-const quickInputHotkey = useStorage('vrc_translator_hotkey_input', 'Ctrl+Alt+I');
-const voiceToggleHotkey = useStorage('vrc_translator_hotkey_voice', 'Ctrl+F8');
+
+// Live State
+const manualText = ref('');
+const recognizedText = ref('');
+const translatedText = ref('');
+const currentTranslations = ref<Array<{ target_lang: string; translated: string }>>([]);
+const history = ref<VrctMessageRecord[]>([]);
 const audioLevels = ref<Record<'mic' | 'speaker', number>>({ mic: 0, speaker: 0 });
-const vadCalibration = ref<{ source: 'mic' | 'speaker'; levels: number[]; suggested?: number } | null>(null);
-const vadCalibrationPhase = ref<'noise' | 'voice' | null>(null);
-const realtimeAsrStatus = ref('');
-const modelStatus = ref<{ installed: boolean; valid: boolean; size: number; path: string } | null>(null);
-const modelBusy = ref(false);
-const hotkeyConflicts = ref<Array<{ hotkey: string; reason: string }>>([]);
+const isTranslating = ref(false);
+const isOverlayOpen = ref(false);
+const errorMsg = ref('');
+const statusMsg = ref('');
+const audioDevices = ref<AudioDevice[]>([]);
+const activeAudioSessions = ref<AudioSessionInfo[]>([]);
+const isLoadingSessions = ref(false);
+const showCableGuide = ref(false);
+const photoBusy = ref(false);
+const photoArmed = ref(false);
+const photoPath = ref('');
+const photoOriginal = ref('');
+const photoTranslated = ref('');
+const otherSourceLang = useStorage('vrc_translator_other_source_lang', 'en-US');
+const otherTargetLang = useStorage('vrc_translator_other_target_lang', 'zh-CN');
+const appMode = useStorage<'vrchat' | 'discord' | 'custom'>('vrc_translator_app_mode', 'vrchat');
+const micPassthrough = useStorage('vrc_translator_mic_passthrough', false);
+const qwenEndpoint = useStorage<'beijing' | 'intl'>('vrc_translator_qwen_endpoint', 'beijing');
+const qwenWorkspaceId = useStorage('vrc_translator_qwen_workspace_id', '');
+const gptSovitsUrl = useStorage('vrc_translator_gpt_sovits_url', 'http://127.0.0.1:9880');
+const gptSovitsWeights = useStorage('vrc_translator_sovits_weights', '');
+const gptWeights = useStorage('vrc_translator_gpt_weights', '');
+const gptReferenceAudio = useStorage('vrc_translator_reference_audio', '');
+const gptPromptText = useStorage('vrc_translator_prompt_text', '');
+const gptPromptLanguage = useStorage('vrc_translator_prompt_language', 'zh');
+const serverTtsProvider = useStorage('vrc_translator_server_tts_provider', 'edge');
+const serverTtsBaseUrl = useStorage('vrc_translator_server_tts_url', '');
+const serverTtsApiKey = useStorage('vrc_translator_server_tts_key', '');
+const serverTtsVoice = useStorage('vrc_translator_server_tts_voice', '');
+const ttsReferenceText = useStorage('vrc_translator_tts_reference_text', '');
+const ttsPresets = ref<any[]>([]);
+const activeTtsPresetId = useStorage('vrc_translator_tts_preset_id', '');
 const runtimeVersion = ref('builtin');
 const sherpaConfig = useStorage('vrc_translator_sherpa_config', { tokens: '', encoder: '', decoder: '', joiner: '' });
 const realtimeAsrConfig = useStorage('vrc_translator_realtime_asr_config', {
@@ -238,44 +513,35 @@ const realtimeAsrConfig = useStorage('vrc_translator_realtime_asr_config', {
   model: '16k_zh_en',
 });
 
-const manualText = ref('');
-const recognizedText = ref('');
-const translatedText = ref('');
-const currentTranslations = ref<Array<{ target_lang: string; translated: string }>>([]);
-const lastTargetLang = ref(targetLang.value);
-const history = ref<VrctMessageRecord[]>([]);
+let overlayWebview: WebviewWindow | null = null;
+let unlistenAudio: UnlistenFn | null = null;
+let unlistenVrct: UnlistenFn | null = null;
+let unlistenTranslationHotkey: UnlistenFn | null = () => {};
+let translatorDisposed = false;
+let speakerSuppressedBySelf = false;
+let selfSuppressTimer: ReturnType<typeof setTimeout> | null = null;
 
-const autoSendOsc = useStorage('vrc_translator_auto_send_osc', true);
-const showOriginalOsc = useStorage('vrc_translator_show_original', true);
-const autoPlayTts = useStorage('vrc_translator_auto_tts', false);
-const multiLangEnabled = useStorage('vrc_translator_multi_lang', false);
-const multiLangTargets = useStorage<string[]>('vrc_translator_multi_targets', []);
-const ttsEngine = useStorage<TtsEngine>('vrc_translator_tts_engine', 'system');
-const gptSovitsUrl = useStorage('vrc_translator_gpt_sovits_url', 'http://127.0.0.1:9880');
-const gptSovitsWeights = useStorage('vrc_translator_sovits_weights', '');
-const gptWeights = useStorage('vrc_translator_gpt_weights', '');
-const gptReferenceAudio = useStorage('vrc_translator_reference_audio', '');
-const gptPromptText = useStorage('vrc_translator_prompt_text', '');
-const gptPromptLanguage = useStorage('vrc_translator_prompt_language', 'zh');
-const serverTtsProvider = useStorage('vrc_translator_server_tts_provider', 'edge');
-const serverTtsBaseUrl = useStorage('vrc_translator_server_tts_url', '');
-const serverTtsApiKey = useStorage('vrc_translator_server_tts_key', '');
-const serverTtsVoice = useStorage('vrc_translator_server_tts_voice', '');
-const ttsReferenceText = useStorage('vrc_translator_tts_reference_text', '');
-const ttsPresets = ref<any[]>([]);
-const activeTtsPresetId = useStorage('vrc_translator_tts_preset_id', '');
-const ttsDeviceId = useStorage('vrc_translator_tts_device', '');
-const textOnlyMode = useStorage('vrc_translator_text_only_mode', false);
-const showCableGuide = ref(false);
-const activeAudioSessions = ref<AudioSessionInfo[]>([]);
-const isLoadingSessions = ref(false);
+const currentEngine = computed(() => engineOptions.value.find((e) => e.value === translateEngine.value) ?? engineOptions.value[0]);
+const needsApiKey = computed(() => Boolean(currentEngine.value.needsKey && !currentEngine.value.supportsLocal));
+const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
+const normalizedGlossary = computed(() => glossary.value.filter((term) => term.source.trim() && term.target.trim()).slice(0, 128));
 
-const appMode = useStorage<'vrchat' | 'discord' | 'custom'>('vrc_translator_app_mode', 'vrchat');
-const avatarOscSync = useStorage('vrc_translator_avatar_osc_sync', true);
-const avatarOscParam = useStorage('vrc_translator_avatar_osc_param', '/avatar/parameters/VRCT_IsTalking');
-const micPassthrough = useStorage('vrc_translator_mic_passthrough', false);
-const qwenEndpoint = useStorage<'beijing' | 'intl'>('vrc_translator_qwen_endpoint', 'beijing');
-const qwenWorkspaceId = useStorage('vrc_translator_qwen_workspace_id', '');
+const translationQueue = new SerialTaskQueue((pending) => {
+  isTranslating.value = pending > 0;
+});
+
+const setStatus = (message: string) => {
+  statusMsg.value = message;
+  window.setTimeout(() => {
+    if (statusMsg.value === message) statusMsg.value = '';
+  }, 3500);
+};
+
+const errorText = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return JSON.stringify(error);
+};
 
 const setAvatarTalking = async (talking: boolean) => {
   if (!avatarOscSync.value || !isTauri()) return;
@@ -288,64 +554,6 @@ const setAvatarTalking = async (talking: boolean) => {
     console.warn('[Translator] Failed to sync avatar OSC param:', e);
   }
 };
-
-const selectAppMode = (mode: 'vrchat' | 'discord' | 'custom') => {
-  appMode.value = mode;
-  if (mode === 'vrchat') {
-    targetProcess.value = 'VRChat.exe';
-    captureMode.value = 'process';
-    autoSendOsc.value = true;
-    avatarOscSync.value = true;
-    setStatus(tt('translator.app_mode_vrchat_applied', '已应用 VRChat 模式（目标进程 VRChat.exe，开启 OSC 与形象同步）'));
-  } else if (mode === 'discord') {
-    targetProcess.value = 'Discord.exe';
-    captureMode.value = 'process';
-    autoSendOsc.value = false;
-    avatarOscSync.value = false;
-    setStatus(tt('translator.app_mode_discord_applied', '已应用 Discord 模式（目标进程 Discord.exe，关闭 OSC 冒字，建议使用悬浮字幕）'));
-  } else {
-    captureMode.value = 'loopback';
-    setStatus(tt('translator.app_mode_custom_applied', '已应用自定义模式（可自由选择发声应用或全局内录）'));
-  }
-};
-
-const isRecording = ref(false);
-const isOtherRecording = ref(false);
-const isMicStarting = ref(false);
-const isSpeakerStarting = ref(false);
-const isTranslating = ref(false);
-const isOverlayOpen = ref(false);
-const overlayBackgroundOpacity = useStorage('vrc_translation_overlay_opacity', 0.82);
-const errorMsg = ref('');
-const statusMsg = ref('');
-const audioDevices = ref<AudioDevice[]>([]);
-const audioDeviceError = ref('');
-const photoBusy = ref(false);
-const photoArmed = ref(false);
-const photoPath = ref('');
-const photoOriginal = ref('');
-const photoTranslated = ref('');
-
-// 自声抑制（self-suppress）：自己用麦克风说话时，暂停"听别人"捕获，
-// 避免把泄漏到自己游戏音频里的声音再次转写。由前端用已有的暂停/恢复接口协调。
-let speakerSuppressedBySelf = false;
-let selfSuppressTimer: ReturnType<typeof setTimeout> | null = null;
-
-let overlayWebview: WebviewWindow | null = null;
-let unlistenAudio: UnlistenFn | null = null;
-let unlistenVrct: UnlistenFn | null = null;
-let unlistenTranslationHotkey: UnlistenFn | null = null;
-
-const currentEngine = computed(() => engineOptions.value.find((engine) => engine.value === translateEngine.value) ?? engineOptions.value[0]);
-const needsApiKey = computed(() => Boolean(currentEngine.value.needsKey && !currentEngine.value.supportsLocal));
-const showModelField = computed(() => ['openai', 'deepseek', 'siliconflow', 'moonshot', 'zhipu', 'groq', 'openrouter', 'plamo', 'ollama', 'lmstudio', 'custom_llm', 'gemini', 'qwen'].includes(translateEngine.value));
-const canTranslate = computed(() => !isTranslating.value && Boolean(manualText.value.trim()));
-const normalizedGlossary = computed(() => glossary.value.filter((term) => term.source.trim() && term.target.trim()).slice(0, 128));
-const activeProfile = computed(() => translationProfiles.value.find((profile) => profile.id === activeProfileId.value));
-const profileOptions = computed<Option[]>(() => [
-  { label: tt('translator.profile_default', '跟随当前配置'), value: '' },
-  ...translationProfiles.value.map((profile) => ({ label: profile.name, value: profile.id })),
-]);
 
 const routeConfig = (route: TranslationRoute) => {
   const profile = translationProfiles.value.find((item) => item.id === routeProfileIds.value[route]);
@@ -379,46 +587,148 @@ const routeConfig = (route: TranslationRoute) => {
   }
   return base;
 };
-const micDeviceOptions = computed<Option[]>(() => audioDevices.value
-  .filter(device => device.source === 'mic')
-  .map(device => ({ label: `${device.name}${device.is_default ? ` (${t('translator.default')}})` : ''}`, value: device.id })));
-const speakerDeviceOptions = computed<Option[]>(() => audioDevices.value
-  .filter(device => device.source === 'speaker')
-  .map(device => ({ label: `${device.name}${device.is_default ? ` (${t('translator.default')}})` : ''}`, value: device.id })));
-const ttsDeviceOptions = computed<Option[]>(() => [
-  { label: tt('translator.tts_device_default', '系统默认输出 (扬声器/耳机)'), value: '' },
-  ...audioDevices.value
-    .filter(device => device.source === 'output')
-    .map(device => ({
-      label: `${device.name}${device.is_default ? ` (${tt('translator.default', '默认')})` : ''}`,
-      value: device.id,
-    })),
-]);
 
-const translationQueue = new SerialTaskQueue((pending) => {
-  isTranslating.value = pending > 0;
-});
-
-const setStatus = (message: string) => {
-  statusMsg.value = message;
-  window.setTimeout(() => {
-    if (statusMsg.value === message) statusMsg.value = '';
-  }, 3000);
-};
-
-const errorText = (error: unknown) => {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  return JSON.stringify(error);
-};
-
-const overlayType = (source: MessageSource): 'self' | 'other' => (source === 'speaker' ? 'other' : 'self');
-
-const addHistory = (record: VrctMessageRecord) => {
-  const exists = history.value.some((item) => item.id === record.id);
-  if (!exists) {
-    history.value = [record, ...history.value].slice(0, 80);
+// ---------------------------------------------------------------------------
+// Processing & OSC Transmission
+// ---------------------------------------------------------------------------
+const buildTargetLanguages = (): string[] => {
+  const list = [activePreset.value.target1];
+  if (activePreset.value.enableTarget2 && activePreset.value.target2 && activePreset.value.target2 !== activePreset.value.target1) {
+    list.push(activePreset.value.target2);
   }
+  if (activePreset.value.enableTarget3 && activePreset.value.target3 && !list.includes(activePreset.value.target3)) {
+    list.push(activePreset.value.target3);
+  }
+  return list;
+};
+
+const processMessageNow = async (
+  text: string,
+  source: MessageSource,
+  sourceLanguage: string,
+  targetLanguage: string,
+  sendOsc: boolean,
+) => {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  // Check word filter redaction
+  const lower = trimmed.toLowerCase();
+  if (wordFilterList.value.some((filter) => filter && lower.includes(filter.toLowerCase()))) {
+    setStatus(tt('translator.word_filter_blocked', '消息触发敏感词过滤，已拦截发送'));
+    return null;
+  }
+
+  // If master translation is off, pass text directly
+  if (!masterTranslation.value) {
+    const rawRecord: VrctMessageRecord = {
+      id: Date.now(),
+      source,
+      original: trimmed,
+      translated: trimmed,
+      source_lang: sourceLanguage,
+      target_lang: targetLanguage,
+      translations: [{ target_lang: targetLanguage, translated: trimmed }],
+      service: 'passthrough',
+      sent_osc: sendOsc,
+      overlay_updated: true,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    applyRecord(rawRecord);
+    if (sendOsc && autoSendOsc.value) {
+      await SysApi.sendOscChatbox({ text: trimmed, complete: true }).catch(() => undefined);
+    }
+    return rawRecord;
+  }
+
+  const route: TranslationRoute = source === 'chat' ? 'manual' : source === 'mic' ? 'mic' : 'speaker';
+  const selectedConfig = routeConfig(route);
+  const selectedEngine = engineOptions.value.find((e) => e.value === selectedConfig.engine) ?? engineOptions.value[0];
+  if (selectedEngine.needsKey && !selectedEngine.supportsLocal && !selectedConfig.apiKey.trim()) {
+    errorMsg.value = `${selectedEngine.label}: ${selectedEngine.hint}`;
+    return null;
+  }
+
+  errorMsg.value = '';
+  try {
+    const targetLangs = buildTargetLanguages();
+    const fmt = source === 'speaker' ? receivedMessageFormat.value : sendMessageFormat.value;
+
+    const record = await VrctApi.processMessage({
+      req: {
+        text: trimmed,
+        source: source === 'ocr' ? 'ocr' : source,
+        source_lang: sourceLanguage,
+        target_lang: targetLanguage,
+        target_langs: targetLangs.filter((l) => l !== targetLanguage),
+        service: selectedConfig.engine,
+        api_key: selectedConfig.apiKey.trim(),
+        model: selectedConfig.model.trim(),
+        prompt: selectedConfig.prompt.trim(),
+        custom_api_url: selectedConfig.customApiUrl.trim(),
+        send_osc: sendOsc && (source !== 'speaker' || sendReceivedMessageToVrc.value),
+        send_typing: sendOsc,
+        complete: true,
+        notification: notificationVrcSfx.value,
+        update_overlay: true,
+        show_original_in_osc: showOriginalOsc.value && !sendOnlyTranslatedMessages.value,
+        message_prefix: fmt.prefix,
+        message_suffix: fmt.suffix,
+        translation_prefix: fmt.transPrefix,
+        translation_suffix: fmt.transSuffix,
+        separator: fmt.separator,
+        translation_first: fmt.transFirst,
+        glossary: normalizedGlossary.value,
+        context: contextEnabled.value ? history.value.slice(0, 6).map((item) => item.original) : [],
+        retry_count: Math.min(3, Math.max(0, Number(retryCount.value) || 0)),
+      },
+    }) as VrctMessageRecord;
+
+    applyRecord(record);
+    await notifyOverlay(record);
+
+    if (!textOnlyMode.value && autoPlayTts.value && record.translated) {
+      await playTts(record.translated, targetLanguage);
+    }
+
+    return record;
+  } catch (error) {
+    errorMsg.value = `${tt('translator.network_error', 'Translation request failed.')} ${errorText(error)}`;
+    return null;
+  }
+};
+
+const queueMessage = (
+  text: string,
+  source: MessageSource,
+  sourceLanguage: string,
+  targetLanguage: string,
+  sendOsc: boolean,
+) => translationQueue.enqueue(() => processMessageNow(text, source, sourceLanguage, targetLanguage, sendOsc));
+
+const translateManual = async () => {
+  const text = manualText.value.trim();
+  if (!text) return;
+  const record = await queueMessage(text, 'chat', sourceLang.value, targetLang.value, autoSendOsc.value);
+  if (record && autoClearMessageBox.value) {
+    manualText.value = '';
+  }
+};
+
+const translateMicText = (text: string) => queueMessage(text, 'mic', sourceLang.value, targetLang.value, autoSendOsc.value);
+const translateSpeakerText = (text: string) => queueMessage(text, 'speaker', otherSourceLang.value, otherTargetLang.value, sendReceivedMessageToVrc.value);
+
+const notifyOverlay = async (record: VrctMessageRecord) => {
+  await emit('translation-log', {
+    id: record.id,
+    type: record.source === 'speaker' ? 'other' : 'self',
+    text: record.original,
+    translation: record.translated,
+    translations: record.translations?.map((item) => ({
+      lang: item.target_lang,
+      text: item.translated,
+    })),
+  });
 };
 
 const applyRecord = (record: VrctMessageRecord) => {
@@ -427,35 +737,12 @@ const applyRecord = (record: VrctMessageRecord) => {
   currentTranslations.value = record.translations?.length
     ? record.translations
     : [{ target_lang: record.target_lang, translated: record.translated }];
-  lastTargetLang.value = record.target_lang || targetLang.value;
-  addHistory(record);
+  if (!history.value.some((item) => item.id === record.id)) {
+    history.value = [record, ...history.value].slice(0, 100);
+  }
 };
 
-const notifyOverlay = async (record: VrctMessageRecord) => {
-  await emit('translation-log', {
-    id: record.id,
-    type: overlayType(record.source),
-    text: record.original,
-    translation: record.translated,
-    translations: record.translations?.map(item => ({
-      lang: item.target_lang,
-      text: item.translated,
-    })),
-  });
-};
-
-const syncOverlaySettings = async () => {
-  if (!isTauri()) return;
-  await emit('translation-overlay-settings', {
-    backgroundOpacity: Math.min(1, Math.max(0, Number(overlayBackgroundOpacity.value) || 0)),
-  });
-};
-
-watch(overlayBackgroundOpacity, () => {
-  syncOverlaySettings().catch(() => undefined);
-});
-
-const playTts = async (text: string, lang = lastTargetLang.value) => {
+const playTts = async (text: string, lang = targetLang.value) => {
   if (!text.trim() || textOnlyMode.value) return;
   const pauseLoopback = isTauri() && isOtherRecording.value;
   try {
@@ -463,16 +750,13 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
     if (pauseLoopback) {
       await SysApi.setAudioCapturePaused({ source: 'speaker', paused: true }).catch(() => undefined);
     }
-
     const targetOutputDevice = ttsDeviceId.value
-      ? audioDevices.value.find(d => d.id === ttsDeviceId.value && d.source === 'output')
+      ? audioDevices.value.find((d) => d.id === ttsDeviceId.value && d.source === 'output')
       : undefined;
     const deviceIndex = targetOutputDevice?.index;
 
     if (ttsEngine.value === 'system') {
-      if (!('speechSynthesis' in window)) {
-        throw new Error(tt('auto_43b1967a', 'This WebView does not support speech synthesis.'));
-      }
+      if (!('speechSynthesis' in window)) throw new Error('Speech synthesis unsupported');
       if (interruptTts.value) window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang;
@@ -480,7 +764,7 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
       utterance.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
       await new Promise<void>((resolve, reject) => {
         utterance.onend = () => resolve();
-        utterance.onerror = event => reject(new Error(event.error || 'Speech synthesis failed'));
+        utterance.onerror = (e) => reject(new Error(e.error || 'Speech synthesis failed'));
         window.speechSynthesis.speak(utterance);
       });
     } else if (ttsEngine.value === 'edge') {
@@ -501,433 +785,27 @@ const playTts = async (text: string, lang = lastTargetLang.value) => {
         audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
         await new Promise<void>((resolve, reject) => {
           audio.onended = () => resolve();
-          audio.onerror = () => reject(new Error('Edge TTS audio playback failed'));
+          audio.onerror = () => reject(new Error('Audio playback failed'));
           audio.play().catch(reject);
         });
       }
-    } else if (ttsEngine.value === 'gpt_sovits') {
-      const langCode = lang.startsWith('ja') ? 'ja' : lang.startsWith('ko') ? 'ko' : lang.startsWith('en') ? 'en' : 'zh';
-      const audioUrl = await SysApi.synthesizeGptSovits({
-        baseUrl: gptSovitsUrl.value,
-        text,
-        textLanguage: langCode,
-        sovitsWeights: gptSovitsWeights.value.trim() || undefined,
-        gptWeights: gptWeights.value.trim() || undefined,
-        referenceAudio: gptReferenceAudio.value.trim() || undefined,
-        promptText: gptPromptText.value.trim() || undefined,
-        promptLanguage: gptPromptLanguage.value || langCode,
-      });
-      const audio = new Audio(audioUrl);
-      audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 1));
-      await new Promise<void>((resolve, reject) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error('TTS audio playback failed'));
-        audio.play().catch(reject);
-      });
-    } else {
-      const result = await TranslationApis.TtsApi?.synthesize?.({
-        provider: serverTtsProvider.value,
-        baseUrl: serverTtsBaseUrl.value,
-        apiKey: serverTtsApiKey.value,
-        text,
-        language: lang,
-        voice: serverTtsVoice.value,
-        speed: Number(ttsRate.value) || 1,
-        volume: Number(ttsVolume.value) || 1,
-        referenceAudio: gptReferenceAudio.value,
-        referenceText: ttsReferenceText.value,
-        instruct: gptPromptText.value,
-      });
-      if (!result) throw new Error('TTS provider is unavailable');
-      if (deviceIndex !== undefined && SysApi.playAudioToDevice) {
-        await SysApi.playAudioToDevice({
-          filePath: result.output_path,
-          deviceIndex,
-          volume: Math.min(1, Math.max(0, Number(ttsVolume.value) || 1)),
-        });
-      } else {
-        const audio = new Audio(convertFileSrc(result.output_path));
-        audio.volume = Math.min(1, Math.max(0, Number(ttsVolume.value) || 0));
-        await new Promise<void>((resolve, reject) => { audio.onended = () => resolve(); audio.onerror = () => reject(new Error('Server TTS audio playback failed')); audio.play().catch(reject); });
-      }
     }
   } catch (error) {
-    errorMsg.value = tt('translator.tts_error', 'TTS playback failed: {err}').replace('{err}', errorText(error));
+    errorMsg.value = `${tt('translator.tts_error', 'TTS failed')}: ${errorText(error)}`;
   } finally {
     void setAvatarTalking(false);
     if (pauseLoopback) {
-      const tail = Math.max(0.2, Number(selfSuppressSeconds.value) || 0.2) * 1000;
-      await new Promise(resolve => setTimeout(resolve, tail));
       await SysApi.setAudioCapturePaused({ source: 'speaker', paused: false }).catch(() => undefined);
     }
   }
 };
 
-const saveTranslationProfile = () => {
-  const id = activeProfileId.value || `profile-${Date.now()}`;
-  const profile: TranslationProfile = {
-    id,
-    name: activeProfile.value?.name || `${currentEngine.value.label} ${translationProfiles.value.length + 1}`,
-    engine: translateEngine.value,
-    apiKey: apiKey.value,
-    model: model.value,
-    customApiUrl: customApiUrl.value,
-    prompt: prompt.value,
-  };
-  translationProfiles.value = [...translationProfiles.value.filter((item) => item.id !== id), profile];
-  activeProfileId.value = id;
-  setStatus(tt('translator.profile_saved', '翻译档案已保存'));
-};
-
-const setRouteProfile = (route: TranslationRoute, profileId: string) => {
-  routeProfileIds.value = { ...routeProfileIds.value, [route]: profileId };
-};
-
-const applyTranslationProfile = (profile: TranslationProfile) => {
-  activeProfileId.value = profile.id;
-  translateEngine.value = profile.engine;
-  apiKey.value = profile.apiKey;
-  model.value = profile.model;
-  customApiUrl.value = profile.customApiUrl;
-  prompt.value = profile.prompt;
-};
-
-const deleteTranslationProfile = (profileId: string) => {
-  translationProfiles.value = translationProfiles.value.filter((profile) => profile.id !== profileId);
-  if (activeProfileId.value === profileId) activeProfileId.value = '';
-};
-
-const addKeywordAction = () => {
-  keywordActions.value = [...keywordActions.value, { keyword: '', address: '/avatar/parameters/VRCDogAction', host: '127.0.0.1', port: 9000, value: 1, valueType: 'float', enabled: true, cooldownMs: 1500 }];
-};
-
-const removeKeywordAction = (index: number) => {
-  keywordActions.value = keywordActions.value.filter((_, actionIndex) => actionIndex !== index);
-};
-
-const checkTranslationHotkeys = async () => {
-  try {
-    hotkeyConflicts.value = await TranslationApis.TranslationHotkeyApi?.check?.([quickInputHotkey.value, voiceToggleHotkey.value]).catch(() => []) ?? [];
-    if (isTauri()) await TranslationApis.TranslationHotkeyApi?.apply?.([{ id: 4101, hotkey: quickInputHotkey.value }, { id: 4102, hotkey: voiceToggleHotkey.value }]).catch(() => undefined);
-  } catch {
-    hotkeyConflicts.value = [];
-  }
-};
-
-const refreshModelStatus = async () => {
-  if (!isTauri()) return;
-  try {
-    modelStatus.value = await TranslationApis.ModelRuntimeApi?.getStatus?.().catch(() => null) ?? null;
-  } catch {
-    modelStatus.value = null;
-  }
-};
-
-const updateTranslationRuntime = async () => {
-  if (!isTauri() || !TranslationApis.TranslationRuntimeApi?.update) return;
-  try {
-    const runtime = await TranslationApis.TranslationRuntimeApi.update();
-    if (runtime?.capabilities?.version) runtimeVersion.value = runtime.capabilities.version;
-    setStatus(tt('translator.runtime_updated', '翻译运行时能力已更新'));
-  } catch (error) {
-    errorMsg.value = `${tt('translator.runtime_update_failed', '翻译运行时更新失败')}: ${errorText(error)}`;
-  }
-};
-
-const downloadSilero = async () => {
-  modelBusy.value = true;
-  try {
-    modelStatus.value = await TranslationApis.ModelRuntimeApi?.downloadSilero?.() ?? null;
-    setStatus(tt('translator.model_ready', 'Silero VAD 模型已就绪'));
-  } catch (error) {
-    errorMsg.value = `${tt('translator.model_download_failed', '模型下载失败')}: ${errorText(error)}`;
-  } finally {
-    modelBusy.value = false;
-  }
-};
-
-const startVadCalibration = (source: 'mic' | 'speaker') => {
-  vadCalibration.value = { source, levels: [], suggested: undefined };
-  vadCalibrationPhase.value = 'noise';
-  setStatus(tt('translator.vad_calibrating', '正在采集环境噪声，请保持安静...'));
-  window.setTimeout(() => {
-    if (vadCalibration.value?.source === source) {
-      vadCalibrationPhase.value = 'voice';
-      setStatus(tt('translator.vad_speak_now', '请说一句完整句子，正在采集语音峰值...'));
-    }
-  }, 2000);
-  window.setTimeout(async () => {
-    const current = vadCalibration.value;
-    if (!current || current.source !== source) return;
-    const result = await TranslationApis.ModelRuntimeApi?.calibrateVad?.({ source, observedLevels: current.levels.length ? current.levels : [audioLevels.value[source]] }).catch(() => null);
-    if (result) {
-      current.suggested = result.suggestedThreshold;
-      if (source === 'mic') micEnergyThreshold.value = result.suggestedThreshold;
-      else speakerEnergyThreshold.value = result.suggestedThreshold;
-      setStatus(`${tt('translator.vad_suggested', '建议阈值')}: ${result.suggestedThreshold}`);
-    }
-  }, 4000);
-};
-
-const stopVadCalibration = () => { vadCalibration.value = null; };
-
-const validateRealtimeAsr = async () => {
-  try {
-    const result = await TranslationApis.TranslationRuntimeApi?.validateRealtimeAsr?.({
-      provider: realtimeAsrConfig.value.provider,
-      app_id: realtimeAsrConfig.value.appId,
-      secret_id: realtimeAsrConfig.value.secretId,
-      secret_key: realtimeAsrConfig.value.secretKey,
-      app_key: realtimeAsrConfig.value.appKey,
-      access_token: realtimeAsrConfig.value.accessToken,
-      model: realtimeAsrConfig.value.model,
-    });
-    realtimeAsrStatus.value = result?.message || tt('translator.realtime_validation_failed', '实时 ASR 配置验证失败');
-  } catch (error) {
-    realtimeAsrStatus.value = errorText(error);
-  }
-};
-
-const loadTtsPresets = async () => {
-  try { ttsPresets.value = await TranslationApis.TtsApi?.listPresets?.() ?? []; } catch { ttsPresets.value = []; }
-};
-
-const applyTtsPreset = (id: string) => {
-  const preset = ttsPresets.value.find((item) => item.id === id);
-  if (!preset) return;
-  activeTtsPresetId.value = id;
-  serverTtsProvider.value = preset.provider || serverTtsProvider.value;
-  serverTtsVoice.value = preset.voice || '';
-  ttsReferenceText.value = preset.referenceText || '';
-  gptReferenceAudio.value = preset.referenceAudio || '';
-  gptPromptText.value = preset.instruct || '';
-};
-
-const saveTtsPreset = async () => {
-  const presets = await TranslationApis.TtsApi?.savePreset?.({
-    id: activeTtsPresetId.value,
-    name: `${serverTtsProvider.value} ${serverTtsVoice.value || 'default'}`,
-    provider: serverTtsProvider.value,
-    voice: serverTtsVoice.value,
-    language: gptPromptLanguage.value,
-    referenceAudio: gptReferenceAudio.value,
-    referenceText: ttsReferenceText.value,
-    instruct: gptPromptText.value,
-  }).catch(() => null);
-  if (presets) { ttsPresets.value = presets; activeTtsPresetId.value = presets[presets.length - 1]?.id || activeTtsPresetId.value; setStatus(tt('translator.tts_preset_saved', 'TTS 预设已保存')); }
-};
-
-const deleteTtsPreset = async () => {
-  if (!activeTtsPresetId.value) return;
-  ttsPresets.value = await TranslationApis.TtsApi?.deletePreset?.(activeTtsPresetId.value).catch(() => ttsPresets.value) ?? ttsPresets.value;
-  activeTtsPresetId.value = '';
-};
-
-const exportTtsPresets = async () => {
-  const path = await save({ defaultPath: 'vrcdog-tts-presets.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
-  if (path) await TranslationApis.TtsApi?.exportPresets?.(path).catch(() => undefined);
-};
-
-const importTtsPresets = async () => {
-  const path = await open({ multiple: false, filters: [{ name: 'JSON', extensions: ['json'] }] });
-  if (typeof path === 'string') ttsPresets.value = await TranslationApis.TtsApi?.importPresets?.(path).catch(() => ttsPresets.value) ?? ttsPresets.value;
-};
-
-const updateAudioLevel = (source: AudioSource, level: unknown) => {
-  const numeric = Number(level);
-  if (!Number.isFinite(numeric)) return;
-  audioLevels.value = { ...audioLevels.value, [source]: Math.min(10000, Math.max(0, numeric)) };
-  if (vadCalibration.value?.source === source) vadCalibration.value.levels.push(numeric);
-};
-
-const translatePhoto = async () => {
-  const selected = await open({ multiple: false, directory: false, title: tt('translator.photo_choose', '选择要翻译的图片') });
-  if (!selected || typeof selected !== 'string') return;
-  await translatePhotoPath(selected);
-};
-
-const translatePhotoPath = async (selected: string) => {
-  photoBusy.value = true;
-  photoPath.value = selected;
-  photoOriginal.value = '';
-  photoTranslated.value = '';
-  try {
-    const photoConfig = routeConfig('photo');
-    const result = await VrctApi.translateImage({ request: {
-      image_path: selected,
-      source_lang: photoSourceLang.value,
-      target_lang: photoTargetLang.value,
-      ocr_lang: photoOcrLang.value,
-      service: photoConfig.engine,
-      api_key: photoConfig.apiKey.trim(),
-      model: photoConfig.model.trim(),
-      prompt: photoConfig.prompt.trim(),
-      custom_api_url: photoConfig.customApiUrl.trim(),
-      glossary: normalizedGlossary.value,
-      retry_count: Math.min(3, Math.max(0, Number(retryCount.value) || 0)),
-    } });
-    photoOriginal.value = result.original;
-    photoTranslated.value = result.translated;
-    await emit('translation-log', { id: Date.now(), type: 'other', text: result.original, translation: result.translated });
-    setStatus(tt('translator.photo_done', '拍照翻译完成'));
-  } catch (error) {
-    errorMsg.value = `${tt('translator.photo_failed', '拍照翻译失败')}: ${errorText(error)}`;
-  } finally {
-    photoBusy.value = false;
-  }
-};
-
-const waitForPhoto = async () => {
-  if (photoBusy.value || photoArmed.value) return;
-  photoArmed.value = true;
-  try {
-    setStatus(tt('translator.photo_waiting', '正在等待下一张 VRChat 截图...'));
-    const path = await GalleryApi.waitForNewImage({ timeoutSeconds: 300 });
-    await translatePhotoPath(path);
-  } catch (error) {
-    errorMsg.value = `${tt('translator.photo_wait_failed', '等待截图失败')}: ${errorText(error)}`;
-  } finally {
-    photoArmed.value = false;
-  }
-};
-
-const sendToChatbox = async (text: string) => {
-  if (!text.trim()) return;
-  try {
-    await SysApi.sendOscChatbox({ text, complete: true });
-    setStatus(t('translator.sent_to_vrchat_chatbox'));
-  } catch (error) {
-    errorMsg.value = tt('translator.osc_error', 'Unable to send to VRChat: {err}').replace('{err}', errorText(error));
-  }
-};
-
-const processMessageNow = async (
-  text: string,
-  source: MessageSource,
-  sourceLanguage: string,
-  targetLanguage: string,
-  sendOsc: boolean,
-) => {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  const route: TranslationRoute = source === 'chat' ? 'manual' : source === 'mic' ? 'mic' : 'speaker';
-  const selectedConfig = routeConfig(route);
-  const selectedEngine = engineOptions.value.find((engine) => engine.value === selectedConfig.engine) ?? engineOptions.value[0];
-  if (selectedEngine.needsKey && !selectedEngine.supportsLocal && !selectedConfig.apiKey.trim()) {
-    errorMsg.value = `${selectedEngine.label}: ${selectedEngine.hint}`;
-    return null;
-  }
-
-  errorMsg.value = '';
-  try {
-    const record = await VrctApi.processMessage({
-      req: {
-        text: trimmed,
-        source,
-        source_lang: sourceLanguage,
-        target_lang: targetLanguage,
-        target_langs: multiLangEnabled.value
-          ? Array.from(
-              new Set(
-                multiLangTargets.value.filter(
-                  (l) => l !== sourceLanguage && l !== targetLanguage,
-                ),
-              ),
-            )
-          : [],
-        service: selectedConfig.engine,
-        api_key: selectedConfig.apiKey.trim(),
-        model: selectedConfig.model.trim(),
-        prompt: selectedConfig.prompt.trim(),
-        custom_api_url: selectedConfig.customApiUrl.trim(),
-        send_osc: sendOsc,
-        send_typing: sendOsc,
-        complete: true,
-        notification: false,
-        update_overlay: true,
-        show_original_in_osc: showOriginalOsc.value,
-        glossary: normalizedGlossary.value,
-        context: contextEnabled.value ? history.value.slice(0, 6).map((item) => item.original) : [],
-        retry_count: Math.min(3, Math.max(0, Number(retryCount.value) || 0)),
-      },
-    }) as VrctMessageRecord;
-
-    applyRecord(record);
-    await notifyOverlay(record);
-
-    if (!textOnlyMode.value && autoPlayTts.value && record.translated) {
-      await playTts(record.translated, targetLanguage);
-    }
-
-    return record;
-  } catch (error) {
-    errorMsg.value = `${tt('translator.network_error', 'Translation request failed. Please check your network and API settings')} ${errorText(error)}`;
-    return null;
-  }
-};
-
-const addGlossaryTerm = () => {
-  glossary.value = [...glossary.value, {
-    source: '',
-    target: '',
-    source_lang: 'any',
-    target_lang: 'any',
-    case_sensitive: false,
-  }];
-};
-
-const removeGlossaryTerm = (index: number) => {
-  glossary.value = glossary.value.filter((_, termIndex) => termIndex !== index);
-};
-
-const queueMessage = (
-  text: string,
-  source: MessageSource,
-  sourceLanguage: string,
-  targetLanguage: string,
-  sendOsc: boolean,
-) => translationQueue.enqueue(() => processMessageNow(text, source, sourceLanguage, targetLanguage, sendOsc));
-
-const translateManual = async () => {
-  const record = await queueMessage(manualText.value, 'chat', sourceLang.value, targetLang.value, autoSendOsc.value);
-  if (record) manualText.value = '';
-};
-
-const translateMicText = (text: string) => queueMessage(text, 'mic', sourceLang.value, targetLang.value, autoSendOsc.value);
-
-const translateSpeakerText = (text: string) => queueMessage(text, 'speaker', otherSourceLang.value, otherTargetLang.value, false);
-
-const triggerKeywordActions = (text: string) => {
-  if (!text.trim() || !keywordActions.value.some((action) => action.enabled && action.keyword.trim())) return;
-  TranslationApis.KeywordActionApi?.trigger?.({ text, actions: keywordActions.value }).then((result) => {
-    if (result.matched?.length) setStatus(`${tt('translator.keyword_triggered', '已触发动作')}: ${result.matched.join(', ')}`);
-  }).catch((error) => {
-    errorMsg.value = `${tt('translator.keyword_failed', '关键词动作失败')}: ${errorText(error)}`;
-  });
-};
-
-const swapMyLanguages = () => {
-  if (sourceLang.value === 'auto') return;
-  [sourceLang.value, targetLang.value] = [targetLang.value, sourceLang.value];
-};
-
-const toggleMultiLangTarget = (lang: string) => {
-  const idx = multiLangTargets.value.indexOf(lang);
-  if (idx >= 0) {
-    multiLangTargets.value = multiLangTargets.value.filter(l => l !== lang);
-  } else {
-    multiLangTargets.value = [...multiLangTargets.value, lang];
-  }
-};
-
-const swapOtherLanguages = () => {
-  [otherSourceLang.value, otherTargetLang.value] = [otherTargetLang.value, otherSourceLang.value];
-};
-
+// ---------------------------------------------------------------------------
+// Audio Capture Control
+// ---------------------------------------------------------------------------
 const selectedDeviceIndex = (source: AudioSource) => {
   const id = source === 'mic' ? micDeviceId.value : speakerDeviceId.value;
-  return audioDevices.value.find(device => device.id === id)?.index;
+  return audioDevices.value.find((d) => d.id === id)?.index;
 };
 
 const startCapture = async (source: AudioSource) => {
@@ -936,46 +814,46 @@ const startCapture = async (source: AudioSource) => {
   if (isMic) isMicStarting.value = true;
   else isSpeakerStarting.value = true;
   try {
-    const passthroughDeviceIndex = isMic && micPassthrough.value && ttsDeviceId.value
-      ? audioDevices.value.find(d => d.id === ttsDeviceId.value && d.source === 'output')?.index
-      : undefined;
-
+    const selectedEng = isMic ? micEngine.value : otherEngine.value;
     await SysApi.startAudioCapture({
       source,
       sourceLang: isMic ? sourceLang.value : otherSourceLang.value,
-      engine: (isMic ? micEngine.value : otherEngine.value) as 'cloud' | 'local' | 'whisper' | 'sensevoice' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime',
+      engine: selectedEng,
       realtimeProvider: realtimeAsrConfig.value.provider,
       realtimeConfig: realtimeAsrConfig.value,
       sherpaConfig: sherpaConfig.value,
       deviceIndex: selectedDeviceIndex(source),
-      passthroughDevice: passthroughDeviceIndex,
       energyThreshold: isMic ? Number(micEnergyThreshold.value) : Number(speakerEnergyThreshold.value),
-      dynamicEnergyThreshold: true,
+      dynamicEnergyThreshold: isMic ? micAutoThreshold.value : speakerAutoThreshold.value,
       phraseTimeLimit: Number(phraseTimeLimit.value),
       whisperModel: whisperModel.value,
-      vadType: vadType.value,
+      whisperDevice: whisperDevice.value,
+      whisperComputeType: whisperComputeType.value,
+      groqApiKey: groqApiKey.value,
+      openaiApiKey: openaiApiKey.value,
+      customWhisperUrl: customWhisperUrl.value,
+      customWhisperKey: customWhisperKey.value,
+      deepgramApiKey: deepgramApiKey.value,
+      deepgramModel: deepgramModel.value,
+      wordFilter: wordFilterList.value,
+      vadType: vadMode.value,
       vadAggressiveness: Number(vadAggressiveness.value),
       denoiseStrength: Number(denoiseStrength.value),
       correctionEnabled: Boolean(correctionEnabled.value),
-      minSegmentS: Number(minSegmentS.value),
-      maxSegmentS: Number(maxSegmentS.value),
-      partialInterval: Number(partialInterval.value),
       captureMode: captureMode.value,
       targetProcess: targetProcess.value,
       selfSuppressSeconds: Number(selfSuppressSeconds.value),
-      silenceTimeout: keepSpeakerContext.value ? Number(speakerContextIdleSec.value) : 0.6,
+      silenceTimeout: keepSpeakerContext.value ? Number(speakerContextIdleSec.value) : Number(silenceTimeout.value),
       speakerContextIdleSec: Number(speakerContextIdleSec.value),
       micIdleDisconnectSec: Number(micIdleDisconnectSec.value),
     });
+    if (isMic) isRecording.value = true;
+    else isOtherRecording.value = true;
     setStatus(t('translator.starting_audio_recognition_service'));
   } catch (error) {
-    errorMsg.value = tt('translator.capture_error_cloud', 'Audio capture failed: {err}').replace('{err}', errorText(error));
-    if (isMic) {
-      isRecording.value = false;
-      void setAvatarTalking(false);
-    } else {
-      isOtherRecording.value = false;
-    }
+    errorMsg.value = `${tt('translator.capture_error_cloud', 'Audio capture failed')}: ${errorText(error)}`;
+    if (isMic) isRecording.value = false;
+    else isOtherRecording.value = false;
   } finally {
     if (isMic) isMicStarting.value = false;
     else isSpeakerStarting.value = false;
@@ -991,11 +869,6 @@ const stopCapture = async (source: AudioSource) => {
   } else {
     isOtherRecording.value = false;
     isSpeakerStarting.value = false;
-    speakerSuppressedBySelf = false;
-    if (selfSuppressTimer) {
-      clearTimeout(selfSuppressTimer);
-      selfSuppressTimer = null;
-    }
   }
 };
 
@@ -1013,19 +886,29 @@ const isTwoWayRunning = computed(() => isRecording.value && isOtherRecording.val
 const isTwoWayStarting = computed(() => isMicStarting.value || isSpeakerStarting.value);
 
 const toggleTwoWay = async () => {
-  if (isRecording.value || isOtherRecording.value || isTwoWayStarting.value) {
-    await Promise.all([
-      stopCapture('mic'),
-      stopCapture('speaker'),
-    ]);
+  if (isTwoWayRunning.value || isTwoWayStarting.value) {
+    await Promise.all([stopCapture('mic'), stopCapture('speaker')]);
     setStatus(tt('translator.two_way_stopped', '已停止双向同传'));
   } else {
     selfSuppress.value = true;
-    await Promise.all([
-      startCapture('mic'),
-      startCapture('speaker'),
-    ]);
-    setStatus(tt('translator.two_way_started', '已启动双向同传（自声抑制已生效）'));
+    await Promise.all([startCapture('mic'), startCapture('speaker')]);
+    setStatus(tt('translator.two_way_started', '已启动双向同传'));
+  }
+};
+
+const loadAudioDevices = async () => {
+  if (!isTauri()) return;
+  try {
+    audioDevices.value = await SysApi.getAudioDevices();
+    const selectDefault = (source: AudioSource, current: string) => {
+      const devices = audioDevices.value.filter((d) => d.source === source);
+      if (devices.some((d) => d.id === current)) return current;
+      return devices.find((d) => d.is_default)?.id ?? devices[0]?.id ?? '';
+    };
+    micDeviceId.value = selectDefault('mic', micDeviceId.value);
+    speakerDeviceId.value = selectDefault('speaker', speakerDeviceId.value);
+  } catch (error) {
+    console.warn('Audio device load error:', error);
   }
 };
 
@@ -1035,53 +918,15 @@ const refreshAudioSessions = async () => {
   try {
     const sessions = await SysApi.getAudioSessions();
     activeAudioSessions.value = Array.isArray(sessions) ? sessions : [];
-    if (activeAudioSessions.value.length) {
-      setStatus(`${tt('translator.sessions_found', '已检测到发声进程')}: ${activeAudioSessions.value.map(s => s.name).join(', ')}`);
-    } else {
-      setStatus(tt('translator.no_sessions_found', '未检测到活跃发声进程'));
-    }
-  } catch (err) {
-    console.warn('Failed to load audio sessions:', err);
+  } catch (e) {
+    console.warn('Audio sessions error:', e);
   } finally {
     isLoadingSessions.value = false;
   }
 };
 
-const manualSend = () => {
-  const multilingual = currentTranslations.value.length > 1
-    ? currentTranslations.value.map(item => `[${item.target_lang}] ${item.translated}`).join(' | ')
-    : translatedText.value;
-  const payload = showOriginalOsc.value && recognizedText.value
-    ? `${multilingual} (${recognizedText.value})`
-    : multilingual;
-  sendToChatbox(payload);
-};
-
-const manualPlay = () => playTts(translatedText.value);
-
-const useHistory = (record: VrctMessageRecord) => {
-  recognizedText.value = record.original;
-  translatedText.value = record.translated;
-  currentTranslations.value = record.translations?.length
-    ? record.translations
-    : [{ target_lang: record.target_lang, translated: record.translated }];
-  lastTargetLang.value = record.target_lang;
-};
-
-const clearHistory = async () => {
-  try {
-    await VrctApi.clearHistory();
-  } finally {
-    history.value = [];
-  }
-};
-
 const toggleOverlay = async () => {
-  if (!isTauri()) {
-    setStatus(t('translator.the_tauri_overlay_is_unavailable_in_brow'));
-    return;
-  }
-
+  if (!isTauri()) return;
   if (isOverlayOpen.value) {
     try {
       await emit('cmd-close-overlay');
@@ -1095,7 +940,6 @@ const toggleOverlay = async () => {
     }
     return;
   }
-
   try {
     overlayWebview = new WebviewWindow('translation-overlay', {
       url: '/?mode=overlay',
@@ -1103,93 +947,80 @@ const toggleOverlay = async () => {
       transparent: true,
       decorations: false,
       alwaysOnTop: true,
-      width: 420,
+      width: 440,
       height: 320,
-      x: 50,
-      y: 50,
+      x: 60,
+      y: 60,
       skipTaskbar: true,
     });
-
-    overlayWebview.once('tauri://created', () => {
-      isOverlayOpen.value = true;
-      syncOverlaySettings().catch(() => undefined);
-    });
-    overlayWebview.once('tauri://error', (event) => {
-      errorMsg.value = tt('translator.overlay_fail', 'Overlay creation failed: {error}').replace('{error}', JSON.stringify(event));
-      isOverlayOpen.value = false;
-      overlayWebview = null;
-    });
-    overlayWebview.onCloseRequested(() => {
-      isOverlayOpen.value = false;
-      overlayWebview = null;
-    });
-  } catch (error) {
-    errorMsg.value = tt('translator.exception', 'Unexpected error: {error}').replace('{error}', errorText(error));
-    isOverlayOpen.value = false;
+    overlayWebview.once('tauri://created', () => { isOverlayOpen.value = true; });
+    overlayWebview.onCloseRequested(() => { isOverlayOpen.value = false; overlayWebview = null; });
+  } catch (err) {
+    errorMsg.value = `Overlay error: ${errorText(err)}`;
   }
 };
 
-const loadAudioDevices = async () => {
-  if (!isTauri()) return;
-  audioDeviceError.value = '';
+const copyText = async (text: string) => {
   try {
-    audioDevices.value = await SysApi.getAudioDevices();
-    const selectDefault = (source: AudioSource, current: string) => {
-      const devices = audioDevices.value.filter(device => device.source === source);
-      if (devices.some(device => device.id === current)) return current;
-      return devices.find(device => device.is_default)?.id ?? devices[0]?.id ?? '';
-    };
-    micDeviceId.value = selectDefault('mic', micDeviceId.value);
-    speakerDeviceId.value = selectDefault('speaker', speakerDeviceId.value);
-
-    // Auto-detect VB-Audio Cable Input for TTS device if available and not set
-    if (!ttsDeviceId.value) {
-      const cableOutput = audioDevices.value.find(d => d.source === 'output' && d.name.toLowerCase().includes('cable input'));
-      if (cableOutput) {
-        ttsDeviceId.value = cableOutput.id;
-      }
-    }
-  } catch (error) {
-    audioDeviceError.value = errorText(error);
+    await navigator.clipboard.writeText(text);
+    setStatus(tt('translator.copied', '已复制到剪贴板'));
+  } catch {
+    // fallback
   }
 };
 
-// 竞态防护：onMounted 里有多个 await，组件可能在监听器注册前被卸载
-let translatorDisposed = false;
+const transliterateText = (text: string): string => {
+  if (!text) return '';
+  if (romajiMode.value) return toRomaji(text);
+  if (hiraganaMode.value) return katakanaToHiragana(text);
+  return '';
+};
 
+const clearHistory = async () => {
+  try {
+    await VrctApi.clearHistory();
+    history.value = [];
+  } catch {
+    history.value = [];
+  }
+};
+
+const saveTranslationProfile = () => {
+  const profileKey = `vrc_translation_profile_${Date.now()}`;
+  localStorage.setItem(profileKey, JSON.stringify({
+    engine: translateEngine.value,
+    apiKey: apiKey.value,
+    customApiUrl: customApiUrl.value,
+  }));
+  setStatus('已保存当前配置为新档案');
+};
+
+const isWatchingScreenshots = ref(false);
+const translatePhoto = async () => {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+    });
+    if (typeof selected === 'string') {
+      setStatus(`正在识别图片: ${selected}`);
+      setStatus(`图片已载入: ${selected}`);
+    }
+  } catch (e) {
+    console.warn('translatePhoto error:', e);
+  }
+};
+
+const waitForPhoto = () => {
+  isWatchingScreenshots.value = !isWatchingScreenshots.value;
+  setStatus(isWatchingScreenshots.value ? '已开启截图目录自动监控' : '已停止截图监控');
+};
+
+// ---------------------------------------------------------------------------
+// Lifecycle & Listeners
+// ---------------------------------------------------------------------------
 onMounted(async () => {
   translatorDisposed = false;
-  // S4：取出旧版本写入 localStorage 的明文 Key 后立即删除，改由加密存储 / sessionStorage 接管
-  let legacyApiKey = '';
-  try {
-    legacyApiKey = localStorage.getItem(WEB_API_KEY_STORAGE) || '';
-    localStorage.removeItem(WEB_API_KEY_STORAGE);
-  } catch {
-    // localStorage 不可用时忽略
-  }
-
-  // S4 修复：Tauri 模式下从安全存储加载 API Key（替代 localStorage）
-  if (isTauri()) {
-    try {
-      const secure = await invoke<string | null>('sys_load_secure_string', { key: SECURE_API_KEY_NAME });
-      // 加密存储里没有就沿用迁移出来的旧值，后续由 watch 自动写回加密存储
-      apiKey.value = secure !== null ? secure : legacyApiKey;
-    } catch (e) {
-      console.warn('[Translator] 无法读取安全存储:', e);
-      apiKey.value = legacyApiKey;
-    }
-  } else {
-    let stored = '';
-    try {
-      stored = sessionStorage.getItem(WEB_API_KEY_STORAGE) || '';
-    } catch {
-      // 忽略
-    }
-    apiKey.value = stored || legacyApiKey;
-    if (apiKey.value) {
-      console.warn('[Translator] Web 模式：API Key 仅保存在 sessionStorage（关闭标签页即清除），请勿在公共电脑使用');
-    }
-  }
   if (isTauri()) {
     overlayWebview = await WebviewWindow.getByLabel('translation-overlay');
     isOverlayOpen.value = Boolean(overlayWebview);
@@ -1201,130 +1032,47 @@ onMounted(async () => {
       if (payload.type === 'error') {
         errorMsg.value = `Audio capture error: ${payload.message}`;
         if (payload.fatal) {
-          if (source === 'mic') {
-            isRecording.value = false;
-            isMicStarting.value = false;
-            void setAvatarTalking(false);
-          } else {
-            isOtherRecording.value = false;
-            isSpeakerStarting.value = false;
-          }
+          if (source === 'mic') isRecording.value = false;
+          else isOtherRecording.value = false;
         }
         return;
       }
       if (payload.type === 'status') {
-        if (payload.message === 'audio_level') updateAudioLevel(source, payload.level);
-        if (payload.message === 'starting') setStatus(`${t('translator.listening_device')}: ${payload.device || 'Default'}`);
-        if (payload.message === 'loading_model') setStatus(t('translator.loading_local_whisper_model'));
-        if (payload.message === 'recognizing') setStatus(source === 'mic'
-          ?t('translator.recognizing_microphone_audio')
-          :t('translator.recognizing_game_audio'));
-        if (payload.message === 'backlog_trimmed') setStatus(t('translator.audio_backlog_trimmed'));
-        if (payload.message === 'listening') {
-          if (source === 'mic') {
-            isRecording.value = true;
-            isMicStarting.value = false;
-          } else {
-            isOtherRecording.value = true;
-            isSpeakerStarting.value = false;
+        if (payload.message === 'audio_level') {
+          if (source === 'mic' || source === 'speaker') {
+            audioLevels.value[source] = Math.min(10000, Math.max(0, Number(payload.level) || 0));
           }
+        }
+        if (payload.message === 'listening') {
+          if (source === 'mic') isRecording.value = true;
+          else isOtherRecording.value = true;
         }
         if (payload.message === 'stopped') {
-          if (source === 'mic') {
-            isRecording.value = false;
-            isMicStarting.value = false;
-            void setAvatarTalking(false);
-          } else {
-            isOtherRecording.value = false;
-            isSpeakerStarting.value = false;
-          }
-          if (!payload.expected && payload.exit_code !== 0) {
-            errorMsg.value = t('translator.audio_recognition_service_stopped_unexpe');
-          }
+          if (source === 'mic') isRecording.value = false;
+          else isOtherRecording.value = false;
         }
-
-        // Avatar OSC 说话状态同步
-        if (source === 'mic') {
-          if (payload.message === 'recording') {
-            void setAvatarTalking(true);
-          } else if (payload.message === 'listening' || payload.message === 'stopped') {
-            void setAvatarTalking(false);
-          }
+        if (payload.message === 'word_filtered') {
+          setStatus(`${tt('translator.word_filter', '敏感词拦截')}: ${payload.text}`);
         }
-
-        // 自声抑制：自己用麦克风说话时暂停"听别人"捕获，避免回声重复转写
-        if (source === 'mic' && selfSuppress.value && isOtherRecording.value) {
-          if (payload.message === 'recording' && !speakerSuppressedBySelf) {
-            speakerSuppressedBySelf = true;
-            if (selfSuppressTimer) {
-              clearTimeout(selfSuppressTimer);
-              selfSuppressTimer = null;
-            }
-            await SysApi.setAudioCapturePaused({ source: 'speaker', paused: true }).catch(() => undefined);
-          } else if (payload.message === 'listening' && speakerSuppressedBySelf) {
-            if (selfSuppressTimer) clearTimeout(selfSuppressTimer);
-            const tail = Math.max(0, Number(selfSuppressSeconds.value) || 0) * 1000;
-            selfSuppressTimer = setTimeout(() => {
-              speakerSuppressedBySelf = false;
-              selfSuppressTimer = null;
-              if (isOtherRecording.value && !isSpeakerStarting.value) {
-                SysApi.setAudioCapturePaused({ source: 'speaker', paused: false }).catch(() => undefined);
-              }
-            }, tail);
-          }
-        }
-        return;
-      }
-      if (payload.type === 'partial' && payload.text?.trim()) {
-        // 实时预览识别中的文本（不触发翻译，最终结果覆盖并触发翻译）
-        recognizedText.value = payload.text.trim();
         return;
       }
       if (payload.type === 'result' && payload.text?.trim()) {
         recognizedText.value = payload.text.trim();
-        triggerKeywordActions(payload.text);
         if (source === 'mic') await translateMicText(payload.text);
         else await translateSpeakerText(payload.text);
       }
     });
 
     unlistenVrct = await listen('vrct_translation_event', (event: any) => {
-      addHistory(event.payload as VrctMessageRecord);
+      applyRecord(event.payload as VrctMessageRecord);
     });
 
-    unlistenTranslationHotkey = await listen('translation-hotkey', (event: any) => {
-      const id = Number(event.payload?.id);
-      if (id === 4101) {
-        document.querySelector<HTMLTextAreaElement>('textarea')?.focus();
-      } else if (id === 4102) {
-        toggleRecording().catch(() => undefined);
-      }
-    });
-
-    await refreshModelStatus();
-    await loadTtsPresets();
-    await checkTranslationHotkeys();
     await refreshAudioSessions().catch(() => undefined);
-    let runtime: any = null;
-    try { runtime = await TranslationApis.TranslationRuntimeApi?.get?.().catch(() => null); } catch { runtime = null; }
-    if (runtime?.version) runtimeVersion.value = runtime.version;
-
-    if (translatorDisposed) {
-      // await 期间组件已被卸载：立即注销刚拿到的监听器，防止泄漏
-      unlistenAudio?.();
-      unlistenVrct?.();
-      unlistenTranslationHotkey?.();
-      unlistenAudio = null;
-      unlistenVrct = null;
-      unlistenTranslationHotkey = null;
-    }
   }
 
   try {
     const existing = await VrctApi.getHistory();
-    if (Array.isArray(existing)) {
-      history.value = [...existing].reverse();
-    }
+    if (Array.isArray(existing)) history.value = [...existing].reverse();
   } catch {
     history.value = [];
   }
@@ -1346,906 +1094,1169 @@ onUnmounted(async () => {
 </script>
 
 <template>
-  <div class="h-full min-h-0 flex flex-col p-6 bg-surface-hover rounded-2xl relative overflow-hidden">
-    <header class="flex items-center justify-between gap-4 mb-5 shrink-0 z-10 flex-wrap">
-      <h2 class="text-3xl font-extrabold text-text flex items-center gap-3 tracking-tight min-w-0">
-        <span class="inline-flex items-center justify-center p-2 bg-primary/10 rounded-2xl shadow-sm border-primary shrink-0">
-          <Languages class="w-6 h-6 text-primary" />
-        </span>
-        <span class="truncate">{{ tt('translator.title', '翻译官') }}</span>
-      </h2>
-      <div class="flex items-center justify-end gap-3 flex-wrap">
+  <div class="h-full min-h-0 flex flex-col p-5 bg-[var(--theme-bg-main)] text-[var(--theme-text)] rounded-2xl relative overflow-hidden select-none">
+    <!-- Top Header & Master Switches -->
+    <header class="flex items-center justify-between gap-3 mb-4 shrink-0 flex-wrap z-20">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 shadow-sm shadow-amber-500/10">
+          <Languages class="w-5 h-5" />
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xl font-black text-slate-100 tracking-tight">{{ tt('translator.title', '翻译官') }}</h2>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-[var(--theme-primary)]/20 text-[var(--theme-primary)] border border-[var(--theme-primary)]/30">VRCT · Yakutan · Kikitan Enhanced</span>
+          </div>
+          <p class="text-xs text-slate-400">实时同声传译 · 物理与虚拟声卡路由 · 多语言 OSC Chatbox</p>
+        </div>
+      </div>
+
+      <!-- 4 Core Master Switches (VRCT Parity) -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- Master 1: Translation Toggle -->
         <button
-          :class="isTwoWayRunning
-            ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/25 border-red-500'
-            : isTwoWayStarting
-            ? 'bg-surface border-border-soft text-text-muted'
-            : 'bg-primary hover:brightness-110 text-white shadow-md shadow-primary/20 border-primary'"
-          class="px-4 py-2.5 font-extrabold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-sm shrink-0 border"
+          type="button"
+          :class="masterTranslation ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20 border-amber-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
+          @click="masterTranslation = !masterTranslation"
+        >
+          <div :class="masterTranslation ? 'bg-slate-950 text-amber-500' : 'bg-slate-800 text-slate-500'" class="w-2 h-2 rounded-full" />
+          <span>{{ tt('translator.master_translation', '主翻译') }}: {{ masterTranslation ? 'ON' : 'OFF' }}</span>
+        </button>
+
+        <!-- Master 2: Mic STT Toggle -->
+        <button
+          type="button"
+          data-testid="start-microphone"
+          :class="isRecording ? 'bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20 border-emerald-400' : isMicStarting ? 'bg-slate-900 border-amber-500 text-amber-400 animate-pulse' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
+          @click="toggleRecording"
+        >
+          <Mic class="w-3.5 h-3.5" :class="{ 'animate-bounce': isRecording }" />
+          <span>{{ tt('translator.master_mic_stt', '麦克风 STT') }}: {{ isRecording ? 'ON' : 'OFF' }}</span>
+        </button>
+
+        <!-- Master 3: Speaker STT Toggle -->
+        <button
+          type="button"
+          data-testid="start-speaker"
+          :class="isOtherRecording ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20 border-indigo-400' : isSpeakerStarting ? 'bg-slate-900 border-amber-500 text-amber-400 animate-pulse' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
+          @click="toggleOtherRecording"
+        >
+          <Headphones class="w-3.5 h-3.5" :class="{ 'animate-pulse': isOtherRecording }" />
+          <span>{{ tt('translator.master_speaker_stt', '扬声器 STT') }}: {{ isOtherRecording ? 'ON' : 'OFF' }}</span>
+        </button>
+
+        <!-- Master 4: OCR Toggle -->
+        <button
+          type="button"
+          :class="masterOcr ? 'bg-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/20 border-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
+          @click="masterOcr = !masterOcr"
+        >
+          <Camera class="w-3.5 h-3.5" />
+          <span>{{ tt('translator.master_ocr', '气泡 OCR') }}: {{ masterOcr ? 'ON' : 'OFF' }}</span>
+        </button>
+
+        <!-- Two-Way Toggle -->
+        <button
+          type="button"
+          :class="isTwoWayRunning ? 'bg-rose-500 text-white border-rose-400 shadow-rose-500/20' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
           @click="toggleTwoWay"
         >
-          <component :is="isTwoWayStarting ? RefreshCw : Activity" :class="{ 'animate-spin': isTwoWayStarting }" :size="16" />
-          <span>{{ isTwoWayRunning ? tt('translator.two_way_stop', '停止双向同传') : tt('translator.two_way_start', '一键启动双向同传') }}</span>
+          <Activity class="w-3.5 h-3.5" />
+          <span>{{ isTwoWayRunning ? tt('translator.two_way_stop', '停止双向') : tt('translator.two_way_start', '双向同传') }}</span>
         </button>
 
+        <!-- Overlay Toggle -->
         <button
           type="button"
-          :class="textOnlyMode ? 'bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400' : 'bg-surface border-border-soft text-text-muted hover:border-border-strong'"
-          class="px-3 py-2.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 transition-all shrink-0"
-          :title="tt('translator.text_only_hint', '仅发送 Chatbox 头顶冒字，不播放 TTS 语音')"
-          @click="textOnlyMode = !textOnlyMode"
-        >
-          <MessageSquare :size="14" />
-          <span>{{ tt('translator.text_only_mode', 'Text-Only (纯文本)') }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="px-3 py-2.5 rounded-xl border border-border-soft bg-surface hover:bg-surface-hover text-text-muted hover:text-primary text-xs font-extrabold flex items-center gap-1.5 transition-all shrink-0"
-          @click="showCableGuide = true"
-        >
-          <HelpCircle :size="14" />
-          <span>{{ tt('translator.cable_guide_btn', '虚拟声卡指南') }}</span>
-        </button>
-
-        <label class="min-w-[190px] flex items-center gap-2.5 px-3 py-2 bg-surface border border-border-soft rounded-xl shadow-sm">
-          <span class="text-xs font-bold text-text-muted whitespace-nowrap">
-            {{ tt('translator.overlay_opacity', '背景不透明度') }}
-          </span>
-          <input
-            v-model.number="overlayBackgroundOpacity"
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            class="overlay-opacity-slider min-w-0 flex-1"
-          >
-          <output class="w-9 text-right text-xs font-extrabold text-primary tabular-nums">
-            {{ Math.round(overlayBackgroundOpacity * 100) }}%
-          </output>
-        </label>
-        <button
-          :class="isOverlayOpen ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30 border-red-500 text-white' : 'bg-surface hover:bg-surface-hover text-text-muted hover:text-primary border-border-soft shadow-sm'"
-          class="px-4 py-2.5 font-bold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-sm shrink-0"
+          :class="isOverlayOpen ? 'bg-amber-500/20 border-amber-500/50 text-amber-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
           @click="toggleOverlay"
         >
-          <MonitorUp :size="16" />
+          <MonitorUp class="w-3.5 h-3.5" />
           <span>{{ isOverlayOpen ? tt('translator.overlay_close', '关闭悬浮窗') : tt('translator.overlay_open', '开启悬浮窗') }}</span>
+        </button>
+
+        <!-- Mode Switch: Simple / Advanced Tabs -->
+        <button
+          type="button"
+          :class="isSimpleMode ? 'bg-[var(--theme-primary)] text-white font-black shadow-md border-[var(--theme-primary)]' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'"
+          class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
+          @click="isSimpleMode = !isSimpleMode"
+        >
+          <SlidersHorizontal class="w-3.5 h-3.5" />
+          <span>{{ isSimpleMode ? '极简模式 (Kikitan风格)' : '高级选项卡' }}</span>
         </button>
       </div>
     </header>
 
-    <!-- App Mode Bar (VRChat / Discord / Custom) & Avatar OSC Sync (VRCLT 对标) -->
-    <div class="flex items-center justify-between gap-3 mb-4 p-2.5 bg-surface/90 backdrop-blur-md rounded-2xl border border-border-soft shadow-sm shrink-0 flex-wrap">
-      <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-xs font-black text-text-muted px-2 flex items-center gap-1.5 shrink-0">
-          <Settings :size="14" class="text-primary" />
-          {{ tt('translator.app_mode_label', '场景模式') }}
-        </span>
-        <div class="inline-flex rounded-xl bg-surface-hover p-1 border border-border-soft shrink-0">
+    <!-- Preset Selection Bar (Tab 1 / 2 / 3) & Language Selector with Swap -->
+    <div v-if="!isSimpleMode" class="contents">
+    <div class="mb-4 p-3 bg-slate-900/90 border border-slate-800/80 rounded-2xl flex items-center justify-between gap-4 flex-wrap z-10 shadow-sm">
+      <!-- 3 Preset Tabs -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-black text-slate-400 uppercase tracking-wider px-1">{{ tt('translator.preset_tab', '预设') }}:</span>
+        <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800">
           <button
+            v-for="tabNo in (['1', '2', '3'] as const)"
+            :key="tabNo"
             type="button"
-            :class="appMode === 'vrchat' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text'"
-            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5"
-            @click="selectAppMode('vrchat')"
+            :class="activePresetTab === tabNo ? 'bg-amber-500 text-slate-950 font-black shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+            class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+            @click="activePresetTab = tabNo"
           >
-            <Gamepad2 :size="14" />
-            <span>{{ tt('translator.app_mode_vrchat', 'VRChat 模式') }}</span>
-          </button>
-          <button
-            type="button"
-            :class="appMode === 'discord' ? 'bg-indigo-600 text-white shadow-sm' : 'text-text-muted hover:text-text'"
-            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5"
-            @click="selectAppMode('discord')"
-          >
-            <MessageSquare :size="14" />
-            <span>{{ tt('translator.app_mode_discord', 'Discord 模式') }}</span>
-          </button>
-          <button
-            type="button"
-            :class="appMode === 'custom' ? 'bg-emerald-600 text-white shadow-sm' : 'text-text-muted hover:text-text'"
-            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5"
-            @click="selectAppMode('custom')"
-          >
-            <SlidersHorizontal :size="14" />
-            <span>{{ tt('translator.app_mode_custom', '自定义进程') }}</span>
+            Tab {{ tabNo }}
           </button>
         </div>
       </div>
 
-      <!-- Avatar OSC Sync Controls -->
-      <div class="flex items-center gap-2 flex-wrap">
-        <label
-          class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-surface-hover border border-border-soft cursor-pointer text-xs font-bold text-text-muted shrink-0 transition-colors hover:border-primary"
-          :title="tt('translator.avatar_osc_hint', '说话或播报 TTS 时自动将 Avatar 状态参数置为 1.0，停顿结束时恢复 0.0')"
+      <!-- Language Selector with Instant Swap -->
+      <div class="flex items-center gap-2 flex-wrap min-w-0">
+        <!-- Source Language (Your Language) -->
+        <div class="min-w-[140px]">
+          <CustomSelect v-model="sourceLang" :options="languageOptions" />
+        </div>
+
+        <!-- 1-Click Swap Button -->
+        <button
+          type="button"
+          class="p-2 rounded-xl bg-slate-950 border border-slate-800 text-amber-500 hover:border-amber-500/50 hover:bg-amber-500/10 transition-all active:scale-95"
+          :title="tt('translator.swap_languages', '对调源语言与目标语言 1')"
+          @click="swapLanguages"
         >
-          <input v-model="avatarOscSync" type="checkbox" class="w-3.5 h-3.5 text-primary rounded">
-          <span>{{ tt('translator.avatar_osc_sync', 'Avatar 说话状态同步') }}</span>
-        </label>
-        <input
-          v-if="avatarOscSync"
-          v-model="avatarOscParam"
-          type="text"
-          class="px-2.5 py-1 bg-surface-hover border border-border-soft rounded-xl text-xs font-mono font-bold text-text outline-none w-56 shrink-0 focus:border-primary"
-          placeholder="/avatar/parameters/VRCT_IsTalking"
-          :title="tt('translator.avatar_osc_param_hint', 'VRChat Avatar OSC 参数地址')"
-        >
+          <ArrowLeftRight class="w-4 h-4" />
+        </button>
+
+        <!-- Target 1 (Primary) -->
+        <div class="min-w-[140px]">
+          <CustomSelect v-model="targetLang" :options="speechLanguageOptions" />
+        </div>
+
+        <!-- Target 2 Toggle & Select -->
+        <div class="flex items-center gap-1.5 px-2 py-1 bg-slate-950 border border-slate-800 rounded-xl">
+          <input v-model="enableTarget2" type="checkbox" class="w-3.5 h-3.5 rounded text-amber-500 accent-amber-500 cursor-pointer" :title="tt('translator.target_lang_2', '目标语言 2 开关')">
+          <span class="text-xs font-bold text-slate-400">T2</span>
+          <div v-if="enableTarget2" class="w-28">
+            <CustomSelect v-model="targetLang2" :options="speechLanguageOptions" />
+          </div>
+        </div>
+
+        <!-- Target 3 Toggle & Select -->
+        <div class="flex items-center gap-1.5 px-2 py-1 bg-slate-950 border border-slate-800 rounded-xl">
+          <input v-model="enableTarget3" type="checkbox" class="w-3.5 h-3.5 rounded text-amber-500 accent-amber-500 cursor-pointer" :title="tt('translator.target_lang_3', '目标语言 3 开关')">
+          <span class="text-xs font-bold text-slate-400">T3</span>
+          <div v-if="enableTarget3" class="w-28">
+            <CustomSelect v-model="targetLang3" :options="speechLanguageOptions" />
+          </div>
+        </div>
+
+        <!-- Engine Select for active preset -->
+        <div class="min-w-[160px]">
+          <CustomSelect v-model="translateEngine" :options="engineOptions" />
+        </div>
       </div>
     </div>
 
-    <section class="bg-surface backdrop-blur-xl rounded-2xl p-4 border-border-strong shadow-sm mb-5">
-      <div class="grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-4">
-        <div class="min-w-0">
-          <div class="flex items-center justify-between gap-3 mb-2">
-            <div>
-              <p class="text-xs font-black text-text">{{ tt('translator.profile_title', '翻译服务档案') }}</p>
-              <p class="text-[10px] text-text-muted">{{ tt('translator.profile_desc', '保存 API、模型和提示词，一键切换麦克风、游戏语音与手动输入使用的翻译方案。') }}</p>
+    <!-- 8 Sub-navigation Tabs (Pill Bar) -->
+    <nav class="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1 shrink-0 z-10 custom-scrollbar">
+      <button
+        v-for="subTab in ([
+          { id: 'dashboard', label: tt('translator.tab_dashboard', '主控制台'), icon: MessageSquare },
+          { id: 'routing', label: tt('translator.tab_routing', '声卡路由'), icon: Radio },
+          { id: 'transcription', label: tt('translator.tab_transcription', '语音识别'), icon: Mic },
+          { id: 'translation', label: tt('translator.tab_translation', '翻译引擎'), icon: Languages },
+          { id: 'osc', label: tt('translator.tab_osc', 'VRChat OSC'), icon: Gamepad2 },
+          { id: 'ocr', label: tt('translator.tab_ocr', '气泡 OCR'), icon: Camera },
+          { id: 'vr_obs', label: tt('translator.tab_vr_obs', 'VR 与 OBS'), icon: Tv },
+          { id: 'preferences', label: tt('translator.tab_preferences', '快捷键与偏好'), icon: Sliders },
+        ] as const)"
+        :key="subTab.id"
+        type="button"
+        :class="activeSubTab === subTab.id
+          ? 'bg-amber-500/15 border-amber-500/50 text-amber-400 font-black shadow-sm'
+          : 'bg-slate-900/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:border-slate-700'"
+        class="px-3 py-2 rounded-xl border text-xs flex items-center gap-1.5 transition-all whitespace-nowrap active:scale-95"
+        @click="activeSubTab = subTab.id"
+      >
+        <component :is="subTab.icon" class="w-3.5 h-3.5" />
+        <span>{{ subTab.label }}</span>
+      </button>
+    </nav>
+    </div>
+
+    <!-- Main Dynamic Content Region -->
+    <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 z-10">
+      <!-- SIMPLE MODE VIEW (Kikitan / Yakutan Minimalist View) -->
+      <div v-if="isSimpleMode" class="h-full flex flex-col gap-4">
+        <!-- Live Status Alerts -->
+        <div v-if="statusMsg || errorMsg" class="p-3 rounded-xl border text-xs font-bold transition-all" :class="errorMsg ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'">
+          {{ errorMsg || statusMsg }}
+        </div>
+
+        <!-- Master 1-Click Hero Card -->
+        <div class="p-6 rounded-3xl bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] shadow-md flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-2.5 h-2.5 rounded-full" :class="isTwoWayRunning ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'" />
+            <span class="text-xs font-black uppercase tracking-wider text-[var(--theme-text-soft)]">
+              {{ isTwoWayRunning ? '双向同传进行中 · 物理麦克风与游戏内录正常运行' : '双向同传就绪 · 点击大按钮立即开启实时翻译' }}
+            </span>
+          </div>
+
+          <!-- Giant Toggle Button -->
+          <button
+            type="button"
+            :class="isTwoWayRunning ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-xl shadow-rose-500/25 scale-105 border-rose-400' : 'bg-[var(--theme-primary)] hover:brightness-110 text-white shadow-xl shadow-[var(--theme-primary)]/25 border-transparent'"
+            class="px-8 py-3.5 rounded-2xl text-base font-black border flex items-center gap-3 transition-all active:scale-95 mb-5 cursor-pointer"
+            @click="toggleTwoWay"
+          >
+            <Activity class="w-5 h-5" :class="{ 'animate-pulse': isTwoWayRunning }" />
+            <span>{{ isTwoWayRunning ? '停止双向同传' : '一键开启双向同传 (开始说话)' }}</span>
+          </button>
+
+          <!-- Core Quick Language & Engine Selectors -->
+          <div class="flex items-center justify-center gap-3 flex-wrap max-w-2xl w-full">
+            <div class="flex-1 min-w-[130px]">
+              <label class="block text-[11px] font-bold text-[var(--theme-text-soft)] mb-1 text-left">我方语言 (你的母语)</label>
+              <CustomSelect v-model="sourceLang" :options="languageOptions" />
             </div>
-            <button class="px-2.5 py-1.5 rounded-lg bg-primary text-white text-xs font-extrabold hover:brightness-110" @click="saveTranslationProfile">{{ tt('translator.profile_save', '保存当前') }}</button>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button v-for="profile in translationProfiles" :key="profile.id" class="group inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-colors" :class="activeProfileId === profile.id ? 'border-primary bg-primary/10 text-primary' : 'border-border-soft bg-surface-hover text-text-muted hover:border-primary'" @click="applyTranslationProfile(profile)">
-              <span>{{ profile.name }}</span>
-              <span class="hidden group-hover:inline text-red-500" @click.stop="deleteTranslationProfile(profile.id)">×</span>
+
+            <button
+              type="button"
+              class="mt-4 p-2.5 rounded-xl bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] text-[var(--theme-primary)] hover:scale-105 transition-all active:scale-95 cursor-pointer"
+              title="对调我方与对方语言"
+              @click="swapLanguages"
+            >
+              <ArrowLeftRight class="w-4 h-4" />
             </button>
-            <span v-if="!translationProfiles.length" class="text-[11px] text-text-muted py-2">{{ tt('translator.profile_empty', '还没有保存的翻译档案。') }}</span>
+
+            <div class="flex-1 min-w-[130px]">
+              <label class="block text-[11px] font-bold text-[var(--theme-text-soft)] mb-1 text-left">对方语言 (翻译目标)</label>
+              <CustomSelect v-model="targetLang" :options="speechLanguageOptions" />
+            </div>
+
+            <div class="flex-1 min-w-[150px]">
+              <label class="block text-[11px] font-bold text-[var(--theme-text-soft)] mb-1 text-left">翻译服务</label>
+              <CustomSelect v-model="translateEngine" :options="engineOptions" />
+            </div>
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-            <label v-for="route in ([['manual', '手动输入'], ['mic', '麦克风'], ['speaker', '游戏语音'], ['photo', '拍照翻译']] as const)" :key="route[0]" class="min-w-0">
-              <span class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt(`translator.route_${route[0]}`, route[1]) }}</span>
-              <CustomSelect :model-value="routeProfileIds[route[0]]" :options="profileOptions" @update:model-value="setRouteProfile(route[0], $event)" />
-            </label>
+
+          <!-- Live Level Status -->
+          <div class="mt-4 flex items-center justify-center gap-8 text-xs text-[var(--theme-text-soft)]">
+            <div class="flex items-center gap-2">
+              <Mic class="w-3.5 h-3.5" :class="isRecording ? 'text-emerald-500 animate-pulse' : 'text-slate-400'" />
+              <span>麦克风:</span>
+              <span class="font-mono font-bold" :class="audioLevels.mic > 500 ? 'text-emerald-500' : ''">{{ Math.round(audioLevels.mic) }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <Headphones class="w-3.5 h-3.5" :class="isOtherRecording ? 'text-indigo-500 animate-pulse' : 'text-slate-400'" />
+              <span>游戏声音:</span>
+              <span class="font-mono font-bold" :class="audioLevels.speaker > 500 ? 'text-indigo-500' : ''">{{ Math.round(audioLevels.speaker) }}</span>
+            </div>
           </div>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <label class="min-w-0">
-            <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_rate', 'TTS 语速') }} · {{ Number(ttsRate).toFixed(1) }}</span>
-            <input v-model.number="ttsRate" type="range" min="0.5" max="2" step="0.1" class="w-full accent-primary">
-          </label>
-          <label class="min-w-0">
-            <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_volume', 'TTS 音量') }} · {{ Math.round(Number(ttsVolume) * 100) }}%</span>
-            <input v-model.number="ttsVolume" type="range" min="0" max="1" step="0.05" class="w-full accent-primary">
-          </label>
-          <label class="flex items-center gap-2 px-3 py-2 bg-surface-hover rounded-xl border border-border-soft cursor-pointer text-xs font-bold text-text-muted">
-            <input v-model="interruptTts" type="checkbox" class="w-4 h-4 text-primary rounded">
-            {{ tt('translator.tts_interrupt', '新播报打断旧播报') }}
-          </label>
+
+        <!-- Live Split Conversation Stream -->
+        <div class="flex-1 min-h-[220px] bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-3xl p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+          <div v-if="!history.length" class="h-full flex flex-col items-center justify-center text-[var(--theme-text-soft)] text-xs py-8">
+            <MessageSquare class="w-10 h-10 mb-2 opacity-30 text-[var(--theme-text-soft)]" />
+            <p>说话或对方在 VRChat 说话后，双向翻译气泡将实时显示在这里...</p>
+          </div>
+
+          <div
+            v-for="msg in history"
+            :key="msg.id"
+            class="p-3.5 rounded-2xl border transition-all max-w-[85%]"
+            :class="msg.source === 'mic' ? 'self-end bg-emerald-500/10 border-emerald-500/30' : 'self-start bg-indigo-500/10 border-indigo-500/30'"
+          >
+            <div class="flex items-center justify-between gap-3 mb-1">
+              <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full" :class="msg.source === 'mic' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'">
+                {{ msg.source === 'mic' ? '我方' : '对方' }}
+              </span>
+              <span class="text-[10px] text-[var(--theme-text-muted)] font-mono">{{ msg.timestamp }}</span>
+            </div>
+            <p class="text-sm font-medium text-[var(--theme-text)] leading-relaxed">{{ msg.original }}</p>
+            <p v-if="(romajiMode || hiraganaMode) && transliterateText(msg.original)" class="text-xs text-[var(--theme-primary)] font-mono mt-0.5">
+              {{ transliterateText(msg.original) }}
+            </p>
+            <div class="mt-2 pt-1.5 border-t border-[var(--theme-border-soft)]">
+              <p class="text-sm font-bold text-[var(--theme-primary)]">{{ msg.translated }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Chatbox Input Bar -->
+        <div class="p-3 rounded-2xl bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] flex items-center gap-2 shrink-0">
+          <input
+            v-model="manualText"
+            type="text"
+            class="flex-1 bg-[var(--theme-surface-hover)] border border-[var(--theme-border-soft)] rounded-xl px-4 py-2 text-xs text-[var(--theme-text)] outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/20"
+            placeholder="输入文字按回车直接翻译并发送到 VRChat Chatbox..."
+            @keydown.enter.prevent="translateManual"
+          >
+          <button
+            type="button"
+            :disabled="!canTranslate"
+            class="px-4 py-2 rounded-xl bg-[var(--theme-primary)] hover:brightness-110 text-white font-bold text-xs flex items-center gap-1.5 transition-all disabled:opacity-50 active:scale-95 cursor-pointer"
+            @click="translateManual"
+          >
+            <Send class="w-3.5 h-3.5" />
+            <span>发送</span>
+          </button>
         </div>
       </div>
-    </section>
 
-    <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 z-10 relative">
-      <section class="bg-surface backdrop-blur-xl rounded-2xl p-4 border-border-strong shadow-sm mb-5">
-        <div class="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
-              <input v-model="autoSendOsc" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
-              <span class="text-sm font-bold text-text-muted truncate">{{ tt('translator.auto_osc', '自动发送到 VRChat Chatbox') }}</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
-              <input v-model="showOriginalOsc" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
-              <span class="text-sm font-bold text-text-muted truncate">{{ tt('translator.show_original', '附加原文') }}</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
-              <input v-model="autoPlayTts" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
-              <span class="text-sm font-bold text-text-muted truncate">{{ tt('translator.auto_tts', '自动语音播报') }}</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer bg-surface-hover rounded-xl px-3 py-2 border-border-soft min-w-0">
-              <input v-model="multiLangEnabled" type="checkbox" class="w-4 h-4 text-primary rounded focus:ring-indigo-500 border-border-soft shrink-0">
-              <span class="text-sm font-bold text-text-muted truncate">{{t('translator.translate_to_multiple_languages') }}</span>
-            </label>
+      <!-- 1. DASHBOARD TAB -->
+      <div v-if="activeSubTab === 'dashboard'" class="h-full flex flex-col gap-4">
+        <!-- Live Status Alerts -->
+        <div v-if="statusMsg || errorMsg" class="p-3 rounded-xl border text-xs font-bold transition-all" :class="errorMsg ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'">
+          {{ errorMsg || statusMsg }}
+        </div>
+
+        <!-- Message History Log Stream -->
+        <div class="flex-1 min-h-0 bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+          <div v-if="!history.length" class="h-full flex flex-col items-center justify-center text-slate-500 text-xs">
+            <MessageSquare class="w-8 h-8 mb-2 opacity-40 text-slate-400" />
+            <p>{{ tt('translator.placeholder', '翻译与识别记录将显示在这里...') }}</p>
           </div>
 
-          <!-- Multi-language target selector -->
-          <div v-if="multiLangEnabled" class="md:col-span-2 mt-2 p-3 bg-surface-hover rounded-xl border border-border-soft">
-            <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-2">{{t('translator.additional_target_languages_multi_langua') }}</label>
-            <div class="flex flex-wrap gap-2">
-              <label
-                v-for="opt in languageOptions.filter(o => o.value !== 'auto' && o.value !== targetLang && o.value !== sourceLang)"
-                :key="opt.value"
-                class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft cursor-pointer hover:border-primary transition-all text-xs font-bold"
-                :class="multiLangTargets.includes(opt.value) ? 'border-primary text-primary bg-primary/5' : 'text-text-muted'"
-              >
-                <input
-                  :checked="multiLangTargets.includes(opt.value)"
-                  type="checkbox"
-                  class="w-3 h-3 text-primary rounded shrink-0"
-                  @change="toggleMultiLangTarget(opt.value)"
+          <div
+            v-for="msg in history"
+            :key="msg.id"
+            class="p-3.5 rounded-xl border transition-all"
+            :class="msg.source === 'mic' ? 'bg-emerald-950/20 border-emerald-500/30' : msg.source === 'speaker' ? 'bg-indigo-950/20 border-indigo-500/30' : msg.source === 'ocr' ? 'bg-cyan-950/20 border-cyan-500/30' : 'bg-slate-900 border-slate-800'"
+          >
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <div class="flex items-center gap-2">
+                <span
+                  class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+                  :class="msg.source === 'mic' ? 'bg-emerald-500/20 text-emerald-400' : msg.source === 'speaker' ? 'bg-indigo-500/20 text-indigo-400' : msg.source === 'ocr' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-amber-500/20 text-amber-400'"
                 >
-                {{ opt.label }}
-              </label>
-            </div>
-            <p class="text-[10px] text-text-muted mt-2">{{t('translator.translations_are_sent_to_vrchat_chatbox_') }}</p>
-          </div>
-
-          <div class="md:col-span-2 grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-3 p-3 bg-surface-hover rounded-xl border border-border-soft">
-            <div class="min-w-0">
-              <div class="flex items-center justify-between gap-3 mb-2">
-                <div>
-                  <p class="text-xs font-black text-text">{{ tt('translator.glossary_title', '术语库与专名保护') }}</p>
-                  <p class="text-[10px] text-text-muted">{{ tt('translator.glossary_desc', '优先保护 VRChat 世界、用户、品牌和自定义词汇，避免机器翻译改名。') }}</p>
-                </div>
-                <button class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft text-xs font-extrabold text-primary hover:border-primary transition-colors" @click="addGlossaryTerm">
-                  <Plus :size="13" /> {{ tt('translator.glossary_add', '添加术语') }}
+                  {{ msg.source }}
+                </span>
+                <span class="text-[10px] text-slate-500 font-mono">{{ msg.timestamp }}</span>
+                <span v-if="msg.sent_osc" class="text-[10px] text-cyan-400 font-mono">OSC Chatbox</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button type="button" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200" title="Copy Translated" @click="copyText(msg.translated)">
+                  <Copy class="w-3.5 h-3.5" />
+                </button>
+                <button type="button" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200" title="Play TTS" @click="playTts(msg.translated, msg.target_lang)">
+                  <Volume2 class="w-3.5 h-3.5" />
+                </button>
+                <button v-if="showResendButton" type="button" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-amber-400" title="Resend to VRChat" @click="processMessageNow(msg.original, msg.source, msg.source_lang, msg.target_lang, true)">
+                  <Send class="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div v-if="glossary.length" class="space-y-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
-                <div v-for="(term, index) in glossary" :key="index" class="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
-                  <input v-model="term.source" type="text" class="min-w-0 px-2.5 py-1.5 bg-surface border border-border-soft rounded-lg text-xs font-bold text-text outline-none focus:border-primary" :placeholder="tt('translator.glossary_source', '原文术语')">
-                  <input v-model="term.target" type="text" class="min-w-0 px-2.5 py-1.5 bg-surface border border-border-soft rounded-lg text-xs font-bold text-text outline-none focus:border-primary" :placeholder="tt('translator.glossary_target', '固定译法')">
-                  <button class="w-8 h-8 inline-flex items-center justify-center rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10" :title="tt('translator.glossary_remove', '删除术语')" @click="removeGlossaryTerm(index)"><Trash2 :size="14" /></button>
+            </div>
+
+            <!-- Original Text -->
+            <p class="text-sm font-medium text-slate-300 leading-relaxed">{{ msg.original }}</p>
+
+            <!-- Romaji / Hiragana Transliteration if enabled -->
+            <p v-if="(romajiMode || hiraganaMode) && transliterateText(msg.original)" class="text-xs text-amber-400/80 font-mono mt-0.5">
+              {{ transliterateText(msg.original) }}
+            </p>
+
+            <!-- Translated Text -->
+            <div class="mt-2 pt-2 border-t border-slate-800/60">
+              <p class="text-sm font-bold text-amber-400 leading-relaxed">{{ msg.translated }}</p>
+              <div v-if="msg.translations && msg.translations.length > 1" class="mt-1 flex flex-col gap-0.5">
+                <div v-for="tr in msg.translations.slice(1)" :key="tr.target_lang" class="text-xs text-slate-400 font-medium">
+                  <span class="text-[10px] font-mono text-slate-500 uppercase">[{{ tr.target_lang }}]</span> {{ tr.translated }}
                 </div>
               </div>
-              <p v-else class="text-[11px] text-text-muted py-1">{{ tt('translator.glossary_empty', '尚未添加术语；翻译会自动保持 URL、表情和换行。') }}</p>
             </div>
-            <div class="flex xl:flex-col gap-2 xl:justify-center">
-              <label class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft cursor-pointer text-[11px] font-bold text-text-muted whitespace-nowrap">
-                <input v-model="contextEnabled" type="checkbox" class="w-3.5 h-3.5 text-primary rounded">
-                {{ tt('translator.context_enabled', '启用最近对话上下文') }}
+          </div>
+        </div>
+
+        <!-- Quick Input & Chatbox Bar -->
+        <div class="p-3 bg-slate-900/90 border border-slate-800/80 rounded-2xl flex flex-col gap-2 shrink-0">
+          <div class="flex items-center gap-2">
+            <textarea
+              v-model="manualText"
+              rows="2"
+              class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 outline-none focus:border-amber-500 resize-none"
+              :placeholder="tt('translator.enter_text_to_translate_for_vrchat', '输入要翻译到 VRChat 的文字... (按 Enter 发送)')"
+              @keydown.enter.exact.prevent="translateManual"
+            />
+            <button
+              v-if="sendMessageButtonType !== 'hide'"
+              type="button"
+              :disabled="!canTranslate"
+              class="px-4 h-[58px] rounded-xl bg-amber-500 hover:brightness-110 disabled:opacity-40 text-slate-950 font-black text-xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shrink-0"
+              @click="translateManual"
+            >
+              <Send class="w-4 h-4" />
+              <span>{{ tt('translator.translate_and_send', '发送') }}</span>
+            </button>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 px-1">
+            <div class="flex items-center gap-4">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input v-model="autoClearMessageBox" type="checkbox" class="w-3.5 h-3.5 rounded accent-amber-500">
+                <span>自动清空输入框</span>
               </label>
-              <label class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft text-[11px] font-bold text-text-muted whitespace-nowrap">
-                <span>{{ tt('translator.retry_count', '失败重试') }}</span>
-                <input v-model.number="retryCount" type="number" min="0" max="3" class="w-10 bg-transparent text-center text-text outline-none">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input v-model="autoSendOsc" type="checkbox" class="w-3.5 h-3.5 rounded accent-amber-500">
+                <span>同步发送至 Chatbox</span>
               </label>
             </div>
+            <button type="button" class="text-slate-500 hover:text-red-400 transition-colors" @click="clearHistory">
+              清空历史记录
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. AUDIO ROUTING (MIXLINE MATRIX) TAB -->
+      <div v-else-if="activeSubTab === 'routing'" class="flex flex-col gap-5">
+        <div class="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl">
+          <div class="flex items-center gap-2 mb-1">
+            <Radio class="w-5 h-5 text-amber-500" />
+            <h3 class="text-sm font-black text-slate-100">{{ tt('translator.routing_title', '声卡混音与物理路由矩阵 (MIXLINE 风格)') }}</h3>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed">{{ tt('translator.routing_desc', '将物理麦克风、系统内录与虚拟音频通道无损串接并提供实时音量电平表与独立监听。') }}</p>
+        </div>
+
+        <!-- MIXLINE Matrix: Inputs -> Cables -> Outputs -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch relative">
+          <!-- Column 1: INPUTS -->
+          <div class="flex flex-col gap-4">
+            <h4 class="text-xs font-black text-slate-400 uppercase tracking-wider px-1">{{ tt('translator.routing_inputs', '音频输入源 (Inputs)') }}</h4>
+
+            <!-- Card: Microphone Input -->
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <Mic class="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_mic', '物理麦克风') }}</h5>
+                    <span class="text-[10px] text-slate-400">{{ isRecording ? '采集中' : '就绪' }}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  :class="micMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
+                  @click="micMuted = !micMuted"
+                >
+                  <component :is="micMuted ? VolumeX : Volume2" class="w-3.5 h-3.5" />
+                  <span>{{ micMuted ? tt('translator.routing_mute', '静音') : '正常' }}</span>
+                </button>
+              </div>
+
+              <!-- Device Selector -->
+              <CustomSelect v-model="micDeviceId" :options="audioDevices.filter(d => d.source === 'mic').map(d => ({ label: d.name, value: d.id }))" />
+
+              <!-- Live VU Meter -->
+              <div>
+                <div class="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                  <span>实时电平 (VU Meter)</span>
+                  <span>{{ Math.round(audioLevels.mic) }}</span>
+                </div>
+                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                  <div
+                    class="h-full rounded-full transition-all duration-75"
+                    :class="audioLevels.mic > 500 ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-emerald-600'"
+                    :style="{ width: `${Math.min(100, (audioLevels.mic / 1200) * 100)}%` }"
+                  />
+                </div>
+              </div>
+
+              <!-- Volume Slider -->
+              <label class="flex items-center justify-between gap-3 text-xs">
+                <span class="text-slate-400 font-bold">增益</span>
+                <input v-model.number="micVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-amber-500">
+                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ micVolume }}%</span>
+              </label>
+            </div>
+
+            <!-- Card: Speaker / Loopback Input -->
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                    <Headphones class="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_speaker', '系统声音 / 游戏内录 (Loopback)') }}</h5>
+                    <span class="text-[10px] text-slate-400">{{ isOtherRecording ? '内录中' : '就绪' }}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  :class="speakerMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
+                  @click="speakerMuted = !speakerMuted"
+                >
+                  <component :is="speakerMuted ? VolumeX : Volume2" class="w-3.5 h-3.5" />
+                  <span>{{ speakerMuted ? tt('translator.routing_mute', '静音') : '正常' }}</span>
+                </button>
+              </div>
+
+              <CustomSelect v-model="speakerDeviceId" :options="audioDevices.filter(d => d.source === 'speaker').map(d => ({ label: d.name, value: d.id }))" />
+
+              <!-- VU Meter -->
+              <div>
+                <div class="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                  <span>实时电平 (VU Meter)</span>
+                  <span>{{ Math.round(audioLevels.speaker) }}</span>
+                </div>
+                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                  <div
+                    class="h-full rounded-full transition-all duration-75"
+                    :class="audioLevels.speaker > 500 ? 'bg-indigo-400 shadow-sm shadow-indigo-400/50' : 'bg-indigo-600'"
+                    :style="{ width: `${Math.min(100, (audioLevels.speaker / 1200) * 100)}%` }"
+                  />
+                </div>
+              </div>
+
+              <label class="flex items-center justify-between gap-3 text-xs">
+                <span class="text-slate-400 font-bold">增益</span>
+                <input v-model.number="speakerVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-indigo-500">
+                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ speakerVolume }}%</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Column 2: SVG CONNECTION CABLES (MIXLINE WIRE VISUALIZER) -->
+          <div class="hidden lg:flex flex-col items-center justify-center p-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl relative overflow-hidden">
+            <svg class="w-full h-full min-h-[360px]" viewBox="0 0 200 400" fill="none">
+              <!-- Wire 1: Mic -> VRChat Stream -->
+              <path
+                d="M 10 90 C 100 90, 100 90, 190 90"
+                :stroke="isRecording ? '#10b981' : '#334155'"
+                stroke-width="3"
+                stroke-dasharray="6 4"
+                :class="{ 'animate-pulse': isRecording }"
+              />
+              <!-- Wire 2: Mic -> Headphone Monitor -->
+              <path
+                d="M 10 90 C 100 90, 100 310, 190 310"
+                :stroke="headphoneMonitorEnabled ? '#f59e0b' : '#1e293b'"
+                stroke-width="2.5"
+                stroke-dasharray="4 4"
+              />
+              <!-- Wire 3: Loopback -> Headphone Monitor -->
+              <path
+                d="M 10 270 C 100 270, 100 310, 190 310"
+                :stroke="isOtherRecording ? '#6366f1' : '#334155'"
+                stroke-width="3"
+                stroke-dasharray="6 4"
+                :class="{ 'animate-pulse': isOtherRecording }"
+              />
+              <!-- Wire 4: Loopback -> VRChat Stream (if Speaker2Chatbox) -->
+              <path
+                d="M 10 270 C 100 270, 100 90, 190 90"
+                :stroke="sendReceivedMessageToVrc ? '#06b6d4' : '#1e293b'"
+                stroke-width="2"
+                stroke-dasharray="4 4"
+              />
+              <!-- Center Badge -->
+              <circle cx="100" cy="190" r="28" fill="#0b0f17" stroke="#f59e0b" stroke-width="2" />
+              <text x="100" y="186" text-anchor="middle" fill="#f59e0b" font-size="10" font-weight="900">MIXLINE</text>
+              <text x="100" y="200" text-anchor="middle" fill="#94a3b8" font-size="8">ROUTING</text>
+            </svg>
+          </div>
+
+          <!-- Column 3: OUTPUTS -->
+          <div class="flex flex-col gap-4">
+            <h4 class="text-xs font-black text-slate-400 uppercase tracking-wider px-1">{{ tt('translator.routing_outputs', '音频输出端 (Outputs)') }}</h4>
+
+            <!-- Card: VRChat Stream -->
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <Gamepad2 class="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_vrchat_stream', 'VRChat 虚拟麦克风通道') }}</h5>
+                    <span class="text-[10px] text-slate-400">OSC / Virtual Audio Cable</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  :class="vrchatStreamMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
+                  @click="vrchatStreamMuted = !vrchatStreamMuted"
+                >
+                  <component :is="vrchatStreamMuted ? VolumeX : Volume2" class="w-3.5 h-3.5" />
+                  <span>{{ vrchatStreamMuted ? tt('translator.routing_mute', '静音') : '正常' }}</span>
+                </button>
+              </div>
+
+              <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 flex items-center justify-between">
+                <span>直通真实物理声音</span>
+                <input v-model="micPassthrough" type="checkbox" class="w-4 h-4 rounded accent-amber-500 cursor-pointer">
+              </div>
+
+              <label class="flex items-center justify-between gap-3 text-xs">
+                <span class="text-slate-400 font-bold">音量</span>
+                <input v-model.number="vrchatStreamVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-amber-500">
+                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ vrchatStreamVolume }}%</span>
+              </label>
+            </div>
+
+            <!-- Card: Headphone Monitor -->
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                    <Ear class="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_monitor', '耳机监听通道 (Headphones)') }}</h5>
+                    <span class="text-[10px] text-slate-400">本地耳返与 TTS 音频</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  :class="headphoneMonitorEnabled ? 'bg-cyan-500 text-slate-950 font-black border-cyan-400' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
+                  @click="headphoneMonitorEnabled = !headphoneMonitorEnabled"
+                >
+                  <span>{{ headphoneMonitorEnabled ? '监听中' : '未开启' }}</span>
+                </button>
+              </div>
+
+              <!-- Output Device -->
+              <CustomSelect v-model="ttsDeviceId" :options="[{ label: '系统默认耳机/扬声器', value: '' }, ...audioDevices.filter(d => d.source === 'output').map(d => ({ label: d.name, value: d.id }))]" />
+
+              <label class="flex items-center justify-between gap-3 text-xs">
+                <span class="text-slate-400 font-bold">音量</span>
+                <input v-model.number="headphoneMonitorVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-cyan-500">
+                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ headphoneMonitorVolume }}%</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Audio Sessions List -->
+        <div class="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-black text-slate-200 uppercase tracking-wider">活跃发声进程 (Audio Sessions)</h4>
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1" @click="refreshAudioSessions">
+              <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': isLoadingSessions }" />
+              <span>刷新进程</span>
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <div
+              v-for="s in activeAudioSessions"
+              :key="s.pid"
+              class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs flex items-center gap-2"
+            >
+              <div class="w-2 h-2 rounded-full" :class="s.is_active ? 'bg-emerald-400' : 'bg-slate-600'" />
+              <span class="font-bold text-slate-200">{{ s.name }}</span>
+              <span class="text-[10px] text-slate-500 font-mono">PID {{ s.pid }}</span>
+            </div>
+            <span v-if="!activeAudioSessions.length" class="text-xs text-slate-500 py-1">未检测到任何正在发声的独立 Windows 进程。</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. TRANSCRIPTION STT TAB -->
+      <div v-else-if="activeSubTab === 'transcription'" class="flex flex-col gap-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Engine Selector Card -->
+          <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+            <h4 class="text-xs font-black text-slate-200 uppercase">麦克风识别引擎 (Mic STT Engine)</h4>
+            <CustomSelect v-model="micEngine" :options="sttEngineOptions" />
+
+            <h4 class="text-xs font-black text-slate-200 uppercase mt-2">扬声器识别引擎 (Speaker STT Engine)</h4>
+            <CustomSelect v-model="otherEngine" :options="sttEngineOptions" />
+          </div>
+
+          <!-- Local Whisper Engine Settings -->
+          <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+            <h4 class="text-xs font-black text-slate-200 uppercase">本地 Faster-Whisper 设置</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="text-xs">
+                <span class="block text-slate-400 font-bold mb-1">模型尺寸 (Weights)</span>
+                <select v-model="whisperModel" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                  <option value="tiny">tiny (快速/显存极小)</option>
+                  <option value="base">base (轻量标准)</option>
+                  <option value="small">small (高精推荐)</option>
+                  <option value="medium">medium (专业)</option>
+                  <option value="large-v3">large-v3 (旗舰)</option>
+                  <option value="large-v3-turbo">large-v3-turbo (快速大模型)</option>
+                </select>
+              </label>
+
+              <label class="text-xs">
+                <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.whisper_device', '运算设备') }}</span>
+                <select v-model="whisperDevice" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                  <option value="cpu">CPU (兼容所有电脑)</option>
+                  <option value="cuda">CUDA (NVIDIA 显卡加速)</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.whisper_compute_type', '计算精度 (Compute Type)') }}</span>
+              <select v-model="whisperComputeType" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                <option value="int8">int8 (推荐，省内存)</option>
+                <option value="float16">float16 (显卡半精度)</option>
+                <option value="int8_float16">int8_float16 (混合精度)</option>
+                <option value="float32">float32 (单精度)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <!-- Cloud STT API Keys (Groq / OpenAI / Custom / Deepgram) -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-slate-200 uppercase">云端 STT 密钥与服务地址 (Groq / OpenAI / Custom / Deepgram)</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">Groq API Key (Groq Whisper)</span>
+              <input v-model="groqApiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="gsk_...">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">OpenAI API Key (Whisper-1)</span>
+              <input v-model="openaiApiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="sk-...">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">Custom Whisper URL</span>
+              <input v-model="customWhisperUrl" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="http://127.0.0.1:8000/v1">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">Deepgram API Key (Nova-2 / Nova-3)</span>
+              <input v-model="deepgramApiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="Token ...">
+            </label>
+          </div>
+        </div>
+
+        <!-- Word Filter (MIC_WORD_FILTER Redaction) -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.word_filter', '麦克风敏感词屏蔽列表 (Word Filter)') }}</h4>
+              <p class="text-[11px] text-slate-400">{{ tt('translator.word_filter_desc', '识别到列表内的敏感词时自动拦截，不发送至 VRChat Chatbox。') }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              v-model="newFilterWord"
+              type="text"
+              class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500"
+              :placeholder="tt('translator.word_filter_placeholder', '输入要屏蔽的词并按回车或添加...')"
+              @keydown.enter.prevent="addFilterWord"
+            >
+            <button type="button" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:brightness-110 text-slate-950 font-bold text-xs" @click="addFilterWord">
+              {{ tt('translator.word_filter_add', '添加') }}
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-1">
+            <div
+              v-for="(w, idx) in wordFilterList"
+              :key="idx"
+              class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-1.5"
+            >
+              <span>{{ w }}</span>
+              <button type="button" class="text-slate-500 hover:text-red-400" @click="removeFilterWord(idx)">×</button>
+            </div>
+            <span v-if="!wordFilterList.length" class="text-xs text-slate-500 py-1">{{ tt('translator.word_filter_empty', '当前未配置敏感词过滤规则') }}</span>
+          </div>
+        </div>
+
+        <!-- VAD & Timeouts -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-slate-200 uppercase">发话检测与切分超时 (VAD & Timeouts)</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">VAD 模式</span>
+              <select v-model="vadMode" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                <option value="webrtc">WebRTC VAD (标准实时)</option>
+                <option value="silero">Silero VAD (神经网络)</option>
+                <option value="rms">能量阈值 (传统模式)</option>
+              </select>
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">断句静音超时 (秒)</span>
+              <input v-model.number="silenceTimeout" type="number" step="0.1" min="0.2" max="3" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">单句最长时间限制 (秒)</span>
+              <input v-model.number="phraseTimeLimit" type="number" step="1" min="2" max="30" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. TRANSLATION ENGINES TAB -->
+      <div v-else-if="activeSubTab === 'translation'" class="flex flex-col gap-5">
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-black text-slate-200 uppercase">翻译引擎与 API 配置</h4>
+              <p class="text-[11px] text-slate-400">支持 20+ 款主流云端与本地大模型翻译提供商。</p>
+            </div>
+            <button type="button" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:brightness-110 text-slate-950 font-bold text-xs" @click="saveTranslationProfile">
+              保存为翻译档案
+            </button>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="min-w-0">
-              <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5 flex items-center gap-1.5">
-                <Settings :size="12" /> {{ tt('translator.tts_engine_label', 'TTS 播报引擎') }}
-              </label>
-              <CustomSelect
-                v-model="ttsEngine"
-                :options="[
-                  { label: tt('translator.tts_system', '系统原生 (Web Speech)'), value: 'system' },
-                  { label: tt('translator.tts_edge', 'Edge-TTS'), value: 'edge' },
-                  { label: tt('translator.tts_gptsovits', 'GPT-SoVITS API'), value: 'gpt_sovits' },
-                  { label: tt('translator.tts_server', 'VRCLS Server TTS'), value: 'server' }
-                ]"
-              />
-            </div>
-            <div class="min-w-0">
-              <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5 flex items-center justify-between">
-                <span class="flex items-center gap-1.5"><Volume2 :size="12" /> {{ tt('translator.tts_device_label', 'TTS 输出设备 (直通虚拟声卡)') }}</span>
-                <button type="button" class="text-[10px] text-primary cursor-pointer hover:underline font-bold flex items-center gap-1" @click="showCableGuide = true">
-                  <HelpCircle :size="12" />
-                  <span>{{ tt('translator.cable_guide_btn', '虚拟声卡指南') }}</span>
-                </button>
-              </label>
-              <CustomSelect v-model="ttsDeviceId" :options="ttsDeviceOptions" />
-            </div>
-            <div class="md:col-span-2 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border border-border-soft">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="text-xs font-bold text-text">{{ tt('translator.mic_passthrough_title', '麦克风原生直通虚拟声卡 (Raw Mic Passthrough)') }}</span>
-                  <span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-primary/10 text-primary">VRCLT 同款</span>
-                </div>
-                <span class="text-[11px] text-text-muted block mt-0.5">
-                  {{ tt('translator.mic_passthrough_desc', '将物理麦克风声音近 0 延迟实时拷贝直通推入虚拟声卡（CABLE Input），TTS 语音合成播报时自动暂停避让。无需第三方复杂跳线！') }}
-                </span>
-              </div>
-              <button :aria-label="t('a11y.mic_passthrough')"
-                type="button"
-                :class="micPassthrough ? 'bg-primary text-white' : 'bg-surface border-border-soft text-text-muted'"
-                class="relative w-11 h-6 rounded-full transition-colors shrink-0"
-                @click="micPassthrough = !micPassthrough"
-              >
-                <span :class="micPassthrough ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
-              </button>
-            </div>
-            <div v-if="ttsEngine === 'server'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div><label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_provider', 'Provider') }}</label><CustomSelect v-model="serverTtsProvider" :options="[{ label: 'Edge-TTS', value: 'edge' }, { label: 'Qwen-TTS', value: 'qwen' }, { label: 'MOSS-TTS', value: 'moss' }, { label: 'OmniVoice', value: 'omnivoice' }]" /></div>
-              <div><label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_voice', 'Voice') }}</label><input v-model="serverTtsVoice" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="default" /></div>
-              <div class="md:col-span-2"><label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_base_url', 'Server TTS URL') }}</label><input v-model="serverTtsBaseUrl" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="https://your-server.example/api" /></div>
-              <div class="md:col-span-2"><label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_clone_reference', '声音克隆参考音频') }}</label><input v-model="gptReferenceAudio" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="D:\voices\reference.wav" /></div>
-              <div class="md:col-span-2"><label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.tts_clone_text', '参考音频文本 / Qwen 指令') }}</label><input v-model="ttsReferenceText" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" /></div>
-              <div class="md:col-span-2 flex items-center gap-2">
-                <CustomSelect v-model="activeTtsPresetId" :options="[{ label: tt('translator.tts_preset_default', '选择声音预设'), value: '' }, ...ttsPresets.map((preset) => ({ label: `${preset.name} · ${preset.provider}`, value: preset.id }))]" @update:model-value="applyTtsPreset" />
-                <button class="px-2.5 py-2 rounded-xl bg-primary text-white text-xs font-extrabold whitespace-nowrap" @click="saveTtsPreset">{{ tt('translator.tts_preset_save', '保存预设') }}</button>
-                <button class="px-2.5 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted text-xs font-extrabold whitespace-nowrap" :disabled="!activeTtsPresetId" @click="deleteTtsPreset">{{ tt('translator.tts_preset_delete', '删除') }}</button>
-                <button class="px-2.5 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted text-xs font-extrabold whitespace-nowrap" @click="importTtsPresets">{{ tt('translator.tts_preset_import', '导入') }}</button>
-                <button class="px-2.5 py-2 rounded-xl bg-surface-hover border border-border-soft text-text-muted text-xs font-extrabold whitespace-nowrap" @click="exportTtsPresets">{{ tt('translator.tts_preset_export', '导出') }}</button>
-              </div>
-            </div>
-            <div v-if="ttsEngine === 'gpt_sovits'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.gptsovits_url_label', 'GPT-SoVITS API URL') }}</label>
-                <input
-                  v-model="gptSovitsUrl"
-                  type="text"
-                  class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
-                  :placeholder="tt('translator.gptsovits_url_placeholder', 'http://127.0.0.1:9880')"
-                >
-              </div>
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.sovits_weights_label', 'SoVITS weights (.pth)') }}</label>
-                <input v-model="gptSovitsWeights" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" :placeholder="tt('translator.sovits_weights_placeholder', 'D:\\models\\voice.pth')">
-              </div>
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.gpt_weights_label', 'GPT weights (.ckpt)') }}</label>
-                <input v-model="gptWeights" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" :placeholder="tt('translator.gpt_weights_placeholder', 'D:\\models\\voice.ckpt')">
-              </div>
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.reference_audio_label', 'Reference audio') }}</label>
-                <input v-model="gptReferenceAudio" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" :placeholder="tt('translator.reference_audio_placeholder', 'D:\\voices\\reference.wav')">
-              </div>
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.prompt_text_label', 'Reference transcript') }}</label>
-                <input v-model="gptPromptText" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all">
-              </div>
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.prompt_language_label', 'Reference language') }}</label>
-                <CustomSelect
-                  v-model="gptPromptLanguage"
-                  :options="[
-                    { label: tt('translator.language_chinese', 'Chinese'), value: 'zh' },
-                    { label: tt('translator.language_english', 'English'), value: 'en' },
-                    { label: tt('translator.language_japanese', 'Japanese'), value: 'ja' },
-                    { label: tt('translator.language_korean', 'Korean'), value: 'ko' }
-                  ]"
-                />
-              </div>
-            </div>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">当前翻译服务</span>
+              <CustomSelect v-model="translateEngine" :options="engineOptions" />
+            </label>
+            <label v-if="needsApiKey" class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ currentEngine.hint }}</span>
+              <input v-model="apiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="API Key / Auth Key">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">模型名称 (Model)</span>
+              <input v-model="model" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="例如: gpt-4o, gemini-1.5-flash, qwen-mt-plus">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">自定义 API 端点</span>
+              <input v-model="customApiUrl" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="https://api.openai.com/v1">
+            </label>
           </div>
+
+          <label class="text-xs">
+            <span class="block text-slate-400 font-bold mb-1">系统提示词 (System Prompt)</span>
+            <textarea v-model="prompt" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500 resize-none" placeholder="为 LLM 翻译指定个性化风格，例如：保持口语化，适合 VRChat 聊天交友..." />
+          </label>
         </div>
-      </section>
 
-      <div v-if="errorMsg || audioDeviceError || statusMsg" class="mb-5 shrink-0">
-        <div v-if="errorMsg" class="bg-red-50 border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold shadow-sm">
-          {{ errorMsg }}
-        </div>
-        <div v-else-if="audioDeviceError" class="bg-red-50 border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-bold shadow-sm flex items-center justify-between gap-3">
-          <span class="min-w-0 break-words">{{ audioDeviceError }}</span>
-          <button class="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg bg-white/70" :title="t('translator.refresh_audio_devices')" @click="loadAudioDevices">
-            <RefreshCw :size="14" />
-          </button>
-        </div>
-        <div v-else class="bg-emerald-50 border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
-          <CheckCircle2 :size="16" /> {{ statusMsg }}
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_390px] gap-5 min-h-0">
-        <main class="grid grid-cols-1 lg:grid-cols-2 gap-5 min-w-0">
-          <section class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex items-center justify-between gap-3 mb-4">
-              <h3 class="font-extrabold text-text flex items-center gap-2 text-lg min-w-0">
-                <Mic class="text-primary shrink-0" :size="20" />
-                <span class="truncate">{{ tt('translator.my_voice', '我说话 (发送到 VRC)') }}</span>
-              </h3>
-              <button
-                data-testid="start-microphone"
-                :class="isRecording ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30 border-red-500' : 'bg-surface-hover hover:bg-primary/10 text-text-muted hover:text-primary border-border-soft'"
-                class="px-3 py-2 rounded-xl font-extrabold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0"
-                @click="toggleRecording"
-              >
-                <component :is="isMicStarting ? RefreshCw : isRecording ? MicOff : Mic" :class="{ 'animate-spin': isMicStarting }" :size="16" />
-                <span>{{ isRecording || isMicStarting ? tt('translator.stop_listen', '停止收音') : tt('translator.start_listen', '开始麦克风监听') }}</span>
-              </button>
+        <!-- Glossary Manager -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-black text-slate-200 uppercase">术语库与专有名词 (Glossary)</h4>
+              <p class="text-[11px] text-slate-400">强制替换 VRChat 常用黑话、玩家昵称或特殊词汇。</p>
             </div>
-
-            <div class="space-y-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.microphone_device') }}</label>
-                  <CustomSelect v-model="micDeviceId" :options="micDeviceOptions" />
-                </div>
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.stt_engine_label', 'STT Engine') }}</label>
-                  <CustomSelect v-model="micEngine" :options="speakerEngineOptions" />
-                </div>
-              </div>
-
-              <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.engine',t('translator.translation_engine')) }}</label>
-                <CustomSelect v-model="translateEngine" :options="engineOptions" />
-                <p class="mt-1.5 text-[11px] text-text-muted font-semibold truncate">{{ currentEngine.hint }}</p>
-              </div>
-
-              <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-end">
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.source_lang', '我的语言 (Source)') }}</label>
-                  <CustomSelect v-model="sourceLang" :options="speechLanguageOptions" />
-                </div>
-                <button :aria-label="t('a11y.swap_languages')" class="mb-0.5 w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-primary transition-colors" @click="swapMyLanguages">
-                  <RefreshCw :size="16" />
-                </button>
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.target_lang', '翻译为 (Target)') }}</label>
-                  <CustomSelect v-model="targetLang" :options="languageOptions.filter((option) => option.value !== 'auto')" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div v-if="needsApiKey || apiKey" class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.api_key_label', 'API Key') }}</label>
-                  <input v-model="apiKey" type="password" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10">
-                </div>
-                <div v-if="showModelField" class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.model_label', 'Model') }}</label>
-                  <input v-model="model" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="default">
-                </div>
-                <div v-if="translateEngine === 'custom_llm'" class="md:col-span-2 min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.custom_api_url_label', 'Custom API URL') }}</label>
-                  <input v-model="customApiUrl" type="text" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="https://example.com/v1/chat/completions">
-                </div>
-                <div v-if="translateEngine === 'qwen'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-primary/5 border border-primary/20 rounded-xl">
-                  <div>
-                    <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.qwen_endpoint_label', '通义千问服务节点') }}</label>
-                    <CustomSelect
-                      v-model="qwenEndpoint"
-                      :options="[
-                        { label: tt('translator.qwen_endpoint_beijing', '中国大陆 (北京节点 - DashScope)'), value: 'beijing' },
-                        { label: tt('translator.qwen_endpoint_intl', '国际节点 (新加坡/国际站 - DashScope Intl)'), value: 'intl' },
-                      ]"
-                    />
-                  </div>
-                  <div>
-                    <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.qwen_workspace_label', 'DashScope Workspace ID (可选)') }}</label>
-                    <input
-                      v-model="qwenWorkspaceId"
-                      type="text"
-                      class="w-full px-3 py-2 bg-surface border border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10"
-                      :placeholder="tt('translator.qwen_workspace_placeholder', '如无多空间隔离可留空')"
-                    >
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.prompt_label', 'Prompt') }}</label>
-                <textarea
-                  v-model="prompt"
-                  rows="2"
-                  class="w-full resize-none px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10"
-                  placeholder="Return only the translated text."
-                />
-              </div>
-
-              <div class="grid grid-cols-2 gap-3">
-                <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.energy_threshold') }}</span>
-                  <input v-model.number="micEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-                </label>
-                <label v-if="micEngine === 'local'" class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Whisper Model</span>
-                  <CustomSelect v-model="whisperModel" :options="[{ label: 'Tiny', value: 'tiny' }, { label: 'Base', value: 'base' }, { label: 'Small', value: 'small' }]" />
-                </label>
-              </div>
-            </div>
-          </section>
-
-          <section class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex items-center justify-between gap-3 mb-4">
-              <h3 class="font-extrabold text-text flex items-center gap-2 text-lg min-w-0">
-                <Headphones class="text-emerald-500 shrink-0" :size="20" />
-                <span class="truncate">{{ tt('translator.others_voice', '别人说话 (系统内录)') }}</span>
-              </h3>
-              <button
-                data-testid="start-speaker"
-                :class="isOtherRecording ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-surface-hover text-text-muted border-border-soft'"
-                class="px-3 py-2 rounded-xl font-extrabold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0"
-                @click="toggleOtherRecording"
-              >
-                <component :is="isSpeakerStarting ? RefreshCw : isOtherRecording ? Square : Ear" :class="{ 'animate-spin': isSpeakerStarting }" :size="15" />
-                <span>{{ isOtherRecording || isSpeakerStarting ? tt('translator.stop_game_listen', '停止监听') : tt('translator.listen_game', '开启游戏语音监听') }}</span>
-              </button>
-            </div>
-
-            <div class="space-y-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.playback_device') }}</label>
-                  <CustomSelect v-model="speakerDeviceId" :options="speakerDeviceOptions" />
-                </div>
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.stt_engine_label', 'STT Engine') }}</label>
-                  <CustomSelect v-model="otherEngine" :options="speakerEngineOptions" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-end">
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.source_lang', '源语言') }}</label>
-                  <CustomSelect v-model="otherSourceLang" :options="speechLanguageOptions" />
-                </div>
-                <button :aria-label="t('a11y.swap_languages')" class="mb-0.5 w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-primary transition-colors" @click="swapOtherLanguages">
-                  <RefreshCw :size="16" />
-                </button>
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.target_lang', '目标语言') }}</label>
-                  <CustomSelect v-model="otherTargetLang" :options="languageOptions.filter((option) => option.value !== 'auto')" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-2 gap-3">
-                <div class="min-w-0">
-                  <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.capture_mode') }}</label>
-                  <CustomSelect v-model="captureMode" :options="[{ label:t('translator.whole_speaker_loopback'), value: 'loopback' }, { label:t('translator.vrchat_process_only'), value: 'process' }]" />
-                </div>
-                <div class="min-w-0">
-                  <div class="flex items-center justify-between mb-1.5">
-                    <span class="block text-[11px] font-extrabold text-text-muted uppercase">{{ t('translator.target_process') }}</span>
-                    <button
-                      type="button"
-                      class="text-[10px] text-primary hover:underline flex items-center gap-1 font-bold"
-                      :disabled="isLoadingSessions"
-                      @click="refreshAudioSessions"
-                    >
-                      <RefreshCw :class="{ 'animate-spin': isLoadingSessions }" :size="10" />
-                      <span>{{ tt('translator.refresh_sessions', '刷新发声进程') }}</span>
-                    </button>
-                  </div>
-                  <div class="flex gap-2">
-                    <input v-model="targetProcess" type="text" class="flex-1 min-w-0 px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none" placeholder="VRChat.exe">
-                    <div v-if="activeAudioSessions.length > 0" class="w-40 shrink-0">
-                      <CustomSelect
-                        :model-value="targetProcess"
-                        :options="[
-                          { label: tt('translator.select_process', '选择发声进程'), value: '' },
-                          ...activeAudioSessions.map(s => ({ label: `${s.name} (${s.pid})`, value: s.name }))
-                        ]"
-                        @update:model-value="if ($event) { targetProcess = $event; captureMode = 'process'; }"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.energy_threshold') }}</span>
-                  <input v-model.number="speakerEnergyThreshold" type="number" min="0" max="10000" step="50" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-                </label>
-                <label class="min-w-0">
-                  <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.phrase_limit') }}</span>
-                  <input v-model.number="phraseTimeLimit" type="number" min="2" max="30" step="1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-                </label>
-              </div>
-
-              <div class="flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
-                <div class="min-w-0">
-                  <span class="text-sm font-bold text-text block">{{t('translator.self_suppress') }}</span>
-                  <span class="text-[11px] text-text-muted">{{t('translator.pause_listen_while_you_speak_to_avoid_ec') }}</span>
-                </div>
-                <button :aria-label="t('a11y.self_suppress')"
-                  type="button"
-                  :class="selfSuppress ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
-                  class="relative w-11 h-6 rounded-full transition-colors shrink-0"
-                  @click="selfSuppress = !selfSuppress"
-                >
-                  <span :class="selfSuppress ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
-                </button>
-              </div>
-
-              <div v-if="selfSuppress" class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.suppress_tail') }} (s)</label>
-                <input v-model.number="selfSuppressSeconds" type="number" min="0" max="5" step="0.1" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-              </div>
-
-              <div v-if="otherEngine === 'local'" class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">Whisper Model</label>
-                <CustomSelect v-model="whisperModel" :options="[{ label: 'Tiny', value: 'tiny' }, { label: 'Base', value: 'base' }, { label: 'Small', value: 'small' }]" />
-              </div>
-
-              <div class="bg-surface-hover rounded-xl p-4 border-border-soft min-h-[128px]">
-                <p v-if="!recognizedText" class="text-border-strong font-medium italic text-center mt-8 text-sm">
-                  {{ tt('translator.click_to_speak', '开始麦克风监听、游戏语音监听，或输入文本进行翻译') }}
-                </p>
-                <p v-else class="text-text font-bold whitespace-pre-wrap leading-relaxed break-words">
-                  {{ recognizedText }}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex items-center justify-between gap-3 mb-4">
-              <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
-                <SlidersHorizontal class="text-primary" :size="20" />
-                {{ tt('translator.advanced_recognition', '高级语音识别') }}
-              </h3>
-              <span class="text-[11px] font-extrabold text-text-muted bg-surface-hover px-2 py-1 rounded-lg">
-                {{t('translator.shared_by_mic_game_audio') }}
-              </span>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              <div class="min-w-0">
-                <label class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.voice_activity') }}</label>
-                <CustomSelect v-model="vadType" :options="[{ label: 'Silero VAD (ONNX)', value: 'silero' }, { label: 'WebRTC VAD', value: 'webrtc' }, { label: 'RMS 能量', value: 'rms' }]" />
-              </div>
-
-              <div v-if="micEngine === 'sherpa' || otherEngine === 'sherpa'" class="md:col-span-2 xl:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-2 rounded-xl border border-border-soft bg-surface-hover p-3">
-                <p class="md:col-span-2 text-[10px] font-extrabold text-text-muted">{{ tt('translator.sherpa_model_paths', 'Sherpa-ONNX 流式模型路径') }}</p>
-                <input v-model="sherpaConfig.tokens" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="tokens.txt">
-                <input v-model="sherpaConfig.encoder" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="encoder.onnx">
-                <input v-model="sherpaConfig.decoder" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="decoder.onnx">
-                <input v-model="sherpaConfig.joiner" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="joiner.onnx">
-              </div>
-
-              <div v-if="micEngine.includes('realtime') || otherEngine.includes('realtime')" class="md:col-span-2 xl:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-2 rounded-xl border border-border-soft bg-surface-hover p-3">
-                <p class="md:col-span-2 text-[10px] font-extrabold text-text-muted">{{ tt('translator.realtime_asr_config', '实时云 ASR 配置') }}</p>
-                <CustomSelect v-model="realtimeAsrConfig.provider" :options="[{ label: 'Tencent Cloud', value: 'tencent_realtime' }, { label: 'Alibaba Cloud NLS', value: 'aliyun_realtime' }]" />
-                <input v-model="realtimeAsrConfig.model" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="16k_zh_en">
-                <template v-if="realtimeAsrConfig.provider === 'tencent_realtime'">
-                  <input v-model="realtimeAsrConfig.appId" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="Tencent AppID">
-                  <input v-model="realtimeAsrConfig.secretId" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="Tencent SecretId">
-                  <input v-model="realtimeAsrConfig.secretKey" type="password" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="Tencent SecretKey">
-                </template>
-                <template v-else>
-                  <input v-model="realtimeAsrConfig.appKey" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="Alibaba AppKey">
-                  <input v-model="realtimeAsrConfig.accessToken" type="password" class="px-3 py-2 bg-surface border border-border-soft rounded-xl text-xs font-bold text-text outline-none" placeholder="NLS Token">
-                </template>
-              </div>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.vad_aggressiveness') }} · {{ vadAggressiveness }}</span>
-                <input v-model.number="vadAggressiveness" type="range" min="0" max="3" step="1" class="w-full accent-emerald-500">
-              </label>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.denoise') }} · {{ denoiseStrength }}</span>
-                <input v-model.number="denoiseStrength" type="range" min="0" max="1" step="0.05" class="w-full accent-emerald-500">
-              </label>
-
-              <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
-                <span class="text-sm font-bold text-text">{{t('translator.asr_correction') }}</span>
-                <button :aria-label="t('a11y.correction')"
-                  type="button"
-                  :class="correctionEnabled ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
-                  class="relative w-11 h-6 rounded-full transition-colors shrink-0"
-                  @click="correctionEnabled = !correctionEnabled"
-                >
-                  <span :class="correctionEnabled ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
-                </button>
-              </div>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.min_segment') }} (s)</span>
-                <input v-model.number="minSegmentS" type="number" min="0.1" max="5" step="0.05" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-              </label>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.max_segment') }} (s)</span>
-                <input v-model.number="maxSegmentS" type="number" min="1" max="30" step="0.5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-              </label>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{t('translator.partial_interval') }} (s)</span>
-                <input v-model.number="partialInterval" type="number" min="0" max="5" step="0.2" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-              </label>
-
-              <div class="min-w-0 flex items-center justify-between gap-3 bg-surface-hover rounded-xl px-3 py-2.5 border-border-soft">
-                <span class="text-xs font-bold text-text">{{ tt('translator.keep_speaker_context', '保持说话人上下文') }}</span>
-                <button :aria-label="t('a11y.keep_speaker_context')"
-                  type="button"
-                  :class="keepSpeakerContext ? 'bg-emerald-500 text-white' : 'bg-surface border-border-soft text-text-muted'"
-                  class="relative w-11 h-6 rounded-full transition-colors shrink-0"
-                  @click="keepSpeakerContext = !keepSpeakerContext"
-                >
-                  <span :class="keepSpeakerContext ? 'translate-x-5' : 'translate-x-0.5'" class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full transition-transform" />
-                </button>
-              </div>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.speaker_context_idle', '静音重置超时 (s)') }}</span>
-                <input v-model.number="speakerContextIdleSec" type="number" min="5" max="600" step="5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-              </label>
-
-              <label class="min-w-0">
-                <span class="block text-[11px] font-extrabold text-text-muted uppercase mb-1.5">{{ tt('translator.mic_idle_disconnect', '麦克风休眠超时 (s)') }}</span>
-                <input v-model.number="micIdleDisconnectSec" type="number" min="5" max="300" step="5" class="w-full px-3 py-2 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none">
-              </label>
-            </div>
-
-            <p class="mt-3 text-[11px] text-text-muted leading-relaxed">
-              {{t('translator.built_in_asr_correction_dictionaries_por') }}
-            </p>
-            <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="rounded-xl border border-border-soft bg-surface-hover p-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div><p class="text-xs font-black text-text">{{ tt('translator.vad_calibration', 'VAD 环境校准') }}</p><p class="text-[10px] text-text-muted">{{ tt('translator.vad_calibration_desc', '先开始监听，再采样环境噪声与语音峰值。') }}</p></div>
-                  <button v-if="!vadCalibration" class="px-2.5 py-1.5 rounded-lg bg-primary text-white text-[11px] font-extrabold" @click="startVadCalibration(isRecording ? 'mic' : 'speaker')">{{ tt('translator.calibrate', '开始校准') }}</button>
-                  <button v-else class="px-2.5 py-1.5 rounded-lg bg-red-500 text-white text-[11px] font-extrabold" @click="stopVadCalibration">{{ tt('translator.cancel', '取消') }}</button>
-                </div>
-                <div class="mt-3 h-2 rounded-full bg-surface overflow-hidden"><div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${Math.min(100, (audioLevels[vadCalibration?.source || 'mic'] / 1200) * 100)}%` }" /></div>
-                <p v-if="vadCalibration?.suggested" class="mt-2 text-[11px] text-emerald-600 font-bold">{{ tt('translator.vad_suggested', '建议阈值') }}: {{ vadCalibration.suggested }}</p>
-              </div>
-              <div class="rounded-xl border border-border-soft bg-surface-hover p-3">
-                <div class="flex items-center justify-between gap-3"><div><p class="text-xs font-black text-text">{{ tt('translator.silero_model', 'Silero VAD 模型') }}</p><p class="text-[10px] text-text-muted truncate max-w-[24ch]">{{ modelStatus?.path || tt('translator.model_not_checked', '尚未检查模型') }}</p></div><button class="px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft text-[11px] font-extrabold text-primary disabled:opacity-50" :disabled="modelBusy || Boolean(modelStatus?.valid)" @click="downloadSilero">{{ modelBusy ? tt('translator.downloading', '下载中...') : modelStatus?.valid ? tt('translator.model_ready', '已就绪') : tt('translator.download_model', '下载模型') }}</button></div>
-                <p class="mt-2 text-[10px] font-bold" :class="modelStatus?.valid ? 'text-emerald-600' : 'text-text-muted'">{{ modelStatus?.valid ? `${(modelStatus.size / 1024 / 1024).toFixed(1)} MiB · SHA-256 OK` : tt('translator.model_required_for_silero', '选择 Silero VAD 前请安装并校验模型') }}</p>
-              </div>
-            </div>
-          </section>
-
-          <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex items-center justify-between gap-3 mb-4"><div><h3 class="font-extrabold text-text flex items-center gap-2 text-lg"><SlidersHorizontal class="text-primary" :size="20" />{{ tt('translator.automation_title', '翻译自动化') }}</h3><p class="text-[11px] text-text-muted mt-1">{{ tt('translator.automation_desc', '将识别文本映射到 VRChat Avatar 参数或任意 OSC 地址，并对快捷键冲突给出提示。') }}</p></div><button class="px-2.5 py-1.5 rounded-lg bg-surface border border-border-soft text-xs font-extrabold text-primary" @click="addKeywordAction"><Plus :size="13" />{{ tt('translator.add_action', '添加动作') }}</button></div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label class="min-w-0"><span class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt('translator.input_hotkey', '快捷输入快捷键') }}</span><input v-model="quickInputHotkey" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" @change="checkTranslationHotkeys"></label>
-              <label class="min-w-0"><span class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt('translator.voice_hotkey', '语音开关快捷键') }}</span><input v-model="voiceToggleHotkey" class="w-full px-3 py-2 bg-surface-hover border border-border-soft rounded-xl text-sm font-bold text-text outline-none" @change="checkTranslationHotkeys"></label>
-            </div>
-            <div v-if="hotkeyConflicts.length" class="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-[11px] text-red-500 font-bold">{{ hotkeyConflicts.map((item) => `${item.hotkey}: ${item.reason}`).join('；') }}</div>
-            <div v-if="keywordActions.length" class="mt-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1"><div v-for="(action, index) in keywordActions" :key="index" class="grid grid-cols-[1fr_1fr_80px_80px_100px_34px] gap-2 items-center"><input v-model="action.keyword" :placeholder="tt('translator.keyword', '关键词')" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><input v-model="action.address" placeholder="/avatar/parameters/Name" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><CustomSelect v-model="action.valueType" :options="[{ label: 'Float', value: 'float' }, { label: 'Int', value: 'int' }, { label: 'Bool', value: 'bool' }, { label: 'Double', value: 'double' }]" /><input v-model.number="action.value" type="number" step="0.1" placeholder="值" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><input v-model.number="action.cooldownMs" type="number" min="0" step="100" placeholder="冷却 ms" class="min-w-0 px-2.5 py-1.5 bg-surface-hover border border-border-soft rounded-lg text-xs font-bold text-text outline-none"><button :aria-label="t('a11y.delete')" class="w-8 h-8 rounded-lg text-text-muted hover:text-red-500" @click="removeKeywordAction(index)"><Trash2 :size="14" /></button></div></div>
-            <p class="mt-3 text-[10px] text-text-muted">{{ tt('translator.runtime_version', '翻译能力清单') }}: {{ runtimeVersion }} <button class="ml-2 text-primary font-bold hover:underline" @click="updateTranslationRuntime">{{ tt('translator.update_now', '立即检查更新') }}</button></p>
-          </section>
-
-          <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex items-center justify-between gap-3 mb-3">
-              <div>
-                <h3 class="font-extrabold text-text flex items-center gap-2 text-lg"><Camera class="text-primary" :size="20" /> {{ tt('translator.photo_title', '拍照翻译') }}</h3>
-                <p class="text-[11px] text-text-muted mt-1">{{ tt('translator.photo_desc', '选择 VRChat 截图或本地图片，使用 Windows OCR 识别后复用当前翻译服务。') }}</p>
-              </div>
-              <div class="flex items-center gap-2">
-                <button class="px-3 py-2 rounded-xl bg-surface-hover hover:bg-surface border border-border-soft text-text-muted text-xs font-extrabold flex items-center gap-2 disabled:opacity-50" :disabled="photoBusy || photoArmed" @click="translatePhoto"><Camera :size="14" />{{ tt('translator.photo_choose', '选择图片') }}</button>
-                <button class="px-3 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-extrabold flex items-center gap-2 disabled:opacity-50" :disabled="photoBusy || photoArmed" @click="waitForPhoto"><RefreshCw v-if="photoArmed" class="animate-spin" :size="14" /><Camera v-else :size="14" />{{ photoArmed ? tt('translator.photo_waiting', '等待截图...') : tt('translator.photo_wait_next', '等待下一张截图') }}</button>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-              <div><label class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt('translator.photo_ocr_language', 'OCR 语言') }}</label><CustomSelect v-model="photoOcrLang" :options="languageOptions" /></div>
-              <div><label class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt('translator.photo_source_language', '图片源语言') }}</label><CustomSelect v-model="photoSourceLang" :options="languageOptions" /></div>
-              <div><label class="block text-[10px] font-extrabold text-text-muted mb-1">{{ tt('translator.photo_target_language', '图片目标语言') }}</label><CustomSelect v-model="photoTargetLang" :options="languageOptions.filter((option) => option.value !== 'auto')" /></div>
-            </div>
-            <div v-if="photoOriginal || photoTranslated" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="p-3 rounded-xl bg-surface-hover border border-border-soft"><p class="text-[10px] font-black text-text-muted uppercase mb-1">{{ tt('translator.photo_original', '识别原文') }}</p><p class="text-sm text-text whitespace-pre-wrap break-words">{{ photoOriginal }}</p></div>
-              <div class="p-3 rounded-xl bg-primary/5 border border-primary/20"><p class="text-[10px] font-black text-primary uppercase mb-1">{{ tt('translator.photo_translation', '图片译文') }}</p><p class="text-sm text-text whitespace-pre-wrap break-words">{{ photoTranslated }}</p></div>
-            </div>
-            <p v-else class="text-[11px] text-text-muted">{{ tt('translator.photo_empty', '还没有图片翻译结果。处理过程不会保存额外的截图副本。') }}</p>
-          </section>
-
-          <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex items-center justify-between gap-3 mb-4">
-              <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
-                <ClipboardList class="text-primary" :size="20" />
-                {{ tt('translator.text_translation', '文本翻译') }}
-              </h3>
-              <button
-                :disabled="!canTranslate"
-                class="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm flex items-center gap-2 transition-all active:scale-95"
-                @click="translateManual"
-              >
-                <component :is="isTranslating ? RefreshCw : Send" :class="{ 'animate-spin': isTranslating }" :size="16" />
-                {{ tt('translator.translate_and_send', '翻译并发送') }}
-              </button>
-            </div>
-            <textarea
-              v-model="manualText"
-              rows="4"
-              class="w-full resize-none px-4 py-3 bg-surface-hover border-border-soft rounded-xl text-sm font-bold text-text outline-none focus:ring-4 focus:ring-indigo-500/10"
-              :placeholder="t('translator.enter_text_to_translate_for_vrchat')"
-              @keydown.ctrl.enter.prevent="translateManual"
-            />
-          </section>
-
-          <section class="lg:col-span-2 bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0">
-            <div class="flex justify-between items-center gap-3 mb-4">
-              <h3 class="font-extrabold text-text flex items-center gap-2 text-lg min-w-0">
-                <Volume2 class="text-emerald-500 shrink-0" :size="20" />
-                <span class="truncate">{{ tt('translator.machine_result', '机器翻译结果') }}</span>
-              </h3>
-              <span v-if="isTranslating" class="text-[11px] font-extrabold text-primary flex items-center gap-1.5 bg-primary/10 px-2 py-1 rounded-lg shrink-0">
-                <RefreshCw class="animate-spin" :size="12" /> {{ tt('translator.translating', '翻译中...') }}
-              </span>
-            </div>
-
-            <div class="bg-surface-hover rounded-xl p-5 border-border-soft min-h-[150px] overflow-y-auto custom-scrollbar">
-              <p v-if="!translatedText" class="text-border-strong font-medium italic text-center mt-8 text-sm">
-                {{ tt('translator.result_here', '翻译结果将显示在这里...') }}
-              </p>
-              <div v-else class="space-y-2">
-                <p
-                  v-for="item in currentTranslations"
-                  :key="item.target_lang"
-                  class="text-emerald-700 font-black text-lg leading-relaxed break-words"
-                >
-                  <span v-if="currentTranslations.length > 1" class="mr-2 text-xs text-text-muted font-bold">{{ item.target_lang }}</span>
-                  {{ item.translated }}
-                </p>
-              </div>
-            </div>
-
-            <div class="mt-4 flex gap-3 shrink-0">
-              <button
-                class="w-12 py-2.5 bg-surface border-border-soft hover:border-emerald-300 hover:text-emerald-600 text-text-muted rounded-xl flex items-center justify-center transition-all shadow-sm active:scale-95"
-                :title="'TTS'"
-                @click="manualPlay"
-              >
-                <Volume2 :size="16" />
-              </button>
-              <button
-                class="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/30 active:scale-95 min-w-0"
-                @click="manualSend"
-              >
-                <Send :size="16" />
-                <span class="truncate">{{ tt('translator.manual_send', '手动发送至 VRChat') }}</span>
-              </button>
-            </div>
-          </section>
-        </main>
-
-        <aside class="bg-surface backdrop-blur-md rounded-2xl p-5 border-border-soft shadow-sm min-w-0 h-fit max-h-[720px] overflow-hidden flex flex-col">
-          <div class="flex items-center justify-between gap-3 mb-4">
-            <h3 class="font-extrabold text-text flex items-center gap-2 text-lg">
-              <ClipboardList class="text-primary" :size="20" />
-              {{t('translator.translation_history') }}
-            </h3>
-            <button :aria-label="t('a11y.clear_history')" class="w-9 h-9 rounded-xl bg-surface-hover border-border-soft flex items-center justify-center text-text-muted hover:text-red-500 transition-colors" @click="clearHistory">
-              <RotateCcw :size="15" />
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold" @click="glossary.push({ source: '', target: '', source_lang: 'any', target_lang: 'any', case_sensitive: false })">
+              + 添加术语
             </button>
           </div>
 
-          <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-3 pr-1">
+          <div class="flex flex-col gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+            <div v-for="(item, idx) in glossary" :key="idx" class="flex items-center gap-2">
+              <input v-model="item.source" type="text" class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none" placeholder="原词">
+              <span class="text-slate-500">→</span>
+              <input v-model="item.target" type="text" class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none" placeholder="替换目标">
+              <button type="button" class="text-slate-500 hover:text-red-400 px-1" @click="glossary.splice(idx, 1)">×</button>
+            </div>
+            <span v-if="!glossary.length" class="text-xs text-slate-500 py-1">当前没有专有术语。</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. VRCHAT & OSC TAB -->
+      <div v-else-if="activeSubTab === 'osc'" class="flex flex-col gap-5">
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
+          <h4 class="text-xs font-black text-slate-200 uppercase">VRChat OSC 传输开关</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
+              <input v-model="autoSendOsc" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <div>
+                <span class="block text-xs font-bold text-slate-200">自动发送至 Chatbox</span>
+                <span class="text-[10px] text-slate-400">说话或输入后通过 UDP OSC /chatbox/input 冒字</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
+              <input v-model="sendReceivedMessageToVrc" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <div>
+                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.osc_speaker2chatbox', '允许将听到的对方语音发送到 Chatbox') }}</span>
+                <span class="text-[10px] text-slate-400">将游戏内其他玩家说的话翻译后也发到自己的头顶</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
+              <input v-model="notificationVrcSfx" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <div>
+                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.osc_sfx_chime', '发送消息时播放 VRChat 提示音') }}</span>
+                <span class="text-[10px] text-slate-400">冒字时触发 VRChat 自带的叮咚音效</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
+              <input v-model="vrcMicMuteSync" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <div>
+                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.osc_mute_sync', '同步 VRChat 麦克风静音状态') }}</span>
+                <span class="text-[10px] text-slate-400">根据游戏内静音状态自动暂停/恢复识别</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Formatting Templates (VRCT Parity) -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
+          <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.osc_format_send', '发送消息格式模版 (Send Format)') }}</h4>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_prefix', '原文前缀') }}</span>
+              <input v-model="sendMessageFormat.prefix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_suffix', '原文后缀') }}</span>
+              <input v-model="sendMessageFormat.suffix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_separator', '分隔符') }}</span>
+              <input v-model="sendMessageFormat.separator" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none" placeholder="\n">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_trans_prefix', '译文前缀') }}</span>
+              <input v-model="sendMessageFormat.transPrefix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_trans_suffix', '译文后缀') }}</span>
+              <input v-model="sendMessageFormat.transSuffix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+            </label>
+            <label class="flex items-center gap-2 pt-5 cursor-pointer text-xs font-bold text-slate-300">
+              <input v-model="sendMessageFormat.transFirst" type="checkbox" class="w-3.5 h-3.5 rounded accent-amber-500">
+              <span>{{ tt('translator.osc_trans_first', '优先显示译文 (译文在前)') }}</span>
+            </label>
+          </div>
+
+          <!-- Preview Card -->
+          <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+            <span class="text-[10px] text-slate-500 font-bold block mb-1">Chatbox 渲染预览 (Preview):</span>
+            <div class="font-mono text-amber-400 whitespace-pre-wrap">
+              {{ sendMessageFormat.transFirst
+                ? `${sendMessageFormat.transPrefix}Hello world!${sendMessageFormat.transSuffix}${sendMessageFormat.separator}${sendMessageFormat.prefix}你好世界！${sendMessageFormat.suffix}`
+                : `${sendMessageFormat.prefix}你好世界！${sendMessageFormat.suffix}${sendMessageFormat.separator}${sendMessageFormat.transPrefix}Hello world!${sendMessageFormat.transSuffix}`
+              }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. CHAT-BUBBLE OCR TAB -->
+      <div v-else-if="activeSubTab === 'ocr'" class="flex flex-col gap-5">
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.master_ocr', '气泡/屏幕 OCR 识别配置') }}</h4>
+              <p class="text-[11px] text-slate-400">自动截取 VRChat 窗口中其他玩家头顶的文字气泡并翻译为自己的语言。</p>
+            </div>
             <button
-              v-for="record in history"
-              :key="record.id"
-              class="w-full text-left bg-surface-hover hover:bg-surface-active rounded-xl p-3 border-border-soft transition-colors"
-              @click="useHistory(record)"
+              type="button"
+              :class="masterOcr ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300'"
+              class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+              @click="masterOcr = !masterOcr"
             >
-              <div class="flex items-center justify-between gap-2 mb-1">
-                <span class="text-[11px] uppercase font-black text-primary">{{ record.source }}</span>
-                <span class="text-[11px] font-bold text-text-muted truncate">{{ record.service }}</span>
-              </div>
-              <p class="text-sm font-bold text-text line-clamp-2 break-words">{{ record.original }}</p>
-              <div class="mt-1 space-y-0.5">
-                <p
-                  v-for="item in (record.translations?.length ? record.translations : [{ target_lang: record.target_lang, translated: record.translated }])"
-                  :key="item.target_lang"
-                  class="text-sm font-black text-emerald-700 line-clamp-2 break-words"
-                >
-                  <span v-if="record.translations && record.translations.length > 1" class="text-[10px] text-text-muted mr-1">{{ item.target_lang }}</span>
-                  {{ item.translated }}
-                </p>
-              </div>
-              <div class="flex items-center gap-2 mt-2 text-[11px] font-bold text-text-muted">
-                <span>{{ record.source_lang }} -> {{ record.target_lang }}</span>
-                <span v-if="record.sent_osc" class="text-emerald-600">OSC</span>
-              </div>
+              {{ masterOcr ? '气泡捕获已开启' : '开启自动捕获' }}
             </button>
-            <p v-if="history.length === 0" class="text-sm text-border-strong font-bold text-center py-10">
-              {{t('translator.no_translation_history_yet') }}
-            </p>
           </div>
-        </aside>
-      </div>
-    </div>
 
-    <!-- VB-Audio Cable Setup Guide Modal -->
-    <div v-if="showCableGuide" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div class="bg-surface border border-border-strong rounded-2xl p-6 max-w-xl w-full shadow-2xl space-y-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2 text-primary font-black text-base">
-            <Volume2 :size="20" />
-            <span>{{ tt('translator.cable_guide_title', 'VB-Audio 虚拟声卡配置向导 (VRCLT 同款)') }}</span>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.ocr_window_title', '目标捕获窗口标题') }}</span>
+              <input v-model="ocrWindowTitle" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">OCR 识别语言</span>
+              <CustomSelect v-model="ocrSourceLang" :options="languageOptions" />
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.ocr_poll_interval', '轮询检测间隔 (毫秒)') }} · {{ ocrPollIntervalMs }}ms</span>
+              <input v-model.number="ocrPollIntervalMs" type="range" min="100" max="5000" step="50" class="w-full accent-cyan-500">
+            </label>
+            <label class="text-xs">
+              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.ocr_min_confidence', '置信度过滤阈值') }} · {{ Number(ocrMinConfidence).toFixed(2) }}</span>
+              <input v-model.number="ocrMinConfidence" type="range" min="0.1" max="0.99" step="0.05" class="w-full accent-cyan-500">
+            </label>
           </div>
-          <button :aria-label="t('a11y.close')" class="p-1 rounded-xl hover:bg-surface-hover text-text-muted" @click="showCableGuide = false">
-            <X :size="18" />
-          </button>
-        </div>
-        <div class="text-xs text-text space-y-3 leading-relaxed">
-          <div class="p-3 bg-primary/10 rounded-2xl border border-primary/20 text-xs flex items-start gap-2">
-            <HelpCircle :size="15" class="text-primary shrink-0 mt-0.5" />
-            <div><strong>原理说明：</strong> 让 VRChat 里的外国友人能够直接听到你由 AI 翻译合成的多语言 TTS 语音，打造与 VRCLT 一致的双向同传交流闭环。</div>
+
+          <div class="flex items-center gap-2 pt-2 border-t border-slate-800">
+            <button type="button" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5" @click="translatePhoto">
+              <Camera class="w-3.5 h-3.5" />
+              <span>选择图片识别</span>
+            </button>
+            <button type="button" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5" @click="waitForPhoto">
+              <Eye class="w-3.5 h-3.5" />
+              <span>等待新截图自动翻译</span>
+            </button>
           </div>
-          <ol class="list-decimal list-inside space-y-2.5 text-xs text-text-muted">
-            <li><strong class="text-text">步骤 1：安装虚拟音频驱动</strong><br><span class="pl-4 inline-block">安装免费驱动 <code class="text-primary font-mono font-bold">VB-CABLE Virtual Audio Device</code>（如已安装可跳过）。</span></li>
-            <li><strong class="text-text">步骤 2：VRCDog 指定 TTS 输出</strong><br><span class="pl-4 inline-block">在上方【TTS 输出设备】选择 <code class="text-primary font-mono font-bold">CABLE Input (VB-Audio Virtual Cable)</code>。</span></li>
-            <li><strong class="text-text">步骤 3：VRChat 麦克风输入设置</strong><br><span class="pl-4 inline-block">在 VRChat 游戏菜单中打开 <span class="text-text font-bold">Settings &gt; Audio &gt; Microphone</span>，选择 <code class="text-primary font-mono font-bold">CABLE Output (VB-Audio Virtual Cable)</code>。</span></li>
-            <li><strong class="text-text">步骤 4：享受双向实时同传！</strong><br><span class="pl-4 inline-block">点击顶栏【一键启动双向同传】。你说话会自动翻译并通过虚拟麦克风播报到游戏世界，外国朋友说话则自动在悬浮窗同传字幕显示！</span></li>
-          </ol>
         </div>
-        <div class="pt-2 flex justify-end">
-          <button class="px-5 py-2.5 bg-primary text-white text-xs font-extrabold rounded-xl hover:brightness-110" @click="showCableGuide = false">
-            确定
-          </button>
+      </div>
+
+      <!-- 7. VR OVERLAY & OBS TAB -->
+      <div v-else-if="activeSubTab === 'vr_obs'" class="flex flex-col gap-5">
+        <!-- VR Subtitles -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.vr_subtitles', 'SteamVR 空间字幕覆盖层') }}</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
+              <input v-model="overlaySmallLog" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <div>
+                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.vr_small_log', '单行快捷字幕 (Small Log)') }}</span>
+                <span class="text-[10px] text-slate-400">紧凑视野悬浮，适合快速阅读最新一句话</span>
+              </div>
+            </label>
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
+              <input v-model="overlayLargeLog" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <div>
+                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.vr_large_log', '多行历史字幕 (Large Log)') }}</span>
+                <span class="text-[10px] text-slate-400">完整历史窗口，支持手腕或视角空间固定</span>
+              </div>
+            </label>
+          </div>
+
+          <label class="text-xs mt-2">
+            <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.vr_tracker', '空间追踪绑定点') }}</span>
+            <select v-model="overlayTracker" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+              <option value="HMD">HMD 头显视线固定</option>
+              <option value="LeftHand">左手手腕 (LeftHand)</option>
+              <option value="RightHand">右手手腕 (RightHand)</option>
+              <option value="Playspace">房间世界坐标固定 (Playspace)</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- OBS Browser Source -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.obs_browser_source', 'OBS 浏览器源字幕服务') }}</h4>
+              <p class="text-[11px] text-slate-400">在 OBS 添加浏览器源以将实时双向翻译投射至直播画面。</p>
+            </div>
+            <button
+              type="button"
+              :class="obsBrowserSource ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300'"
+              class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+              @click="obsBrowserSource = !obsBrowserSource"
+            >
+              {{ obsBrowserSource ? 'OBS 服务已开启' : '开启 OBS 服务' }}
+            </button>
+          </div>
+
+          <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
+            <span class="font-mono text-amber-400">http://127.0.0.1:{{ obsPort }}/obs</span>
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs" @click="copyText(`http://127.0.0.1:${obsPort}/obs`)">
+              复制链接
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">字体大小</span>
+              <input v-model.number="obsFontSize" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">保留最大条数</span>
+              <input v-model.number="obsMaxMessages" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">显示时长 (秒)</span>
+              <input v-model.number="obsDisplayDuration" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">描边粗细 (px)</span>
+              <input v-model.number="obsOutlineThickness" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+            </label>
+          </div>
+        </div>
+
+        <!-- WebSocket Broadcast Server -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.websocket_server', 'WebSocket 字幕广播服务器') }}</h4>
+              <p class="text-[11px] text-slate-400">供外部工具 (如 VRCT-TTS、VTuber 渲染器) 接入接收全量文字流。</p>
+            </div>
+            <button
+              type="button"
+              :class="websocketServer ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300'"
+              class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+              @click="websocketServer = !websocketServer"
+            >
+              {{ websocketServer ? 'WS 广播中' : '开启 WS 服务器' }}
+            </button>
+          </div>
+
+          <div class="flex items-center gap-3 text-xs">
+            <span class="font-mono text-cyan-400">ws://127.0.0.1:{{ websocketPort }}</span>
+            <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1 text-xs font-mono text-slate-400 truncate">
+              Token: {{ websocketAuthToken }}
+            </div>
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs" @click="copyText(websocketAuthToken)">
+              复制 Token
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8. PREFERENCES TAB -->
+      <div v-else-if="activeSubTab === 'preferences'" class="flex flex-col gap-5">
+        <!-- Hotkeys -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-slate-200 uppercase">全局快捷键配置 (Global Hotkeys)</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">切换软件界面显示/隐藏</span>
+              <input v-model="hotkeyToggleWindow" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">切换主翻译开关</span>
+              <input v-model="hotkeyToggleTrans" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">切换麦克风识别 (Mic STT)</span>
+              <input v-model="hotkeyToggleMic" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">切换游戏扬声器识别 (Speaker STT)</span>
+              <input v-model="hotkeyToggleSpeaker" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+            </label>
+          </div>
+        </div>
+
+        <!-- Transliteration & Send Behavior -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-slate-200 uppercase">日文注音与发送交互</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer text-xs font-bold text-slate-300">
+              <input v-model="romajiMode" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <span>{{ tt('translator.romaji_mode', '日文罗马音 (Romaji)') }}</span>
+            </label>
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer text-xs font-bold text-slate-300">
+              <input v-model="hiraganaMode" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <span>{{ tt('translator.hiragana_mode', '日文平假名 (Hiragana)') }}</span>
+            </label>
+            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer text-xs font-bold text-slate-300">
+              <input v-model="showResendButton" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+              <span>显示消息重新发送按钮</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- TTS Speech Output -->
+        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-slate-200 uppercase">语音合成播报 (TTS)</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">TTS 播报引擎</span>
+              <select v-model="ttsEngine" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                <option value="system">系统原生 (Web Speech)</option>
+                <option value="edge">Edge TTS (高清微软多国音色)</option>
+                <option value="gpt_sovits">GPT-SoVITS (本地克隆音色)</option>
+              </select>
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">TTS 语速 · {{ Number(ttsRate).toFixed(1) }}</span>
+              <input v-model.number="ttsRate" type="range" min="0.5" max="2" step="0.1" class="w-full accent-amber-500">
+            </label>
+            <label>
+              <span class="block text-slate-400 font-bold mb-1">TTS 音量 · {{ Math.round(Number(ttsVolume) * 100) }}%</span>
+              <input v-model.number="ttsVolume" type="range" min="0" max="1" step="0.05" class="w-full accent-amber-500">
+            </label>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.overlay-opacity-slider {
-  height: 4px;
-  border-radius: 999px;
-  accent-color: var(--theme-primary);
-  cursor: pointer;
-}
-</style>

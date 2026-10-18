@@ -130,4 +130,23 @@ export function translate(key: string, params?: Record<string, unknown>): string
   return (i18n.global as any).t(key, params);
 }
 
+/**
+ * 取「数组型」文案（星期名、小时坐标这类）。
+ *
+ * 必须走 `tm()` 而不是 `t()`：vue-i18n 的 `t()` 遇到数组消息**返回 key 本身**（一个字符串），
+ * 于是 `Array.isArray(t('charts.days'))` 永远是 false（数组文案形同虚设），
+ * 而模板里的 `v-for="(label, idx) in t('charts.hours_short')"` 会**逐字符**遍历那个字符串，
+ * 把小时坐标渲染成 "c h a r t s ." 这样的垃圾。
+ *
+ * 语言包里缺这一项、或当前语种只回退出字符串时，用调用方给的兜底数组。
+ */
+export function translateList(key: string, fallback: string[]): string[] {
+  const value = (i18n.global as any).tm(key);
+  if (Array.isArray(value)) {
+    const items = value.map((item) => (typeof item === 'string' ? item : String(item ?? '')));
+    if (items.length > 0 && items.every((item) => item.trim() !== '')) return items;
+  }
+  return fallback;
+}
+
 export default i18n;

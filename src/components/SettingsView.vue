@@ -338,6 +338,9 @@ const saveSettings = async () => {
     if (clientConfig?.config_path) clientConfigPath.value = clientConfig.config_path;
     await authStore.updateClientServerUrl(config.value.clientServerUrl, true);
 
+    // 「后台数据刷新频率」立刻生效：不重启应用就要按新间隔跑起来。
+    void authStore.configureDataRefresh(Number(config.value.pollInterval));
+
     // 设置窗口置顶
     try {
       await getCurrentWindow().setAlwaysOnTop(config.value.topWindow);
@@ -597,6 +600,8 @@ const resetListLayout = () => {
 const resetTableLayout = () => {
   config.value.pollInterval = 30;
   config.value.cacheLimit = 5;
+  // 重置要立刻生效，否则界面上的滑块回到 30s、后台却还在按旧间隔跑。
+  void authStore.configureDataRefresh(30);
   // 与上面的 resetListLayout 保持同样的文案风格（这两条 toast 目前都是英文字面量）。
   // 不要写成 `t('不存在的 key') || '...'`：vue-i18n 对缺失 key 会返回 key 本身（真值），
   // 那样 toast 会直接显示 "settings.xxx" 这种字符串。

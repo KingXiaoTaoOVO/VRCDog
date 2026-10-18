@@ -220,6 +220,7 @@ const openVrOverlay = () => {
               <label class="field"><span>{{ $t('drawing.start_delay') }} <b>{{ (config.start_delay_ms / 1000).toFixed(1) }} s</b></span><input v-model.number="config.start_delay_ms" type="range" min="0" max="10000" step="250"></label>
               <label class="field"><span>{{ $t('drawing.canvas_size') }} <b>{{ config.canvas_size_px === 0 ? $t('drawing.auto') : config.canvas_size_px }}</b></span><input v-model.number="config.canvas_size_px" type="range" min="0" max="4096" step="64" :disabled="status.running"></label>
               <label class="field"><span>{{ $t('drawing.pen_settle') }} <b>{{ config.pen_settle_ms }} ms</b></span><input v-model.number="config.pen_settle_ms" type="range" min="0" max="120" step="1" :disabled="status.running"></label>
+              <label class="field"><span>{{ $t('drawing.min_button_down') }} <b>{{ config.min_button_down_ms }} ms</b></span><input v-model.number="config.min_button_down_ms" type="range" min="0" max="3000" step="50" :disabled="status.running"></label>
             </div>
             <div class="toggle-row">
               <label><input v-model="config.focus_vrchat" type="checkbox"><span>{{ $t('drawing.focus_vrchat') }}</span></label>

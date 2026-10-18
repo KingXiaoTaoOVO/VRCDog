@@ -68,9 +68,15 @@ export const useFriendsStore = defineStore('friends', () => {
     return doFetch();
   }
 
-  async function doFetch(): Promise<VrcUser[]> {
-    loading.value = true;
-    error.value = '';
+  /**
+   * @param silent 后台轮询模式：不切 loading、失败不写 error、
+   *               并且**退回缓存时不标记数据健康**（拿不到线上数据就不该显示绿色）。
+   * @param live 本次是否真的从 VRChat API 取到了数据。
+   */
+  async function runFetch(silent: boolean): Promise<{ friends: VrcUser[]; live: boolean }> {
+    // 后台轮询不切 loading：否则每 N 秒会闪一次 spinner。
+    if (!silent) loading.value = true;
+    if (!silent) error.value = '';
 
     // Load the local cache up-front so we can fall back to it if the live
     // request fails (offline / rate-limited / transient error).
@@ -96,20 +102,49 @@ export const useFriendsStore = defineStore('friends', () => {
         }
         markDataHealthy();
       }
-      return normalized;
+      return { friends: normalized, live: true };
     } catch (err: any) {
-      error.value = err?.message || String(err);
+      // 后台轮询的偶发失败（限流、网络抖动）不该在界面上弹错误横幅；
+      // 侧边栏的「数据已过期」才是给这类情况用的通道。
+      if (!silent) error.value = err?.message || String(err);
       // Live fetch failed — fall back to the cached snapshot if we have one.
       if (cached && cached.length > 0) {
         const normalized = cached.filter((f: any) => f?.id || f?.displayName);
         allFriends.value = normalized;
         lastFetchTime.value = Date.now();
-        if (normalized.length > 0) markDataHealthy();
-        return normalized;
+        // 手动刷新时沿用「有得看总比空白好」的旧行为；
+        // 后台轮询则不标记健康，否则网络一直不通也永远不会显示「数据已过期」。
+        if (normalized.length > 0 && !silent) markDataHealthy();
+        return { friends: normalized, live: false };
       }
       throw err;
     } finally {
-      loading.value = false;
+      if (!silent) loading.value = false;
+    }
+  }
+
+  async function doFetch(silent = false): Promise<VrcUser[]> {
+    const { friends } = await runFetch(silent);
+    return friends;
+  }
+
+  /**
+   * 后台定时刷新入口（设置页「后台数据刷新频率」驱动）。
+   *
+   * 与手动刷新的区别：不闪 spinner、失败不弹错误、并且会等登录时的首次同步结束，
+   * 避免两个 getAllFriends 请求叠在一起互相覆盖。
+   * 返回值表示这次是否真的取到了线上数据；退回本地缓存算失败（false），
+   * 因为侧边栏要反映的正是「还能不能从 VRChat 拿到数据」。
+   */
+  async function backgroundRefresh(): Promise<boolean> {
+    if (syncPromise) {
+      await syncPromise.catch(() => [] as VrcUser[]);
+    }
+    try {
+      const { live } = await runFetch(true);
+      return live;
+    } catch {
+      return false;
     }
   }
 
@@ -156,6 +191,7 @@ export const useFriendsStore = defineStore('friends', () => {
     totalCount,
     onlineCount,
     fetchFriends,
+    backgroundRefresh,
     beginSync,
     setFriends,
     setError,

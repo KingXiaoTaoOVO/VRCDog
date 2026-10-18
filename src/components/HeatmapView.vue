@@ -4,6 +4,7 @@ import { DbApi } from "../api";
 import { Flame, Users, Loader2, CalendarHeart, Zap } from 'lucide-vue-next';
 import BaseModal from './BaseModal.vue';
 import { useI18n } from 'vue-i18n';
+import { translateList } from '../i18n';
 
 const { t } = useI18n();
 
@@ -17,12 +18,12 @@ const cells = ref<HeatmapCell[]>([]);
 const loading = ref(true);
 const maxCount = ref(1);
 
-const dayLabels = computed(() => {
-  const days = t('dashboard.days');
-  if (Array.isArray(days)) return days;
-  // fallback if i18n is not an array
-  return [t('auto_7941da94'), t('auto_2d8be272'), t('auto_e662ff59'), t('auto_21716cf3'), t('auto_1fcc29d0'), t('auto_61b45352'), t('auto_3edddd85')];
-});
+// 数组型文案要走 translateList()（tm()），`t()` 只会返回 key 字符串，
+// 之前 `Array.isArray(t('dashboard.days'))` 恒为 false，数组文案从来没生效过。
+const dayLabels = computed(() => translateList('dashboard.days', [
+  t('auto_7941da94'), t('auto_2d8be272'), t('auto_e662ff59'), t('auto_21716cf3'),
+  t('auto_1fcc29d0'), t('auto_61b45352'), t('auto_3edddd85'),
+]));
 
 const fetchHeatmap = async () => {
   loading.value = true;

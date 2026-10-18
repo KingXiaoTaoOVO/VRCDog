@@ -177,6 +177,7 @@ impl DbState {
             CREATE INDEX IF NOT EXISTS idx_game_log_event_type ON game_log(event_type, time DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_game_log_unique ON game_log(time, event_type, content);
             CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_notifications_created_id ON notifications(created_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_bili_tasks_status ON bili_tasks(status);
             ";
@@ -1056,7 +1057,7 @@ pub fn db_get_notifications(
     let lim = limit.unwrap_or(200);
     let off = offset.unwrap_or(0);
 
-    let mut stmt = conn.prepare("SELECT id, type, sender_user_id, sender_username, receiver_user_id, message, details, created_at FROM notifications ORDER BY created_at DESC LIMIT ?1 OFFSET ?2")
+    let mut stmt = conn.prepare("SELECT id, type, sender_user_id, sender_username, receiver_user_id, message, details, created_at FROM notifications ORDER BY created_at DESC, id DESC LIMIT ?1 OFFSET ?2")
         .map_err(|e| e.to_string())?;
 
     let results = stmt
@@ -1844,6 +1845,71 @@ mod sql_tests {
             .unwrap();
         assert_eq!(index_exists, 1, "迁移后热点索引必须建起来");
         drop(conn);
+        cleanup(&dir);
+    }
+
+    /// 通知分页必须有次级排序键。
+    ///
+    /// `created_at` 不唯一时，只用 `ORDER BY created_at DESC` 的 `LIMIT/OFFSET`
+    /// 在 SQLite 里不保证跨查询的稳定顺序：翻页会漏行或重复行。
+    /// （当前前端固定 `offset: 0`，所以还没暴露；一旦加分页/无限滚动就会踩到。）
+    #[test]
+    fn notification_pagination_is_stable_when_timestamps_tie() {
+        let (db, dir) = temp_db("notif-page");
+        {
+            let conn = db.conn.lock().unwrap();
+            for index in 1..=20 {
+                conn.execute(
+                    "INSERT INTO notifications (id, type, created_at) VALUES (?1, 'invite', '2026-10-14T12:00:00.000Z')",
+                    [format!("n{index:02}")],
+                )
+                .unwrap();
+            }
+        }
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut offset = 0i64;
+        while offset < 20 {
+            // 用内层作用域保证 stmt 先于连接守卫释放（stmt 借用着 conn）。
+            let rows = {
+                let conn = db.conn.lock().unwrap();
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id FROM notifications
+                         ORDER BY created_at DESC, id DESC LIMIT 3 OFFSET ?1",
+                    )
+                    .unwrap();
+                stmt.query_map(params![offset], |row| row.get::<_, String>(0))
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            assert!(!rows.is_empty(), "每页都应取到数据");
+            seen.extend(rows);
+            offset += 3;
+        }
+
+        let unique: std::collections::HashSet<&String> = seen.iter().collect();
+        assert_eq!(seen.len(), 20);
+        assert_eq!(unique.len(), 20, "翻页出现重复或遗漏：排序键不唯一");
+        cleanup(&dir);
+    }
+
+    /// 新排序键必须有配套索引，否则 `ORDER BY created_at DESC, id DESC`
+    /// 会随通知量增长退化为全表排序。
+    #[test]
+    fn notification_tiebreaker_index_exists() {
+        let (db, dir) = temp_db("notif-index");
+        let conn = db.conn.lock().unwrap();
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_notifications_created_id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(exists, 1, "缺索引会让通知列表随数据量变慢");
         cleanup(&dir);
     }
 }

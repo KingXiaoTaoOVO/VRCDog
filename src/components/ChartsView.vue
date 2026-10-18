@@ -9,6 +9,7 @@ import { useUserProfileStore } from '../stores/userProfile';
 import { useFriendsStore } from '../stores/friendsStore';
 import { useEntityModalStore } from '../stores/entityModal';
 import { markDataHealthy } from '../stores/dataHealth';
+import { translateList } from '../i18n';
 
 const { t, locale } = useI18n();
 const profileStore = useUserProfileStore();
@@ -28,11 +29,15 @@ const allFriends = ref<VrcUser[]>([]);
 // 热门世界数据
 const topWorlds = ref<Array<{id: string, count: number, name: string, thumbnail?: string}>>([]);
 
-const dayLabels = computed(() => {
-  const days = t('charts.days');
-  if (Array.isArray(days)) return days;
-  return [t('charts.day_1'), t('charts.day_2'), t('charts.day_3'), t('charts.day_4'), t('charts.day_5'), t('charts.day_6'), t('charts.day_7')];
-});
+// 星期与小时坐标都是**数组型**文案，必须用 translateList()（内部走 tm()）：
+// `t('charts.hours_short')` 返回的是 key 字符串本身，模板里的 v-for 会逐字符展开成
+// "c h a r t s ." 这样的垃圾标签；`Array.isArray(t('charts.days'))` 也永远是 false。
+const dayLabels = computed(() => translateList('charts.days', [
+  t('charts.day_1'), t('charts.day_2'), t('charts.day_3'), t('charts.day_4'),
+  t('charts.day_5'), t('charts.day_6'), t('charts.day_7'),
+]));
+
+const hourAxisLabels = computed(() => translateList('charts.hours_short', ['0', '4', '8', '12', '16', '20']));
 
 const calculateTopWorlds = async (friends: VrcUser[]) => {
   const worldCounts = new Map<string, number>();
@@ -623,7 +628,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <div v-if="hourlyTotal > 0" class="hour-axis">
-                <span v-for="(label, idx) in t('charts.hours_short')" :key="idx">{{ label }}</span>
+                <span v-for="(label, idx) in hourAxisLabels" :key="idx">{{ label }}</span>
               </div>
             </article>
           </div>

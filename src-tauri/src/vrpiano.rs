@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex, OnceLock,
 };
 use std::thread;
@@ -61,6 +61,8 @@ impl MultimediaTimerGuard {
 }
 
 const SPEED_STEP: f64 = 0.1;
+/// `seek` 原子量里的哨兵值：表示当前没有待处理的定位请求。
+const SEEK_NONE: u64 = u64::MAX;
 const MAX_MIDI_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
 const MIDISHOW_LOGIN_WINDOW_LABEL: &str = "midishow-login";
 const MIDISHOW_LOGIN_URL: &str = "https://www.midishow.com/user/account/login";
@@ -72,10 +74,24 @@ const MIDISHOW_LOGIN_TIMEOUT_MS: u64 = 75_000;
 const MIDISHOW_LOGIN_CONFIRM_TIMEOUT_MS: u64 = 300_000;
 const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 6_000;
 /// Keep an online search responsive when the proxy or Cloudflare stalls.
-#[allow(dead_code)]
-const MIDISHOW_SEARCH_HTTP_TIMEOUT_SECS: u64 = 8;
-#[allow(dead_code)]
 const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 15;
+/// 直连 Midishow 搜索页的单次请求上限（命中 Cloudflare 时通常 1 秒内就返回 403）。
+const MIDISHOW_SEARCH_DIRECT_TIMEOUT_SECS: u64 = 4;
+/// 只读渲染代理的上限：正常 1~3 秒返回，留足余量给冷启动。
+const MIDISHOW_SEARCH_READER_TIMEOUT_SECS: u64 = 15;
+/// 直连 + 代理整体的预算，超过就交给后台浏览器兜底。
+const MIDISHOW_SEARCH_HTTP_BUDGET_SECS: u64 = 20;
+/// 后台浏览器兜底的预算。
+const MIDISHOW_SEARCH_WEBVIEW_BUDGET_SECS: u64 = 15;
+/// 后台浏览器撞上 Cloudflare 人机验证时，把窗口亮出来让用户点一次，
+/// 验证通过后 `cf_clearance` 会留在 WebView2 profile 里，之后搜索就能静默完成。
+const MIDISHOW_SEARCH_CHALLENGE_BUDGET_SECS: u64 = 100;
+const MIDISHOW_SEARCH_CHALLENGE_EVENT: &str = "vrpiano_midishow_search_challenge";
+/// Midishow 对非浏览器请求统一返回 Cloudflare 托管挑战（403 + "Just a moment..."），
+/// reqwest 无论带不带 Cookie 都过不去，因此直连失败后改用只读渲染代理：
+/// 代理在服务端用真实浏览器打开目标页，再把最终 HTML 原样回传（X-Return-Format: html），
+/// 这样我们仍然可以用同一套 HTML 解析逻辑拿到搜索结果。
+const MIDISHOW_READER_ENDPOINT: &str = "https://r.jina.ai/";
 const MIDISHOW_LOGIN_TITLE_PREFIX: &str = "VRCDOG_MIDISHOW:";
 
 /// Regex patterns compiled once and reused across all calls.
@@ -118,6 +134,27 @@ mod regex_patterns {
                 r"\s*[-|·]\s*|上传于|下载|评分|\d+\.\d+\s*\(|\d+(?:\.\d+)?\s*(?:KB|MB)|\bGM\d*\b",
             )
             .unwrap()
+        })
+    }
+
+    /// 搜索结果项里的详情页链接（`/en/midi/12345.html` 或 `/en/midi/xxx-midi-download-12345`）。
+    pub fn result_href() -> &'static Regex {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        RE.get_or_init(|| Regex::new(r#"(?is)href=["']([^"']*/midi/[^"']+)["']"#).unwrap())
+    }
+
+    /// 搜索结果项的标题节点（关键词会被 `<em>` 包起来）。
+    pub fn result_heading() -> &'static Regex {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        RE.get_or_init(|| Regex::new(r"(?is)<h[1-6][^>]*>(.*?)</h[1-6]>").unwrap())
+    }
+
+    /// 搜索结果项的元信息行，首个文本节点是上传者昵称。
+    pub fn result_meta() -> &'static Regex {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        RE.get_or_init(|| {
+            Regex::new(r#"(?is)<div[^>]+class=["'][^"']*text-muted[^"']*["'][^>]*>\s*([^<]{1,120})"#)
+                .unwrap()
         })
     }
 }
@@ -365,6 +402,13 @@ pub struct VrpianoStartRequest {
 }
 
 #[derive(Clone, Deserialize)]
+pub struct VrpianoSeekRequest {
+    /// 目标播放位置（毫秒），会被夹在 [0, duration_ms] 内。
+    #[serde(default, rename = "positionMs", alias = "position_ms")]
+    position_ms: u64,
+}
+
+#[derive(Clone, Deserialize)]
 pub struct VrchatOscStartRequest {
     song_path: String,
     delay_secs: u64,
@@ -470,6 +514,9 @@ pub struct VrpianoState {
 struct VrpianoRuntime {
     stop: Option<Arc<AtomicBool>>,
     paused: Arc<AtomicBool>,
+    /// 拖动进度条时的定位请求（毫秒）；`SEEK_NONE` 表示没有待处理的跳转。
+    /// 播放线程每轮循环取一次，命中就释放按键、跳到目标时间戳继续。
+    seek: Option<Arc<AtomicU64>>,
     speed: Arc<Mutex<f64>>,
     hotkeys_enabled: bool,
     hotkey_song_path: String,
@@ -698,6 +745,7 @@ impl Default for VrpianoState {
             inner: Arc::new(Mutex::new(VrpianoRuntime {
                 stop: None,
                 paused: Arc::new(AtomicBool::new(false)),
+                seek: None,
                 speed: Arc::new(Mutex::new(1.0)),
                 hotkeys_enabled: false,
                 hotkey_song_path: String::new(),
@@ -985,9 +1033,12 @@ pub async fn vrpiano_download_midishow(
     let source = request.source.as_deref().unwrap_or("midishow");
 
     if source == "bitmidi" {
+        // 搜索接口会直接给出 /uploads/xxx.mid，优先用它省掉一次详情页请求。
         let page_url = request
-            .page_url
+            .download_url
             .as_deref()
+            .filter(|url| looks_like_direct_midi_url(url))
+            .or(request.page_url.as_deref())
             .or(request.download_url.as_deref())
             .ok_or_else(|| "缺少 BitMidi 链接".to_string())?;
         let (data, title) = download_bitmidi_file(&app, page_url).await?;
@@ -1075,8 +1126,10 @@ pub async fn vrpiano_midishow_preview_data(
     let source = request.source.as_deref().unwrap_or("midishow");
     if source == "bitmidi" {
         let page_url = request
-            .page_url
+            .download_url
             .as_deref()
+            .filter(|url| looks_like_direct_midi_url(url))
+            .or(request.page_url.as_deref())
             .or(request.download_url.as_deref())
             .ok_or_else(|| "缺少 BitMidi 链接".to_string())?;
         let (data, title) = download_bitmidi_file(&app, page_url).await?;
@@ -1685,6 +1738,7 @@ fn begin_vrchat_osc(
             return Err("VRPiano is already playing".to_string());
         }
         runtime.stop = Some(stop_flag.clone());
+        runtime.seek = Some(Arc::new(AtomicU64::new(SEEK_NONE)));
         runtime.paused.store(false, Ordering::SeqCst);
         pause_flag = runtime.paused.clone();
         if let Ok(mut s) = runtime.speed.lock() {
@@ -1838,6 +1892,16 @@ pub async fn vrpiano_toggle_pause(
     state: tauri::State<'_, VrpianoState>,
 ) -> Result<VrpianoStatus, String> {
     toggle_playback_pause(app, state.inner.clone())
+}
+
+/// 拖动进度条定位：把目标毫秒写进运行时，播放线程下一轮循环就会跳过去。
+#[tauri::command]
+pub async fn vrpiano_seek(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, VrpianoState>,
+    request: VrpianoSeekRequest,
+) -> Result<VrpianoStatus, String> {
+    request_seek(&app, &state.inner, request.position_ms)
 }
 
 #[tauri::command]
@@ -2047,6 +2111,7 @@ fn start_playback(
                 return Err("VRPiano is already playing".to_string());
             }
             runtime.stop = Some(stop_flag.clone());
+            runtime.seek = Some(Arc::new(AtomicU64::new(SEEK_NONE)));
             runtime.paused.store(false, Ordering::SeqCst);
             pause_flag = runtime.paused.clone();
             if let Ok(mut current) = runtime.speed.lock() {
@@ -2166,8 +2231,65 @@ fn clear_playback_if_current(state: &Arc<Mutex<VrpianoRuntime>>, stop: &Arc<Atom
         if runtime.stop.as_ref().is_some_and(|current| Arc::ptr_eq(current, stop)) {
             runtime.paused.store(false, Ordering::SeqCst);
             runtime.stop = None;
+            runtime.seek = None;
         }
     }
+}
+
+/// 取出（并清空）播放线程待处理的定位目标。
+fn take_seek_target(seek: Option<&AtomicU64>) -> Option<u64> {
+    let seek = seek?;
+    let value = seek.swap(SEEK_NONE, Ordering::SeqCst);
+    if value == SEEK_NONE {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// 把定位请求写进运行时，由播放线程在下一轮循环里真正执行跳转。
+fn request_seek(
+    app: &tauri::AppHandle,
+    state: &Arc<Mutex<VrpianoRuntime>>,
+    position_ms: u64,
+) -> Result<VrpianoStatus, String> {
+    let mut runtime = state
+        .lock()
+        .map_err(|_| "VRPiano state lock poisoned".to_string())?;
+    if !runtime.status.running {
+        runtime.status.last_event = "Playback is not running".to_string();
+        let status = runtime.status.clone();
+        drop(runtime);
+        let _ = app.emit("vrpiano_status", &status);
+        return Ok(status);
+    }
+    let duration = runtime.status.duration_ms;
+    let target = if duration == 0 {
+        0
+    } else {
+        position_ms.min(duration)
+    };
+    match runtime.seek.as_ref() {
+        Some(seek) => {
+            seek.store(target, Ordering::SeqCst);
+            // 先乐观地更新一次，进度条松手后立刻停在目标位置，不用等播放线程。
+            runtime.status.elapsed_ms = target;
+            runtime.status.progress = if duration == 0 {
+                1.0
+            } else {
+                (target as f64 / duration as f64).clamp(0.0, 1.0)
+            };
+        }
+        None => {
+            runtime.status.last_event = "Playback is not running".to_string();
+        }
+    }
+    let mut status = runtime.status.clone();
+    status.speed = runtime.speed.lock().map(|s| *s).unwrap_or(status.speed);
+    status.paused = runtime.paused.load(Ordering::SeqCst) && status.running;
+    drop(runtime);
+    let _ = app.emit("vrpiano_status", &status);
+    Ok(status)
 }
 
 fn toggle_playback_pause(
@@ -2357,8 +2479,39 @@ fn start_global_hotkey_hook(
         })
         .map_err(|e| format!("Failed to start VRPiano hotkey thread: {e}"))?;
 
-    rx.recv_timeout(Duration::from_secs(2))
-        .map_err(|_| "Timed out while enabling VRPiano global hotkeys".to_string())?
+    let _ = rx.recv_timeout(Duration::from_secs(2))
+        .map_err(|_| "Timed out while enabling VRPiano global hotkeys".to_string())?;
+
+    // In addition to the WH_KEYBOARD_LL hook, run a robust background poller using GetAsyncKeyState.
+    // This guarantees that in-game hotkeys in VRChat (which may drop or isolate WH_KEYBOARD_LL)
+    // are ALWAYS detected without latency or drops.
+    thread::Builder::new()
+        .name("vrpiano-async-hotkey-poller".to_string())
+        .spawn(move || {
+            use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+            while HOTKEYS_GLOBAL_ENABLED.load(Ordering::Relaxed) {
+                for vk in 112..=116 {
+                    let state = unsafe { GetAsyncKeyState(vk as i32) };
+                    if state < 0 {
+                        let now_ms = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let last = LAST_HOTKEY_TIMESTAMP_MS.load(Ordering::Relaxed);
+                        if now_ms.saturating_sub(last) >= 250 {
+                            LAST_HOTKEY_TIMESTAMP_MS.store(now_ms, Ordering::Relaxed);
+                            if let Some(context) = HOTKEY_CONTEXT.get().cloned() {
+                                dispatch_hotkey(context, vk);
+                            }
+                        }
+                    }
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        })
+        .ok();
+
+    Ok(())
 }
 
 /// Tear down the low-level keyboard hook and its message-pump thread. Called when
@@ -2637,6 +2790,7 @@ fn run_playback(
 
         let keyboard_layout = state.lock().ok().map(|r| r.keyboard_layout.clone()).unwrap_or_else(|| "virtual_piano".to_string());
         let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
+        let seek_arc = state.lock().ok().and_then(|r| r.seek.clone());
 
         // active_actions tracks keys currently held: vk -> (pressed_at_ms, shift)
         let mut active_actions: HashMap<u16, (u64, bool)> = HashMap::new();
@@ -2667,6 +2821,32 @@ fn run_playback(
                 break;
             }
 
+            // 拖动进度条：先松掉正在按住的键，再跳到目标时间戳继续
+            if let Some(target) = take_seek_target(seek_arc.as_deref()) {
+                for (&vk, &(_, shift)) in active_actions.iter() {
+                    do_release_action(vk, shift);
+                }
+                active_actions.clear();
+                send_key(160, true);
+                let seek_index = events.partition_point(|ev| ev.at_ms < target);
+                index = seek_index;
+                played = seek_index;
+                last_at = target;
+                last_emit_at = target;
+                update_runtime(&state, |status| {
+                    status.elapsed_ms = target;
+                    status.played_notes = seek_index;
+                    status.progress = if duration_ms == 0 {
+                        1.0
+                    } else {
+                        (target as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                    };
+                    status.last_event = format!("Seeked to {:.1}s", target as f64 / 1000.0);
+                });
+                emit_status(&app, &state);
+                continue;
+            }
+
             // Pause safety: release any keys held when paused and suspend
             if paused.load(Ordering::SeqCst) {
                 for (&vk, &(_, shift)) in active_actions.iter() {
@@ -2675,17 +2855,24 @@ fn run_playback(
                 active_actions.clear();
                 send_key(160, true);
                 while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    // 暂停期间拖动进度条也要能定位
+                    if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                        break;
+                    }
                     thread::sleep(Duration::from_millis(20));
                 }
                 if stop.load(Ordering::SeqCst) {
                     break;
+                }
+                if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                    continue;
                 }
             }
 
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
             if wait_ms > 0 {
-                sleep_scaled_interruptible(wait_ms, &stop, &paused, &speed_arc, || {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, seek_arc.as_deref(), &speed_arc, || {
                     for (&vk, &(_, shift)) in active_actions.iter() {
                         do_release_action(vk, shift);
                     }
@@ -2694,6 +2881,10 @@ fn run_playback(
                 });
                 if stop.load(Ordering::SeqCst) {
                     break;
+                }
+                // 等待被「拖动进度条」打断：不要在旧位置补发这一拍的音符
+                if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                    continue;
                 }
             }
 
@@ -2863,6 +3054,7 @@ fn run_midi_playback(
 
         let _timer_guard = MultimediaTimerGuard::new();
         let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
+        let seek_arc = state.lock().ok().and_then(|r| r.seek.clone());
         let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
@@ -2874,6 +3066,31 @@ fn run_midi_playback(
                 break;
             }
 
+            // 拖动进度条：先让 MIDI 端口全部静音，再跳到目标时间戳继续
+            if let Some(target) = take_seek_target(seek_arc.as_deref()) {
+                if let Ok(backend) = midi_backend.lock() {
+                    let _ = backend.send_panic();
+                }
+                active_notes.clear();
+                let seek_index = events.partition_point(|ev| ev.at_ms < target);
+                index = seek_index;
+                played = seek_index;
+                last_at = target;
+                last_emit_at = target;
+                update_runtime(&state, |status| {
+                    status.elapsed_ms = target;
+                    status.played_notes = seek_index;
+                    status.progress = if duration_ms == 0 {
+                        1.0
+                    } else {
+                        (target as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                    };
+                    status.last_event = format!("Seeked to {:.1}s", target as f64 / 1000.0);
+                });
+                emit_status_with_midi(&app, &state, &midi_backend);
+                continue;
+            }
+
             // APS NoteCast principle: Immediate panic / silence notes on pause
             if paused.load(Ordering::SeqCst) {
                 if let Ok(backend) = midi_backend.lock() {
@@ -2881,17 +3098,23 @@ fn run_midi_playback(
                 }
                 active_notes.clear();
                 while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                        break;
+                    }
                     thread::sleep(Duration::from_millis(20));
                 }
                 if stop.load(Ordering::SeqCst) {
                     break;
+                }
+                if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                    continue;
                 }
             }
 
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
             if wait_ms > 0 {
-                sleep_scaled_interruptible(wait_ms, &stop, &paused, &speed_arc, || {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, seek_arc.as_deref(), &speed_arc, || {
                     if let Ok(backend) = midi_backend.lock() {
                         let _ = backend.send_panic();
                     }
@@ -2899,6 +3122,9 @@ fn run_midi_playback(
                 });
                 if stop.load(Ordering::SeqCst) {
                     break;
+                }
+                if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                    continue;
                 }
             }
 
@@ -3066,6 +3292,7 @@ fn run_vrchat_osc_playback(
         }
 
         let speed_arc = state.lock().map(|r| r.speed.clone()).unwrap_or_else(|_| Arc::new(Mutex::new(1.0)));
+        let seek_arc = state.lock().ok().and_then(|r| r.seek.clone());
         let mut active_notes: HashSet<(u8, u8)> = HashSet::new();
         let mut last_at = 0_u64;
         let mut played = 0_usize;
@@ -3079,27 +3306,59 @@ fn run_vrchat_osc_playback(
                 break;
             }
 
+            // 拖动进度条：先让所有 OSC 音符松开，再跳到目标时间戳继续
+            if let Some(target) = take_seek_target(seek_arc.as_deref()) {
+                send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
+                active_notes.clear();
+                let seek_index = events.partition_point(|ev| ev.at_ms < target);
+                index = seek_index;
+                played = seek_index;
+                last_at = target;
+                last_emit_at = target;
+                update_runtime(&state, |status| {
+                    status.elapsed_ms = target;
+                    status.played_notes = seek_index;
+                    status.progress = if duration_ms == 0 {
+                        1.0
+                    } else {
+                        (target as f64 / duration_ms as f64).clamp(0.0, 1.0)
+                    };
+                    status.last_event = format!("Seeked to {:.1}s", target as f64 / 1000.0);
+                });
+                emit_status(&app, &state);
+                continue;
+            }
+
             // APS NoteCast principle: Immediate note release on pause
             if paused.load(Ordering::SeqCst) {
                 send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
                 active_notes.clear();
                 while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                    if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                        break;
+                    }
                     thread::sleep(Duration::from_millis(20));
                 }
                 if stop.load(Ordering::SeqCst) {
                     break;
+                }
+                if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                    continue;
                 }
             }
 
             let at_ms = events[index].at_ms;
             let wait_ms = at_ms.saturating_sub(last_at);
             if wait_ms > 0 {
-                sleep_scaled_interruptible(wait_ms, &stop, &paused, &speed_arc, || {
+                sleep_scaled_interruptible(wait_ms, &stop, &paused, seek_arc.as_deref(), &speed_arc, || {
                     send_osc_all_notes_off(&host, port, &active_notes, &osc_mode, &avatar_prefix);
                     active_notes.clear();
                 });
                 if stop.load(Ordering::SeqCst) {
                     break;
+                }
+                if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
+                    continue;
                 }
             }
 
@@ -3209,7 +3468,7 @@ fn run_vrchat_osc_playback(
 }
 
 #[cfg(target_os = "windows")]
-fn focus_vrchat_window() {
+pub(crate) fn focus_vrchat_window() {
     use windows::core::w;
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
@@ -3245,11 +3504,10 @@ fn focus_vrchat_window() {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn focus_vrchat_window() {}
+pub(crate) fn focus_vrchat_window() {}
 
-#[allow(dead_code)]
 #[cfg(target_os = "windows")]
-fn is_vrchat_foreground() -> bool {
+pub(crate) fn is_vrchat_foreground() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowTextW};
     unsafe {
         let hwnd = GetForegroundWindow();
@@ -3798,6 +4056,7 @@ fn sleep_scaled_interruptible<F>(
     music_ms: u64,
     stop: &AtomicBool,
     paused: &AtomicBool,
+    seek: Option<&AtomicU64>,
     speed_arc: &Arc<Mutex<f64>>,
     mut on_pause: F,
 ) where
@@ -3807,6 +4066,10 @@ fn sleep_scaled_interruptible<F>(
     let mut was_paused = false;
     loop {
         if stop.load(Ordering::SeqCst) {
+            break;
+        }
+        // 拖动进度条时立刻结束等待，交给外层循环去跳转
+        if seek.is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
             break;
         }
         if paused.load(Ordering::SeqCst) {
@@ -4441,69 +4704,97 @@ async fn search_midishow_webview(
     }
 
     let extract_script = r#"(() => {
-  let attempts = 0;
-  const poll = () => {
-    attempts++;
-    const cards = document.querySelectorAll('[data-key], .col-midi, .midi-item, div[data-key], .list-group-item');
-    if (cards.length > 0) {
-      const list = [];
-      const seen = new Set();
-      cards.forEach((card) => {
-        const link = card.tagName === 'A' && (card.getAttribute('href') || '').includes('/midi/')
-          ? card
-          : card.querySelector('a[href*="/midi/"]');
-        const href = link ? (link.getAttribute('href') || '') : '';
-        const dataKey = card.getAttribute('data-key');
-        let id = 0;
-        if (dataKey) {
-          id = parseInt(dataKey, 10);
-        } else if (href) {
-          const m = href.match(/\/midi\/(\d+)/);
-          if (m) id = parseInt(m[1], 10);
-        }
-        if (id && !seen.has(id)) {
-          seen.add(id);
-          let rawTitle = (link && link.textContent) ? link.textContent.trim() : ('MIDI #' + id);
-          const titleEl = link ? link.querySelector('.title, .name, [class*="title"], [class*="name"], h3, h4, h5, strong') : null;
-          if (titleEl && titleEl.textContent && titleEl.textContent.trim()) {
-            rawTitle = titleEl.textContent.trim();
-          }
-          if (rawTitle.includes('•')) {
-            rawTitle = rawTitle.split('•')[0].trim();
-          }
-          for (const m of ['Uploaded at', 'uploaded at', '上传人', 'Artist:', 'Author:', 'Uploader:']) {
-            const idx = rawTitle.indexOf(m);
-            if (idx !== -1) {
-              rawTitle = rawTitle.slice(0, idx).trim();
-            }
-          }
-          const title = rawTitle || ('MIDI #' + id);
-          const artistEl = card.querySelector('.artist, .author, [class*="artist"], [class*="author"]');
-          const artist = artistEl ? (artistEl.textContent || '').trim() : '';
-          const page_url = href.startsWith('http') ? href : ('https://www.midishow.com' + href);
-          const img = card.querySelector('img');
-          const cover_url = img ? (img.src || null) : null;
-          list.push({ id, title, artist, page_url, cover_url, source: 'midishow', download_url: null });
-        }
-      });
-      if (list.length > 0) {
-        document.title = 'VRCDOG_SEARCH_DONE:' + encodeURIComponent(JSON.stringify(list));
-        return true;
-      }
-    }
-    const text = (document.body && document.body.innerText) ? document.body.innerText : '';
-    if (text.includes('没有找到') || text.includes('0 个结果') || text.includes('未找到') || text.includes('没有符合') || text.includes('抱歉，没有')) {
-      document.title = 'VRCDOG_SEARCH_DONE:[]';
-      return true;
-    }
-    return false;
+  // 结果通过 document.title 回传给 Rust（远程页面无法直接走 Tauri IPC）。
+  const DONE = 'VRCDOG_SEARCH_DONE:';
+  const EMPTY = 'VRCDOG_SEARCH_EMPTY';
+  const CHALLENGE = 'VRCDOG_SEARCH_CHALLENGE';
+  let finalTitle = '';
+  let done = false;
+
+  const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
+  const idFromHref = (href) => {
+    const direct = href.match(/\/midi\/(\d+)(?:\.html)?(?:[?#]|$)/);
+    if (direct) return parseInt(direct[1], 10);
+    const tail = (href.split(/[?#]/)[0] || '').replace(/\/$/, '').match(/(\d+)$/);
+    return tail ? parseInt(tail[1], 10) : 0;
   };
-  if (!poll()) {
-    const timer = setInterval(() => {
-      if (poll() || attempts >= 45) clearInterval(timer);
-    }, 200);
-  }
-})();"#;
+  const titleOf = (anchor) => {
+    const heading = anchor.querySelector('h1, h2, h3, h4, h5, h6, [class*="title"], [class*="name"]');
+    if (heading && clean(heading.textContent)) return clean(heading.textContent);
+    const alt = anchor.querySelector('img[alt]');
+    if (alt && clean(alt.getAttribute('alt'))) return clean(alt.getAttribute('alt'));
+    let text = clean(anchor.textContent);
+    for (const marker of ['Uploaded at', 'uploaded at', '上传人', 'Artist:', 'Author:', 'Uploader:']) {
+      const index = text.indexOf(marker);
+      if (index !== -1) text = text.slice(0, index).trim();
+    }
+    return text.split(/[•·]/)[0].trim();
+  };
+  // 不依赖具体 class：直接把页面里所有指向 /midi/ 详情页的链接当成结果项，
+  // 这样站点改版（旧的 .col-midi / .midi-item 早就没了）也不会整页抓空。
+  const collect = () => {
+    const list = [];
+    const seen = new Set();
+    for (const anchor of document.querySelectorAll('a[href*="/midi/"]')) {
+      const href = anchor.getAttribute('href') || '';
+      const id = idFromHref(href);
+      if (!id || seen.has(id)) continue;
+      const title = titleOf(anchor);
+      if (!title || title.length > 120) continue;
+      const meta = anchor.querySelector('.text-muted, [class*="text-muted"], [class*="author"], [class*="artist"]');
+      const artist = meta ? clean(meta.textContent).split(/[•·]/)[0].trim() : '';
+      seen.add(id);
+      list.push({
+        id,
+        title,
+        artist,
+        page_url: href.startsWith('http') ? href : ('https://www.midishow.com' + href),
+        cover_url: null,
+        source: 'midishow',
+        download_url: null,
+      });
+    }
+    return list;
+  };
+  const isChallenge = () => Boolean(
+    window._cf_chl_opt
+    || document.querySelector('#challenge-stage, #challenge-running, #cf-challenge-running, .cf-browser-verification')
+  );
+  const noResults = () => {
+    const text = (document.body && document.body.innerText) || '';
+    return text.includes('没有找到') || text.includes('未找到') || text.includes('没有符合')
+      || text.includes('No results') || text.includes('no results');
+  };
+  const finish = (title) => {
+    done = true;
+    finalTitle = title;
+    document.title = title;
+  };
+  const tick = () => {
+    if (done) return;
+    const list = collect();
+    if (list.length > 0) {
+      finish(DONE + encodeURIComponent(JSON.stringify(list)));
+      return;
+    }
+    if (isChallenge()) {
+      finish(CHALLENGE);
+      return;
+    }
+    if (document.readyState === 'complete' && noResults()) finish(EMPTY);
+  };
+
+  tick();
+  const poller = setInterval(() => {
+    tick();
+    if (done) clearInterval(poller);
+  }, 250);
+  // 站点自己的脚本会改写 document.title，这里持续把结果写回去，保证 Rust 侧能读到。
+  setInterval(() => {
+    if (finalTitle) document.title = finalTitle;
+  }, 200);
+})();
+"#;
 
     let page_script = extract_script.to_string();
     let page_script_for_load = extract_script.to_string();
@@ -4528,16 +4819,45 @@ async fn search_midishow_webview(
 
     let start = std::time::Instant::now();
     let mut final_results: Option<Vec<VrpianoOnlineSong>> = None;
+    let mut budget = Duration::from_secs(MIDISHOW_SEARCH_WEBVIEW_BUDGET_SECS);
+    let mut challenge_handled = false;
 
-    while start.elapsed() < Duration::from_secs(8) {
+    while start.elapsed() < budget {
         tokio::time::sleep(Duration::from_millis(150)).await;
-        if let Ok(title) = window.title() {
-            if let Some(encoded_data) = title.strip_prefix("VRCDOG_SEARCH_DONE:") {
-                let decoded = urlencoding::decode(encoded_data).unwrap_or_default();
-                if let Ok(items) = serde_json::from_str::<Vec<VrpianoOnlineSong>>(&decoded) {
-                    final_results = Some(items);
-                    break;
-                }
+        // 用户可能在验证弹窗里直接关掉窗口，这里及时收手，别让搜索一直挂着。
+        if app
+            .get_webview_window(MIDISHOW_SEARCH_WINDOW_LABEL)
+            .is_none()
+        {
+            break;
+        }
+        let Ok(title) = window.title() else {
+            continue;
+        };
+        if title.starts_with("VRCDOG_SEARCH_EMPTY") {
+            final_results = Some(Vec::new());
+            break;
+        }
+        if title.starts_with("VRCDOG_SEARCH_CHALLENGE") {
+            // 命中 Cloudflare 人机验证：把隐藏窗口亮出来让用户点一次，
+            // 通过后 cf_clearance 会留在 profile 里，之后的搜索不再需要人工介入。
+            if !challenge_handled {
+                challenge_handled = true;
+                let _ = window.show();
+                let _ = window.set_focus();
+                budget = Duration::from_secs(MIDISHOW_SEARCH_CHALLENGE_BUDGET_SECS);
+                let _ = app.emit(
+                    MIDISHOW_SEARCH_CHALLENGE_EVENT,
+                    "Midishow 需要一次人机验证：请在弹出的窗口中完成，通过后会自动继续搜索",
+                );
+            }
+            continue;
+        }
+        if let Some(encoded_data) = title.strip_prefix("VRCDOG_SEARCH_DONE:") {
+            let decoded = urlencoding::decode(encoded_data).unwrap_or_default();
+            if let Ok(items) = serde_json::from_str::<Vec<VrpianoOnlineSong>>(&decoded) {
+                final_results = Some(items);
+                break;
             }
         }
     }
@@ -4553,12 +4873,15 @@ async fn search_bitmidi(
     limit: usize,
 ) -> Result<Vec<VrpianoOnlineSong>, String> {
     let client = midishow_client(Some(app))?;
-    let encoded = urlencoding::encode(keyword);
-    let search_url = format!("https://bitmidi.com/search?q={encoded}");
+    // BitMidi 的 /search 页面是前端渲染的空壳，直接抓 HTML 永远拿不到结果；
+    // 它自己的前端调用的是这个 JSON 接口，稳定返回 id / name / url / downloadUrl。
     let response = client
-        .get(&search_url)
+        .get("https://bitmidi.com/api/midi/search")
+        .query(&[("q", keyword), ("page", "1")])
+        .timeout(Duration::from_secs(10))
+        .header(reqwest::header::ACCEPT, "application/json")
         .header(reqwest::header::USER_AGENT, MIDISHOW_USER_AGENT)
-        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+        .header(reqwest::header::REFERER, "https://bitmidi.com/")
         .send()
         .await
         .map_err(|e| format!("BitMidi 搜索请求失败: {e}"))?;
@@ -4567,38 +4890,66 @@ async fn search_bitmidi(
         return Err(format!("BitMidi 返回 HTTP {}", response.status()));
     }
 
-    let html = response.text().await.map_err(|e| format!("BitMidi 内容读取失败: {e}"))?;
-    let re = regex::Regex::new(r#"(?is)<a[^>]+href=["'](/[^"']+-mid)["'][^>]*>(.*?)</a>"#)
-        .map_err(|e| e.to_string())?;
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("BitMidi 搜索结果解析失败: {e}"))?;
+    let items = value
+        .get("result")
+        .and_then(|result| result.get("results"))
+        .and_then(|results| results.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let mut results = Vec::new();
     let mut seen = HashSet::new();
 
-    for cap in re.captures_iter(&html) {
-        let slug = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-        let title_raw = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-        let title = clean_midishow_text(&strip_html(title_raw));
-
-        if slug.is_empty() || title.is_empty() {
+    for item in items {
+        let Some(id) = item.get("id").and_then(|value| value.as_u64()) else {
             continue;
-        }
-
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(&slug, &mut hasher);
-        let id = std::hash::Hasher::finish(&hasher) % 900_000_000 + 100_000_000;
-
+        };
         if !seen.insert(id) {
             continue;
         }
+        let title = item
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(|name| {
+                clean_search_text(
+                    name.trim_end_matches(".mid")
+                        .trim_end_matches(".MID")
+                        .trim_end_matches(".Midi"),
+                )
+            })
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| format!("MIDI #{id}"));
+        let path = item.get("url").and_then(|value| value.as_str()).unwrap_or("");
+        let page_url = if path.starts_with("http") {
+            path.to_string()
+        } else if path.is_empty() {
+            format!("https://bitmidi.com/uploads/{id}.mid")
+        } else {
+            format!("https://bitmidi.com{path}")
+        };
+        let download_url = item
+            .get("downloadUrl")
+            .and_then(|value| value.as_str())
+            .map(|url| {
+                if url.starts_with("http") {
+                    url.to_string()
+                } else {
+                    format!("https://bitmidi.com{url}")
+                }
+            });
 
         results.push(VrpianoOnlineSong {
             id,
             title,
             artist: "BitMidi 全球曲库".to_string(),
-            page_url: format!("https://bitmidi.com{slug}"),
+            page_url,
             cover_url: None,
             source: Some("bitmidi".to_string()),
-            download_url: None,
+            download_url,
         });
 
         if results.len() >= limit {
@@ -4740,54 +5091,80 @@ async fn search_midishow(
     // 3. 多接口并行查询：Midishow 与 BitMidi
     let midishow_future = async {
         let account = default_midishow_account(app).ok().flatten();
-        // 优先使用轻量快速 HTTP 检索（通常 200~600ms）
-        if let Ok(Ok(results)) = tokio::time::timeout(
-            Duration::from_millis(3500),
+        let mut last_error: Option<String> = None;
+        // 直连（命中 Cloudflare 会很快失败）→ 只读渲染代理，正常 1~3 秒出结果
+        match tokio::time::timeout(
+            Duration::from_secs(MIDISHOW_SEARCH_HTTP_BUDGET_SECS),
             search_midishow_http(Some(app), keyword, limit, account.as_ref()),
         )
         .await
         {
-            if !results.is_empty() {
-                return results;
-            }
+            Ok(Ok(results)) if !results.is_empty() => return (results, None),
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => last_error = Some(error),
+            Err(_) => last_error = Some("在线搜索超时".to_string()),
         }
-        // 若 HTTP 请求被拦截或无结果，平滑回退到后台浏览器检索
-        if let Ok(results) = search_midishow_webview(app, keyword, limit).await {
-            return results;
+        // 最后兜底：后台浏览器渲染（profile 里已有人机验证 Cookie 时才会成功）
+        match search_midishow_webview(app, keyword, limit).await {
+            Ok(results) if !results.is_empty() => (results, None),
+            Ok(_) => (Vec::new(), last_error),
+            Err(error) => (Vec::new(), Some(last_error.unwrap_or(error))),
         }
-        Vec::new()
     };
 
     let bitmidi_future = async {
-        search_bitmidi(app, keyword, limit).await.unwrap_or_default()
+        match search_bitmidi(app, keyword, limit).await {
+            Ok(results) => (results, None),
+            Err(error) => (Vec::new(), Some(error)),
+        }
     };
 
-    let (ms_results, bm_results) = tokio::join!(midishow_future, bitmidi_future);
+    let ((ms_results, ms_error), (bm_results, bm_error)) =
+        tokio::join!(midishow_future, bitmidi_future);
 
     let mut merged = Vec::new();
-    let mut seen_titles = HashSet::new();
+    let mut seen_keys = HashSet::new();
 
-    // 优先本地
+    // 按「来源 + ID」去重，绝不能按标题去重：
+    // 搜索「晴天」时 Midishow 会返回十几首都叫《晴天》的谱子，
+    // 按标题去重会把它们全部折叠成一条，看起来就像"只搜到一首"。
     for song in local_results {
-        seen_titles.insert(song.title.to_lowercase());
-        merged.push(song);
+        let key = format!("local:{}", song.page_url.to_lowercase());
+        if seen_keys.insert(key) {
+            merged.push(song);
+        }
     }
 
     // 其次 Midishow
     for song in ms_results {
-        if seen_titles.insert(song.title.to_lowercase()) {
+        let key = format!(
+            "{}:{}",
+            song.source.as_deref().unwrap_or("midishow"),
+            song.id
+        );
+        if seen_keys.insert(key) {
             merged.push(song);
         }
     }
 
     // 再次 BitMidi
     for song in bm_results {
-        if seen_titles.insert(song.title.to_lowercase()) {
+        let key = format!(
+            "{}:{}",
+            song.source.as_deref().unwrap_or("bitmidi"),
+            song.id
+        );
+        if seen_keys.insert(key) {
             merged.push(song);
         }
     }
 
     if merged.is_empty() {
+        // 本地 / Midishow / BitMidi 全空时把真实原因带回前端，
+        // 否则"搜索被拦截"和"确实没有这首歌"会显示成同一句提示。
+        if let Some(error) = ms_error.or(bm_error) {
+            return Err(format!("在线搜索失败：{error}"));
+        }
         return Err("未找到相关歌曲，换个关键词或粘贴 ID/URL 试试".to_string());
     }
 
@@ -4861,13 +5238,199 @@ fn parse_midishow_results(
     Ok(results)
 }
 
+/// 抓取 Midishow 搜索结果页 HTML：先直连，被 Cloudflare 拦下后改走只读渲染代理。
+async fn fetch_midishow_search_html(
+    app: Option<&tauri::AppHandle>,
+    search_url: &str,
+    cookie: Option<&str>,
+) -> Result<String, String> {
+    let client = midishow_client(app)?;
+
+    let direct = with_midishow_cookie(
+        client
+            .get(search_url)
+            .timeout(Duration::from_secs(MIDISHOW_SEARCH_DIRECT_TIMEOUT_SECS))
+            .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+            .header(reqwest::header::ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
+            .header(reqwest::header::REFERER, "https://www.midishow.com/"),
+        cookie,
+    )
+    .send()
+    .await;
+
+    if let Ok(response) = direct {
+        let status = response.status();
+        if let Ok(html) = response.text().await {
+            if status.is_success() && !is_cloudflare_challenge(&html) {
+                return Ok(html);
+            }
+        }
+    }
+
+    let proxied = format!("{MIDISHOW_READER_ENDPOINT}{search_url}");
+    let response = client
+        .get(&proxied)
+        .timeout(Duration::from_secs(MIDISHOW_SEARCH_READER_TIMEOUT_SECS))
+        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+        // 让代理回传原始 HTML，而不是它自己转换出来的 Markdown。
+        .header("X-Return-Format", "html")
+        .send()
+        .await
+        .map_err(|_| "暂时无法搜索 Midishow 曲库，请稍后重试".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Midishow 搜索服务返回 HTTP {}",
+            response.status()
+        ));
+    }
+    let html = response
+        .text()
+        .await
+        .map_err(|_| "暂时无法读取 Midishow 搜索结果，请稍后重试".to_string())?;
+    if is_cloudflare_challenge(&html) {
+        return Err("Midishow 搜索被 Cloudflare 拦截，请稍后重试".to_string());
+    }
+    Ok(html)
+}
+
+/// 去掉多余空白，但保留标题里的 `-`、`·` 等符号（`clean_midishow_text` 会把这些当分隔符截断，
+/// 搜索结果标题不能那样处理，否则「【周杰伦】晴天 - 原琴」会被截成「【周杰伦】晴天」）。
+fn clean_search_text(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// 从详情页链接里取 MIDI ID，同时支持 `/en/midi/12345.html` 与
+/// `/en/midi/ff14-midi-download-155592` 两种形态。
+fn midi_id_from_href(href: &str) -> Option<u64> {
+    if let Some(captures) = regex_patterns::midi_id_from_url().captures(href) {
+        if let Some(id) = captures
+            .get(1)
+            .and_then(|value| value.as_str().parse::<u64>().ok())
+        {
+            return Some(id);
+        }
+    }
+    let path = href
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(href)
+        .trim_end_matches('/');
+    let digits: String = path
+        .chars()
+        .rev()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<u64>().ok()
+    }
+}
+
+/// 解析 Midishow 搜索结果页。
+///
+/// 结果项的真实结构（2026-10 实测）：
+/// ```html
+/// <div data-key="132634">
+///   <a href="https://www.midishow.com/en/midi/132634.html">
+///     <div class="media-body ml-3">
+///       <h3 class="text-hover-primary mt-n1"><em>晴天</em></h3>
+///       <div class="small text-muted">浅沫丶 <span>•</span> <span>Uploaded at 5 years ago</span>
+/// ```
+/// 也就是说标题在 `h3` 里（命中关键词会被 `<em>` 包住），上传者昵称是
+/// `.small.text-muted` 的首个文本节点。旧实现用 `data-key` 附近的整段文本当标题，
+/// 会把「晴天浅沫丶 • Uploaded at ...」整串拼进去。
+fn parse_midishow_search_html(html: &str, limit: usize) -> Vec<VrpianoOnlineSong> {
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+
+    let blocks: Vec<(u64, usize)> = regex_patterns::data_key()
+        .captures_iter(html)
+        .filter_map(|captures| {
+            let id = captures.get(1)?.as_str().parse::<u64>().ok()?;
+            Some((id, captures.get(0)?.start()))
+        })
+        .collect();
+
+    for (index, (id, start)) in blocks.iter().enumerate() {
+        if results.len() >= limit {
+            break;
+        }
+        if !seen.insert(*id) {
+            continue;
+        }
+        let end = blocks
+            .get(index + 1)
+            .map(|(_, next)| *next)
+            .unwrap_or_else(|| (*start + 12_000).min(html.len()))
+            .min(html.len());
+        let end = html.floor_char_boundary(end);
+        if end <= *start {
+            continue;
+        }
+        let block = &html[*start..end];
+
+        let href = regex_patterns::result_href()
+            .captures(block)
+            .and_then(|captures| captures.get(1))
+            .map(|value| value.as_str().to_string());
+        let resolved_id = href
+            .as_deref()
+            .and_then(midi_id_from_href)
+            .unwrap_or(*id);
+
+        let title = regex_patterns::result_heading()
+            .captures(block)
+            .and_then(|captures| captures.get(1))
+            // 标题里的 `<em>` 只是关键词高亮，去掉标签时不能补空格，
+            // 否则「ff14独奏——<em>晴天</em>」会变成「ff14独奏—— 晴天」。
+            .map(|value| {
+                clean_search_text(&decode_html_entities(
+                    &regex_patterns::html_tag().replace_all(value.as_str(), ""),
+                ))
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| format!("MIDI #{resolved_id}"));
+
+        let artist = regex_patterns::result_meta()
+            .captures(block)
+            .and_then(|captures| captures.get(1))
+            .map(|value| clean_search_text(&decode_html_entities(value.as_str())))
+            .unwrap_or_default();
+
+        let page_url = href
+            .map(|href| {
+                if href.starts_with("http") {
+                    href
+                } else {
+                    format!("https://www.midishow.com{href}")
+                }
+            })
+            .unwrap_or_else(|| format!("https://www.midishow.com/en/midi/{resolved_id}.html"));
+
+        results.push(VrpianoOnlineSong {
+            id: resolved_id,
+            title,
+            artist,
+            page_url,
+            cover_url: None,
+            source: Some("midishow".to_string()),
+            download_url: None,
+        });
+    }
+
+    results
+}
+
 async fn search_midishow_http(
     app: Option<&tauri::AppHandle>,
     keyword: &str,
     limit: usize,
     account: Option<&StoredMidishowAccount>,
 ) -> Result<Vec<VrpianoOnlineSong>, String> {
-    let client = midishow_client(app)?;
     let cookie = account
         .map(|account| account.cookie.trim())
         .filter(|cookie| !cookie.is_empty());
@@ -4875,63 +5438,19 @@ async fn search_midishow_http(
         return Err("Midishow 登录状态已失效，请重新登录".to_string());
     }
 
-    let response = with_midishow_cookie(
-        client
-            .get("https://www.midishow.com/search/result")
-            .query(&[("q", keyword), ("page", "1"), ("per-page", "50")])
-            .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
-            .header(reqwest::header::ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
-            .header(reqwest::header::REFERER, "https://www.midishow.com/"),
-        cookie,
-    )
-    .send()
-    .await
-    .map_err(|_| "暂时无法搜索 Midishow 曲库，请稍后重试".to_string())?;
-    let status = response.status();
-    let html = response
-        .text()
-        .await
-        .map_err(|_| "暂时无法读取 Midishow 搜索结果，请稍后重试".to_string())?;
-    if is_cloudflare_challenge(&html) || !status.is_success() {
-        return Err("Cloudflare challenge encountered".to_string());
-    }
+    let encoded = urlencoding::encode(keyword);
+    let search_url = format!(
+        "https://www.midishow.com/search/result?q={encoded}&page=1&per-page={}",
+        limit.clamp(1, 50)
+    );
+    let html = fetch_midishow_search_html(app, &search_url, cookie).await?;
 
-    let mut results = Vec::new();
-    let mut seen = HashSet::new();
+    let mut results = parse_midishow_search_html(&html, limit);
 
-    // Strategy 1: Parse data-key attributes for structured results.
-    for captures in regex_patterns::data_key().captures_iter(&html) {
-        let Some(id) = captures
-            .get(1)
-            .and_then(|value| value.as_str().parse::<u64>().ok())
-        else {
-            continue;
-        };
-        if !seen.insert(id) {
-            continue;
-        }
-        // Try to extract title from nearby HTML context
-        let title = extract_search_title_from_html(&html, id);
-        let artist = extract_search_artist_from_html(&html, id);
-        let cover_url = extract_search_cover_from_html(&html, id);
-        results.push(VrpianoOnlineSong {
-            id,
-            title,
-            artist,
-            page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
-            cover_url,
-            source: Some("midishow".to_string()),
-            download_url: None,
-        });
-        if results.len() >= limit {
-            break;
-        }
-    }
-
-    // Strategy 2: Fallback to URL extraction.
+    // 兜底：结构解析失效时至少把详情页 ID 抓出来。
     if results.is_empty() {
-        let re = regex_patterns::midi_id_from_url();
-        for captures in re.captures_iter(&html) {
+        let mut seen = HashSet::new();
+        for captures in regex_patterns::midi_id_from_url().captures_iter(&html) {
             let Some(id) = captures
                 .get(1)
                 .and_then(|value| value.as_str().parse::<u64>().ok())
@@ -4959,203 +5478,6 @@ async fn search_midishow_http(
     Ok(results)
 }
 
-/// Try to extract a MIDI title from HTML context around a given ID.
-#[allow(dead_code, unused_variables)]
-fn extract_title_from_html(html: &str, midi_id: u64) -> String {
-    // Look for patterns like: <a href="/en/midi/12345.html">Title</a>
-    let link_pattern = format!(r#"/en/midi/{}\.html"[^>]*>([^<]+)<"#, midi_id);
-    if let Ok(re) = regex::Regex::new(&link_pattern) {
-        if let Some(caps) = re.captures(html) {
-            if let Some(title_match) = caps.get(1) {
-                let title = clean_midishow_text(title_match.as_str());
-                if !title.is_empty() && title != format!("MIDI #{midi_id}") {
-                    return title;
-                }
-            }
-        }
-    }
-    // Fallback: look for data-key附近的内容
-    let id_str = midi_id.to_string();
-    if let Some(pos) = html.find(&format!("data-key=\"{}\"", midi_id)) {
-        // Search forward for link text
-        let window = &html[pos..std::cmp::min(pos + 2000, html.len())];
-        if let Some(link_start) = window.find('>') {
-            let after_link = &window[link_start + 1..];
-            if let Some(link_end) = after_link.find('<') {
-                let text = after_link[..link_end].trim();
-                if !text.is_empty() && text.len() > 2 && text.len() < 200 {
-                    return clean_midishow_text(text);
-                }
-            }
-        }
-    }
-    format!("MIDI #{midi_id}")
-}
-
-/// Try to extract artist from HTML context around a given ID.
-#[allow(dead_code)]
-fn extract_artist_from_html(html: &str, midi_id: u64) -> String {
-    let id_str = midi_id.to_string();
-    if let Some(pos) = html.find(&format!("data-key=\"{}\"", id_str)) {
-        // Look for artist/author class patterns near the MIDI entry
-        let window = &html[pos..std::cmp::min(pos + 3000, html.len())];
-        for pattern in &["artist", "author", "uploader"] {
-            if let Some(class_pos) = window.find(pattern) {
-                let after_class = &window[class_pos..];
-                if let Some(tag_end) = after_class.find('>') {
-                    let content = &after_class[tag_end + 1..];
-                    if let Some(text_end) = content.find('<') {
-                        let text = content[..text_end].trim();
-                        if !text.is_empty() && text.len() > 1 && text.len() < 100 {
-                            return clean_midishow_text(text);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    String::new()
-}
-
-/// 从 html 中 `pos` 处开始截取最多 `span` 字节的窗口切片。
-/// `pos` 来自 `str::find`，是合法字符边界；但 `pos + span` 是字节偏移，
-/// 可能落在多字节 UTF-8 字符（如中文）中间，直接使用 `&html[pos..end]`
-/// 会触发 `byte index is not a char boundary` panic。这里把结束索引
-/// 向下取整到最近的字符边界，避免 panic。
-fn safe_html_window(html: &str, pos: usize, span: usize) -> &str {
-    let end = (pos + span).min(html.len());
-    let end = html.floor_char_boundary(end);
-    &html[pos..end]
-}
-
-fn extract_search_title_from_html(html: &str, midi_id: u64) -> String {
-    let patterns = [
-        format!(
-            r#"(?is)<a[^>]+href=["'][^"']*/(?:en/)?midi/{}\.html[^"']*["'][^>]*>(.*?)</a>"#,
-            midi_id
-        ),
-        format!(
-            r#"(?is)<a[^>]+href=["'][^"']*/midi/{}[^"']*["'][^>]*>(.*?)</a>"#,
-            midi_id
-        ),
-    ];
-
-    for pattern in patterns {
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(text) = re
-                .captures(html)
-                .and_then(|captures| captures.get(1))
-                .map(|value| clean_midishow_text(&strip_html(value.as_str())))
-                .filter(|value| !value.is_empty())
-            {
-                return text;
-            }
-        }
-    }
-
-    let id_attr = format!(r#"data-key="{}""#, midi_id);
-    if let Some(pos) = html.find(&id_attr) {
-        let window = safe_html_window(html, pos, 3500);
-        for pattern in [
-            r#"(?is)<a[^>]+href=["'][^"']*(?:en/)?midi/\d+\.html[^"']*["'][^>]*>(.*?)</a>"#,
-            r#"(?is)<h[1-6][^>]*>(.*?)</h[1-6]>"#,
-        ] {
-            if let Ok(re) = regex::Regex::new(pattern) {
-                if let Some(text) = re
-                    .captures(window)
-                    .and_then(|captures| captures.get(1))
-                    .map(|value| clean_midishow_text(&strip_html(value.as_str())))
-                    .filter(|value| !value.is_empty())
-                {
-                    return text;
-                }
-            }
-        }
-    }
-
-    format!("MIDI #{midi_id}")
-}
-
-fn extract_search_artist_from_html(html: &str, midi_id: u64) -> String {
-    let id_attr = format!(r#"data-key="{}""#, midi_id);
-    let Some(pos) = html.find(&id_attr) else {
-        return String::new();
-    };
-    let window = safe_html_window(html, pos, 3500);
-    let Ok(re) = regex::Regex::new(
-        r#"(?is)<[^>]+class=["'][^"']*(?:artist|author|uploader)[^"']*["'][^>]*>(.*?)</[^>]+>"#,
-    ) else {
-        return String::new();
-    };
-
-    for captures in re.captures_iter(window) {
-        if let Some(value) = captures.get(1) {
-            let artist = clean_midishow_text(&strip_html(value.as_str()));
-            if !artist.is_empty() && artist.len() < 100 {
-                return artist;
-            }
-        }
-    }
-
-    String::new()
-}
-
-/// 从搜索结果 HTML 中提取与 `midi_id` 对应的封面图 URL。
-///
-/// Midishow 的搜索列表卡片常用以下结构之一：
-///   * `<a data-key="{id}" href="..."><img data-src="..."></a>`
-///   * `<img data-key="{id}" src="..." class="thumb">`
-///   * `<div class="..." data-key="{id}"><img src="..."></div>`
-///
-/// 我们先抓 `data-key="{id}"` 所在的标签本身，再向后再扫一段窗口，
-/// 依次尝试 `data-src` → `data-original` → `src`，找到的第一个
-/// 经过 `is_midishow_cover_url` 校验的 URL 即返回。
-fn extract_search_cover_from_html(html: &str, midi_id: u64) -> Option<String> {
-    let id_attr = format!(r#"data-key="{}""#, midi_id);
-    let pos = html.find(&id_attr)?;
-    let window = safe_html_window(html, pos, 4000);
-
-    // 1) 直接抓 data-key 所在标签上的 data-src / data-original / src
-    let tag_pattern = format!(
-        r#"(?is)<[a-zA-Z]+\b[^>]*data-key=["']{0}["'][^>]*>"#,
-        midi_id
-    );
-    if let Ok(re) = regex::Regex::new(&tag_pattern) {
-        if let Some(tag_match) = re.find(window) {
-            let tag = tag_match.as_str();
-            for attr in ["data-src", "data-original", "src"] {
-                if let Some(url) = extract_html_attr(tag, attr) {
-                    let url = decode_html_entities(&url);
-                    if is_midishow_cover_url(&url) {
-                        return Some(url);
-                    }
-                }
-            }
-        }
-    }
-
-    // 2) 在 data-key 之后的窗口里找第一个合法的 <img> URL。
-    //    优先 lazy-load 属性（data-src / data-original），其次 src。
-    for attr in ["data-src", "data-original", "src"] {
-        let pattern = format!(
-            r#"(?is)<img[^>]+{attr}=["']([^"']+)["'][^>]*>"#,
-            attr = regex::escape(attr)
-        );
-        let Ok(re) = regex::Regex::new(&pattern) else {
-            continue;
-        };
-        if let Some(captures) = re.captures(window) {
-            if let Some(value) = captures.get(1) {
-                let url = decode_html_entities(value.as_str());
-                if is_midishow_cover_url(&url) {
-                    return Some(url);
-                }
-            }
-        }
-    }
-
-    None
-}
 
 /// 仅允许 midishow / midishowstatic 域名的图片 URL，避免被滥用为通用加载器。
 /// 优先要求 URL 自带图片后缀，否则要求 host 命中可信静态域。
@@ -7735,5 +8057,70 @@ mod midishow_spawn_tests {
         let canonical = require_real_dir(&dir, "working dir")
             .expect("canonicalize of a real directory must succeed");
         assert!(canonical.is_dir());
+    }
+}
+
+#[cfg(test)]
+mod vrpiano_search_tests {
+    use super::{midi_id_from_href, parse_midishow_search_html};
+
+    /// 真实抓取到的 Midishow 搜索页（q=晴天）片段，用于锁定解析结构。
+    const SEARCH_HTML: &str = include_str!("../tests/fixtures/midishow_search_2026.html");
+
+    #[test]
+    fn parses_midishow_search_page_titles_and_ids() {
+        let results = parse_midishow_search_html(SEARCH_HTML, 40);
+        let ids: Vec<u64> = results.iter().map(|song| song.id).collect();
+        assert_eq!(ids, vec![132634, 154128, 155592]);
+        assert_eq!(results[0].title, "晴天");
+        assert_eq!(results[0].artist, "浅沫丶");
+        assert_eq!(results[1].artist, "泪色天穹");
+        assert_eq!(results[2].title, "ff14独奏——晴天");
+        assert_eq!(
+            results[2].page_url,
+            "https://www.midishow.com/en/midi/ff14-midi-download-155592"
+        );
+        assert!(results
+            .iter()
+            .all(|song| song.source.as_deref() == Some("midishow")));
+    }
+
+    #[test]
+    fn respects_result_limit() {
+        let results = parse_midishow_search_html(SEARCH_HTML, 2);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn extracts_midi_id_from_numeric_and_slug_urls() {
+        assert_eq!(
+            midi_id_from_href("https://www.midishow.com/en/midi/132634.html"),
+            Some(132634)
+        );
+        assert_eq!(
+            midi_id_from_href("https://www.midishow.com/en/midi/ff14-midi-download-155592"),
+            Some(155592)
+        );
+        assert_eq!(midi_id_from_href("/midi/246354.html?from=search"), Some(246354));
+        assert_eq!(midi_id_from_href("https://www.midishow.com/en/midi/browse/jazz"), None);
+    }
+
+    #[test]
+    fn deserializes_seek_position_from_frontend_payload() {
+        use super::VrpianoSeekRequest;
+        let camel: VrpianoSeekRequest =
+            serde_json::from_value(serde_json::json!({ "positionMs": 91_000 })).unwrap();
+        assert_eq!(camel.position_ms, 91_000);
+        let snake: VrpianoSeekRequest =
+            serde_json::from_value(serde_json::json!({ "position_ms": 5 })).unwrap();
+        assert_eq!(snake.position_ms, 5);
+        let empty: VrpianoSeekRequest =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(empty.position_ms, 0);
+    }
+
+    #[test]
+    fn returns_empty_for_pages_without_results() {
+        assert!(parse_midishow_search_html("<html><body>没有找到相关内容</body></html>", 40).is_empty());
     }
 }

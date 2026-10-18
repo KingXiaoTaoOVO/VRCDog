@@ -637,6 +637,7 @@ pub fn run() {
             vrpiano::vrpiano_test_osc_note,
             vrpiano::vrpiano_stop,
             vrpiano::vrpiano_toggle_pause,
+            vrpiano::vrpiano_seek,
             vrpiano::vrpiano_set_speed,
             vrpiano::vrpiano_set_hotkeys,
             vrpiano::vrpiano_list_midi_devices,

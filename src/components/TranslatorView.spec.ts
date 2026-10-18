@@ -82,6 +82,11 @@ describe('TranslatorView audio capture', () => {
     await flushPromises();
 
     expect(mocks.getAudioDevices).toHaveBeenCalledOnce();
+
+    const routingTab = wrapper.findAll('button').find((b) => b.text().includes('声卡路由'));
+    await routingTab?.trigger('click');
+    await flushPromises();
+
     expect(wrapper.text()).toContain('Test microphone');
     expect(wrapper.text()).toContain('Test speakers [Loopback]');
 

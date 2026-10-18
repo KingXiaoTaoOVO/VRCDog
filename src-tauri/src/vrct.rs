@@ -19,6 +19,7 @@ pub enum VrctMessageSource {
     Chat,
     Mic,
     Speaker,
+    Ocr,
 }
 
 impl Default for VrctMessageSource {

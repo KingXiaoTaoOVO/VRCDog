@@ -13,6 +13,7 @@ const en = {
   open_vr: 'Open in headset', reset_section: 'Reset section',
   stage_decode: 'Decoding image', stage_binarize: 'Binarizing', stage_skeletonize: 'Thinning lines', stage_extract: 'Extracting strokes', stage_optimize: 'Optimizing path', stage_ready: 'Ready',
   auto: 'Auto', pen_settle: 'Pen settle', canvas_size: 'Canvas size', two_opt_path: '2-opt path',
+  min_button_down: 'Pen-down interval',
 };
 
 const zhCN = {
@@ -28,6 +29,7 @@ const zhCN = {
   open_vr: '在头显中打开', reset_section: '重置本区',
   stage_decode: '解析图像', stage_binarize: '二值化处理', stage_skeletonize: '线条细化', stage_extract: '提取笔画', stage_optimize: '优化路径', stage_ready: '已就绪',
   auto: '自动', pen_settle: '落笔稳定', canvas_size: '画布尺寸', two_opt_path: '2-opt 路径优化',
+  min_button_down: '落笔间隔',
 };
 
 const localeOverrides: Partial<Record<AppLocale, Partial<typeof en>>> = {

@@ -887,7 +887,7 @@ export interface AudioSessionInfo {
 export interface AudioCaptureConfig {
   source: AudioSource;
   sourceLang: string;
-  engine: 'cloud' | 'local' | 'whisper' | 'sensevoice' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime';
+  engine: 'cloud' | 'local' | 'whisper' | 'sensevoice' | 'sherpa' | 'tencent_realtime' | 'aliyun_realtime' | 'groq_whisper' | 'openai_whisper' | 'custom_whisper' | 'deepgram';
   realtimeProvider?: string;
   realtimeConfig?: Record<string, string>;
   sherpaConfig?: { tokens: string; encoder: string; decoder: string; joiner: string };
@@ -896,6 +896,15 @@ export interface AudioCaptureConfig {
   dynamicEnergyThreshold?: boolean;
   phraseTimeLimit?: number;
   whisperModel?: string;
+  whisperDevice?: string;
+  whisperComputeType?: string;
+  groqApiKey?: string;
+  openaiApiKey?: string;
+  customWhisperUrl?: string;
+  customWhisperKey?: string;
+  deepgramApiKey?: string;
+  deepgramModel?: string;
+  wordFilter?: string[];
   vadType?: string;
   vadAggressiveness?: number;
   denoiseStrength?: number;
@@ -1472,6 +1481,9 @@ export const VrpianoApi = {
   }),
   stop: () => safeInvoke<VrpianoStatus>('vrpiano_stop'),
   togglePause: () => safeInvoke<VrpianoStatus>('vrpiano_toggle_pause'),
+  seek: (params: { positionMs: number }) => safeInvoke<VrpianoStatus>('vrpiano_seek', {
+    request: { positionMs: Math.max(0, Math.round(params.positionMs)) },
+  }),
   setSpeed: (params: { speed: number }) => safeInvoke<VrpianoStatus>('vrpiano_set_speed', params),
   setHotkeys: (params: { enabled: boolean; songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; oscHost?: string; oscPort?: number; keyboardLayout?: string }) => safeInvoke<VrpianoStatus>('vrpiano_set_hotkeys', {
     config: {
@@ -1553,6 +1565,7 @@ export interface DrawingConfig {
   lift_speed: number;
   pen_settle_ms: number;
   canvas_size_px: number;
+  min_button_down_ms: number;
   two_opt_path: boolean;
 }
 

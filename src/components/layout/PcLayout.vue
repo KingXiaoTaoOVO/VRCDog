@@ -6,7 +6,8 @@ import { useAuthStore } from '../../stores/authStore';
 import { storeToRefs } from 'pinia';
 import { getVersion } from '@tauri-apps/api/app';
 import { wsState, initWebsocket, closeWebSocket } from '../../api/websocket';
-import { dataHealth, dataServiceStatus, nowTs } from '../../stores/dataHealth';
+import { dataHealth, dataRefresh, dataServiceStatus, nowTs } from '../../stores/dataHealth';
+import { vrcStatusLabelKey } from '../../utils/vrcStatus';
 import { currentTheme, setTheme, type ThemeId } from '../../theme';
 import VrcAvatar from '../VrcAvatar.vue';
 import { LogOut, Monitor, Activity, Globe, MessageSquare, ChevronRight, ChevronDown, Users, ScrollText, List, ShieldAlert, Check, Database, RefreshCw, ClipboardList } from 'lucide-vue-next';
@@ -97,6 +98,15 @@ const lastSyncAgo = computed(() => {
   const min = Math.floor(sec / 60);
   if (min < 60) return `${min}m`;
   return `${Math.floor(min / 60)}h`;
+});
+
+// 悬停提示里把「多久刷一次 / 上次成功是多久前」讲清楚。
+// 之前这里只有一个静态标题：指示器变黄之后，用户完全无从判断是网络不通、
+// 还是根本没在刷新，只能凭猜去翻设置。三段都用数字 + 单位，不需要新翻译键。
+const dataServiceTitle = computed(() => {
+  const parts = [t('status.data_service'), `${dataRefresh.intervalSec}s`];
+  if (lastSyncAgo.value) parts.push(lastSyncAgo.value);
+  return parts.join(' · ');
 });
 
 const pipelineRetrying = ref(false);
@@ -372,7 +382,7 @@ const visibleSidebarTabs = computed(() => {
                 class="w-1.5 h-1.5 rounded-full inline-block"
                 :class="getStatusColor(currentUser?.status || 'offline')"
               />
-              {{ $t('status.' + (currentUser?.status?.replace(' ', '_') || 'offline')) }}
+              {{ $t(vrcStatusLabelKey(currentUser?.status)) }}
             </p>
           </div>
         </div>
@@ -381,14 +391,14 @@ const visibleSidebarTabs = computed(() => {
         <div
           class="px-2.5 py-1.5 rounded-xl border text-[10px] font-bold flex items-center justify-between transition-all duration-200 shadow-2xs"
           :class="dataServiceClass"
-          :title="t('status.data_service')"
+          :title="dataServiceTitle"
         >
           <div class="flex items-center gap-1.5">
             <Database :size="11" />
             <span>{{ $t(dataServiceKey) }}</span>
           </div>
           <span
-            v-if="dataHealth.lastSuccessAt && dataServiceStatus === 'online'"
+            v-if="dataHealth.lastSuccessAt && dataServiceStatus !== 'offline'"
             class="text-current tabular-nums text-[9px] font-mono px-1 rounded bg-black/5 dark:bg-white/10"
           >{{ $t('status.sync_ago', { time: lastSyncAgo }) }}</span>
         </div>
