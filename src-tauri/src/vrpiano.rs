@@ -3468,21 +3468,103 @@ fn run_vrchat_osc_playback(
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn focus_vrchat_window() {
+pub(crate) fn find_vrchat_hwnd() -> Option<windows::Win32::Foundation::HWND> {
     use windows::core::w;
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, CloseHandle};
     use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        EnumWindows, FindWindowW, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    // 1. Fast path: FindWindowW
+    if let Ok(hwnd) = unsafe { FindWindowW(None, w!("VRChat")) } {
+        if !hwnd.0.is_null() && unsafe { IsWindowVisible(hwnd).as_bool() } {
+            return Some(hwnd);
+        }
+    }
+    if let Ok(hwnd) = unsafe { FindWindowW(w!("UnityWndClass"), w!("VRChat")) } {
+        if !hwnd.0.is_null() && unsafe { IsWindowVisible(hwnd).as_bool() } {
+            return Some(hwnd);
+        }
+    }
+
+    // 2. Comprehensive EnumWindows search: match process name VRChat.exe or UnityWndClass
+    struct SearchContext {
+        found: Option<HWND>,
+    }
+    let mut ctx = SearchContext { found: None };
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut SearchContext);
+        if !IsWindowVisible(hwnd).as_bool() {
+            return BOOL(1);
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid != 0 {
+            if let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                let mut path_buf = [0u16; 1024];
+                let mut size = path_buf.len() as u32;
+                if QueryFullProcessImageNameW(process, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(path_buf.as_mut_ptr()), &mut size).is_ok() {
+                    let path = String::from_utf16_lossy(&path_buf[..size as usize]);
+                    if path.to_lowercase().ends_with("vrchat.exe") {
+                        let _ = CloseHandle(process);
+                        ctx.found = Some(hwnd);
+                        return BOOL(0);
+                    }
+                }
+                let _ = CloseHandle(process);
+            }
+        }
+
+        let mut buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len > 0 {
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            if title.contains("VRChat") {
+                ctx.found = Some(hwnd);
+                return BOOL(0);
+            }
+        }
+
+        let mut cls_buf = [0u16; 256];
+        let cls_len = GetClassNameW(hwnd, &mut cls_buf);
+        if cls_len > 0 {
+            let class_name = String::from_utf16_lossy(&cls_buf[..cls_len as usize]);
+            if class_name.contains("UnityWndClass") {
+                let mut title_buf = [0u16; 256];
+                let t_len = GetWindowTextW(hwnd, &mut title_buf);
+                if t_len > 0 {
+                    let title = String::from_utf16_lossy(&title_buf[..t_len as usize]);
+                    if title.contains("VRChat") {
+                        ctx.found = Some(hwnd);
+                        return BOOL(0);
+                    }
+                }
+            }
+        }
+        BOOL(1)
+    }
+
+    unsafe {
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+    }
+
+    ctx.found
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn focus_vrchat_window() {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
         ShowWindow, BringWindowToTop, SW_RESTORE, IsIconic,
     };
     use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 
-    let mut window = unsafe { FindWindowW(None, w!("VRChat")) }.unwrap_or_default();
-    if window.0.is_null() {
-        window = unsafe { FindWindowW(w!("UnityWndClass"), w!("VRChat")) }.unwrap_or_default();
-    }
-    if window.0.is_null() {
-        return;
-    }
+    let window = match find_vrchat_hwnd() {
+        Some(w) => w,
+        None => return,
+    };
     unsafe {
         let foreground = GetForegroundWindow();
         let current_tid = GetCurrentThreadId();
@@ -3508,12 +3590,35 @@ pub(crate) fn focus_vrchat_window() {}
 
 #[cfg(target_os = "windows")]
 pub(crate) fn is_vrchat_foreground() -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowTextW};
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId};
+    use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION};
+
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() {
             return false;
         }
+
+        // Process name inspection: 100% accurate even with empty titles or borderless fullscreen
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid != 0 {
+            if let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                let mut path_buf = [0u16; 1024];
+                let mut size = path_buf.len() as u32;
+                if QueryFullProcessImageNameW(process, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(path_buf.as_mut_ptr()), &mut size).is_ok() {
+                    let path = String::from_utf16_lossy(&path_buf[..size as usize]);
+                    let _ = CloseHandle(process);
+                    if path.to_lowercase().ends_with("vrchat.exe") {
+                        return true;
+                    }
+                } else {
+                    let _ = CloseHandle(process);
+                }
+            }
+        }
+
         let mut buf = [0u16; 256];
         let len = GetWindowTextW(hwnd, &mut buf);
         if len > 0 {
@@ -3538,7 +3643,7 @@ pub(crate) fn is_vrchat_foreground() -> bool {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn is_vrchat_foreground() -> bool {
+pub(crate) fn is_vrchat_foreground() -> bool {
     false
 }
 

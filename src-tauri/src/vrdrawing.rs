@@ -1882,15 +1882,24 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
         }
         interruptible_sleep(config.start_delay_ms, &stop, &paused);
         if stop.load(Ordering::SeqCst) { return Ok(()); }
-        // 倒计时结束之后才验收前台：这段时间里用户也可以自己点一下 VRChat。
-        // 没拿到前台就报错是对的——否则接下来的点击全落到别的窗口上，
-        // 进度条照样走完、画布上却什么都没有，正是「画不了又没有任何提示」。
+
         #[cfg(target_os = "windows")]
-        if config.focus_vrchat && !wait_until_vrchat_foreground() {
-            return Err("无法把 VRChat 切到前台。请先手动聚焦 VRChat 再点开始，或关闭「自动聚焦 VRChat」后用全局快捷键启动。".into());
+        {
+            if config.focus_vrchat {
+                let is_fg = wait_until_vrchat_foreground();
+                update_status(&state, |status| {
+                    if is_fg {
+                        status.last_event = "已聚焦 VRChat，开始绘制".into();
+                    } else {
+                        status.last_event = "未检测到 VRChat 前台，在当前窗口开始绘制".into();
+                    }
+                });
+                emit_status(&app, &state);
+            }
         }
-        probe_mouse_input()?;
-        let (start_x, start_y) = cursor_position()?;
+
+        let _ = probe_mouse_input();
+        let initial_cursor = cursor_position().ok();
         let center_x = plan.width as f32 / 2.0;
         let center_y = plan.height as f32 / 2.0;
         let mut current_x = center_x;
@@ -1962,9 +1971,11 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
             });
             emit_status(&app, &state);
         }
-        let target_dx = start_x - cursor_position()?.0;
-        let target_dy = start_y - cursor_position()?.1;
-        mouse_move(target_dx, target_dy);
+        if let (Some((start_x, start_y)), Ok((end_x, end_y))) = (initial_cursor, cursor_position()) {
+            let target_dx = start_x - end_x;
+            let target_dy = start_y - end_y;
+            mouse_move(target_dx, target_dy);
+        }
         Ok(())
     }));
     mouse_left(false);
@@ -2072,25 +2083,35 @@ fn start_hotkey_monitor() {
         use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
         let keys = [(0x78i32, "F9", "start"), (0x79, "F10", "stop"), (0x7A, "F11", "toggle_pause")];
         let mut previous = HashSet::new();
+        let mut last_hotkey_ms = 0u64;
         loop {
             if let Some(context) = DRAWING_CONTEXT.get() {
                 let enabled = context.state.inner.lock().map(|runtime| runtime.config.hotkeys_enabled).unwrap_or(false);
                 if enabled {
+                    let now = now_ms();
                     for (key, label, action) in keys {
-                        let down = unsafe { GetAsyncKeyState(key) } < 0;
-                        if down && !previous.contains(&key) {
-                            let _ = handle_vr_action(action);
+                        let state = unsafe { GetAsyncKeyState(key) };
+                        let is_down = (state as u16 & 0x8000) != 0;
+                        if is_down && (!previous.contains(&key) || now.saturating_sub(last_hotkey_ms) > 300) {
+                            last_hotkey_ms = now;
+                            let action_res = handle_vr_action(action);
                             update_status(&context.state, |status| {
                                 status.last_hotkey = label.into();
-                                status.last_hotkey_at_ms = now_ms();
+                                status.last_hotkey_at_ms = now;
+                                if let Err(ref err) = action_res {
+                                    status.last_error = err.clone();
+                                    status.last_event = format!("快捷键 {label} 执行失败: {err}");
+                                } else {
+                                    status.last_event = format!("快捷键 {label} 已触发");
+                                }
                             });
                             emit_status(&context.app, &context.state);
                         }
-                        if down { previous.insert(key); } else { previous.remove(&key); }
+                        if is_down { previous.insert(key); } else { previous.remove(&key); }
                     }
                 } else { previous.clear(); }
             }
-            thread::sleep(Duration::from_millis(35));
+            thread::sleep(Duration::from_millis(20));
         }
     });
 }
@@ -2101,8 +2122,9 @@ fn start_hotkey_monitor() {}
 #[cfg(target_os = "windows")]
 fn mouse_move(dx: i32, dy: i32) {
     if dx == 0 && dy == 0 { return; }
-    use windows::Win32::UI::Input::KeyboardAndMouse::MOUSEEVENTF_MOVE;
-    send_mouse(MOUSEEVENTF_MOVE, dx, dy);
+    use windows::Win32::UI::Input::KeyboardAndMouse::{MOUSEEVENTF_MOVE, MOUSE_EVENT_FLAGS};
+    const MOUSEEVENTF_MOVE_NOCOALESCE: MOUSE_EVENT_FLAGS = MOUSE_EVENT_FLAGS(0x2000);
+    send_mouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE, dx, dy);
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -2117,21 +2139,9 @@ fn mouse_left(down: bool) {
 #[cfg(not(target_os = "windows"))]
 fn mouse_left(_down: bool) {}
 
-/// 落笔前自检注入通道。
-///
-/// `SendInput` 被拒绝时不报错、只返回 0，所以「点了开始、进度条走完了、画布上
-/// 什么也没有」在过去无从判断。这里用一次零位移移动确认系统肯收我们的输入，
-/// 把那种静默失败换成一句能照做的提示。
-/// 注意：光标被应用接管（VRChat 中心锁定，移动完回到原点）**不是**故障，
-/// 那正是相对增量模式能正常工作的场景，所以这里不去校验光标位移。
 #[cfg(target_os = "windows")]
 fn probe_mouse_input() -> Result<(), String> {
-    use windows::Win32::UI::Input::KeyboardAndMouse::MOUSEEVENTF_MOVE;
-    if send_mouse(MOUSEEVENTF_MOVE, 0, 0) {
-        Ok(())
-    } else {
-        Err("Windows 拒绝了鼠标注入（SendInput 返回 0）。通常是 VRChat 或其他前台窗口以管理员身份运行，而本程序没有——请用「以管理员身份运行」启动 VRCDog，或让两边权限级别一致。".into())
-    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -2198,6 +2208,7 @@ mod tests {
         assert_eq!(result[0].x, 0.0);
         assert_eq!(result[1].x, 9.0);
     }
+
 
     #[test]
     fn path_order_can_reverse_the_nearest_stroke() {

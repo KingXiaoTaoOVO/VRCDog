@@ -231,15 +231,16 @@ const openVrOverlay = () => {
 
         <footer class="control-footer">
           <div class="hotkey-strip">
-            <span><kbd>F9</kbd>{{ $t('drawing.start') }}</span>
-            <span><kbd>F10</kbd>{{ $t('drawing.stop') }}</span>
-            <span><kbd>F11</kbd>{{ $t('drawing.pause_resume') }}</span>
+            <span :class="{ active: status.last_hotkey === 'F9' }"><kbd>F9</kbd>{{ $t('drawing.start') }}</span>
+            <span :class="{ active: status.last_hotkey === 'F10' }"><kbd>F10</kbd>{{ $t('drawing.stop') }}</span>
+            <span :class="{ active: status.last_hotkey === 'F11' }"><kbd>F11</kbd>{{ $t('drawing.pause_resume') }}</span>
+            <span v-if="status.last_event" class="hotkey-hint">({{ status.last_event }})</span>
           </div>
           <div class="primary-actions">
             <button class="secondary-button" :disabled="!sourcePath || busy || status.running" @click="prepare">
               <RefreshCcw :size="17" :class="{ spin: busy }" /> {{ needsPrepare ? $t('drawing.regenerate') : $t('drawing.generate') }}
             </button>
-            <button v-if="!status.running" class="primary-button" :disabled="!plan || busy || needsPrepare" @click="start">
+            <button v-if="!status.running" class="primary-button" :disabled="(!plan && !sourcePath) || busy" @click="start">
               <Play :size="19" fill="currentColor" /> {{ $t('drawing.start') }}
             </button>
             <template v-else>

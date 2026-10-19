@@ -181,6 +181,9 @@ export function useDrawing() {
   const start = async () => {
     error.value = '';
     try {
+      if (needsPrepare.value || !plan.value) {
+        await prepare();
+      }
       await DrawingApi.setConfig({ config: cleanConfig() });
       status.value = await DrawingApi.start();
     } catch (value) { showError(value); }
@@ -238,7 +241,11 @@ export function useDrawing() {
     try {
       [status.value, plan.value] = await Promise.all([DrawingApi.getStatus(), DrawingApi.getPlan()]);
       if (disposed) return;
-      if (plan.value) sourcePath.value = plan.value.source_path;
+      if (plan.value) {
+        sourcePath.value = plan.value.source_path;
+      } else if (sourcePath.value) {
+        await prepare();
+      }
     } catch (value) { if (!disposed) showError(value); }
     // `await` 之后组件可能已经卸载，而 onUnmounted 跑在这之前，拿到的 unlistenStatus 还是 null，
     // 于是这个事件监听永远没人负责解绑：反复进出绘画页会不断累积监听器与整张画布的重新渲染。
