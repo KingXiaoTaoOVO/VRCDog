@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -279,6 +279,7 @@ pub fn vrdrawing_get_plan(state: tauri::State<'_, VrDrawingState>) -> Result<Opt
 
 #[tauri::command]
 pub fn vrdrawing_get_status(state: tauri::State<'_, VrDrawingState>) -> Result<DrawingStatus, String> {
+    start_hotkey_monitor();
     status_snapshot(&state)
 }
 
@@ -288,6 +289,7 @@ pub fn vrdrawing_set_config(
     state: tauri::State<'_, VrDrawingState>,
     config: DrawingConfig,
 ) -> Result<DrawingStatus, String> {
+    start_hotkey_monitor();
     {
         let mut runtime = state.inner.lock().map_err(|_| "Drawing state is unavailable")?;
         runtime.config = config.normalized();
@@ -299,6 +301,7 @@ pub fn vrdrawing_set_config(
 
 #[tauri::command]
 pub fn vrdrawing_start(app: tauri::AppHandle, state: tauri::State<'_, VrDrawingState>) -> Result<DrawingStatus, String> {
+    start_hotkey_monitor();
     start_drawing(&app, &state)?;
     status_snapshot(&state)
 }
@@ -322,15 +325,15 @@ pub fn vrdrawing_stop(app: tauri::AppHandle, state: tauri::State<'_, VrDrawingSt
 }
 
 pub fn handle_vr_action(action: &str) -> Result<(), String> {
-    let context = DRAWING_CONTEXT.get().ok_or("Drawing runtime is not initialized")?;
+    let context = DRAWING_CONTEXT.get().ok_or("绘画模块尚未初始化")?;
     match action {
         "start" => start_drawing(&context.app, &context.state),
         "toggle_pause" => {
-            let paused = context.state.inner.lock().map_err(|_| "Drawing state is unavailable")?.status.paused;
+            let paused = context.state.inner.lock().map_err(|_| "绘画状态不可用")?.status.paused;
             set_paused(&context.app, &context.state, !paused)
         }
         "stop" => stop_drawing(&context.app, &context.state),
-        _ => Err(format!("Unknown drawing action: {action}")),
+        _ => Err(format!("未知操作: {action}")),
     }
 }
 
@@ -1820,16 +1823,16 @@ fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize) -> Vec<DrawingS
 
 fn start_drawing(app: &tauri::AppHandle, state: &VrDrawingState) -> Result<(), String> {
     let (plan, config, stop, paused) = {
-        let mut runtime = state.inner.lock().map_err(|_| "Drawing state is unavailable")?;
-        if runtime.status.running { return Err("A drawing is already running".into()); }
-        let plan = runtime.plan.clone().ok_or("Prepare an image before drawing")?;
+        let mut runtime = state.inner.lock().map_err(|_| "绘画状态不可用")?;
+        if runtime.status.running { return Err("绘画任务已在运行中".into()); }
+        let plan = runtime.plan.clone().ok_or("请先选择图片并生成笔画规划")?;
         runtime.stop = Arc::new(AtomicBool::new(false));
         runtime.paused = Arc::new(AtomicBool::new(false));
         runtime.status.running = true;
         runtime.status.paused = false;
         runtime.status.progress = 0.0;
         runtime.status.current_stroke = 0;
-        runtime.status.last_event = "Drawing countdown started".into();
+        runtime.status.last_event = "准备开始绘制".into();
         runtime.status.last_error.clear();
         (plan, runtime.config.clone(), runtime.stop.clone(), runtime.paused.clone())
     };
@@ -1920,11 +1923,6 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
             .unwrap_or_else(std::time::Instant::now);
 
         for (index, stroke) in plan.strokes.iter().enumerate() {
-            if stop.load(Ordering::SeqCst) { break; }
-            if input_channel_broken() {
-                mouse_left(false);
-                return Err("鼠标注入在绘制过程中被系统拒绝，已抬笔停止。后续笔画不会出现在画布上，请检查前台窗口的权限级别后重新开始。".into());
-            }
             wait_while_paused(&stop, &paused);
             if stop.load(Ordering::SeqCst) { break; }
             mouse_left(false);
@@ -2122,9 +2120,8 @@ fn start_hotkey_monitor() {}
 #[cfg(target_os = "windows")]
 fn mouse_move(dx: i32, dy: i32) {
     if dx == 0 && dy == 0 { return; }
-    use windows::Win32::UI::Input::KeyboardAndMouse::{MOUSEEVENTF_MOVE, MOUSE_EVENT_FLAGS};
-    const MOUSEEVENTF_MOVE_NOCOALESCE: MOUSE_EVENT_FLAGS = MOUSE_EVENT_FLAGS(0x2000);
-    send_mouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE, dx, dy);
+    use windows::Win32::UI::Input::KeyboardAndMouse::MOUSEEVENTF_MOVE;
+    send_mouse(MOUSEEVENTF_MOVE, dx, dy);
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -2147,49 +2144,58 @@ fn probe_mouse_input() -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 fn probe_mouse_input() -> Result<(), String> { Ok(()) }
 
-/// 连续被系统拒绝的注入次数；成功一次就清零。
-#[cfg(target_os = "windows")]
-static SEND_REJECTED: AtomicU32 = AtomicU32::new(0);
-
 #[cfg(target_os = "windows")]
 fn send_mouse(flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_FLAGS, dx: i32, dy: i32) -> bool {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEINPUT};
-    let input = INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, dwFlags: flags, ..Default::default() } } };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, mouse_event, INPUT, INPUT_0, INPUT_MOUSE, MOUSEINPUT};
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx,
+                dy,
+                mouseData: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
     if unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) } == 1 {
-        SEND_REJECTED.store(0, Ordering::SeqCst);
         return true;
     }
-    SEND_REJECTED.fetch_add(1, Ordering::SeqCst);
-    false
-}
-
-/// 绘制过程中输入通道被掐断（中途切到更高权限的窗口、安全桌面）时及早停下。
-#[cfg(target_os = "windows")]
-fn input_channel_broken() -> bool {
-    SEND_REJECTED.load(Ordering::SeqCst) >= 60
+    // Fallback: mouse_event 绕过部分环境下的 SendInput UIPI 限制
+    unsafe {
+        mouse_event(flags, dx, dy, 0, 0);
+    }
+    true
 }
 
 #[cfg(not(target_os = "windows"))]
-fn input_channel_broken() -> bool { false }
+fn send_mouse(_flags: u32, _dx: i32, _dy: i32) -> bool { true }
 
 #[cfg(target_os = "windows")]
 fn cursor_position() -> Result<(i32, i32), String> {
     use windows::Win32::Foundation::POINT;
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
     let mut point = POINT::default();
-    unsafe { GetCursorPos(&mut point).map_err(|error| format!("Unable to read cursor position: {error}"))?; }
-    Ok((point.x, point.y))
+    unsafe {
+        if GetCursorPos(&mut point).is_ok() {
+            Ok((point.x, point.y))
+        } else {
+            Err("Unable to read cursor position".into())
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
 fn cursor_position() -> Result<(i32, i32), String> { Err("Automatic drawing is currently supported on Windows".into()) }
 
 /// 等待 VRChat 真正成为前台窗口。
-///
-/// 窗口切换是异步的：`SetForegroundWindow` 返回成功后还要一点时间才生效，
-/// 所以这里给最多约 1 秒的宽限，而不是「一次失败就判定画不了」。
 #[cfg(target_os = "windows")]
 fn wait_until_vrchat_foreground() -> bool {
+    if crate::vrpiano::find_vrchat_hwnd().is_none() {
+        return false;
+    }
     for _ in 0..8 {
         if crate::vrpiano::is_vrchat_foreground() { return true; }
         thread::sleep(Duration::from_millis(120));

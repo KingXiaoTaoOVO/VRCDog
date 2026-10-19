@@ -100,7 +100,40 @@ export function useDrawing() {
   });
   const stageLabel = computed(() => (status.value.stage ? t(`drawing.stage_${status.value.stage}`) : ''));
 
-  const cleanConfig = (): DrawingConfig => JSON.parse(JSON.stringify(config.value));
+  const cleanConfig = (): DrawingConfig => {
+    const raw = (config.value || {}) as any;
+    return {
+      mode: (['lineart', 'edges', 'dither', 'ai'].includes(raw.mode) ? raw.mode : 'lineart') as DrawingConfig['mode'],
+      max_dimension: Number(raw.max_dimension) || 512,
+      threshold: Number(raw.threshold) || 150,
+      blur: Number(raw.blur) || 0.8,
+      invert: Boolean(raw.invert),
+      bridge_gaps: Boolean(raw.bridge_gaps),
+      prune_length: Number(raw.prune_length) || 3,
+      min_stroke_length: Number(raw.min_stroke_length) || 6,
+      smooth_window: Number(raw.smooth_window) || 7,
+      simplify_epsilon: Number(raw.simplify_epsilon) || 1.6,
+      merge_distance: Number(raw.merge_distance) || 6,
+      optimize_path: Boolean(raw.optimize_path),
+      sensitivity: Number(raw.sensitivity) || 1.2,
+      vertical_stretch: Number(raw.vertical_stretch) || 1,
+      max_step_px: Number(raw.max_step_px) || 4,
+      point_delay_ms: Number(raw.point_delay_ms) || 28,
+      lift_delay_ms: Number(raw.lift_delay_ms) || 45,
+      start_delay_ms: Number(raw.start_delay_ms) || 1500,
+      focus_vrchat: Boolean(raw.focus_vrchat),
+      hotkeys_enabled: Boolean(raw.hotkeys_enabled),
+      ai_model: String(raw.ai_model || 'image-to-line'),
+      contrast: Number(raw.contrast) || 1,
+      artifact_removal: Number(raw.artifact_removal) || 0.6,
+      model_size: Number(raw.model_size) || 512,
+      lift_speed: Number(raw.lift_speed) || 1,
+      pen_settle_ms: Number(raw.pen_settle_ms) || 15,
+      canvas_size_px: Number(raw.canvas_size_px) || 0,
+      min_button_down_ms: Number(raw.min_button_down_ms) || 600,
+      two_opt_path: Boolean(raw.two_opt_path),
+    };
+  };
 
   const showError = (value: unknown) => {
     error.value = String((value as any)?.message || value || t('drawing.error_unknown'));
