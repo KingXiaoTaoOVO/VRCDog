@@ -12,7 +12,7 @@ import {
 } from '../api';
 
 const defaultConfig: DrawingConfig = {
-  mode: 'lineart',
+  mode: 'anime',
   max_dimension: 512,
   threshold: 150,
   blur: 0.8,
@@ -41,6 +41,8 @@ const defaultConfig: DrawingConfig = {
   canvas_size_px: 0,
   min_button_down_ms: 600,
   two_opt_path: true,
+  remove_background: true,
+  bg_tolerance: 0.45,
 };
 
 const emptyStatus = (): DrawingStatus => ({
@@ -63,7 +65,7 @@ const emptyStatus = (): DrawingStatus => ({
 
 const processingSectionKeys: (keyof DrawingConfig)[] = [
   'mode', 'max_dimension', 'threshold', 'blur', 'invert', 'bridge_gaps', 'prune_length',
-  'ai_model', 'contrast', 'artifact_removal', 'model_size',
+  'ai_model', 'contrast', 'artifact_removal', 'model_size', 'remove_background', 'bg_tolerance',
 ];
 const strokeSectionKeys: (keyof DrawingConfig)[] = [
   'min_stroke_length', 'smooth_window', 'simplify_epsilon', 'merge_distance', 'optimize_path', 'two_opt_path',
@@ -103,7 +105,7 @@ export function useDrawing() {
   const cleanConfig = (): DrawingConfig => {
     const raw = (config.value || {}) as any;
     return {
-      mode: (['lineart', 'edges', 'dither', 'ai'].includes(raw.mode) ? raw.mode : 'lineart') as DrawingConfig['mode'],
+      mode: (['anime', 'lineart', 'edges', 'dither', 'ai'].includes(raw.mode) ? raw.mode : 'anime') as DrawingConfig['mode'],
       max_dimension: Number(raw.max_dimension) || 512,
       threshold: Number(raw.threshold) || 150,
       blur: Number(raw.blur) || 0.8,
@@ -132,6 +134,8 @@ export function useDrawing() {
       canvas_size_px: Number(raw.canvas_size_px) || 0,
       min_button_down_ms: Number(raw.min_button_down_ms) || 600,
       two_opt_path: Boolean(raw.two_opt_path),
+      remove_background: raw.remove_background !== undefined ? Boolean(raw.remove_background) : true,
+      bg_tolerance: Number(raw.bg_tolerance) || 0.45,
     };
   };
 

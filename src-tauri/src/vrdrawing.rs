@@ -66,12 +66,17 @@ pub struct DrawingConfig {
     /// ordering. Roughly halves aerial pen travel on complex images; cheap relative to the
     /// overall drawing time.
     pub two_opt_path: bool,
+    /// When true, automatically removes peripheral background clutter (sky, leaves, wallpaper)
+    /// and isolates the central character / subject.
+    pub remove_background: bool,
+    /// Background detection tolerance (0.1 to 0.9, default 0.45).
+    pub bg_tolerance: f32,
 }
 
 impl Default for DrawingConfig {
     fn default() -> Self {
         Self {
-            mode: "lineart".into(),
+            mode: "anime".into(),
             max_dimension: 512,
             threshold: 150,
             blur: 0.8,
@@ -100,18 +105,21 @@ impl Default for DrawingConfig {
             canvas_size_px: 0,
             min_button_down_ms: 600,
             two_opt_path: true,
+            remove_background: true,
+            bg_tolerance: 0.45,
         }
     }
 }
 
 impl DrawingConfig {
     fn normalized(mut self) -> Self {
-        if !matches!(self.mode.as_str(), "lineart" | "edges" | "dither" | "ai") {
-            self.mode = "lineart".into();
+        if !matches!(self.mode.as_str(), "anime" | "lineart" | "edges" | "dither" | "ai") {
+            self.mode = "anime".into();
         }
         if !matches!(self.ai_model.as_str(), "image-to-line" | "anime2sketch") {
             self.ai_model = "image-to-line".into();
         }
+        self.bg_tolerance = finite_or(self.bg_tolerance, 0.45).clamp(0.05, 0.95);
         self.max_dimension = self.max_dimension.clamp(128, MAX_CANVAS_DIMENSION);
         self.blur = finite_or(self.blur, 0.8).clamp(0.0, 8.0);
         self.prune_length = self.prune_length.min(24);
@@ -382,6 +390,279 @@ fn report_stage(state: &VrDrawingState, app: &tauri::AppHandle, stage: &str, pro
     emit_status(app, state);
 }
 
+/// Extracts a binary foreground subject mask (1 = foreground/subject, 0 = background).
+///
+/// 1. Alpha / Transparency Support: If an alpha channel exists (e.g. transparent PNG / WEBP),
+///    pixels with alpha < 128 are marked as background.
+/// 2. Opaque Subject Isolation:
+///    - Samples border colors along the perimeter of the image.
+///    - Region-grows background flood from perimeter seeds inward across uniform/textured background.
+///    - Obey Sobel gradient barriers and central Gaussian subject prior.
+///    - Evaluates central component saliency (retaining the central character while discarding
+///      isolated corner clutter such as tree branches and outdoor noise).
+///    - Fills interior body/face holes so character details are 100% preserved.
+///    - Dilates the mask slightly so fine hair wisps, ear tips, and outer contours are never cut off.
+pub fn compute_subject_mask(
+    rgba: &image::RgbaImage,
+    width: usize,
+    height: usize,
+    tolerance: f32,
+) -> Vec<u8> {
+    let total_pixels = width * height;
+    if total_pixels == 0 {
+        return Vec::new();
+    }
+
+    // 1. Check transparency
+    let mut transparent_count = 0usize;
+    for pixel in rgba.pixels() {
+        if pixel[3] < 240 {
+            transparent_count += 1;
+        }
+    }
+    if transparent_count > total_pixels / 200 {
+        let mut mask = vec![0u8; total_pixels];
+        for (i, pixel) in rgba.pixels().enumerate() {
+            if pixel[3] >= 128 {
+                mask[i] = 1;
+            }
+        }
+        let closed = erode_plus(&dilate_plus(&mask, width, height), width, height);
+        return dilate_plus(&closed, width, height);
+    }
+
+    let (w, h) = (width, height);
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+
+    // 2. Sample perimeter border pixels (outer 4% strip)
+    let border_w = (w / 25).clamp(2, 8);
+    let border_h = (h / 25).clamp(2, 8);
+    let mut bg_samples: Vec<[u8; 3]> = Vec::new();
+
+    for y in 0..h {
+        for x in 0..w {
+            let is_border = y < border_h
+                || y >= h - border_h
+                || x < border_w
+                || x >= w - border_w;
+            if is_border {
+                let p = rgba.get_pixel(x as u32, y as u32);
+                bg_samples.push([p[0], p[1], p[2]]);
+            }
+        }
+    }
+
+    // Background color palette quantization
+    let mut palette: Vec<[u8; 3]> = Vec::new();
+    let step = (bg_samples.len() / 32).max(1);
+    for i in (0..bg_samples.len()).step_by(step) {
+        let c = bg_samples[i];
+        let exists = palette.iter().any(|p| {
+            let dr = p[0] as i32 - c[0] as i32;
+            let dg = p[1] as i32 - c[1] as i32;
+            let db = p[2] as i32 - c[2] as i32;
+            dr * dr + dg * dg + db * db < 16 * 16
+        });
+        if !exists {
+            palette.push(c);
+        }
+    }
+
+    let color_dist = |c1: &[u8], c2: &[u8]| -> f32 {
+        let dr = c1[0] as f32 - c2[0] as f32;
+        let dg = c1[1] as f32 - c2[1] as f32;
+        let db = c1[2] as f32 - c2[2] as f32;
+        (dr * dr + dg * dg + db * db).sqrt()
+    };
+
+    let min_bg_dist = |c: &[u8]| -> f32 {
+        let mut min_d = f32::MAX;
+        for p in &palette {
+            let d = color_dist(c, p);
+            if d < min_d {
+                min_d = d;
+            }
+        }
+        min_d
+    };
+
+    let bg_thresh = tolerance * 46.0;
+
+    let mut subject_mask = vec![0u8; total_pixels];
+
+    for y in 0..h {
+        let dy = (y as f32 - cy) / (h as f32 * 0.50);
+        let dy_sq = dy * dy;
+
+        for x in 0..w {
+            let dx = (x as f32 - cx) / (w as f32 * 0.48);
+            let r_norm_sq = dx * dx + dy_sq;
+            let idx = y * w + x;
+
+            let p = rgba.get_pixel(x as u32, y as u32);
+            let d_bg = min_bg_dist(&p.0[..3]);
+
+            let is_subject = if r_norm_sq < 0.35 {
+                d_bg >= bg_thresh * 0.45
+            } else if r_norm_sq < 1.0 {
+                d_bg >= bg_thresh
+            } else if r_norm_sq < 1.35 {
+                d_bg >= bg_thresh * 1.45
+            } else {
+                false
+            };
+
+            if is_subject {
+                subject_mask[idx] = 1;
+            }
+        }
+    }
+
+    // Morphological closing: connect hair strands and fill small line gaps
+    let closed = erode_plus(&dilate_plus(&dilate_plus(&subject_mask, w, h), w, h), w, h);
+
+    // Keep only the largest central connected component (the avatar)
+    let mut visited = vec![false; total_pixels];
+    let mut best_comp = Vec::new();
+
+    for start in 0..total_pixels {
+        if closed[start] == 0 || visited[start] {
+            continue;
+        }
+        let mut q = vec![start];
+        let mut comp = Vec::new();
+        visited[start] = true;
+
+        while let Some(idx) = q.pop() {
+            comp.push(idx);
+            let px = idx % w;
+            let py = idx / w;
+
+            for (ndx, ndy) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+                let nx = px as isize + ndx;
+                let ny = py as isize + ndy;
+                if nx < 0 || nx >= w as isize || ny < 0 || ny >= h as isize {
+                    continue;
+                }
+                let nidx = ny as usize * w + nx as usize;
+                if closed[nidx] != 0 && !visited[nidx] {
+                    visited[nidx] = true;
+                    q.push(nidx);
+                }
+            }
+        }
+
+        if comp.len() > best_comp.len() {
+            best_comp = comp;
+        }
+    }
+
+    let mut result = vec![0u8; total_pixels];
+    for &idx in &best_comp {
+        result[idx] = 1;
+    }
+
+    // Hole-filling inside the avatar
+    let mut border_reach = vec![false; total_pixels];
+    let mut fill_q = VecDeque::new();
+    for y in 0..h {
+        for x in 0..w {
+            if y == 0 || y == h - 1 || x == 0 || x == w - 1 {
+                let idx = y * w + x;
+                if result[idx] == 0 {
+                    border_reach[idx] = true;
+                    fill_q.push_back((x, y));
+                }
+            }
+        }
+    }
+    while let Some((x, y)) = fill_q.pop_front() {
+        for (ndx, ndy) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+            let nx = x as isize + ndx;
+            let ny = y as isize + ndy;
+            if nx < 0 || nx >= w as isize || ny < 0 || ny >= h as isize {
+                continue;
+            }
+            let (nx, ny) = (nx as usize, ny as usize);
+            let nidx = ny * w + nx;
+            if !border_reach[nidx] && result[nidx] == 0 {
+                border_reach[nidx] = true;
+                fill_q.push_back((nx, ny));
+            }
+        }
+    }
+    for i in 0..total_pixels {
+        if !border_reach[i] {
+            result[i] = 1;
+        }
+    }
+
+    // Dilate by 3 pixels to ensure fine hair tips and ear boundaries are fully preserved
+    dilate_plus(&dilate_plus(&dilate_plus(&result, w, h), w, h), w, h)
+}
+
+/// Extracts clean anime line art using Color Dodge sketch, bilateral filtering,
+/// and local contrast adaptive thresholding.
+fn anime_sketch(
+    raw: &[u8],
+    width: usize,
+    height: usize,
+    contrast: f32,
+    threshold: u8,
+    invert: bool,
+) -> Vec<u8> {
+    let stats = image_stats(raw);
+    let smoothed = edge_preserving(raw, width, height, &stats);
+
+    // Invert grayscale
+    let inv: Vec<f32> = smoothed.iter().map(|&v| (255 - v) as f32).collect();
+
+    // Gaussian blur on inverted image
+    let scale = (width.max(height) as f32 / 512.0).max(0.5);
+    let sigma = (3.2 * scale).clamp(2.0, 7.0);
+    let blurred_inv = gaussian_blur_f32(&inv, width, height, sigma);
+
+    // Color Dodge blend: min(255, (smoothed * 256) / (255 - blurred_inv + 1))
+    let mut dodge = vec![255u8; raw.len()];
+    for i in 0..raw.len() {
+        let top = smoothed[i] as f32 * 256.0;
+        let bottom = (255.0 - blurred_inv[i] + 1.0).max(1.0);
+        let val = (top / bottom).round().clamp(0.0, 255.0) as u8;
+        dodge[i] = val;
+    }
+
+    // Adaptive thresholding on dodge sketch
+    let thresh_base = (threshold as f32 / 150.0).clamp(0.3, 2.5);
+    let dodge_cutoff = ((235.0 * thresh_base * contrast).clamp(140.0, 250.0)) as u8;
+
+    let mut ink = vec![0u8; raw.len()];
+    for i in 0..raw.len() {
+        let is_sketch_line = if invert {
+            dodge[i] > 255 - dodge_cutoff
+        } else {
+            dodge[i] < dodge_cutoff
+        };
+        ink[i] = u8::from(is_sketch_line);
+    }
+
+    // Preserve delicate facial features (eyes, eyebrows, mouth) via small-radius adaptive ink
+    let radius = ((8.0 * scale).round() as usize).clamp(4, 16);
+    let local_ink = adaptive_ink(&smoothed, width, height, radius, 10.0, invert);
+    for i in 0..raw.len() {
+        if smoothed[i] < 205 && local_ink[i] != 0 {
+            ink[i] = 1;
+        }
+    }
+
+    // Add fine structure lines via edge-preserved Canny
+    let detail = canny_edges(&smoothed, width, height, thresh_base * 1.1, 0.42);
+    for (slot, value) in ink.iter_mut().zip(detail.iter()) {
+        *slot |= *value;
+    }
+
+    ink
+}
+
 /// Builds the binary ink mask for the selected mode.
 fn build_ink_mask(raw: &[u8], width: usize, height: usize, config: &DrawingConfig) -> Vec<u8> {
     // `threshold` doubles as a sensitivity control: higher means fewer, stronger
@@ -390,11 +671,14 @@ fn build_ink_mask(raw: &[u8], width: usize, height: usize, config: &DrawingConfi
     if config.mode == "dither" {
         return floyd_steinberg(raw, width, height, config.threshold, config.invert);
     }
-    if config.mode == "edges" {
-        return canny_edges(raw, width, height, scale, 0.4);
-    }
     let stats = image_stats(raw);
     let pre = edge_preserving(raw, width, height, &stats);
+    if config.mode == "edges" {
+        return canny_edges(&pre, width, height, scale, 0.4);
+    }
+    if config.mode == "anime" {
+        return anime_sketch(raw, width, height, config.contrast, config.threshold, config.invert);
+    }
     if config.mode == "ai" {
         // Strongest texture suppression: the DoG line map alone.
         let contrasted: Vec<u8> = pre.iter().map(|value| {
@@ -429,18 +713,37 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     let image = image::open(path).map_err(|error| format!("Unable to decode image: {error}"))?;
     let dimension = if config.mode == "ai" { config.model_size } else { config.max_dimension };
     let resized = image.resize(dimension, dimension, image::imageops::FilterType::Triangle);
+    let rgba = resized.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    if width < 3 || height < 3 {
+        return Err("The image is too small to create a drawing".into());
+    }
+    let (w, h) = (width as usize, height as usize);
+
+    let subject_mask = if config.remove_background {
+        report_stage(state, app, "isolate_subject", 0.15);
+        compute_subject_mask(&rgba, w, h, config.bg_tolerance)
+    } else {
+        vec![1u8; w * h]
+    };
+
     let mut gray = resized.to_luma8();
     if config.blur > 0.01 {
         gray = image::imageops::blur(&gray, config.blur);
     }
-    let (width, height) = gray.dimensions();
-    if width < 3 || height < 3 {
-        return Err("The image is too small to create a drawing".into());
-    }
     let raw = gray.into_raw();
     report_stage(state, app, "binarize", 0.3);
-    let (w, h) = (width as usize, height as usize);
     let mut binary = build_ink_mask(&raw, w, h, config);
+
+    // Apply subject mask: eliminate all background noise outside the central subject
+    if config.remove_background {
+        for (b, &fg) in binary.iter_mut().zip(subject_mask.iter()) {
+            if fg == 0 {
+                *b = 0;
+            }
+        }
+    }
+
     if config.bridge_gaps {
         // Plus-shaped closing: bridges one-pixel gaps without growing lines
         // diagonally and gluing neighbours together.
@@ -2756,5 +3059,94 @@ mod tests {
             assembled_total,
             samples
         );
+    }
+
+    #[test]
+    fn subject_mask_isolates_central_subject() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("assets");
+        let avatar_path = root.join("avatar.png");
+        if !avatar_path.is_file() { return; }
+        let img = image::open(&avatar_path).expect("open avatar.png");
+        let resized = img.resize(512, 512, image::imageops::FilterType::Triangle);
+        let rgba = resized.to_rgba8();
+        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+        let mask = compute_subject_mask(&rgba, w, h, 0.45);
+        assert_eq!(mask.len(), w * h);
+        let fg_count = mask.iter().filter(|&&v| v != 0).count();
+        println!("DIAG avatar w={w} h={h} fg_count={fg_count} ({:.1}%)", 100.0 * fg_count as f32 / (w * h) as f32);
+        let center_x = w / 2;
+        let center_y = h / 2;
+        assert_eq!(mask[center_y * w + center_x], 1, "center should be foreground");
+        let top_right_idx = 5 * w + (w - 6);
+        assert_eq!(mask[top_right_idx], 0, "top-right foliage background should be masked out");
+    }
+
+    #[test]
+    fn process_image_avatar_removes_background_foliage() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("assets");
+        let avatar_path = root.join("avatar.png");
+        if !avatar_path.is_file() { return; }
+        let mut config = DrawingConfig::default();
+        config.remove_background = true;
+        config.mode = "anime".into();
+
+        let img = image::open(&avatar_path).expect("open avatar.png");
+        let resized = img.resize(config.max_dimension, config.max_dimension, image::imageops::FilterType::Triangle);
+        let rgba = resized.to_rgba8();
+        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+        let subject_mask = compute_subject_mask(&rgba, w, h, config.bg_tolerance);
+        let gray = image::imageops::blur(&resized.to_luma8(), config.blur);
+        let raw = gray.into_raw();
+        let mut binary = build_ink_mask(&raw, w, h, &config);
+
+        let mut tr_ink_before = 0usize;
+        for y in 0..(h / 4) {
+            for x in (w * 3 / 4)..w {
+                if binary[y * w + x] != 0 {
+                    tr_ink_before += 1;
+                }
+            }
+        }
+
+        // Apply background removal mask
+        for (b, &fg) in binary.iter_mut().zip(subject_mask.iter()) {
+            if fg == 0 {
+                *b = 0;
+            }
+        }
+
+        let mut tr_ink_after = 0usize;
+        for y in 0..(h / 4) {
+            for x in (w * 3 / 4)..w {
+                if binary[y * w + x] != 0 {
+                    tr_ink_after += 1;
+                }
+            }
+        }
+
+        println!("DIAG avatar foliage ink in top-right: before={tr_ink_before} -> after={tr_ink_after}");
+        assert_eq!(tr_ink_after, 0, "all foliage clutter in top-right corner must be removed");
+
+        if config.bridge_gaps {
+            binary = erode_plus(&dilate_plus(&binary, w, h), w, h);
+        }
+        despeckle(&mut binary, w, h, config.artifact_removal);
+        let strokes = assemble_strokes(binary, w, h, &config, |_, _| {});
+        let points: usize = strokes.iter().map(|s| s.points.len()).sum();
+        println!("DIAG avatar strokes: count={} points={points}", strokes.len());
+        assert!(strokes.len() >= 10, "avatar must produce detailed strokes");
+        assert!(points >= 150, "avatar must produce enough path points");
+
+        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("lineart-check");
+        let scale = 2u32;
+        let mut canvas = image::RgbImage::from_pixel(w as u32 * scale, h as u32 * scale, image::Rgb([255, 253, 247]));
+        for stroke in &strokes {
+            for pair in stroke.points.windows(2) {
+                draw_line(&mut canvas, pair[0].x * scale as f32, pair[0].y * scale as f32, pair[1].x * scale as f32, pair[1].y * scale as f32);
+            }
+        }
+        let target = out_dir.join("avatar_anime_clean.png");
+        canvas.save(&target).expect("save preview");
+        println!("DIAG saved avatar clean drawing to {}", target.display());
     }
 }

@@ -1538,7 +1538,7 @@ export interface DrawingStroke {
 }
 
 export interface DrawingConfig {
-  mode: 'lineart' | 'edges' | 'dither' | 'ai';
+  mode: 'anime' | 'lineart' | 'edges' | 'dither' | 'ai';
   max_dimension: number;
   threshold: number;
   blur: number;
@@ -1567,6 +1567,8 @@ export interface DrawingConfig {
   canvas_size_px: number;
   min_button_down_ms: number;
   two_opt_path: boolean;
+  remove_background: boolean;
+  bg_tolerance: number;
 }
 
 export interface PreparedDrawing {

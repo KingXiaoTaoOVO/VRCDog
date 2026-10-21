@@ -149,6 +149,7 @@ const openVrOverlay = () => {
             <label class="field full">
               <span>{{ $t('drawing.mode') }}</span>
               <select v-model="config.mode" :disabled="status.running">
+                <option value="anime">{{ $t('drawing.mode_anime') }}</option>
                 <option value="lineart">{{ $t('drawing.mode_lineart') }}</option>
                 <option value="edges">{{ $t('drawing.mode_edges') }}</option>
                 <option value="dither">{{ $t('drawing.mode_dither') }}</option>
@@ -168,6 +169,7 @@ const openVrOverlay = () => {
                 <label class="field"><span>{{ $t('drawing.contrast') }} <b>{{ config.contrast.toFixed(2) }}</b></span><input v-model.number="config.contrast" type="range" min="0.5" max="3" step="0.05" :disabled="status.running"></label>
                 <label class="field"><span>{{ $t('drawing.artifact_removal') }} <b>{{ Math.round(config.artifact_removal * 100) }}%</b></span><input v-model.number="config.artifact_removal" type="range" min="0" max="1" step="0.05" :disabled="status.running"></label>
                 <label class="field"><span>{{ $t('drawing.model_size') }} <b>{{ config.model_size }}</b></span><input v-model.number="config.model_size" type="range" min="128" max="1024" step="32" :disabled="status.running"></label>
+                <label v-if="config.remove_background" class="field"><span>{{ $t('drawing.bg_tolerance') }} <b>{{ Math.round(config.bg_tolerance * 100) }}%</b></span><input v-model.number="config.bg_tolerance" type="range" min="0.1" max="0.9" step="0.05" :disabled="status.running"></label>
               </div>
             </template>
 
@@ -177,10 +179,12 @@ const openVrOverlay = () => {
                 <label class="field"><span>{{ $t('drawing.blur') }} <b>{{ config.blur.toFixed(1) }}</b></span><input v-model.number="config.blur" type="range" min="0" max="5" step="0.1" :disabled="status.running"></label>
                 <label class="field"><span>{{ $t('drawing.resolution') }} <b>{{ config.max_dimension }}</b></span><input v-model.number="config.max_dimension" type="range" min="128" max="768" step="32" :disabled="status.running"></label>
                 <label class="field"><span>{{ $t('drawing.prune') }} <b>{{ config.prune_length }}</b></span><input v-model.number="config.prune_length" type="range" min="0" max="16" step="1" :disabled="status.running"></label>
+                <label v-if="config.remove_background" class="field"><span>{{ $t('drawing.bg_tolerance') }} <b>{{ Math.round(config.bg_tolerance * 100) }}%</b></span><input v-model.number="config.bg_tolerance" type="range" min="0.1" max="0.9" step="0.05" :disabled="status.running"></label>
               </div>
             </template>
 
             <div class="toggle-row">
+              <label><input v-model="config.remove_background" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.remove_background') }}</span></label>
               <label><input v-model="config.invert" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.invert') }}</span></label>
               <label><input v-model="config.bridge_gaps" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.bridge_gaps') }}</span></label>
               <label><input v-model="config.optimize_path" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.optimize_path') }}</span></label>
