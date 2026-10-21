@@ -1,12 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CANVAS_DIMENSION: u32 = 768;
@@ -676,16 +678,8 @@ fn build_ink_mask(raw: &[u8], width: usize, height: usize, config: &DrawingConfi
     if config.mode == "edges" {
         return canny_edges(&pre, width, height, scale, 0.4);
     }
-    if config.mode == "anime" {
+    if config.mode == "anime" || config.mode == "ai" {
         return anime_sketch(raw, width, height, config.contrast, config.threshold, config.invert);
-    }
-    if config.mode == "ai" {
-        // Strongest texture suppression: the DoG line map alone.
-        let contrasted: Vec<u8> = pre.iter().map(|value| {
-            let adjusted = (*value as f32 - 128.0) * config.contrast + 128.0;
-            adjusted.clamp(0.0, 255.0) as u8
-        }).collect();
-        return line_map(&contrasted, width, height);
     }
     // `lineart` auto-routes on the image itself.
     if is_line_art(raw, width, height) {
@@ -708,6 +702,199 @@ fn build_ink_mask(raw: &[u8], width: usize, height: usize, config: &DrawingConfi
     }
     mask
 }
+
+fn resolve_python_runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+
+    if let Ok(path) = std::env::var("VRCDOG_PYTHON_RUNTIME") {
+        candidates.push(PathBuf::from(path).join("python.exe"));
+    }
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.extend([
+            resource_dir.join("python-runtime").join("python.exe"),
+            resource_dir.join("resources").join("python-runtime").join("python.exe"),
+        ]);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.extend([
+            cwd.join("src-tauri").join("resources").join("python-runtime").join("python.exe"),
+            cwd.join("resources").join("python-runtime").join("python.exe"),
+        ]);
+    }
+
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(exe_dir) = executable.parent() {
+            candidates.extend([
+                exe_dir.join("python-runtime").join("python.exe"),
+                exe_dir.join("resources").join("python-runtime").join("python.exe"),
+            ]);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| "Embedded Python runtime not found".to_string())
+}
+
+fn resolve_lineart_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.extend([
+            resource_dir.join("_up_").join("src-python").join("vrcdog_lineart.py"),
+            resource_dir.join("src-python").join("vrcdog_lineart.py"),
+            resource_dir.join("vrcdog_lineart.py"),
+        ]);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.extend([
+            cwd.join("src-tauri").join("src-python").join("vrcdog_lineart.py"),
+            cwd.join("src-python").join("vrcdog_lineart.py"),
+        ]);
+    }
+
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(exe_dir) = executable.parent() {
+            candidates.extend([
+                exe_dir.join("src-python").join("vrcdog_lineart.py"),
+                exe_dir.join("_up_").join("src-python").join("vrcdog_lineart.py"),
+            ]);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| "Bridge script not found: vrcdog_lineart.py".to_string())
+}
+
+fn run_ai_lineart(
+    app: &tauri::AppHandle,
+    input_path: &Path,
+    target_w: usize,
+    target_h: usize,
+    config: &DrawingConfig,
+) -> Result<Vec<u8>, String> {
+    let python = resolve_python_runtime(app)?;
+    let script = resolve_lineart_script(app)?;
+
+    let temp_out = std::env::temp_dir().join(format!(
+        "vrcdog_ai_lineart_{}_{}.png",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()
+    ));
+
+    let max_dim_str = config.model_size.to_string();
+    let contrast_str = config.contrast.to_string();
+    let thresh_val = ((config.threshold as f32 / 150.0) * 0.12).clamp(0.04, 0.35);
+    let thresh_str = format!("{thresh_val:.3}");
+
+    let mut cmd = Command::new(&python);
+    cmd.arg(&script)
+        .arg("--input")
+        .arg(input_path)
+        .arg("--output")
+        .arg(&temp_out)
+        .arg("--model")
+        .arg(&config.ai_model)
+        .arg("--max-dim")
+        .arg(&max_dim_str)
+        .arg("--contrast")
+        .arg(&contrast_str)
+        .arg("--threshold")
+        .arg(&thresh_str)
+        .env("PYTHONNOUSERSITE", "1")
+        .env("PYTHONUTF8", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn AI lineart bridge: {e}"))?;
+
+    let mut stdout_pipe = child.stdout.take().ok_or_else(|| "Bridge stdout missing".to_string())?;
+    let mut stderr_pipe = child.stderr.take().ok_or_else(|| "Bridge stderr missing".to_string())?;
+
+    let stdout_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        buf
+    });
+
+    let timeout = Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&temp_out);
+                    return Err(format!("AI LineArt timeout after {}s", timeout.as_secs()));
+                }
+                thread::sleep(Duration::from_millis(40));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = std::fs::remove_file(&temp_out);
+                return Err(format!("Failed waiting for AI bridge: {e}"));
+            }
+        }
+    };
+
+    let stdout_bytes = stdout_reader.join().unwrap_or_default();
+    let stderr_bytes = stderr_reader.join().unwrap_or_default();
+    let stdout_str = String::from_utf8_lossy(&stdout_bytes);
+    let stderr_str = String::from_utf8_lossy(&stderr_bytes);
+
+    if !status.success() {
+        let _ = std::fs::remove_file(&temp_out);
+        return Err(format!(
+            "AI LineArt process exited with {}: stdout='{}', stderr='{}'",
+            status,
+            stdout_str.trim(),
+            stderr_str.trim()
+        ));
+    }
+
+    if !temp_out.exists() {
+        return Err("AI LineArt did not produce an output image".to_string());
+    }
+
+    let out_img = image::open(&temp_out).map_err(|e| format!("Failed to read AI output image: {e}"))?;
+    let _ = std::fs::remove_file(&temp_out);
+
+    let resized_mask = if out_img.width() as usize != target_w || out_img.height() as usize != target_h {
+        out_img.resize_exact(target_w as u32, target_h as u32, image::imageops::FilterType::Nearest)
+    } else {
+        out_img
+    };
+
+    let luma = resized_mask.to_luma8();
+    let raw_bytes = luma.into_raw();
+    let binary_mask: Vec<u8> = raw_bytes
+        .into_iter()
+        .map(|px| if px > 128 { 1 } else { 0 })
+        .collect();
+
+    Ok(binary_mask)
+}
+
 fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, config: &DrawingConfig) -> Result<PreparedDrawing, String> {
     report_stage(state, app, "decode", 0.05);
     let image = image::open(path).map_err(|error| format!("Unable to decode image: {error}"))?;
@@ -733,7 +920,17 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     }
     let raw = gray.into_raw();
     report_stage(state, app, "binarize", 0.3);
-    let mut binary = build_ink_mask(&raw, w, h, config);
+    let mut binary = if config.mode == "ai" {
+        match run_ai_lineart(app, path, w, h, config) {
+            Ok(ai_mask) => ai_mask,
+            Err(err) => {
+                eprintln!("AI LineArt pipeline fallback ({err}): using studio anime_sketch");
+                anime_sketch(&raw, w, h, config.contrast, config.threshold, config.invert)
+            }
+        }
+    } else {
+        build_ink_mask(&raw, w, h, config)
+    };
 
     // Apply subject mask: eliminate all background noise outside the central subject
     if config.remove_background {
