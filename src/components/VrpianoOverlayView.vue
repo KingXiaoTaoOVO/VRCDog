@@ -737,7 +737,7 @@ onUnmounted(() => {
       <span class="speed">{{ Number(status.speed || 1).toFixed(2) }}x</span>
     </section>
 
-    <section class="progress-panel">
+    <section class="progress-panel" data-no-drag>
       <div class="progress-meta">
         <span>{{ formatTime(displayElapsedMs) }}</span>
         <span>{{ Math.round(displayRatio * 100) }}%</span>
@@ -762,8 +762,10 @@ onUnmounted(() => {
         @pointercancel="onSeekPointerCancel"
         @keydown="onSeekKeydown"
       >
-        <div class="progress-fill" :style="progressStyle" />
-        <span class="progress-thumb" :style="{ left: progressStyle.width }" />
+        <div class="progress-rail">
+          <div class="progress-fill" :style="progressStyle" />
+          <span class="progress-thumb" :style="{ left: progressStyle.width }" />
+        </div>
       </div>
     </section>
 
@@ -1284,19 +1286,17 @@ input {
 
 .progress-track {
   position: relative;
-  height: 6px;
-  margin-top: 7px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--theme-text) 12%, transparent);
-  overflow: visible;
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  cursor: default;
+  user-select: none;
+  touch-action: none;
 }
 
 .progress-track.seekable {
   cursor: pointer;
-  /* 视觉上还是 6px 的细条，但上下各扩 7px 的透明热区，方便在小窗里点中 */
-  padding: 7px 0;
-  margin-top: 0;
-  background-clip: content-box;
 }
 
 .progress-track.seekable:focus-visible {
@@ -1304,10 +1304,21 @@ input {
   outline-offset: 3px;
 }
 
+.progress-rail {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--theme-text) 18%, rgba(255, 255, 255, 0.15));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  overflow: visible;
+}
+
 .progress-fill {
   height: 100%;
-  border-radius: inherit;
+  border-radius: 3px;
   background: var(--theme-primary);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--theme-primary) 50%, transparent);
   transition: width 180ms linear;
 }
 
@@ -1318,21 +1329,23 @@ input {
 .progress-thumb {
   position: absolute;
   top: 50%;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
   border-radius: 50%;
-  background: var(--theme-primary);
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--theme-text) 35%, transparent);
-  transform: translateY(-50%) scale(0);
-  transition: transform 140ms ease;
+  background: #ffffff;
+  border: 2.5px solid var(--theme-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  transform: translateY(-50%) scale(0.9);
+  transition: transform 140ms ease, box-shadow 140ms ease;
   pointer-events: none;
 }
 
 .progress-track.seekable:hover .progress-thumb,
 .progress-track.dragging .progress-thumb,
 .progress-track.seekable:focus-visible .progress-thumb {
-  transform: translateY(-50%) scale(1);
+  transform: translateY(-50%) scale(1.25);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary) 35%, transparent), 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
 .transport {

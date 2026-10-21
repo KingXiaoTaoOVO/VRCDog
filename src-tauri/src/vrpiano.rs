@@ -2267,7 +2267,7 @@ fn request_seek(
     let target = if duration == 0 {
         0
     } else {
-        position_ms.min(duration)
+        position_ms.min(duration.saturating_sub(50))
     };
     match runtime.seek.as_ref() {
         Some(seek) => {
@@ -3066,12 +3066,16 @@ fn run_midi_playback(
                 break;
             }
 
-            // 拖动进度条：先让 MIDI 端口全部静音，再跳到目标时间戳继续
+            // 拖动进度条：先让 MIDI 端口正在响的音符释放，再跳到目标时间戳继续
             if let Some(target) = take_seek_target(seek_arc.as_deref()) {
                 if let Ok(backend) = midi_backend.lock() {
-                    let _ = backend.send_panic();
+                    for (note, channel) in active_notes.drain() {
+                        let _ = backend.send_note_off(note, channel);
+                    }
+                    let _ = backend.send_control_change(0, 64, 0);
+                } else {
+                    active_notes.clear();
                 }
-                active_notes.clear();
                 let seek_index = events.partition_point(|ev| ev.at_ms < target);
                 index = seek_index;
                 played = seek_index;
@@ -3091,12 +3095,16 @@ fn run_midi_playback(
                 continue;
             }
 
-            // APS NoteCast principle: Immediate panic / silence notes on pause
+            // APS NoteCast principle: Immediate silence active notes on pause
             if paused.load(Ordering::SeqCst) {
                 if let Ok(backend) = midi_backend.lock() {
-                    let _ = backend.send_panic();
+                    for (note, channel) in active_notes.drain() {
+                        let _ = backend.send_note_off(note, channel);
+                    }
+                    let _ = backend.send_control_change(0, 64, 0);
+                } else {
+                    active_notes.clear();
                 }
-                active_notes.clear();
                 while paused.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
                     if seek_arc.as_ref().is_some_and(|seek| seek.load(Ordering::SeqCst) != SEEK_NONE) {
                         break;
@@ -3116,9 +3124,13 @@ fn run_midi_playback(
             if wait_ms > 0 {
                 sleep_scaled_interruptible(wait_ms, &stop, &paused, seek_arc.as_deref(), &speed_arc, || {
                     if let Ok(backend) = midi_backend.lock() {
-                        let _ = backend.send_panic();
+                        for (note, channel) in active_notes.drain() {
+                            let _ = backend.send_note_off(note, channel);
+                        }
+                        let _ = backend.send_control_change(0, 64, 0);
+                    } else {
+                        active_notes.clear();
                     }
-                    active_notes.clear();
                 });
                 if stop.load(Ordering::SeqCst) {
                     break;
@@ -3233,7 +3245,10 @@ fn run_midi_playback(
         }
 
         if let Ok(backend) = midi_backend.lock() {
-            let _ = backend.send_panic();
+            for (note, channel) in active_notes.drain() {
+                let _ = backend.send_note_off(note, channel);
+            }
+            let _ = backend.send_control_change(0, 64, 0);
         }
     }));
 
@@ -4577,13 +4592,6 @@ fn send_osc_all_notes_off(
         for (note, channel) in notes {
             send_osc_note_event(host, port, mode, avatar_prefix, *note, *channel, 0, false);
         }
-    } else {
-        // When stopping or resetting, release all 88 standard piano keys (A0=21 to C8=108)
-        // to guarantee no keys remain stuck down in VRChat worlds or avatars
-        for note in 21..=108 {
-            send_osc_note_event(host, port, mode, avatar_prefix, note, 0, 0, false);
-        }
-        send_osc_enable_handshake(host, port);
     }
 }
 
@@ -8222,6 +8230,22 @@ mod vrpiano_search_tests {
         let empty: VrpianoSeekRequest =
             serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(empty.position_ms, 0);
+    }
+
+    #[test]
+    fn seek_clamps_position_properly() {
+        let duration: u64 = 10_000;
+        let pos_past_end = 15_000;
+        let target = pos_past_end.min(duration.saturating_sub(50));
+        assert_eq!(target, 9_950);
+
+        let pos_start = 0;
+        let target_start = pos_start.min(duration.saturating_sub(50));
+        assert_eq!(target_start, 0);
+
+        let pos_mid = 5_000;
+        let target_mid = pos_mid.min(duration.saturating_sub(50));
+        assert_eq!(target_mid, 5_000);
     }
 
     #[test]

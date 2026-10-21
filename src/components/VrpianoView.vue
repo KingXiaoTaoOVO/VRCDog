@@ -2560,8 +2560,10 @@ onUnmounted(async () => {
               @pointercancel="onHeroSeekPointerCancel"
               @keydown="onHeroSeekKeydown"
             >
-              <div class="hero-progress-fill" :style="{ width: `${progressPercent}%` }" />
-              <span class="hero-progress-thumb" :style="{ left: `${progressPercent}%` }" />
+              <div class="hero-progress-rail">
+                <div class="hero-progress-fill" :style="{ width: `${progressPercent}%` }" />
+                <span class="hero-progress-thumb" :style="{ left: `${progressPercent}%` }" />
+              </div>
             </div>
             <div class="hero-progress-labels">
               <span>{{ formatTime(heroElapsedMs) }}</span>
@@ -4157,23 +4159,30 @@ select option {
 .hero-progress-bar {
   position: relative;
   width: 100%;
-  height: 6px;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--vp-muted) 15%, transparent);
-  overflow: visible;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  cursor: default;
+  user-select: none;
+  touch-action: none;
 }
 
-/* 可拖动时把热区上下各扩 6px，视觉上仍是 6px 细条 */
 .hero-progress-bar.seekable {
-  padding: 6px 0;
-  margin: -6px 0;
-  background-clip: content-box;
   cursor: pointer;
 }
 
 .hero-progress-bar.seekable:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--vp-primary) 55%, transparent);
   outline-offset: 3px;
+}
+
+.hero-progress-rail {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--vp-muted) 25%, transparent);
+  overflow: visible;
 }
 
 .hero-progress-fill {
@@ -4190,14 +4199,14 @@ select option {
 .hero-progress-thumb {
   position: absolute;
   top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-left: -5.5px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
   border-radius: 50%;
   background: #fff;
   border: 2px solid var(--vp-primary);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
-  transform: translateY(-50%) scale(0);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+  transform: translateY(-50%) scale(0.85);
   transition: transform 0.14s ease;
   pointer-events: none;
 }
@@ -4205,7 +4214,7 @@ select option {
 .hero-progress-bar.seekable:hover .hero-progress-thumb,
 .hero-progress-bar.dragging .hero-progress-thumb,
 .hero-progress-bar.seekable:focus-visible .hero-progress-thumb {
-  transform: translateY(-50%) scale(1);
+  transform: translateY(-50%) scale(1.25);
 }
 
 .hero-progress-labels {

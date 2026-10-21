@@ -162,19 +162,23 @@ impl MidiOutputBackend {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn send_all_notes_off(&self, channel: u8) -> Result<(), String> {
         self.send_control_change(channel, 123, 0)
     }
 
+    #[allow(dead_code)]
     pub fn send_reset_all_controllers(&self, channel: u8) -> Result<(), String> {
         self.send_control_change(channel, 121, 0)
     }
 
+    #[allow(dead_code)]
     pub fn send_all_sound_off(&self, channel: u8) -> Result<(), String> {
         // MIDI CC120 is All Sound Off; CC123 is All Notes Off.
         self.send_control_change(channel, 120, 0)
     }
 
+    #[allow(dead_code)]
     pub fn send_panic(&self) {
         for channel in 0..16u8 {
             // Pedal Off: CC 64 (Damper/Sustain), CC 66 (Sostenuto), CC 67 (Soft)
