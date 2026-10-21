@@ -76,13 +76,13 @@ const MIDISHOW_LOGIN_FALLBACK_MS: u64 = 6_000;
 /// Keep an online search responsive when the proxy or Cloudflare stalls.
 const MIDISHOW_SEARCH_CLI_TIMEOUT_SECS: u64 = 15;
 /// 直连 Midishow 搜索页的单次请求上限（命中 Cloudflare 时通常 1 秒内就返回 403）。
-const MIDISHOW_SEARCH_DIRECT_TIMEOUT_SECS: u64 = 4;
+const MIDISHOW_SEARCH_DIRECT_TIMEOUT_SECS: u64 = 2;
 /// 只读渲染代理的上限：正常 1~3 秒返回，留足余量给冷启动。
-const MIDISHOW_SEARCH_READER_TIMEOUT_SECS: u64 = 15;
+const MIDISHOW_SEARCH_READER_TIMEOUT_SECS: u64 = 3;
 /// 直连 + 代理整体的预算，超过就交给后台浏览器兜底。
-const MIDISHOW_SEARCH_HTTP_BUDGET_SECS: u64 = 20;
+const MIDISHOW_SEARCH_HTTP_BUDGET_SECS: u64 = 5;
 /// 后台浏览器兜底的预算。
-const MIDISHOW_SEARCH_WEBVIEW_BUDGET_SECS: u64 = 15;
+const MIDISHOW_SEARCH_WEBVIEW_BUDGET_SECS: u64 = 18;
 /// 后台浏览器撞上 Cloudflare 人机验证时，把窗口亮出来让用户点一次，
 /// 验证通过后 `cf_clearance` 会留在 WebView2 profile 里，之后搜索就能静默完成。
 const MIDISHOW_SEARCH_CHALLENGE_BUDGET_SECS: u64 = 100;

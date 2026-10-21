@@ -1581,8 +1581,9 @@ onUnmounted(() => {
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 8px;
-  padding-right: 3px;
+  gap: 10px;
+  padding: 6px 6px 12px;
+  margin: -6px -6px 0;
   overflow-y: auto;
 }
 
