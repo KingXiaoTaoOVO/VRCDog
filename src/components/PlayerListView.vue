@@ -6,12 +6,14 @@ import { useI18n } from 'vue-i18n';
 import VrcResourceCard from './VrcResourceCard.vue';
 import { useUserProfileStore } from '../stores/userProfile';
 import { useAuthStore } from '../stores/authStore';
+import { useFriendsStore } from '../stores/friendsStore';
 import { buildCurrentRoomPlayers, type GameLogEvent } from '../utils/gameLogSession';
 import { currentInstanceState, refreshCurrentInstance } from '../stores/currentInstance';
 
 const { t } = useI18n();
 const profileStore = useUserProfileStore();
 const authStore = useAuthStore();
+const friendsStore = useFriendsStore();
 
 interface Player {
   name: string;
@@ -56,6 +58,7 @@ function applySharedInstanceSnapshot() {
   mergePlayers(merged, players.value);
   mergePlayers(merged, sharedPlayers);
   players.value = Array.from(merged.values()).sort((a, b) => b.joinTime.localeCompare(a.joinTime));
+  void resolveMissingPlayers();
 }
 
 function parseLocation(location: string): { worldId: string; instanceId: string } | null {
@@ -94,9 +97,20 @@ function mapInstanceUser(raw: any): Player | null {
 
 function mergePlayers(target: Map<string, Player>, list: Player[]) {
   for (const player of list) {
-    const key = player.userData?.id || player.userId || player.name;
+    const key = (player.userData?.id || player.userId || player.name).trim().toLowerCase();
     const existing = target.get(key);
-    target.set(key, existing ? { ...existing, ...player, note: existing.note || player.note } : player);
+    if (!existing) {
+      target.set(key, { ...player });
+    } else {
+      target.set(key, {
+        ...existing,
+        ...player,
+        userId: player.userId || existing.userId,
+        userData: player.userData || existing.userData,
+        note: player.note || existing.note,
+        loadingData: existing.loadingData || player.loadingData,
+      });
+    }
   }
 }
 
@@ -188,6 +202,7 @@ const fetchPlayerList = async () => {
       currentRoom.value = logSnapshot.roomName || readableLocationState(location);
       instancePlayerCount.value = null;
       const fallbackPlayers = new Map<string, Player>();
+      mergePlayers(fallbackPlayers, players.value);
       mergePlayers(fallbackPlayers, logSnapshot.players);
       if (freshUser?.displayName) {
         mergePlayers(fallbackPlayers, [{
@@ -199,6 +214,7 @@ const fetchPlayerList = async () => {
         }]);
       }
       players.value = Array.from(fallbackPlayers.values()).sort((a, b) => b.joinTime.localeCompare(a.joinTime));
+      void resolveMissingPlayers();
       return;
     }
 
@@ -237,13 +253,18 @@ const fetchPlayerList = async () => {
 
     const updatedPlayers: Player[] = Array.from(mergedPlayers.values()).map((player: Player) => {
       const playerId = player.userData?.id || player.userId;
-      const existing = players.value.find(p => playerId && (p.userData?.id || p.userId) === playerId)
-        || players.value.find(p => p.name === player.name);
+      const existing = players.value.find(p => (playerId && (p.userData?.id || p.userId) === playerId) || p.name === player.name);
       if (existing) {
-        return { ...existing, ...player, note: existing.note, loadingData: false };
+        return {
+          ...existing,
+          ...player,
+          userId: player.userId || existing.userId,
+          userData: player.userData || existing.userData,
+          note: player.note || existing.note,
+          loadingData: existing.loadingData ?? false,
+        };
       }
-      if (!player.userData) resolvePlayerData(player);
-      return player;
+      return { ...player };
     });
 
     if (freshUser?.displayName && !updatedPlayers.some(p => (p.userData?.id || p.userId) === freshUser.id || p.name === freshUser.displayName)) {
@@ -257,6 +278,7 @@ const fetchPlayerList = async () => {
     }
 
     players.value = updatedPlayers.sort((a, b) => b.joinTime.localeCompare(a.joinTime));
+    void resolveMissingPlayers();
   } catch (err) {
     console.error(err);
     players.value = [];
@@ -280,35 +302,120 @@ const formatJoinTime = (time: string) => {
   return time?.slice(11, 16) || time || '--:--';
 };
 
+const userProfileCache = new Map<string, any>();
+const resolvingKeys = new Set<string>();
+
+function applyResolvedData(playerName: string, userData: any) {
+  const target = players.value.find(p => p.name === playerName || (userData.id && (p.userData?.id || p.userId) === userData.id));
+  if (!target) return;
+
+  target.userData = {
+    ...userData,
+    id: userData.id,
+    displayName: userData.displayName || playerName,
+    currentAvatarThumbnailImageUrl: userData.currentAvatarThumbnailImageUrl || userData.profilePicOverride || userData.currentAvatarImageUrl || userData.userIcon,
+  };
+  target.userId = userData.id;
+  target.loadingData = false;
+
+  const sharedTarget = currentInstanceState.players.find(p => p.name === playerName || (userData.id && p.userId === userData.id));
+  if (sharedTarget) {
+    sharedTarget.userData = target.userData;
+    sharedTarget.userId = target.userId;
+  }
+
+  if (userData.id && !target.note) {
+    DbApi.getNote({ userId: userData.id }).then(noteRes => {
+      if (noteRes?.note) {
+        target.note = noteRes.note;
+      }
+    }).catch(() => {});
+  }
+
+  players.value = [...players.value];
+}
+
+const resolveMissingPlayers = async () => {
+  const unresolved = players.value.filter(p => !p.userData);
+  if (unresolved.length === 0) return;
+
+  for (const player of unresolved) {
+    const cleanName = player.name.trim();
+    if (!cleanName) continue;
+    const cacheKey = (player.userId || cleanName).toLowerCase();
+
+    // 1. 本地缓存直接命中
+    if (userProfileCache.has(cacheKey)) {
+      applyResolvedData(player.name, userProfileCache.get(cacheKey));
+      continue;
+    }
+
+    // 2. 好友列表命中（0 网络开销）
+    const friend = (friendsStore.allFriends as any[]).find((f: any) =>
+      (player.userId && f?.id === player.userId) ||
+      String(f?.displayName || '').trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (friend) {
+      userProfileCache.set(cacheKey, friend);
+      applyResolvedData(player.name, friend);
+      continue;
+    }
+
+    // 3. API 异步解析
+    void resolvePlayerData(player);
+  }
+};
+
 const resolvePlayerData = async (player: Player) => {
-  const lookupKey = player.userId || player.name;
-  if (resolvedNames.has(lookupKey) || player.loadingData) return;
-  player.loadingData = true;
+  const cleanName = player.name.trim();
+  const lookupKey = (player.userId || cleanName).toLowerCase();
+  if (resolvingKeys.has(lookupKey)) return;
+  resolvingKeys.add(lookupKey);
+
+  const target = players.value.find(p => p.name === player.name || (player.userId && p.userId === player.userId));
+  if (target) target.loadingData = true;
+
   try {
-    const resolved = player.userId
-      ? await VrcApi.getUser({ userId: player.userId })
-      : (await VrcApi.searchUsers({ query: player.name, n: 10, offset: 0 }))
-          ?.find((candidate: any) => candidate.displayName === player.name);
-    const p = players.value.find(x => (player.userId && (x.userData?.id || x.userId) === player.userId) || x.name === player.name) || player;
-    if (resolved?.id) {
-      p.userData = resolved;
-      p.userId = resolved.id;
-      
-      try {
-        const noteRes = await DbApi.getNote({ userId: resolved.id });
-        if (noteRes && noteRes.note) {
-           p.note = noteRes.note;
+    let resolved: any = null;
+
+    if (player.userId) {
+      resolved = await VrcApi.getUser({ userId: player.userId }).catch(() => null);
+    }
+
+    if (!resolved?.id) {
+      const searchRes: any = await VrcApi.searchUsers({ query: cleanName, n: 10, offset: 0 }).catch(() => null);
+      if (Array.isArray(searchRes) && searchRes.length > 0) {
+        const lower = cleanName.toLowerCase();
+        resolved = searchRes.find(c => String(c.displayName || '').trim().toLowerCase() === lower);
+        if (!resolved) {
+          resolved = searchRes.find(c => String(c.displayName || '').trim().toLowerCase().replace(/\s+/g, '') === lower.replace(/\s+/g, ''));
         }
-      } catch (e) { /* ignore */ }
-      
-      resolvedNames.add(lookupKey);
+        if (!resolved) {
+          resolved = searchRes[0];
+        }
+      }
+    }
+
+    if (resolved?.id) {
+      userProfileCache.set(lookupKey, resolved);
+      userProfileCache.set(resolved.id.toLowerCase(), resolved);
+      if (resolved.displayName) {
+        userProfileCache.set(resolved.displayName.trim().toLowerCase(), resolved);
+      }
+      applyResolvedData(player.name, resolved);
     }
   } catch (e) {
-    console.warn(`Failed to resolve player data for ${player.name}`);
+    console.warn(`Failed to resolve player data for ${player.name}`, e);
   } finally {
-    const p = players.value.find(x => x.name === player.name) || player;
-    p.loadingData = false;
+    resolvingKeys.delete(lookupKey);
+    const p = players.value.find(x => x.name === player.name || (player.userId && x.userId === player.userId));
+    if (p) p.loadingData = false;
   }
+};
+
+const handleRefresh = () => {
+  resolvingKeys.clear();
+  void fetchPlayerList();
 };
 
 onMounted(() => {
@@ -336,7 +443,7 @@ const filteredPlayers = computed(() => {
 });
 
 const openPlayerProfile = async (player: Player) => {
-  if (player.userData) {
+  if (player.userData?.id) {
     profileStore.openProfile(player.userData.id, player.userData);
     return;
   }
@@ -344,12 +451,11 @@ const openPlayerProfile = async (player: Player) => {
     profileStore.openProfile(player.userId);
     return;
   }
-  // 日志来源玩家可能只有名字：尝试按名字解析并打开详情
   try {
-    const resolved = (await VrcApi.searchUsers({ query: player.name, n: 1, offset: 0 }))?.[0];
+    const searchRes = await VrcApi.searchUsers({ query: player.name, n: 10, offset: 0 });
+    const resolved = searchRes?.find((c: any) => String(c.displayName || '').trim().toLowerCase() === player.name.trim().toLowerCase()) || searchRes?.[0];
     if (resolved?.id) {
-      player.userData = resolved;
-      player.userId = resolved.id;
+      applyResolvedData(player.name, resolved);
       profileStore.openProfile(resolved.id, resolved);
     }
   } catch (e) {
@@ -384,7 +490,7 @@ const openPlayerProfile = async (player: Player) => {
         <button
           class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-md bg-surface/80 border border-border-soft text-text-muted hover:text-primary hover:border-primary/40 transition-all shadow-sm"
           :disabled="loading"
-          @click="fetchPlayerList"
+          @click="handleRefresh"
         >
           <RefreshCcw :size="13" :class="{ 'animate-spin': loading }" />
           {{ t('player_list.refresh') }}
