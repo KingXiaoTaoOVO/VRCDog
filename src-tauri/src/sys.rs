@@ -1251,15 +1251,18 @@ pub fn get_effective_proxy(app: &tauri::AppHandle) -> Option<String> {
                 .ok()
             };
 
-            let enabled = get_val("proxyEnabled")
-                .map(|v| v == "true" || v == "\"true\"")
-                .unwrap_or(false);
-            if !enabled {
+            let mode = get_val("proxyType").unwrap_or_else(|| "system".to_string());
+            let mode = mode.trim_matches('"');
+            if mode == "direct" {
                 return None;
             }
 
-            let mode = get_val("proxyType").unwrap_or_else(|| "custom".to_string());
-            let mode = mode.trim_matches('"');
+            let enabled = get_val("proxyEnabled")
+                .map(|v| v == "true" || v == "\"true\"")
+                .unwrap_or(true);
+            if !enabled {
+                return None;
+            }
 
             if mode == "system" {
                 #[cfg(windows)]
@@ -1281,7 +1284,16 @@ pub fn get_effective_proxy(app: &tauri::AppHandle) -> Option<String> {
             }
         }
     }
-    None
+    #[cfg(windows)]
+    {
+        read_windows_system_proxy()
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var("HTTPS_PROXY")
+            .or_else(|_| std::env::var("HTTP_PROXY"))
+            .ok()
+    }
 }
 
 #[tauri::command]

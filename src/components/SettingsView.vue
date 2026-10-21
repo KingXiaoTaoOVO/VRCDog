@@ -144,7 +144,7 @@ const config = ref({
   topWindow: false,
   language: 'zh-CN',
   theme: 'dog',
-  proxyEnabled: false,
+  proxyEnabled: true,
   proxyType: 'system',
   proxyUrl: 'http://127.0.0.1:7890',
   pipelineUrl: '',

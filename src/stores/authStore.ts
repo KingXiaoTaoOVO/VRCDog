@@ -217,10 +217,10 @@ export const useAuthStore = defineStore('auth', () => {
     stopGamelogWatcher();
   };
 
-  const registerWithServer = (user: any): Promise<boolean | undefined> => {
+  const registerWithServer = (user: any, force = false): Promise<boolean | undefined> => {
     if (!clientServerUrl.value) return Promise.resolve(undefined);
     if (serverRegisterInFlight) return serverRegisterInFlight;
-    if (Date.now() < serverRegisterRetryAt) return Promise.resolve(undefined);
+    if (!force && Date.now() < serverRegisterRetryAt) return Promise.resolve(undefined);
 
     serverRegisterInFlight = (async () => {
       try {
@@ -236,7 +236,7 @@ export const useAuthStore = defineStore('auth', () => {
       const data = await VrcApi.request(`${getBaseUrl()}/api/client/register`, {
         method: 'POST',
         params: payload,
-        timeoutMs: 5000,
+        timeoutMs: 15000,
         maxRetries: 1,
         allowExternalHost: true,
       });
@@ -274,8 +274,9 @@ export const useAuthStore = defineStore('auth', () => {
         handleLogout(true);
         return false;
       }
+      return true;
       } catch (err) {
-      serverRegisterRetryAt = Date.now() + 30_000;
+      serverRegisterRetryAt = Date.now() + 15_000;
       serverConnected.value = false;
       armReconnectWindow();
       const message = err instanceof Error ? err.message : String(err);
@@ -284,7 +285,7 @@ export const useAuthStore = defineStore('auth', () => {
         lastServerRegisterError = message;
       }
       // The optional VRCDog server must not prevent a successful VRChat login.
-      return undefined;
+      return false;
       }
     })();
 
@@ -339,7 +340,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (!reconnect || !currentUser.value) return true;
 
     serverConnected.value = false;
-    const registered = await registerWithServer(currentUser.value);
+    serverRegisterRetryAt = 0;
+    const registered = await registerWithServer(currentUser.value, true);
     if (registered) {
       serverConnected.value = true;
       await uiStore.fetchServerFeatures(getBaseUrl(), currentUser.value);
@@ -387,13 +389,13 @@ export const useAuthStore = defineStore('auth', () => {
           user_id: currentUser.value.id || currentUser.value.displayName
         },
         headers: getClientTokenHeader(),
-        timeoutMs: 3000,
-        maxRetries: 0,
+        timeoutMs: 15000,
+        maxRetries: 1,
         allowExternalHost: true,
       });
 
       if (!serverConnected.value) {
-        await registerWithServer(currentUser.value);
+        await registerWithServer(currentUser.value, true);
       }
       serverConnected.value = true;
       consecutiveFailures = 0;
@@ -410,7 +412,7 @@ export const useAuthStore = defineStore('auth', () => {
         banMessage.value = t('auto_e1b5d9e2');
         handleLogout(true);
       } else if (data.status === 'register_required') {
-        await registerWithServer(currentUser.value);
+        await registerWithServer(currentUser.value, true);
       }
       if (data.status === 'survey_required' || data.status === 'survey_available' || data.status === 'ok') {
         applySurveyStatus(data);
@@ -429,7 +431,7 @@ export const useAuthStore = defineStore('auth', () => {
         serverRegisterRetryAt = 0;
         stopReconnectTicker();
         reconnectCountdown.value = 0;
-        const reRegistered = await registerWithServer(currentUser.value);
+        const reRegistered = await registerWithServer(currentUser.value, true);
         if (reRegistered) {
           serverConnected.value = true;
           return;
@@ -437,7 +439,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       consecutiveFailures++;
-      if (consecutiveFailures >= 3) {
+      if (consecutiveFailures >= 5) {
         serverConnected.value = false;
         armReconnectWindow();
       }

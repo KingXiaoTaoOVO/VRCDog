@@ -794,7 +794,10 @@ fn sys_is_server_running() -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn sys_ping_server(url: String) -> Result<String, String> {
+async fn sys_ping_server(
+    vrc_state: tauri::State<'_, vrc_api::VrcState>,
+    url: String,
+) -> Result<String, String> {
     let base_url = url.trim().trim_end_matches('/');
     let parsed =
         reqwest::Url::parse(base_url).map_err(|error| format!("Invalid server URL: {error}"))?;
@@ -804,9 +807,29 @@ async fn sys_ping_server(url: String) -> Result<String, String> {
             parsed.scheme()
         ));
     }
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(3))
-        .timeout(std::time::Duration::from_secs(5))
+
+    let proxy_url = vrc_state.proxy_url.read().await.clone().or_else(|| {
+        #[cfg(windows)]
+        {
+            sys::read_windows_system_proxy()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
+    });
+
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(20));
+
+    if let Some(proxy) = proxy_url.filter(|p| !p.trim().is_empty()) {
+        if let Ok(p) = reqwest::Proxy::all(&proxy) {
+            builder = builder.proxy(p);
+        }
+    }
+
+    let client = builder
         .build()
         .map_err(|error| format!("Unable to create server probe: {error}"))?;
     let res = client

@@ -22,14 +22,30 @@ impl Default for VrcState {
 
 impl VrcState {
     pub fn new() -> Self {
+        Self::with_proxy(None)
+    }
+
+    pub fn with_proxy(proxy_url: Option<String>) -> Self {
+        let initial_proxy = proxy_url
+            .or_else(|| std::env::var("HTTPS_PROXY").or_else(|_| std::env::var("HTTP_PROXY")).ok())
+            .or_else(|| {
+                #[cfg(windows)]
+                {
+                    crate::sys::read_windows_system_proxy()
+                }
+                #[cfg(not(windows))]
+                {
+                    None
+                }
+            });
         let jar = Arc::new(reqwest::cookie::Jar::default());
-        let client = build_vrc_client(None, None, jar.clone()).unwrap_or_else(|error| {
+        let client = build_vrc_client(initial_proxy.clone(), None, jar.clone()).unwrap_or_else(|error| {
             eprintln!("[VrcApi] {error}");
             Client::new()
         });
         Self {
             client: RwLock::new(client),
-            proxy_url: RwLock::new(None),
+            proxy_url: RwLock::new(initial_proxy),
             cookie_jar: RwLock::new(jar),
         }
     }
