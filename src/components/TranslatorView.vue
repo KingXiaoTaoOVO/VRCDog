@@ -1098,15 +1098,15 @@ onUnmounted(async () => {
     <!-- Top Header & Master Switches -->
     <header class="flex items-center justify-between gap-3 mb-4 shrink-0 flex-wrap z-20">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 shadow-sm shadow-amber-500/10">
+        <div class="w-10 h-10 rounded-xl bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/30 flex items-center justify-center text-[var(--theme-primary)] shadow-sm shadow-[var(--theme-primary)]/10">
           <Languages class="w-5 h-5" />
         </div>
         <div>
           <div class="flex items-center gap-2">
-            <h2 class="text-xl font-black text-slate-100 tracking-tight">{{ tt('translator.title', '翻译官') }}</h2>
+            <h2 class="text-xl font-black text-[var(--theme-text-strong)] tracking-tight">{{ tt('translator.title', '翻译官') }}</h2>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-[var(--theme-primary)]/20 text-[var(--theme-primary)] border border-[var(--theme-primary)]/30">VRCT · Yakutan · Kikitan Enhanced</span>
           </div>
-          <p class="text-xs text-slate-400">实时同声传译 · 物理与虚拟声卡路由 · 多语言 OSC Chatbox</p>
+          <p class="text-xs text-[var(--theme-text-muted)]">实时同声传译 · 物理与虚拟声卡路由 · 多语言 OSC Chatbox</p>
         </div>
       </div>
 
@@ -1115,11 +1115,11 @@ onUnmounted(async () => {
         <!-- Master 1: Translation Toggle -->
         <button
           type="button"
-          :class="masterTranslation ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20 border-amber-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          :class="masterTranslation ? 'bg-[var(--theme-primary)] text-white font-black shadow-lg shadow-[var(--theme-primary)]/20 border-[var(--theme-primary)]' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
           @click="masterTranslation = !masterTranslation"
         >
-          <div :class="masterTranslation ? 'bg-slate-950 text-amber-500' : 'bg-slate-800 text-slate-500'" class="w-2 h-2 rounded-full" />
+          <div :class="masterTranslation ? 'bg-[var(--theme-bg-main)]/60 text-[var(--theme-primary)]' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text-muted)]'" class="w-2 h-2 rounded-full" />
           <span>{{ tt('translator.master_translation', '主翻译') }}: {{ masterTranslation ? 'ON' : 'OFF' }}</span>
         </button>
 
@@ -1127,7 +1127,7 @@ onUnmounted(async () => {
         <button
           type="button"
           data-testid="start-microphone"
-          :class="isRecording ? 'bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20 border-emerald-400' : isMicStarting ? 'bg-slate-900 border-amber-500 text-amber-400 animate-pulse' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          :class="isRecording ? 'bg-emerald-500 text-white font-black shadow-lg shadow-emerald-500/20 border-emerald-400' : isMicStarting ? 'bg-[var(--theme-surface)] border-[var(--theme-primary)] text-[var(--theme-primary)] animate-pulse' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
           @click="toggleRecording"
         >
@@ -1139,7 +1139,7 @@ onUnmounted(async () => {
         <button
           type="button"
           data-testid="start-speaker"
-          :class="isOtherRecording ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20 border-indigo-400' : isSpeakerStarting ? 'bg-slate-900 border-amber-500 text-amber-400 animate-pulse' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          :class="isOtherRecording ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20 border-indigo-400' : isSpeakerStarting ? 'bg-[var(--theme-surface)] border-[var(--theme-primary)] text-[var(--theme-primary)] animate-pulse' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
           @click="toggleOtherRecording"
         >
@@ -1150,7 +1150,7 @@ onUnmounted(async () => {
         <!-- Master 4: OCR Toggle -->
         <button
           type="button"
-          :class="masterOcr ? 'bg-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/20 border-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          :class="masterOcr ? 'bg-cyan-500 text-white font-black shadow-lg shadow-cyan-500/20 border-cyan-400' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs flex items-center gap-2 transition-all active:scale-95"
           @click="masterOcr = !masterOcr"
         >
@@ -1161,7 +1161,7 @@ onUnmounted(async () => {
         <!-- Two-Way Toggle -->
         <button
           type="button"
-          :class="isTwoWayRunning ? 'bg-rose-500 text-white border-rose-400 shadow-rose-500/20' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          :class="isTwoWayRunning ? 'bg-rose-500 text-white border-rose-400 shadow-rose-500/20' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
           @click="toggleTwoWay"
         >
@@ -1172,7 +1172,7 @@ onUnmounted(async () => {
         <!-- Overlay Toggle -->
         <button
           type="button"
-          :class="isOverlayOpen ? 'bg-amber-500/20 border-amber-500/50 text-amber-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'"
+          :class="isOverlayOpen ? 'bg-[var(--theme-primary)]/20 border-[var(--theme-primary)]/50 text-[var(--theme-primary)]' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
           @click="toggleOverlay"
         >
@@ -1183,7 +1183,7 @@ onUnmounted(async () => {
         <!-- Mode Switch: Simple / Advanced Tabs -->
         <button
           type="button"
-          :class="isSimpleMode ? 'bg-[var(--theme-primary)] text-white font-black shadow-md border-[var(--theme-primary)]' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'"
+          :class="isSimpleMode ? 'bg-[var(--theme-primary)] text-white font-black shadow-md border-[var(--theme-primary)]' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text)] hover:border-[var(--theme-border-strong)]'"
           class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
           @click="isSimpleMode = !isSimpleMode"
         >
@@ -1195,16 +1195,16 @@ onUnmounted(async () => {
 
     <!-- Preset Selection Bar (Tab 1 / 2 / 3) & Language Selector with Swap -->
     <div v-if="!isSimpleMode" class="contents">
-    <div class="mb-4 p-3 bg-slate-900/90 border border-slate-800/80 rounded-2xl flex items-center justify-between gap-4 flex-wrap z-10 shadow-sm">
+    <div class="mb-4 p-3 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex items-center justify-between gap-4 flex-wrap z-10 shadow-sm">
       <!-- 3 Preset Tabs -->
       <div class="flex items-center gap-2">
-        <span class="text-xs font-black text-slate-400 uppercase tracking-wider px-1">{{ tt('translator.preset_tab', '预设') }}:</span>
-        <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800">
+        <span class="text-xs font-black text-[var(--theme-text-muted)] uppercase tracking-wider px-1">{{ tt('translator.preset_tab', '预设') }}:</span>
+        <div class="inline-flex rounded-xl bg-[var(--theme-bg-main)]/60 p-1 border border-[var(--theme-border-soft)]">
           <button
             v-for="tabNo in (['1', '2', '3'] as const)"
             :key="tabNo"
             type="button"
-            :class="activePresetTab === tabNo ? 'bg-amber-500 text-slate-950 font-black shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+            :class="activePresetTab === tabNo ? 'bg-[var(--theme-primary)] text-white font-black shadow-sm' : 'text-[var(--theme-text-muted)] hover:text-[var(--theme-text-strong)]'"
             class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
             @click="activePresetTab = tabNo"
           >
@@ -1223,7 +1223,7 @@ onUnmounted(async () => {
         <!-- 1-Click Swap Button -->
         <button
           type="button"
-          class="p-2 rounded-xl bg-slate-950 border border-slate-800 text-amber-500 hover:border-amber-500/50 hover:bg-amber-500/10 transition-all active:scale-95"
+          class="p-2 rounded-xl bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] text-[var(--theme-primary)] hover:border-[var(--theme-primary)]/50 hover:bg-[var(--theme-primary)]/10 transition-all active:scale-95"
           :title="tt('translator.swap_languages', '对调源语言与目标语言 1')"
           @click="swapLanguages"
         >
@@ -1236,18 +1236,18 @@ onUnmounted(async () => {
         </div>
 
         <!-- Target 2 Toggle & Select -->
-        <div class="flex items-center gap-1.5 px-2 py-1 bg-slate-950 border border-slate-800 rounded-xl">
-          <input v-model="enableTarget2" type="checkbox" class="w-3.5 h-3.5 rounded text-amber-500 accent-amber-500 cursor-pointer" :title="tt('translator.target_lang_2', '目标语言 2 开关')">
-          <span class="text-xs font-bold text-slate-400">T2</span>
+        <div class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl">
+          <input v-model="enableTarget2" type="checkbox" class="w-3.5 h-3.5 rounded text-[var(--theme-primary)] accent-[var(--theme-primary)] cursor-pointer" :title="tt('translator.target_lang_2', '目标语言 2 开关')">
+          <span class="text-xs font-bold text-[var(--theme-text-muted)]">T2</span>
           <div v-if="enableTarget2" class="w-28">
             <CustomSelect v-model="targetLang2" :options="speechLanguageOptions" />
           </div>
         </div>
 
         <!-- Target 3 Toggle & Select -->
-        <div class="flex items-center gap-1.5 px-2 py-1 bg-slate-950 border border-slate-800 rounded-xl">
-          <input v-model="enableTarget3" type="checkbox" class="w-3.5 h-3.5 rounded text-amber-500 accent-amber-500 cursor-pointer" :title="tt('translator.target_lang_3', '目标语言 3 开关')">
-          <span class="text-xs font-bold text-slate-400">T3</span>
+        <div class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl">
+          <input v-model="enableTarget3" type="checkbox" class="w-3.5 h-3.5 rounded text-[var(--theme-primary)] accent-[var(--theme-primary)] cursor-pointer" :title="tt('translator.target_lang_3', '目标语言 3 开关')">
+          <span class="text-xs font-bold text-[var(--theme-text-muted)]">T3</span>
           <div v-if="enableTarget3" class="w-28">
             <CustomSelect v-model="targetLang3" :options="speechLanguageOptions" />
           </div>
@@ -1276,8 +1276,8 @@ onUnmounted(async () => {
         :key="subTab.id"
         type="button"
         :class="activeSubTab === subTab.id
-          ? 'bg-amber-500/15 border-amber-500/50 text-amber-400 font-black shadow-sm'
-          : 'bg-slate-900/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:border-slate-700'"
+          ? 'bg-[var(--theme-primary)]/15 border-[var(--theme-primary)]/50 text-[var(--theme-primary)] font-black shadow-sm'
+          : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text-strong)] hover:border-[var(--theme-border-strong)]'"
         class="px-3 py-2 rounded-xl border text-xs flex items-center gap-1.5 transition-all whitespace-nowrap active:scale-95"
         @click="activeSubTab = subTab.id"
       >
@@ -1299,7 +1299,7 @@ onUnmounted(async () => {
         <!-- Master 1-Click Hero Card -->
         <div class="p-6 rounded-3xl bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] shadow-md flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0">
           <div class="flex items-center gap-2 mb-3">
-            <span class="w-2.5 h-2.5 rounded-full" :class="isTwoWayRunning ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'" />
+            <span class="w-2.5 h-2.5 rounded-full" :class="isTwoWayRunning ? 'bg-emerald-500 animate-ping' : 'bg-[var(--theme-text-muted)]'" />
             <span class="text-xs font-black uppercase tracking-wider text-[var(--theme-text-soft)]">
               {{ isTwoWayRunning ? '双向同传进行中 · 物理麦克风与游戏内录正常运行' : '双向同传就绪 · 点击大按钮立即开启实时翻译' }}
             </span>
@@ -1346,12 +1346,12 @@ onUnmounted(async () => {
           <!-- Live Level Status -->
           <div class="mt-4 flex items-center justify-center gap-8 text-xs text-[var(--theme-text-soft)]">
             <div class="flex items-center gap-2">
-              <Mic class="w-3.5 h-3.5" :class="isRecording ? 'text-emerald-500 animate-pulse' : 'text-slate-400'" />
+              <Mic class="w-3.5 h-3.5" :class="isRecording ? 'text-emerald-500 animate-pulse' : 'text-[var(--theme-text-muted)]'" />
               <span>麦克风:</span>
               <span class="font-mono font-bold" :class="audioLevels.mic > 500 ? 'text-emerald-500' : ''">{{ Math.round(audioLevels.mic) }}</span>
             </div>
             <div class="flex items-center gap-2">
-              <Headphones class="w-3.5 h-3.5" :class="isOtherRecording ? 'text-indigo-500 animate-pulse' : 'text-slate-400'" />
+              <Headphones class="w-3.5 h-3.5" :class="isOtherRecording ? 'text-indigo-500 animate-pulse' : 'text-[var(--theme-text-muted)]'" />
               <span>游戏声音:</span>
               <span class="font-mono font-bold" :class="audioLevels.speaker > 500 ? 'text-indigo-500' : ''">{{ Math.round(audioLevels.speaker) }}</span>
             </div>
@@ -1416,9 +1416,9 @@ onUnmounted(async () => {
         </div>
 
         <!-- Message History Log Stream -->
-        <div class="flex-1 min-h-0 bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
-          <div v-if="!history.length" class="h-full flex flex-col items-center justify-center text-slate-500 text-xs">
-            <MessageSquare class="w-8 h-8 mb-2 opacity-40 text-slate-400" />
+        <div class="flex-1 min-h-0 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-2xl p-4 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+          <div v-if="!history.length" class="h-full flex flex-col items-center justify-center text-[var(--theme-text-muted)] text-xs">
+            <MessageSquare class="w-8 h-8 mb-2 opacity-40 text-[var(--theme-text-muted)]" />
             <p>{{ tt('translator.placeholder', '翻译与识别记录将显示在这里...') }}</p>
           </div>
 
@@ -1426,46 +1426,46 @@ onUnmounted(async () => {
             v-for="msg in history"
             :key="msg.id"
             class="p-3.5 rounded-xl border transition-all"
-            :class="msg.source === 'mic' ? 'bg-emerald-950/20 border-emerald-500/30' : msg.source === 'speaker' ? 'bg-indigo-950/20 border-indigo-500/30' : msg.source === 'ocr' ? 'bg-cyan-950/20 border-cyan-500/30' : 'bg-slate-900 border-slate-800'"
+            :class="msg.source === 'mic' ? 'bg-emerald-500/10 border-emerald-500/30' : msg.source === 'speaker' ? 'bg-indigo-500/10 border-indigo-500/30' : msg.source === 'ocr' ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-[var(--theme-surface)] border-[var(--theme-border-soft)]'"
           >
             <div class="flex items-center justify-between gap-2 mb-1.5">
               <div class="flex items-center gap-2">
                 <span
                   class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
-                  :class="msg.source === 'mic' ? 'bg-emerald-500/20 text-emerald-400' : msg.source === 'speaker' ? 'bg-indigo-500/20 text-indigo-400' : msg.source === 'ocr' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-amber-500/20 text-amber-400'"
+                  :class="msg.source === 'mic' ? 'bg-emerald-500/20 text-emerald-400' : msg.source === 'speaker' ? 'bg-indigo-500/20 text-indigo-400' : msg.source === 'ocr' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-[var(--theme-primary)]/20 text-[var(--theme-primary)]'"
                 >
                   {{ msg.source }}
                 </span>
-                <span class="text-[10px] text-slate-500 font-mono">{{ msg.timestamp }}</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)] font-mono">{{ msg.timestamp }}</span>
                 <span v-if="msg.sent_osc" class="text-[10px] text-cyan-400 font-mono">OSC Chatbox</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <button type="button" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200" title="Copy Translated" @click="copyText(msg.translated)">
+                <button type="button" class="p-1 rounded-lg hover:bg-[var(--theme-surface-hover)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text-strong)]" title="Copy Translated" @click="copyText(msg.translated)">
                   <Copy class="w-3.5 h-3.5" />
                 </button>
-                <button type="button" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200" title="Play TTS" @click="playTts(msg.translated, msg.target_lang)">
+                <button type="button" class="p-1 rounded-lg hover:bg-[var(--theme-surface-hover)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text-strong)]" title="Play TTS" @click="playTts(msg.translated, msg.target_lang)">
                   <Volume2 class="w-3.5 h-3.5" />
                 </button>
-                <button v-if="showResendButton" type="button" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-amber-400" title="Resend to VRChat" @click="processMessageNow(msg.original, msg.source, msg.source_lang, msg.target_lang, true)">
+                <button v-if="showResendButton" type="button" class="p-1 rounded-lg hover:bg-[var(--theme-surface-hover)] text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]" title="Resend to VRChat" @click="processMessageNow(msg.original, msg.source, msg.source_lang, msg.target_lang, true)">
                   <Send class="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
 
             <!-- Original Text -->
-            <p class="text-sm font-medium text-slate-300 leading-relaxed">{{ msg.original }}</p>
+            <p class="text-sm font-medium text-[var(--theme-text)] leading-relaxed">{{ msg.original }}</p>
 
             <!-- Romaji / Hiragana Transliteration if enabled -->
-            <p v-if="(romajiMode || hiraganaMode) && transliterateText(msg.original)" class="text-xs text-amber-400/80 font-mono mt-0.5">
+            <p v-if="(romajiMode || hiraganaMode) && transliterateText(msg.original)" class="text-xs text-[var(--theme-primary)]/80 font-mono mt-0.5">
               {{ transliterateText(msg.original) }}
             </p>
 
             <!-- Translated Text -->
-            <div class="mt-2 pt-2 border-t border-slate-800/60">
-              <p class="text-sm font-bold text-amber-400 leading-relaxed">{{ msg.translated }}</p>
+            <div class="mt-2 pt-2 border-t border-[var(--theme-border-soft)]">
+              <p class="text-sm font-bold text-[var(--theme-primary)] leading-relaxed">{{ msg.translated }}</p>
               <div v-if="msg.translations && msg.translations.length > 1" class="mt-1 flex flex-col gap-0.5">
-                <div v-for="tr in msg.translations.slice(1)" :key="tr.target_lang" class="text-xs text-slate-400 font-medium">
-                  <span class="text-[10px] font-mono text-slate-500 uppercase">[{{ tr.target_lang }}]</span> {{ tr.translated }}
+                <div v-for="tr in msg.translations.slice(1)" :key="tr.target_lang" class="text-xs text-[var(--theme-text-muted)] font-medium">
+                  <span class="text-[10px] font-mono text-[var(--theme-text-muted)] uppercase">[{{ tr.target_lang }}]</span> {{ tr.translated }}
                 </div>
               </div>
             </div>
@@ -1473,12 +1473,12 @@ onUnmounted(async () => {
         </div>
 
         <!-- Quick Input & Chatbox Bar -->
-        <div class="p-3 bg-slate-900/90 border border-slate-800/80 rounded-2xl flex flex-col gap-2 shrink-0">
+        <div class="p-3 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-2 shrink-0">
           <div class="flex items-center gap-2">
             <textarea
               v-model="manualText"
               rows="2"
-              class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 outline-none focus:border-amber-500 resize-none"
+              class="flex-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-2 text-xs text-[var(--theme-text-strong)] placeholder-[var(--theme-text-muted)] outline-none focus:border-[var(--theme-primary)] resize-none"
               :placeholder="tt('translator.enter_text_to_translate_for_vrchat', '输入要翻译到 VRChat 的文字... (按 Enter 发送)')"
               @keydown.enter.exact.prevent="translateManual"
             />
@@ -1486,25 +1486,25 @@ onUnmounted(async () => {
               v-if="sendMessageButtonType !== 'hide'"
               type="button"
               :disabled="!canTranslate"
-              class="px-4 h-[58px] rounded-xl bg-amber-500 hover:brightness-110 disabled:opacity-40 text-slate-950 font-black text-xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shrink-0"
+              class="px-4 h-[58px] rounded-xl bg-[var(--theme-primary)] hover:brightness-110 disabled:opacity-40 text-white font-black text-xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shrink-0"
               @click="translateManual"
             >
               <Send class="w-4 h-4" />
               <span>{{ tt('translator.translate_and_send', '发送') }}</span>
             </button>
           </div>
-          <div class="flex items-center justify-between text-[11px] text-slate-400 px-1">
+          <div class="flex items-center justify-between text-[11px] text-[var(--theme-text-muted)] px-1">
             <div class="flex items-center gap-4">
               <label class="flex items-center gap-1.5 cursor-pointer">
-                <input v-model="autoClearMessageBox" type="checkbox" class="w-3.5 h-3.5 rounded accent-amber-500">
+                <input v-model="autoClearMessageBox" type="checkbox" class="w-3.5 h-3.5 rounded accent-[var(--theme-primary)]">
                 <span>自动清空输入框</span>
               </label>
               <label class="flex items-center gap-1.5 cursor-pointer">
-                <input v-model="autoSendOsc" type="checkbox" class="w-3.5 h-3.5 rounded accent-amber-500">
+                <input v-model="autoSendOsc" type="checkbox" class="w-3.5 h-3.5 rounded accent-[var(--theme-primary)]">
                 <span>同步发送至 Chatbox</span>
               </label>
             </div>
-            <button type="button" class="text-slate-500 hover:text-red-400 transition-colors" @click="clearHistory">
+            <button type="button" class="text-[var(--theme-text-muted)] hover:text-red-400 transition-colors" @click="clearHistory">
               清空历史记录
             </button>
           </div>
@@ -1513,35 +1513,35 @@ onUnmounted(async () => {
 
       <!-- 2. AUDIO ROUTING (MIXLINE MATRIX) TAB -->
       <div v-else-if="activeSubTab === 'routing'" class="flex flex-col gap-5">
-        <div class="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl">
           <div class="flex items-center gap-2 mb-1">
-            <Radio class="w-5 h-5 text-amber-500" />
-            <h3 class="text-sm font-black text-slate-100">{{ tt('translator.routing_title', '声卡混音与物理路由矩阵 (MIXLINE 风格)') }}</h3>
+            <Radio class="w-5 h-5 text-[var(--theme-primary)]" />
+            <h3 class="text-sm font-black text-[var(--theme-text-strong)]">{{ tt('translator.routing_title', '声卡混音与物理路由矩阵 (MIXLINE 风格)') }}</h3>
           </div>
-          <p class="text-xs text-slate-400 leading-relaxed">{{ tt('translator.routing_desc', '将物理麦克风、系统内录与虚拟音频通道无损串接并提供实时音量电平表与独立监听。') }}</p>
+          <p class="text-xs text-[var(--theme-text-muted)] leading-relaxed">{{ tt('translator.routing_desc', '将物理麦克风、系统内录与虚拟音频通道无损串接并提供实时音量电平表与独立监听。') }}</p>
         </div>
 
         <!-- MIXLINE Matrix: Inputs -> Cables -> Outputs -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch relative">
           <!-- Column 1: INPUTS -->
           <div class="flex flex-col gap-4">
-            <h4 class="text-xs font-black text-slate-400 uppercase tracking-wider px-1">{{ tt('translator.routing_inputs', '音频输入源 (Inputs)') }}</h4>
+            <h4 class="text-xs font-black text-[var(--theme-text-muted)] uppercase tracking-wider px-1">{{ tt('translator.routing_inputs', '音频输入源 (Inputs)') }}</h4>
 
             <!-- Card: Microphone Input -->
-            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+            <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3 shadow-sm">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <div class="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
                     <Mic class="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_mic', '物理麦克风') }}</h5>
-                    <span class="text-[10px] text-slate-400">{{ isRecording ? '采集中' : '就绪' }}</span>
+                    <h5 class="text-xs font-black text-[var(--theme-text-strong)]">{{ tt('translator.routing_mic', '物理麦克风') }}</h5>
+                    <span class="text-[10px] text-[var(--theme-text-muted)]">{{ isRecording ? '采集中' : '就绪' }}</span>
                   </div>
                 </div>
                 <button
                   type="button"
-                  :class="micMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  :class="micMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)] hover:border-[var(--theme-border-strong)]'"
                   class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
                   @click="micMuted = !micMuted"
                 >
@@ -1555,11 +1555,11 @@ onUnmounted(async () => {
 
               <!-- Live VU Meter -->
               <div>
-                <div class="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                <div class="flex justify-between text-[10px] text-[var(--theme-text-muted)] font-mono mb-1">
                   <span>实时电平 (VU Meter)</span>
                   <span>{{ Math.round(audioLevels.mic) }}</span>
                 </div>
-                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                <div class="w-full h-2.5 bg-[var(--theme-bg-main)]/60 rounded-full overflow-hidden p-0.5 border border-[var(--theme-border-soft)]">
                   <div
                     class="h-full rounded-full transition-all duration-75"
                     :class="audioLevels.mic > 500 ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-emerald-600'"
@@ -1570,27 +1570,27 @@ onUnmounted(async () => {
 
               <!-- Volume Slider -->
               <label class="flex items-center justify-between gap-3 text-xs">
-                <span class="text-slate-400 font-bold">增益</span>
-                <input v-model.number="micVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-amber-500">
-                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ micVolume }}%</span>
+                <span class="text-[var(--theme-text-muted)] font-bold">增益</span>
+                <input v-model.number="micVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-[var(--theme-primary)]">
+                <span class="text-[var(--theme-text-strong)] font-mono font-bold w-10 text-right">{{ micVolume }}%</span>
               </label>
             </div>
 
             <!-- Card: Speaker / Loopback Input -->
-            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+            <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3 shadow-sm">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <div class="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
                     <Headphones class="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_speaker', '系统声音 / 游戏内录 (Loopback)') }}</h5>
-                    <span class="text-[10px] text-slate-400">{{ isOtherRecording ? '内录中' : '就绪' }}</span>
+                    <h5 class="text-xs font-black text-[var(--theme-text-strong)]">{{ tt('translator.routing_speaker', '系统声音 / 游戏内录 (Loopback)') }}</h5>
+                    <span class="text-[10px] text-[var(--theme-text-muted)]">{{ isOtherRecording ? '内录中' : '就绪' }}</span>
                   </div>
                 </div>
                 <button
                   type="button"
-                  :class="speakerMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  :class="speakerMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)] hover:border-[var(--theme-border-strong)]'"
                   class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
                   @click="speakerMuted = !speakerMuted"
                 >
@@ -1603,11 +1603,11 @@ onUnmounted(async () => {
 
               <!-- VU Meter -->
               <div>
-                <div class="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                <div class="flex justify-between text-[10px] text-[var(--theme-text-muted)] font-mono mb-1">
                   <span>实时电平 (VU Meter)</span>
                   <span>{{ Math.round(audioLevels.speaker) }}</span>
                 </div>
-                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                <div class="w-full h-2.5 bg-[var(--theme-bg-main)]/60 rounded-full overflow-hidden p-0.5 border border-[var(--theme-border-soft)]">
                   <div
                     class="h-full rounded-full transition-all duration-75"
                     :class="audioLevels.speaker > 500 ? 'bg-indigo-400 shadow-sm shadow-indigo-400/50' : 'bg-indigo-600'"
@@ -1617,20 +1617,20 @@ onUnmounted(async () => {
               </div>
 
               <label class="flex items-center justify-between gap-3 text-xs">
-                <span class="text-slate-400 font-bold">增益</span>
+                <span class="text-[var(--theme-text-muted)] font-bold">增益</span>
                 <input v-model.number="speakerVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-indigo-500">
-                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ speakerVolume }}%</span>
+                <span class="text-[var(--theme-text-strong)] font-mono font-bold w-10 text-right">{{ speakerVolume }}%</span>
               </label>
             </div>
           </div>
 
           <!-- Column 2: SVG CONNECTION CABLES (MIXLINE WIRE VISUALIZER) -->
-          <div class="hidden lg:flex flex-col items-center justify-center p-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl relative overflow-hidden">
+          <div class="hidden lg:flex flex-col items-center justify-center p-4 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-2xl relative overflow-hidden">
             <svg class="w-full h-full min-h-[360px]" viewBox="0 0 200 400" fill="none">
               <!-- Wire 1: Mic -> VRChat Stream -->
               <path
                 d="M 10 90 C 100 90, 100 90, 190 90"
-                :stroke="isRecording ? '#10b981' : '#334155'"
+                :stroke="isRecording ? '#10b981' : 'var(--theme-border-strong)'"
                 stroke-width="3"
                 stroke-dasharray="6 4"
                 :class="{ 'animate-pulse': isRecording }"
@@ -1638,14 +1638,14 @@ onUnmounted(async () => {
               <!-- Wire 2: Mic -> Headphone Monitor -->
               <path
                 d="M 10 90 C 100 90, 100 310, 190 310"
-                :stroke="headphoneMonitorEnabled ? '#f59e0b' : '#1e293b'"
+                :stroke="headphoneMonitorEnabled ? 'var(--theme-primary)' : 'var(--theme-border-strong)'"
                 stroke-width="2.5"
                 stroke-dasharray="4 4"
               />
               <!-- Wire 3: Loopback -> Headphone Monitor -->
               <path
                 d="M 10 270 C 100 270, 100 310, 190 310"
-                :stroke="isOtherRecording ? '#6366f1' : '#334155'"
+                :stroke="isOtherRecording ? '#6366f1' : 'var(--theme-border-strong)'"
                 stroke-width="3"
                 stroke-dasharray="6 4"
                 :class="{ 'animate-pulse': isOtherRecording }"
@@ -1653,36 +1653,36 @@ onUnmounted(async () => {
               <!-- Wire 4: Loopback -> VRChat Stream (if Speaker2Chatbox) -->
               <path
                 d="M 10 270 C 100 270, 100 90, 190 90"
-                :stroke="sendReceivedMessageToVrc ? '#06b6d4' : '#1e293b'"
+                :stroke="sendReceivedMessageToVrc ? '#06b6d4' : 'var(--theme-border-strong)'"
                 stroke-width="2"
                 stroke-dasharray="4 4"
               />
               <!-- Center Badge -->
-              <circle cx="100" cy="190" r="28" fill="#0b0f17" stroke="#f59e0b" stroke-width="2" />
-              <text x="100" y="186" text-anchor="middle" fill="#f59e0b" font-size="10" font-weight="900">MIXLINE</text>
-              <text x="100" y="200" text-anchor="middle" fill="#94a3b8" font-size="8">ROUTING</text>
+              <circle cx="100" cy="190" r="28" fill="var(--theme-surface)" stroke="var(--theme-primary)" stroke-width="2" />
+              <text x="100" y="186" text-anchor="middle" fill="var(--theme-primary)" font-size="10" font-weight="900">MIXLINE</text>
+              <text x="100" y="200" text-anchor="middle" fill="var(--theme-text-muted)" font-size="8">ROUTING</text>
             </svg>
           </div>
 
           <!-- Column 3: OUTPUTS -->
           <div class="flex flex-col gap-4">
-            <h4 class="text-xs font-black text-slate-400 uppercase tracking-wider px-1">{{ tt('translator.routing_outputs', '音频输出端 (Outputs)') }}</h4>
+            <h4 class="text-xs font-black text-[var(--theme-text-muted)] uppercase tracking-wider px-1">{{ tt('translator.routing_outputs', '音频输出端 (Outputs)') }}</h4>
 
             <!-- Card: VRChat Stream -->
-            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+            <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3 shadow-sm">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <div class="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <div class="w-8 h-8 rounded-xl bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/30 flex items-center justify-center text-[var(--theme-primary)]">
                     <Gamepad2 class="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_vrchat_stream', 'VRChat 虚拟麦克风通道') }}</h5>
-                    <span class="text-[10px] text-slate-400">OSC / Virtual Audio Cable</span>
+                    <h5 class="text-xs font-black text-[var(--theme-text-strong)]">{{ tt('translator.routing_vrchat_stream', 'VRChat 虚拟麦克风通道') }}</h5>
+                    <span class="text-[10px] text-[var(--theme-text-muted)]">OSC / Virtual Audio Cable</span>
                   </div>
                 </div>
                 <button
                   type="button"
-                  :class="vrchatStreamMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  :class="vrchatStreamMuted ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)] hover:border-[var(--theme-border-strong)]'"
                   class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
                   @click="vrchatStreamMuted = !vrchatStreamMuted"
                 >
@@ -1691,33 +1691,33 @@ onUnmounted(async () => {
                 </button>
               </div>
 
-              <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 flex items-center justify-between">
+              <div class="p-2.5 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] text-xs text-[var(--theme-text)] flex items-center justify-between">
                 <span>直通真实物理声音</span>
-                <input v-model="micPassthrough" type="checkbox" class="w-4 h-4 rounded accent-amber-500 cursor-pointer">
+                <input v-model="micPassthrough" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)] cursor-pointer">
               </div>
 
               <label class="flex items-center justify-between gap-3 text-xs">
-                <span class="text-slate-400 font-bold">音量</span>
-                <input v-model.number="vrchatStreamVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-amber-500">
-                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ vrchatStreamVolume }}%</span>
+                <span class="text-[var(--theme-text-muted)] font-bold">音量</span>
+                <input v-model.number="vrchatStreamVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-[var(--theme-primary)]">
+                <span class="text-[var(--theme-text-strong)] font-mono font-bold w-10 text-right">{{ vrchatStreamVolume }}%</span>
               </label>
             </div>
 
             <!-- Card: Headphone Monitor -->
-            <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3 shadow-sm">
+            <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3 shadow-sm">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <div class="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
                     <Ear class="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 class="text-xs font-black text-slate-100">{{ tt('translator.routing_monitor', '耳机监听通道 (Headphones)') }}</h5>
-                    <span class="text-[10px] text-slate-400">本地耳返与 TTS 音频</span>
+                    <h5 class="text-xs font-black text-[var(--theme-text-strong)]">{{ tt('translator.routing_monitor', '耳机监听通道 (Headphones)') }}</h5>
+                    <span class="text-[10px] text-[var(--theme-text-muted)]">本地耳返与 TTS 音频</span>
                   </div>
                 </div>
                 <button
                   type="button"
-                  :class="headphoneMonitorEnabled ? 'bg-cyan-500 text-slate-950 font-black border-cyan-400' : 'bg-slate-800 text-slate-300 hover:border-slate-600'"
+                  :class="headphoneMonitorEnabled ? 'bg-cyan-500 text-white font-black border-cyan-400' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)] hover:border-[var(--theme-border-strong)]'"
                   class="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all"
                   @click="headphoneMonitorEnabled = !headphoneMonitorEnabled"
                 >
@@ -1729,19 +1729,19 @@ onUnmounted(async () => {
               <CustomSelect v-model="ttsDeviceId" :options="[{ label: '系统默认耳机/扬声器', value: '' }, ...audioDevices.filter(d => d.source === 'output').map(d => ({ label: d.name, value: d.id }))]" />
 
               <label class="flex items-center justify-between gap-3 text-xs">
-                <span class="text-slate-400 font-bold">音量</span>
+                <span class="text-[var(--theme-text-muted)] font-bold">音量</span>
                 <input v-model.number="headphoneMonitorVolume" type="range" min="0" max="200" step="5" class="flex-1 accent-cyan-500">
-                <span class="text-slate-200 font-mono font-bold w-10 text-right">{{ headphoneMonitorVolume }}%</span>
+                <span class="text-[var(--theme-text-strong)] font-mono font-bold w-10 text-right">{{ headphoneMonitorVolume }}%</span>
               </label>
             </div>
           </div>
         </div>
 
         <!-- Audio Sessions List -->
-        <div class="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col gap-3">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
           <div class="flex items-center justify-between">
-            <h4 class="text-xs font-black text-slate-200 uppercase tracking-wider">活跃发声进程 (Audio Sessions)</h4>
-            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1" @click="refreshAudioSessions">
+            <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase tracking-wider">活跃发声进程 (Audio Sessions)</h4>
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-[var(--theme-surface-hover)] hover:bg-[var(--theme-border-soft)] text-[var(--theme-text)] text-xs font-bold flex items-center gap-1" @click="refreshAudioSessions">
               <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': isLoadingSessions }" />
               <span>刷新进程</span>
             </button>
@@ -1750,13 +1750,13 @@ onUnmounted(async () => {
             <div
               v-for="s in activeAudioSessions"
               :key="s.pid"
-              class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs flex items-center gap-2"
+              class="px-3 py-1.5 rounded-xl bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] text-xs flex items-center gap-2"
             >
-              <div class="w-2 h-2 rounded-full" :class="s.is_active ? 'bg-emerald-400' : 'bg-slate-600'" />
-              <span class="font-bold text-slate-200">{{ s.name }}</span>
-              <span class="text-[10px] text-slate-500 font-mono">PID {{ s.pid }}</span>
+              <div class="w-2 h-2 rounded-full" :class="s.is_active ? 'bg-emerald-400' : 'bg-[var(--theme-border-strong)]'" />
+              <span class="font-bold text-[var(--theme-text-strong)]">{{ s.name }}</span>
+              <span class="text-[10px] text-[var(--theme-text-muted)] font-mono">PID {{ s.pid }}</span>
             </div>
-            <span v-if="!activeAudioSessions.length" class="text-xs text-slate-500 py-1">未检测到任何正在发声的独立 Windows 进程。</span>
+            <span v-if="!activeAudioSessions.length" class="text-xs text-[var(--theme-text-muted)] py-1">未检测到任何正在发声的独立 Windows 进程。</span>
           </div>
         </div>
       </div>
@@ -1765,21 +1765,21 @@ onUnmounted(async () => {
       <div v-else-if="activeSubTab === 'transcription'" class="flex flex-col gap-5">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Engine Selector Card -->
-          <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-            <h4 class="text-xs font-black text-slate-200 uppercase">麦克风识别引擎 (Mic STT Engine)</h4>
+          <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+            <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">麦克风识别引擎 (Mic STT Engine)</h4>
             <CustomSelect v-model="micEngine" :options="sttEngineOptions" />
 
-            <h4 class="text-xs font-black text-slate-200 uppercase mt-2">扬声器识别引擎 (Speaker STT Engine)</h4>
+            <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase mt-2">扬声器识别引擎 (Speaker STT Engine)</h4>
             <CustomSelect v-model="otherEngine" :options="sttEngineOptions" />
           </div>
 
           <!-- Local Whisper Engine Settings -->
-          <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-            <h4 class="text-xs font-black text-slate-200 uppercase">本地 Faster-Whisper 设置</h4>
+          <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+            <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">本地 Faster-Whisper 设置</h4>
             <div class="grid grid-cols-2 gap-2">
               <label class="text-xs">
-                <span class="block text-slate-400 font-bold mb-1">模型尺寸 (Weights)</span>
-                <select v-model="whisperModel" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                <span class="block text-[var(--theme-text-muted)] font-bold mb-1">模型尺寸 (Weights)</span>
+                <select v-model="whisperModel" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
                   <option value="tiny">tiny (快速/显存极小)</option>
                   <option value="base">base (轻量标准)</option>
                   <option value="small">small (高精推荐)</option>
@@ -1790,8 +1790,8 @@ onUnmounted(async () => {
               </label>
 
               <label class="text-xs">
-                <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.whisper_device', '运算设备') }}</span>
-                <select v-model="whisperDevice" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+                <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.whisper_device', '运算设备') }}</span>
+                <select v-model="whisperDevice" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
                   <option value="cpu">CPU (兼容所有电脑)</option>
                   <option value="cuda">CUDA (NVIDIA 显卡加速)</option>
                 </select>
@@ -1799,8 +1799,8 @@ onUnmounted(async () => {
             </div>
 
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.whisper_compute_type', '计算精度 (Compute Type)') }}</span>
-              <select v-model="whisperComputeType" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.whisper_compute_type', '计算精度 (Compute Type)') }}</span>
+              <select v-model="whisperComputeType" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
                 <option value="int8">int8 (推荐，省内存)</option>
                 <option value="float16">float16 (显卡半精度)</option>
                 <option value="int8_float16">int8_float16 (混合精度)</option>
@@ -1811,45 +1811,45 @@ onUnmounted(async () => {
         </div>
 
         <!-- Cloud STT API Keys (Groq / OpenAI / Custom / Deepgram) -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-          <h4 class="text-xs font-black text-slate-200 uppercase">云端 STT 密钥与服务地址 (Groq / OpenAI / Custom / Deepgram)</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">云端 STT 密钥与服务地址 (Groq / OpenAI / Custom / Deepgram)</h4>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">Groq API Key (Groq Whisper)</span>
-              <input v-model="groqApiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="gsk_...">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">Groq API Key (Groq Whisper)</span>
+              <input v-model="groqApiKey" type="password" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="gsk_...">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">OpenAI API Key (Whisper-1)</span>
-              <input v-model="openaiApiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="sk-...">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">OpenAI API Key (Whisper-1)</span>
+              <input v-model="openaiApiKey" type="password" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="sk-...">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">Custom Whisper URL</span>
-              <input v-model="customWhisperUrl" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="http://127.0.0.1:8000/v1">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">Custom Whisper URL</span>
+              <input v-model="customWhisperUrl" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="http://127.0.0.1:8000/v1">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">Deepgram API Key (Nova-2 / Nova-3)</span>
-              <input v-model="deepgramApiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="Token ...">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">Deepgram API Key (Nova-2 / Nova-3)</span>
+              <input v-model="deepgramApiKey" type="password" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="Token ...">
             </label>
           </div>
         </div>
 
         <!-- Word Filter (MIC_WORD_FILTER Redaction) -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.word_filter', '麦克风敏感词屏蔽列表 (Word Filter)') }}</h4>
-              <p class="text-[11px] text-slate-400">{{ tt('translator.word_filter_desc', '识别到列表内的敏感词时自动拦截，不发送至 VRChat Chatbox。') }}</p>
+              <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">{{ tt('translator.word_filter', '麦克风敏感词屏蔽列表 (Word Filter)') }}</h4>
+              <p class="text-[11px] text-[var(--theme-text-muted)]">{{ tt('translator.word_filter_desc', '识别到列表内的敏感词时自动拦截，不发送至 VRChat Chatbox。') }}</p>
             </div>
           </div>
           <div class="flex items-center gap-2">
             <input
               v-model="newFilterWord"
               type="text"
-              class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500"
+              class="flex-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]"
               :placeholder="tt('translator.word_filter_placeholder', '输入要屏蔽的词并按回车或添加...')"
               @keydown.enter.prevent="addFilterWord"
             >
-            <button type="button" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:brightness-110 text-slate-950 font-bold text-xs" @click="addFilterWord">
+            <button type="button" class="px-3 py-1.5 rounded-xl bg-[var(--theme-primary)] hover:brightness-110 text-white font-bold text-xs" @click="addFilterWord">
               {{ tt('translator.word_filter_add', '添加') }}
             </button>
           </div>
@@ -1857,34 +1857,34 @@ onUnmounted(async () => {
             <div
               v-for="(w, idx) in wordFilterList"
               :key="idx"
-              class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-1.5"
+              class="px-2.5 py-1 rounded-lg bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] text-xs font-bold text-[var(--theme-text)] flex items-center gap-1.5"
             >
               <span>{{ w }}</span>
-              <button type="button" class="text-slate-500 hover:text-red-400" @click="removeFilterWord(idx)">×</button>
+              <button type="button" class="text-[var(--theme-text-muted)] hover:text-red-400" @click="removeFilterWord(idx)">×</button>
             </div>
-            <span v-if="!wordFilterList.length" class="text-xs text-slate-500 py-1">{{ tt('translator.word_filter_empty', '当前未配置敏感词过滤规则') }}</span>
+            <span v-if="!wordFilterList.length" class="text-xs text-[var(--theme-text-muted)] py-1">{{ tt('translator.word_filter_empty', '当前未配置敏感词过滤规则') }}</span>
           </div>
         </div>
 
         <!-- VAD & Timeouts -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-          <h4 class="text-xs font-black text-slate-200 uppercase">发话检测与切分超时 (VAD & Timeouts)</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">发话检测与切分超时 (VAD & Timeouts)</h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">VAD 模式</span>
-              <select v-model="vadMode" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">VAD 模式</span>
+              <select v-model="vadMode" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
                 <option value="webrtc">WebRTC VAD (标准实时)</option>
                 <option value="silero">Silero VAD (神经网络)</option>
                 <option value="rms">能量阈值 (传统模式)</option>
               </select>
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">断句静音超时 (秒)</span>
-              <input v-model.number="silenceTimeout" type="number" step="0.1" min="0.2" max="3" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">断句静音超时 (秒)</span>
+              <input v-model.number="silenceTimeout" type="number" step="0.1" min="0.2" max="3" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">单句最长时间限制 (秒)</span>
-              <input v-model.number="phraseTimeLimit" type="number" step="1" min="2" max="30" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">单句最长时间限制 (秒)</span>
+              <input v-model.number="phraseTimeLimit" type="number" step="1" min="2" max="30" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
           </div>
         </div>
@@ -1892,139 +1892,139 @@ onUnmounted(async () => {
 
       <!-- 4. TRANSLATION ENGINES TAB -->
       <div v-else-if="activeSubTab === 'translation'" class="flex flex-col gap-5">
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-4">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-xs font-black text-slate-200 uppercase">翻译引擎与 API 配置</h4>
-              <p class="text-[11px] text-slate-400">支持 20+ 款主流云端与本地大模型翻译提供商。</p>
+              <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">翻译引擎与 API 配置</h4>
+              <p class="text-[11px] text-[var(--theme-text-muted)]">支持 20+ 款主流云端与本地大模型翻译提供商。</p>
             </div>
-            <button type="button" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:brightness-110 text-slate-950 font-bold text-xs" @click="saveTranslationProfile">
+            <button type="button" class="px-3 py-1.5 rounded-xl bg-[var(--theme-primary)] hover:brightness-110 text-white font-bold text-xs" @click="saveTranslationProfile">
               保存为翻译档案
             </button>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">当前翻译服务</span>
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">当前翻译服务</span>
               <CustomSelect v-model="translateEngine" :options="engineOptions" />
             </label>
             <label v-if="needsApiKey" class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ currentEngine.hint }}</span>
-              <input v-model="apiKey" type="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="API Key / Auth Key">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ currentEngine.hint }}</span>
+              <input v-model="apiKey" type="password" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="API Key / Auth Key">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">模型名称 (Model)</span>
-              <input v-model="model" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="例如: gpt-4o, gemini-1.5-flash, qwen-mt-plus">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">模型名称 (Model)</span>
+              <input v-model="model" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="例如: gpt-4o, gemini-1.5-flash, qwen-mt-plus">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">自定义 API 端点</span>
-              <input v-model="customApiUrl" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500" placeholder="https://api.openai.com/v1">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">自定义 API 端点</span>
+              <input v-model="customApiUrl" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)]" placeholder="https://api.openai.com/v1">
             </label>
           </div>
 
           <label class="text-xs">
-            <span class="block text-slate-400 font-bold mb-1">系统提示词 (System Prompt)</span>
-            <textarea v-model="prompt" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-500 resize-none" placeholder="为 LLM 翻译指定个性化风格，例如：保持口语化，适合 VRChat 聊天交友..." />
+            <span class="block text-[var(--theme-text-muted)] font-bold mb-1">系统提示词 (System Prompt)</span>
+            <textarea v-model="prompt" rows="2" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none focus:border-[var(--theme-primary)] resize-none" placeholder="为 LLM 翻译指定个性化风格，例如：保持口语化，适合 VRChat 聊天交友..." />
           </label>
         </div>
 
         <!-- Glossary Manager -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-xs font-black text-slate-200 uppercase">术语库与专有名词 (Glossary)</h4>
-              <p class="text-[11px] text-slate-400">强制替换 VRChat 常用黑话、玩家昵称或特殊词汇。</p>
+              <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">术语库与专有名词 (Glossary)</h4>
+              <p class="text-[11px] text-[var(--theme-text-muted)]">强制替换 VRChat 常用黑话、玩家昵称或特殊词汇。</p>
             </div>
-            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold" @click="glossary.push({ source: '', target: '', source_lang: 'any', target_lang: 'any', case_sensitive: false })">
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-[var(--theme-surface-hover)] hover:bg-[var(--theme-border-soft)] text-[var(--theme-text)] text-xs font-bold" @click="glossary.push({ source: '', target: '', source_lang: 'any', target_lang: 'any', case_sensitive: false })">
               + 添加术语
             </button>
           </div>
 
           <div class="flex flex-col gap-2 max-h-48 overflow-y-auto custom-scrollbar">
             <div v-for="(item, idx) in glossary" :key="idx" class="flex items-center gap-2">
-              <input v-model="item.source" type="text" class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none" placeholder="原词">
-              <span class="text-slate-500">→</span>
-              <input v-model="item.target" type="text" class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none" placeholder="替换目标">
-              <button type="button" class="text-slate-500 hover:text-red-400 px-1" @click="glossary.splice(idx, 1)">×</button>
+              <input v-model="item.source" type="text" class="flex-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-lg px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none" placeholder="原词">
+              <span class="text-[var(--theme-text-muted)]">→</span>
+              <input v-model="item.target" type="text" class="flex-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-lg px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none" placeholder="替换目标">
+              <button type="button" class="text-[var(--theme-text-muted)] hover:text-red-400 px-1" @click="glossary.splice(idx, 1)">×</button>
             </div>
-            <span v-if="!glossary.length" class="text-xs text-slate-500 py-1">当前没有专有术语。</span>
+            <span v-if="!glossary.length" class="text-xs text-[var(--theme-text-muted)] py-1">当前没有专有术语。</span>
           </div>
         </div>
       </div>
 
       <!-- 5. VRCHAT & OSC TAB -->
       <div v-else-if="activeSubTab === 'osc'" class="flex flex-col gap-5">
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
-          <h4 class="text-xs font-black text-slate-200 uppercase">VRChat OSC 传输开关</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-4">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">VRChat OSC 传输开关</h4>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
-              <input v-model="autoSendOsc" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer">
+              <input v-model="autoSendOsc" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <div>
-                <span class="block text-xs font-bold text-slate-200">自动发送至 Chatbox</span>
-                <span class="text-[10px] text-slate-400">说话或输入后通过 UDP OSC /chatbox/input 冒字</span>
+                <span class="block text-xs font-bold text-[var(--theme-text-strong)]">自动发送至 Chatbox</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)]">说话或输入后通过 UDP OSC /chatbox/input 冒字</span>
               </div>
             </label>
 
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
-              <input v-model="sendReceivedMessageToVrc" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer">
+              <input v-model="sendReceivedMessageToVrc" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <div>
-                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.osc_speaker2chatbox', '允许将听到的对方语音发送到 Chatbox') }}</span>
-                <span class="text-[10px] text-slate-400">将游戏内其他玩家说的话翻译后也发到自己的头顶</span>
+                <span class="block text-xs font-bold text-[var(--theme-text-strong)]">{{ tt('translator.osc_speaker2chatbox', '允许将听到的对方语音发送到 Chatbox') }}</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)]">将游戏内其他玩家说的话翻译后也发到自己的头顶</span>
               </div>
             </label>
 
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
-              <input v-model="notificationVrcSfx" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer">
+              <input v-model="notificationVrcSfx" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <div>
-                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.osc_sfx_chime', '发送消息时播放 VRChat 提示音') }}</span>
-                <span class="text-[10px] text-slate-400">冒字时触发 VRChat 自带的叮咚音效</span>
+                <span class="block text-xs font-bold text-[var(--theme-text-strong)]">{{ tt('translator.osc_sfx_chime', '发送消息时播放 VRChat 提示音') }}</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)]">冒字时触发 VRChat 自带的叮咚音效</span>
               </div>
             </label>
 
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
-              <input v-model="vrcMicMuteSync" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer">
+              <input v-model="vrcMicMuteSync" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <div>
-                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.osc_mute_sync', '同步 VRChat 麦克风静音状态') }}</span>
-                <span class="text-[10px] text-slate-400">根据游戏内静音状态自动暂停/恢复识别</span>
+                <span class="block text-xs font-bold text-[var(--theme-text-strong)]">{{ tt('translator.osc_mute_sync', '同步 VRChat 麦克风静音状态') }}</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)]">根据游戏内静音状态自动暂停/恢复识别</span>
               </div>
             </label>
           </div>
         </div>
 
         <!-- Formatting Templates (VRCT Parity) -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
-          <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.osc_format_send', '发送消息格式模版 (Send Format)') }}</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-4">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">{{ tt('translator.osc_format_send', '发送消息格式模版 (Send Format)') }}</h4>
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_prefix', '原文前缀') }}</span>
-              <input v-model="sendMessageFormat.prefix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.osc_prefix', '原文前缀') }}</span>
+              <input v-model="sendMessageFormat.prefix" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_suffix', '原文后缀') }}</span>
-              <input v-model="sendMessageFormat.suffix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.osc_suffix', '原文后缀') }}</span>
+              <input v-model="sendMessageFormat.suffix" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_separator', '分隔符') }}</span>
-              <input v-model="sendMessageFormat.separator" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none" placeholder="\n">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.osc_separator', '分隔符') }}</span>
+              <input v-model="sendMessageFormat.separator" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none" placeholder="\n">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_trans_prefix', '译文前缀') }}</span>
-              <input v-model="sendMessageFormat.transPrefix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.osc_trans_prefix', '译文前缀') }}</span>
+              <input v-model="sendMessageFormat.transPrefix" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.osc_trans_suffix', '译文后缀') }}</span>
-              <input v-model="sendMessageFormat.transSuffix" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.osc_trans_suffix', '译文后缀') }}</span>
+              <input v-model="sendMessageFormat.transSuffix" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
-            <label class="flex items-center gap-2 pt-5 cursor-pointer text-xs font-bold text-slate-300">
-              <input v-model="sendMessageFormat.transFirst" type="checkbox" class="w-3.5 h-3.5 rounded accent-amber-500">
+            <label class="flex items-center gap-2 pt-5 cursor-pointer text-xs font-bold text-[var(--theme-text)]">
+              <input v-model="sendMessageFormat.transFirst" type="checkbox" class="w-3.5 h-3.5 rounded accent-[var(--theme-primary)]">
               <span>{{ tt('translator.osc_trans_first', '优先显示译文 (译文在前)') }}</span>
             </label>
           </div>
 
           <!-- Preview Card -->
-          <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
-            <span class="text-[10px] text-slate-500 font-bold block mb-1">Chatbox 渲染预览 (Preview):</span>
-            <div class="font-mono text-amber-400 whitespace-pre-wrap">
+          <div class="p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] text-xs">
+            <span class="text-[10px] text-[var(--theme-text-muted)] font-bold block mb-1">Chatbox 渲染预览 (Preview):</span>
+            <div class="font-mono text-[var(--theme-primary)] whitespace-pre-wrap">
               {{ sendMessageFormat.transFirst
                 ? `${sendMessageFormat.transPrefix}Hello world!${sendMessageFormat.transSuffix}${sendMessageFormat.separator}${sendMessageFormat.prefix}你好世界！${sendMessageFormat.suffix}`
                 : `${sendMessageFormat.prefix}你好世界！${sendMessageFormat.suffix}${sendMessageFormat.separator}${sendMessageFormat.transPrefix}Hello world!${sendMessageFormat.transSuffix}`
@@ -2036,15 +2036,15 @@ onUnmounted(async () => {
 
       <!-- 6. CHAT-BUBBLE OCR TAB -->
       <div v-else-if="activeSubTab === 'ocr'" class="flex flex-col gap-5">
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-4">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-4">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.master_ocr', '气泡/屏幕 OCR 识别配置') }}</h4>
-              <p class="text-[11px] text-slate-400">自动截取 VRChat 窗口中其他玩家头顶的文字气泡并翻译为自己的语言。</p>
+              <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">{{ tt('translator.master_ocr', '气泡/屏幕 OCR 识别配置') }}</h4>
+              <p class="text-[11px] text-[var(--theme-text-muted)]">自动截取 VRChat 窗口中其他玩家头顶的文字气泡并翻译为自己的语言。</p>
             </div>
             <button
               type="button"
-              :class="masterOcr ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300'"
+              :class="masterOcr ? 'bg-cyan-500 text-white font-black' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)]'"
               class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
               @click="masterOcr = !masterOcr"
             >
@@ -2054,29 +2054,29 @@ onUnmounted(async () => {
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.ocr_window_title', '目标捕获窗口标题') }}</span>
-              <input v-model="ocrWindowTitle" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.ocr_window_title', '目标捕获窗口标题') }}</span>
+              <input v-model="ocrWindowTitle" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">OCR 识别语言</span>
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">OCR 识别语言</span>
               <CustomSelect v-model="ocrSourceLang" :options="languageOptions" />
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.ocr_poll_interval', '轮询检测间隔 (毫秒)') }} · {{ ocrPollIntervalMs }}ms</span>
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.ocr_poll_interval', '轮询检测间隔 (毫秒)') }} · {{ ocrPollIntervalMs }}ms</span>
               <input v-model.number="ocrPollIntervalMs" type="range" min="100" max="5000" step="50" class="w-full accent-cyan-500">
             </label>
             <label class="text-xs">
-              <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.ocr_min_confidence', '置信度过滤阈值') }} · {{ Number(ocrMinConfidence).toFixed(2) }}</span>
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.ocr_min_confidence', '置信度过滤阈值') }} · {{ Number(ocrMinConfidence).toFixed(2) }}</span>
               <input v-model.number="ocrMinConfidence" type="range" min="0.1" max="0.99" step="0.05" class="w-full accent-cyan-500">
             </label>
           </div>
 
-          <div class="flex items-center gap-2 pt-2 border-t border-slate-800">
-            <button type="button" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5" @click="translatePhoto">
+          <div class="flex items-center gap-2 pt-2 border-t border-[var(--theme-border-soft)]">
+            <button type="button" class="px-3 py-2 rounded-xl bg-[var(--theme-surface-hover)] hover:bg-[var(--theme-border-soft)] text-[var(--theme-text-strong)] text-xs font-bold flex items-center gap-1.5" @click="translatePhoto">
               <Camera class="w-3.5 h-3.5" />
               <span>选择图片识别</span>
             </button>
-            <button type="button" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5" @click="waitForPhoto">
+            <button type="button" class="px-3 py-2 rounded-xl bg-[var(--theme-surface-hover)] hover:bg-[var(--theme-border-soft)] text-[var(--theme-text-strong)] text-xs font-bold flex items-center gap-1.5" @click="waitForPhoto">
               <Eye class="w-3.5 h-3.5" />
               <span>等待新截图自动翻译</span>
             </button>
@@ -2087,28 +2087,28 @@ onUnmounted(async () => {
       <!-- 7. VR OVERLAY & OBS TAB -->
       <div v-else-if="activeSubTab === 'vr_obs'" class="flex flex-col gap-5">
         <!-- VR Subtitles -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-          <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.vr_subtitles', 'SteamVR 空间字幕覆盖层') }}</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">{{ tt('translator.vr_subtitles', 'SteamVR 空间字幕覆盖层') }}</h4>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
-              <input v-model="overlaySmallLog" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer">
+              <input v-model="overlaySmallLog" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <div>
-                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.vr_small_log', '单行快捷字幕 (Small Log)') }}</span>
-                <span class="text-[10px] text-slate-400">紧凑视野悬浮，适合快速阅读最新一句话</span>
+                <span class="block text-xs font-bold text-[var(--theme-text-strong)]">{{ tt('translator.vr_small_log', '单行快捷字幕 (Small Log)') }}</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)]">紧凑视野悬浮，适合快速阅读最新一句话</span>
               </div>
             </label>
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
-              <input v-model="overlayLargeLog" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer">
+              <input v-model="overlayLargeLog" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <div>
-                <span class="block text-xs font-bold text-slate-200">{{ tt('translator.vr_large_log', '多行历史字幕 (Large Log)') }}</span>
-                <span class="text-[10px] text-slate-400">完整历史窗口，支持手腕或视角空间固定</span>
+                <span class="block text-xs font-bold text-[var(--theme-text-strong)]">{{ tt('translator.vr_large_log', '多行历史字幕 (Large Log)') }}</span>
+                <span class="text-[10px] text-[var(--theme-text-muted)]">完整历史窗口，支持手腕或视角空间固定</span>
               </div>
             </label>
           </div>
 
           <label class="text-xs mt-2">
-            <span class="block text-slate-400 font-bold mb-1">{{ tt('translator.vr_tracker', '空间追踪绑定点') }}</span>
-            <select v-model="overlayTracker" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+            <span class="block text-[var(--theme-text-muted)] font-bold mb-1">{{ tt('translator.vr_tracker', '空间追踪绑定点') }}</span>
+            <select v-model="overlayTracker" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
               <option value="HMD">HMD 头显视线固定</option>
               <option value="LeftHand">左手手腕 (LeftHand)</option>
               <option value="RightHand">右手手腕 (RightHand)</option>
@@ -2118,15 +2118,15 @@ onUnmounted(async () => {
         </div>
 
         <!-- OBS Browser Source -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.obs_browser_source', 'OBS 浏览器源字幕服务') }}</h4>
-              <p class="text-[11px] text-slate-400">在 OBS 添加浏览器源以将实时双向翻译投射至直播画面。</p>
+              <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">{{ tt('translator.obs_browser_source', 'OBS 浏览器源字幕服务') }}</h4>
+              <p class="text-[11px] text-[var(--theme-text-muted)]">在 OBS 添加浏览器源以将实时双向翻译投射至直播画面。</p>
             </div>
             <button
               type="button"
-              :class="obsBrowserSource ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300'"
+              :class="obsBrowserSource ? 'bg-[var(--theme-primary)] text-white font-black' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)]'"
               class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
               @click="obsBrowserSource = !obsBrowserSource"
             >
@@ -2134,43 +2134,43 @@ onUnmounted(async () => {
             </button>
           </div>
 
-          <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
-            <span class="font-mono text-amber-400">http://127.0.0.1:{{ obsPort }}/obs</span>
-            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs" @click="copyText(`http://127.0.0.1:${obsPort}/obs`)">
+          <div class="p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] text-xs flex items-center justify-between">
+            <span class="font-mono text-[var(--theme-primary)]">http://127.0.0.1:{{ obsPort }}/obs</span>
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-[var(--theme-surface-hover)] hover:bg-[var(--theme-border-soft)] text-[var(--theme-text-strong)] text-xs" @click="copyText(`http://127.0.0.1:${obsPort}/obs`)">
               复制链接
             </button>
           </div>
 
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             <label>
-              <span class="block text-slate-400 font-bold mb-1">字体大小</span>
-              <input v-model.number="obsFontSize" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">字体大小</span>
+              <input v-model.number="obsFontSize" type="number" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)]">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">保留最大条数</span>
-              <input v-model.number="obsMaxMessages" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">保留最大条数</span>
+              <input v-model.number="obsMaxMessages" type="number" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)]">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">显示时长 (秒)</span>
-              <input v-model.number="obsDisplayDuration" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">显示时长 (秒)</span>
+              <input v-model.number="obsDisplayDuration" type="number" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)]">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">描边粗细 (px)</span>
-              <input v-model.number="obsOutlineThickness" type="number" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-slate-200">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">描边粗细 (px)</span>
+              <input v-model.number="obsOutlineThickness" type="number" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1 text-xs text-[var(--theme-text-strong)]">
             </label>
           </div>
         </div>
 
         <!-- WebSocket Broadcast Server -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-xs font-black text-slate-200 uppercase">{{ tt('translator.websocket_server', 'WebSocket 字幕广播服务器') }}</h4>
-              <p class="text-[11px] text-slate-400">供外部工具 (如 VRCT-TTS、VTuber 渲染器) 接入接收全量文字流。</p>
+              <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">{{ tt('translator.websocket_server', 'WebSocket 字幕广播服务器') }}</h4>
+              <p class="text-[11px] text-[var(--theme-text-muted)]">供外部工具 (如 VRCT-TTS、VTuber 渲染器) 接入接收全量文字流。</p>
             </div>
             <button
               type="button"
-              :class="websocketServer ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300'"
+              :class="websocketServer ? 'bg-cyan-500 text-white font-black' : 'bg-[var(--theme-surface-hover)] text-[var(--theme-text)]'"
               class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
               @click="websocketServer = !websocketServer"
             >
@@ -2180,10 +2180,10 @@ onUnmounted(async () => {
 
           <div class="flex items-center gap-3 text-xs">
             <span class="font-mono text-cyan-400">ws://127.0.0.1:{{ websocketPort }}</span>
-            <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1 text-xs font-mono text-slate-400 truncate">
+            <div class="flex-1 bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1 text-xs font-mono text-[var(--theme-text-muted)] truncate">
               Token: {{ websocketAuthToken }}
             </div>
-            <button type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs" @click="copyText(websocketAuthToken)">
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-[var(--theme-surface-hover)] hover:bg-[var(--theme-border-soft)] text-[var(--theme-text-strong)] text-xs" @click="copyText(websocketAuthToken)">
               复制 Token
             </button>
           </div>
@@ -2193,66 +2193,66 @@ onUnmounted(async () => {
       <!-- 8. PREFERENCES TAB -->
       <div v-else-if="activeSubTab === 'preferences'" class="flex flex-col gap-5">
         <!-- Hotkeys -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-          <h4 class="text-xs font-black text-slate-200 uppercase">全局快捷键配置 (Global Hotkeys)</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">全局快捷键配置 (Global Hotkeys)</h4>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
             <label>
-              <span class="block text-slate-400 font-bold mb-1">切换软件界面显示/隐藏</span>
-              <input v-model="hotkeyToggleWindow" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">切换软件界面显示/隐藏</span>
+              <input v-model="hotkeyToggleWindow" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">切换主翻译开关</span>
-              <input v-model="hotkeyToggleTrans" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">切换主翻译开关</span>
+              <input v-model="hotkeyToggleTrans" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">切换麦克风识别 (Mic STT)</span>
-              <input v-model="hotkeyToggleMic" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">切换麦克风识别 (Mic STT)</span>
+              <input v-model="hotkeyToggleMic" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">切换游戏扬声器识别 (Speaker STT)</span>
-              <input v-model="hotkeyToggleSpeaker" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">切换游戏扬声器识别 (Speaker STT)</span>
+              <input v-model="hotkeyToggleSpeaker" type="text" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-3 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
             </label>
           </div>
         </div>
 
         <!-- Transliteration & Send Behavior -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-          <h4 class="text-xs font-black text-slate-200 uppercase">日文注音与发送交互</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">日文注音与发送交互</h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer text-xs font-bold text-slate-300">
-              <input v-model="romajiMode" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer text-xs font-bold text-[var(--theme-text)]">
+              <input v-model="romajiMode" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <span>{{ tt('translator.romaji_mode', '日文罗马音 (Romaji)') }}</span>
             </label>
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer text-xs font-bold text-slate-300">
-              <input v-model="hiraganaMode" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer text-xs font-bold text-[var(--theme-text)]">
+              <input v-model="hiraganaMode" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <span>{{ tt('translator.hiragana_mode', '日文平假名 (Hiragana)') }}</span>
             </label>
-            <label class="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer text-xs font-bold text-slate-300">
-              <input v-model="showResendButton" type="checkbox" class="w-4 h-4 rounded accent-amber-500">
+            <label class="flex items-center gap-2 p-3 bg-[var(--theme-bg-main)]/60 rounded-xl border border-[var(--theme-border-soft)] cursor-pointer text-xs font-bold text-[var(--theme-text)]">
+              <input v-model="showResendButton" type="checkbox" class="w-4 h-4 rounded accent-[var(--theme-primary)]">
               <span>显示消息重新发送按钮</span>
             </label>
           </div>
         </div>
 
         <!-- TTS Speech Output -->
-        <div class="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-3">
-          <h4 class="text-xs font-black text-slate-200 uppercase">语音合成播报 (TTS)</h4>
+        <div class="p-4 bg-[var(--theme-surface)] border border-[var(--theme-border-soft)] rounded-2xl flex flex-col gap-3">
+          <h4 class="text-xs font-black text-[var(--theme-text-strong)] uppercase">语音合成播报 (TTS)</h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
             <label>
-              <span class="block text-slate-400 font-bold mb-1">TTS 播报引擎</span>
-              <select v-model="ttsEngine" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 outline-none">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">TTS 播报引擎</span>
+              <select v-model="ttsEngine" class="w-full bg-[var(--theme-bg-main)]/60 border border-[var(--theme-border-soft)] rounded-xl px-2.5 py-1.5 text-xs text-[var(--theme-text-strong)] outline-none">
                 <option value="system">系统原生 (Web Speech)</option>
                 <option value="edge">Edge TTS (高清微软多国音色)</option>
                 <option value="gpt_sovits">GPT-SoVITS (本地克隆音色)</option>
               </select>
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">TTS 语速 · {{ Number(ttsRate).toFixed(1) }}</span>
-              <input v-model.number="ttsRate" type="range" min="0.5" max="2" step="0.1" class="w-full accent-amber-500">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">TTS 语速 · {{ Number(ttsRate).toFixed(1) }}</span>
+              <input v-model.number="ttsRate" type="range" min="0.5" max="2" step="0.1" class="w-full accent-[var(--theme-primary)]">
             </label>
             <label>
-              <span class="block text-slate-400 font-bold mb-1">TTS 音量 · {{ Math.round(Number(ttsVolume) * 100) }}%</span>
-              <input v-model.number="ttsVolume" type="range" min="0" max="1" step="0.05" class="w-full accent-amber-500">
+              <span class="block text-[var(--theme-text-muted)] font-bold mb-1">TTS 音量 · {{ Math.round(Number(ttsVolume) * 100) }}%</span>
+              <input v-model.number="ttsVolume" type="range" min="0" max="1" step="0.05" class="w-full accent-[var(--theme-primary)]">
             </label>
           </div>
         </div>
