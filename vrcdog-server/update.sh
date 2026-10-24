@@ -6,16 +6,21 @@ set -e
 # 作用: 自动检测版本更新，生产级编译 Web 前端，无损保留数据，重启后端并自愈 OpenResty 配置
 # ==============================================================
 
-# 确保环境变量包含常见的构建工具路径
+# 确保环境变量包含常见的构建工具路径与用户目录
+export HOME="/root"
 export PATH="/root/.bun/bin:/usr/local/bin:/usr/bin:$PATH"
 
-# 1. 并发文件锁保护，避免多个定时任务冲突
-LOCKFILE="/tmp/vrcdog-update.lock"
-exec 200>"$LOCKFILE"
-if ! flock -n 200; then
-    echo "[VRCDog] 另一个更新进程正在运行中，跳过本次执行。"
-    exit 0
+# 1. 进程锁保护，避免多个定时任务并发冲突
+PIDFILE="/tmp/vrcdog-update.pid"
+if [ -f "$PIDFILE" ]; then
+    PID=$(cat "$PIDFILE" 2>/dev/null || echo "")
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        echo "[VRCDog] 另一个更新进程 (PID: $PID) 正在运行中，跳过本次执行。"
+        exit 0
+    fi
 fi
+echo "$$" > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT
 
 # 2. 定位目录结构
 REPO_DIR="/opt/VRCDog"
@@ -33,6 +38,7 @@ fi
 SERVER_DIR="$REPO_DIR/vrcdog-server"
 WEB_STATIC_DIR="/opt/1panel/apps/openresty/openresty/www/sites/vrcdog-web/index"
 NGINX_CONF="/opt/1panel/apps/openresty/openresty/conf/conf.d/vrcdog-web.conf"
+LOG_FILE="$REPO_DIR/update.log"
 
 cd "$REPO_DIR"
 
@@ -46,6 +52,12 @@ LOCAL_HASH=""
 REMOTE_HASH=""
 
 if [ -d "$REPO_DIR/.git" ]; then
+    # 确保使用高速 GitHub 代理（解决国内 VPS 无法直连 GitHub 的问题）
+    CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+    if [[ "$CURRENT_REMOTE" == *"github.com"* && "$CURRENT_REMOTE" != *"ghfast.top"* ]]; then
+        git remote set-url origin "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog.git" 2>/dev/null || true
+    fi
+
     git fetch origin main --quiet 2>/dev/null || true
     LOCAL_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
     REMOTE_HASH=$(git rev-parse origin/main 2>/dev/null || echo "")
