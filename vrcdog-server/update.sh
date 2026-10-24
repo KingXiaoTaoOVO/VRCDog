@@ -10,12 +10,18 @@ set -e
 export HOME="/root"
 export PATH="/usr/local/bin:/usr/bin:/opt/node/bin:/root/.bun/bin:$PATH"
 
-# 免疫 DNS 污染：确保 /etc/hosts 包含稳定的 GitHub 与镜像 IP
-if ! grep -q "ghfast.top" /etc/hosts 2>/dev/null; then
-    echo "23.94.10.200 ghfast.top" >> /etc/hosts 2>/dev/null || true
-fi
+# 免疫 DNS 污染：确保 /etc/hosts 包含稳定的 GitHub、镜像及 NPM 镜像 IP
 if ! grep -q "github.com" /etc/hosts 2>/dev/null; then
     echo "20.205.243.166 github.com" >> /etc/hosts 2>/dev/null || true
+fi
+if ! grep -q "ghfast.top" /etc/hosts 2>/dev/null; then
+    echo "23.94.10.228 ghfast.top" >> /etc/hosts 2>/dev/null || true
+fi
+if ! grep -q "ghproxy.net" /etc/hosts 2>/dev/null; then
+    echo "5.135.5.132 ghproxy.net" >> /etc/hosts 2>/dev/null || true
+fi
+if ! grep -q "mirrors.cloud.tencent.com" /etc/hosts 2>/dev/null; then
+    echo "43.141.70.120 mirrors.cloud.tencent.com" >> /etc/hosts 2>/dev/null || true
 fi
 
 # 1. 进程锁保护，避免多个定时任务并发冲突
@@ -49,9 +55,21 @@ NGINX_CONF="/opt/1panel/apps/openresty/openresty/conf/conf.d/vrcdog-web.conf"
 
 cd "$REPO_DIR"
 
-# 3. 确保使用高速 GitHub 镜像
+# 3. 配置高速 GitHub 访问凭证
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+if [ -z "$GITHUB_TOKEN" ] && [ -f "$SERVER_DIR/.env" ]; then
+    GITHUB_TOKEN=$(grep -E '^GITHUB_TOKEN=' "$SERVER_DIR/.env" | cut -d '=' -f2- | tr -d ' "\r\n' || true)
+fi
+if [ -z "$GITHUB_TOKEN" ] && [ -f "/opt/1panel/docker/compose/webgame/.env" ]; then
+    GITHUB_TOKEN=$(grep -E '^GITHUB_TOKEN=' "/opt/1panel/docker/compose/webgame/.env" | cut -d '=' -f2- | tr -d ' "\r\n' || true)
+fi
+
 if [ -d "$REPO_DIR/.git" ]; then
-    git remote set-url origin "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog.git" 2>/dev/null || true
+    if [ -n "$GITHUB_TOKEN" ]; then
+        git remote set-url origin "https://oauth2:${GITHUB_TOKEN}@github.com/KingXiaoTaoOVO/VRCDog.git" 2>/dev/null || true
+    else
+        git remote set-url origin "https://github.com/KingXiaoTaoOVO/VRCDog.git" 2>/dev/null || true
+    fi
 fi
 
 # 4. 检查代码更新
@@ -64,7 +82,7 @@ LOCAL_HASH=""
 REMOTE_HASH=""
 
 if [ -d "$REPO_DIR/.git" ]; then
-    git fetch origin main --quiet 2>/dev/null || true
+    git fetch origin main --depth=1 --quiet 2>/dev/null || true
     LOCAL_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
     REMOTE_HASH=$(git rev-parse origin/main 2>/dev/null || echo "")
 
@@ -84,7 +102,6 @@ echo "=================================================="
 # 5. 代码同步与拉取
 echo "[1/5] 同步最新 Git 代码..."
 if [ -d "$REPO_DIR/.git" ]; then
-    git fetch origin main
     git reset --hard origin/main
     # 严格保留后端数据与配置文件
     git clean -fd -e vrcdog-server/data -e vrcdog-server/.env
@@ -95,8 +112,8 @@ else
     mkdir -p "$TMP_DIR"
 
     if ! curl -fsSL --connect-timeout 8 "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog/archive/refs/heads/main.tar.gz" -o "$TMP_ARCHIVE"; then
-        echo " -> 高速代理超时，尝试直连 GitHub..."
-        curl -fsSL --connect-timeout 15 "https://github.com/KingXiaoTaoOVO/VRCDog/archive/refs/heads/main.tar.gz" -o "$TMP_ARCHIVE"
+        echo " -> 高速代理超时，尝试备选代理..."
+        curl -fsSL --connect-timeout 15 "https://ghproxy.net/https://github.com/KingXiaoTaoOVO/VRCDog/archive/refs/heads/main.tar.gz" -o "$TMP_ARCHIVE"
     fi
 
     tar -xzf "$TMP_ARCHIVE" -C "$TMP_DIR"
@@ -110,13 +127,13 @@ cd "$REPO_DIR"
 export VRCDOG_BASE=/web/
 
 if command -v pnpm >/dev/null 2>&1; then
-    pnpm config set registry https://registry.npmmirror.com 2>/dev/null || true
+    pnpm config set registry https://mirrors.cloud.tencent.com/npm/ 2>/dev/null || true
     pnpm install --frozen-lockfile || pnpm install
-    pnpm run build:web || node scripts/build-web.mjs
+    node scripts/build-web.mjs
 elif command -v npm >/dev/null 2>&1; then
-    npm config set registry https://registry.npmmirror.com 2>/dev/null || true
+    npm config set registry https://mirrors.cloud.tencent.com/npm/ 2>/dev/null || true
     npm install
-    npm run build:web || node scripts/build-web.mjs
+    node scripts/build-web.mjs
 else
     echo " -> 错误: 未找到 Node/Pnpm 构建工具"
     exit 1
@@ -136,6 +153,7 @@ if [ -d "$REPO_DIR/dist" ]; then
     echo " -> Web 静态资源部署成功！"
 else
     echo " -> 错误: 未生成 dist 目录，跳过静态文件同步。"
+    exit 1
 fi
 
 # 8. 确保 OpenResty SPA 路由与缓存配置生效
