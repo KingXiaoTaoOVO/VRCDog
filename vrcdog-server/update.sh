@@ -10,6 +10,14 @@ set -e
 export HOME="/root"
 export PATH="/root/.bun/bin:/usr/local/bin:/usr/bin:$PATH"
 
+# 免疫 DNS 污染：确保 /etc/hosts 包含稳定的镜像节点
+if ! grep -q "ghfast.top" /etc/hosts 2>/dev/null; then
+    echo "107.175.190.195 ghfast.top" >> /etc/hosts 2>/dev/null || true
+fi
+if ! grep -q "ghproxy.net" /etc/hosts 2>/dev/null; then
+    echo "5.135.5.132 ghproxy.net" >> /etc/hosts 2>/dev/null || true
+fi
+
 # 1. 进程锁保护，避免多个定时任务并发冲突
 PIDFILE="/tmp/vrcdog-update.pid"
 if [ -f "$PIDFILE" ]; then
@@ -78,7 +86,7 @@ echo "=================================================="
 # 4. 代码同步与拉取
 echo "[1/5] 同步最新 Git 代码..."
 if [ -d "$REPO_DIR/.git" ]; then
-    git fetch --all --prune
+    git fetch origin main
     git reset --hard origin/main
     # 严格保留后端数据与配置文件
     git clean -fd -e vrcdog-server/data -e vrcdog-server/.env
