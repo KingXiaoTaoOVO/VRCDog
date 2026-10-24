@@ -8,7 +8,7 @@ set -e
 
 # 确保环境变量包含常见的构建工具路径与用户目录
 export HOME="/root"
-export PATH="/root/.bun/bin:/usr/local/bin:/usr/bin:$PATH"
+export PATH="/usr/local/bin:/usr/bin:/opt/node/bin:/root/.bun/bin:$PATH"
 
 # 免疫 DNS 污染：确保 /etc/hosts 包含稳定的 GitHub 与镜像 IP
 if ! grep -q "ghfast.top" /etc/hosts 2>/dev/null; then
@@ -110,17 +110,16 @@ cd "$REPO_DIR"
 export VRCDOG_BASE=/web/
 
 if command -v pnpm >/dev/null 2>&1; then
+    pnpm config set registry https://registry.npmmirror.com 2>/dev/null || true
     pnpm install --frozen-lockfile || pnpm install
     pnpm run build:web || node scripts/build-web.mjs
-elif command -v bun >/dev/null 2>&1; then
-    bun install
-    bun run build:web || node scripts/build-web.mjs
 elif command -v npm >/dev/null 2>&1; then
+    npm config set registry https://registry.npmmirror.com 2>/dev/null || true
     npm install
     npm run build:web || node scripts/build-web.mjs
 else
-    echo " -> 警告: 未找到 pnpm/bun/npm，尝试使用 Docker node 编译前端..."
-    docker run --rm -v "$REPO_DIR":/app -w /app -e VRCDOG_BASE=/web/ node:22-alpine sh -c "corepack enable && pnpm install && pnpm run build:web"
+    echo " -> 错误: 未找到 Node/Pnpm 构建工具"
+    exit 1
 fi
 
 # 7. 同步前端静态资源到 1Panel 静态站点目录
