@@ -10,14 +10,6 @@ set -e
 export HOME="/root"
 export PATH="/root/.bun/bin:/usr/local/bin:/usr/bin:$PATH"
 
-# 免疫 DNS 污染：确保 /etc/hosts 包含稳定的镜像节点
-if ! grep -q "ghfast.top" /etc/hosts 2>/dev/null; then
-    echo "107.175.190.195 ghfast.top" >> /etc/hosts 2>/dev/null || true
-fi
-if ! grep -q "ghproxy.net" /etc/hosts 2>/dev/null; then
-    echo "5.135.5.132 ghproxy.net" >> /etc/hosts 2>/dev/null || true
-fi
-
 # 1. 进程锁保护，避免多个定时任务并发冲突
 PIDFILE="/tmp/vrcdog-update.pid"
 if [ -f "$PIDFILE" ]; then
@@ -46,11 +38,31 @@ fi
 SERVER_DIR="$REPO_DIR/vrcdog-server"
 WEB_STATIC_DIR="/opt/1panel/apps/openresty/openresty/www/sites/vrcdog-web/index"
 NGINX_CONF="/opt/1panel/apps/openresty/openresty/conf/conf.d/vrcdog-web.conf"
-LOG_FILE="$REPO_DIR/update.log"
 
 cd "$REPO_DIR"
 
-# 3. 检查代码更新
+# 3. 动态选择可用镜像源
+MIRROR_CANDIDATES=(
+    "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog.git"
+    "https://mirror.ghproxy.com/https://github.com/KingXiaoTaoOVO/VRCDog.git"
+    "https://github.com/KingXiaoTaoOVO/VRCDog.git"
+)
+
+if [ -d "$REPO_DIR/.git" ]; then
+    SELECTED_MIRROR=""
+    for m in "${MIRROR_CANDIDATES[@]}"; do
+        if git ls-remote --heads "$m" main >/dev/null 2>&1; then
+            SELECTED_MIRROR="$m"
+            break
+        fi
+    done
+
+    if [ -n "$SELECTED_MIRROR" ]; then
+        git remote set-url origin "$SELECTED_MIRROR" 2>/dev/null || true
+    fi
+fi
+
+# 4. 检查代码更新
 FORCE_UPDATE=0
 if [ "${1:-}" = "--force" ]; then
     FORCE_UPDATE=1
@@ -60,12 +72,6 @@ LOCAL_HASH=""
 REMOTE_HASH=""
 
 if [ -d "$REPO_DIR/.git" ]; then
-    # 确保使用高速 GitHub 代理（解决国内 VPS 无法直连 GitHub 的问题）
-    CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
-    if [[ "$CURRENT_REMOTE" == *"github.com"* && "$CURRENT_REMOTE" != *"ghfast.top"* ]]; then
-        git remote set-url origin "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog.git" 2>/dev/null || true
-    fi
-
     git fetch origin main --quiet 2>/dev/null || true
     LOCAL_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
     REMOTE_HASH=$(git rev-parse origin/main 2>/dev/null || echo "")
@@ -80,10 +86,11 @@ echo "=================================================="
 echo " [VRCDog] 检测到代码更新或收到强制更新指令"
 echo " 本地提交: ${LOCAL_HASH:-未知}"
 echo " 远程提交: ${REMOTE_HASH:-未知}"
+echo " 同步镜像: ${SELECTED_MIRROR:-默认}"
 echo " 触发时间: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=================================================="
 
-# 4. 代码同步与拉取
+# 5. 代码同步与拉取
 echo "[1/5] 同步最新 Git 代码..."
 if [ -d "$REPO_DIR/.git" ]; then
     git fetch origin main
@@ -106,7 +113,7 @@ else
     rm -rf "$TMP_ARCHIVE" "$TMP_DIR"
 fi
 
-# 5. 编译 Web 前端（VRCDOG_BASE=/web/）
+# 6. 编译 Web 前端（VRCDOG_BASE=/web/）
 echo "[2/5] 编译生产级 Web 前端应用 (VRCDOG_BASE=/web/)..."
 cd "$REPO_DIR"
 export VRCDOG_BASE=/web/
@@ -125,7 +132,7 @@ else
     docker run --rm -v "$REPO_DIR":/app -w /app -e VRCDOG_BASE=/web/ node:22-alpine sh -c "corepack enable && pnpm install && pnpm run build:web"
 fi
 
-# 6. 同步前端静态资源到 1Panel 静态站点目录
+# 7. 同步前端静态资源到 1Panel 静态站点目录
 echo "[3/5] 部署 Web 静态资源到 $WEB_STATIC_DIR ..."
 if [ -d "$REPO_DIR/dist" ]; then
     mkdir -p "$WEB_STATIC_DIR"
@@ -141,7 +148,7 @@ else
     echo " -> 错误: 未生成 dist 目录，跳过静态文件同步。"
 fi
 
-# 7. 确保 OpenResty SPA 路由与缓存配置生效
+# 8. 确保 OpenResty SPA 路由与缓存配置生效
 if [ -f "$NGINX_CONF" ]; then
     if ! grep -q "try_files" "$NGINX_CONF"; then
         echo " -> 自动配置 OpenResty SPA 路由 fallback..."
@@ -149,7 +156,7 @@ if [ -f "$NGINX_CONF" ]; then
     fi
 fi
 
-# 8. 校验数据持久化目录与权限，并重启后端容器
+# 9. 校验数据持久化目录与权限，并重启后端容器
 echo "[4/5] 校验持久化数据目录及权限并启动容器..."
 cd "$SERVER_DIR"
 mkdir -p "$SERVER_DIR/data"
@@ -162,7 +169,7 @@ docker compose up -d --build
 # 平滑重新加载 OpenResty（热重载，零停机）
 docker exec openresty nginx -s reload 2>/dev/null || true
 
-# 9. 服务健康检查
+# 10. 服务健康检查
 echo "[5/5] 执行健康检查..."
 sleep 3
 
