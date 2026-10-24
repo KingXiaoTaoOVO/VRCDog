@@ -10,6 +10,14 @@ set -e
 export HOME="/root"
 export PATH="/root/.bun/bin:/usr/local/bin:/usr/bin:$PATH"
 
+# 免疫 DNS 污染：确保 /etc/hosts 包含稳定的 GitHub 与镜像 IP
+if ! grep -q "ghfast.top" /etc/hosts 2>/dev/null; then
+    echo "23.94.10.200 ghfast.top" >> /etc/hosts 2>/dev/null || true
+fi
+if ! grep -q "github.com" /etc/hosts 2>/dev/null; then
+    echo "20.205.243.166 github.com" >> /etc/hosts 2>/dev/null || true
+fi
+
 # 1. 进程锁保护，避免多个定时任务并发冲突
 PIDFILE="/tmp/vrcdog-update.pid"
 if [ -f "$PIDFILE" ]; then
@@ -41,25 +49,9 @@ NGINX_CONF="/opt/1panel/apps/openresty/openresty/conf/conf.d/vrcdog-web.conf"
 
 cd "$REPO_DIR"
 
-# 3. 动态选择可用镜像源
-MIRROR_CANDIDATES=(
-    "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog.git"
-    "https://mirror.ghproxy.com/https://github.com/KingXiaoTaoOVO/VRCDog.git"
-    "https://github.com/KingXiaoTaoOVO/VRCDog.git"
-)
-
+# 3. 确保使用高速 GitHub 镜像
 if [ -d "$REPO_DIR/.git" ]; then
-    SELECTED_MIRROR=""
-    for m in "${MIRROR_CANDIDATES[@]}"; do
-        if git ls-remote --heads "$m" main >/dev/null 2>&1; then
-            SELECTED_MIRROR="$m"
-            break
-        fi
-    done
-
-    if [ -n "$SELECTED_MIRROR" ]; then
-        git remote set-url origin "$SELECTED_MIRROR" 2>/dev/null || true
-    fi
+    git remote set-url origin "https://ghfast.top/https://github.com/KingXiaoTaoOVO/VRCDog.git" 2>/dev/null || true
 fi
 
 # 4. 检查代码更新
@@ -86,7 +78,6 @@ echo "=================================================="
 echo " [VRCDog] 检测到代码更新或收到强制更新指令"
 echo " 本地提交: ${LOCAL_HASH:-未知}"
 echo " 远程提交: ${REMOTE_HASH:-未知}"
-echo " 同步镜像: ${SELECTED_MIRROR:-默认}"
 echo " 触发时间: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=================================================="
 
