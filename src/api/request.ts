@@ -110,6 +110,23 @@ function isVrchatUrl(url: string): boolean {
   }
 }
 
+/**
+ * 本地 VRCDog 服务端默认监听 127.0.0.1。Rust 侧的 SSRF 防护会拒绝 loopback，
+ * 因此这里在「显式允许外部主机 + 本机地址」时单独打开 allow_loopback，
+ * 否则仪表盘/问卷/角色页在默认配置下会全部 400。
+ */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost'
+      || host.endsWith('.localhost')
+      || host === '::1'
+      || host === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
 function isVrchatPermissionError(status: number, url: string, message: string): boolean {
   if (!isVrchatUrl(url)) return false;
   const lower = message.toLowerCase();
@@ -547,6 +564,7 @@ async function requestInternal<T = any>(url: string, options: RequestOptions = {
         auth_cookie: cookie,
         timeout_ms: timeoutMs,
         allow_external_host: Boolean(options.allowExternalHost),
+        allow_loopback: Boolean(options.allowExternalHost) && isLoopbackUrl(reqUrl),
       }
     });
 

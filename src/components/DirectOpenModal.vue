@@ -97,7 +97,7 @@ const submit = async () => {
     :loading="loading"
     @close="show = false"
   >
-    <div class="p-6 bg-surface rounded-xl text-white w-96 max-w-full">
+    <div class="p-6 bg-surface rounded-xl text-text w-96 max-w-full">
       <h2 class="text-xl font-bold mb-2">
         {{ t('direct_open.title') }}
       </h2>
@@ -109,7 +109,7 @@ const submit = async () => {
         id="direct-open-input"
         v-model="inputUrl"
         type="text"
-        class="w-full bg-surface border-border-soft rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-border-strong transition-colors mb-4"
+        class="w-full bg-surface border-border-soft rounded-lg px-4 py-2 text-sm text-text focus:outline-none focus:border-border-strong transition-colors mb-4"
         @keyup.enter="submit"
       >
       

@@ -4,6 +4,7 @@ import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
 import { isTauri } from '@tauri-apps/api/core';
+import { katakanaToHiragana, toRomaji } from '../utils/transliteration';
 import { songIcon, songCover, isImageIcon, useVrpianoIcons } from '../composables/useVrpianoIcons';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Effect, EffectState } from '@tauri-apps/api/window';
@@ -18,6 +19,7 @@ import {
   ExternalLink,
   FolderOpen,
   Gauge,
+  Globe,
   Headphones,
   ImagePlus,
   Info,
@@ -106,10 +108,11 @@ const localSongQuery = ref('');
 const status = ref<VrpianoStatus>(emptyStatus());
 const loading = ref(false);
 const onlineLoading = ref(false);
-// 后端搜索链路：直连（约 4s 上限）→ 只读渲染代理（约 15s 上限）→ 后台浏览器兜底（15s），
-// 这里留出余量，避免前端先把请求判超时、把已经拿到的结果丢掉。
-const ONLINE_SEARCH_TIMEOUT_MS = 50_000;
+// 快路径只有「本地索引 + BitMidi JSON + Midishow 直连」，正常 1~3 秒返回；
+// 中文曲库的后台兜底通过事件增量追加，不再拖长这次等待。
+const ONLINE_SEARCH_TIMEOUT_MS = 15_000;
 let onlineSearchRequestId = 0;
+let activeOnlineRequestId = 0;
 let onlineSearchTimeout: number | null = null;
 const hasSearchedOnline = ref(false);
 const lastOnlineKeyword = ref('');
@@ -137,6 +140,11 @@ const midishowCookie = ref('');
 const midishowCookieAccount = ref('');
 const onlineSearchError = ref('');
 const onlineSearchNotice = ref('');
+// 中文曲库（Midishow）在后台单独搜：idle / searching / needs-verify / done
+const onlineChineseStatus = ref<'idle' | 'searching' | 'needs-verify' | 'done'>('idle');
+const verifyingChineseLibrary = ref(false);
+const onlineIndexCount = ref(0);
+const onlineFilter = ref<'all' | 'local' | 'bitmidi' | 'midishow'>('all');
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   state: 'idle',
@@ -397,6 +405,18 @@ const onlineEmptyText = computed(() => {
   if (onlineSearchError.value) return onlineSearchError.value;
   if (!hasSearchedOnline.value) return t('vrpiano.search_by_keyword_or_paste_a_url_or_id_t');
   return t('vrpiano.no_results_for_keyword', { keyword: lastOnlineKeyword.value });
+});
+const filteredOnlineResults = computed(() => {
+  if (onlineFilter.value === 'all') return onlineResults.value;
+  return onlineResults.value.filter(item => (item.source || 'midishow') === onlineFilter.value);
+});
+const onlineSourceCounts = computed(() => {
+  const counts = { all: onlineResults.value.length, local: 0, bitmidi: 0, midishow: 0 };
+  for (const item of onlineResults.value) {
+    const key = (item.source || 'midishow') as 'local' | 'bitmidi' | 'midishow';
+    if (key in counts) counts[key] += 1;
+  }
+  return counts;
 });
 const playerProgressPercent = computed(() => {
   if (!playerDurationMs.value) return 0;
@@ -879,6 +899,22 @@ const loginMidishow = async () => {
   }
 };
 
+const openMidishowWebLogin = async (customUrl?: string) => {
+  accountLoading.value = true;
+  loginError.value = '';
+  error.value = '';
+  try {
+    const next = await VrpianoApi.midishowOpenWebLogin({ url: customUrl });
+    await applyMidishowLoginStatus(next);
+    startMidishowLoginPolling();
+    addLog('已打开 Midishow 网页窗口');
+  } catch (e: any) {
+    accountLoading.value = false;
+    loginError.value = formatVrpianoError(e);
+    addLog(t('vrpiano.midishow_signin_not_completed', { error: loginError.value }));
+  }
+};
+
 const importMidishowCookie = async () => {
   const cookie = midishowCookie.value.trim();
   if (!cookie) {
@@ -1198,16 +1234,53 @@ const cleanOnlineTitle = (raw: string): string => {
   return cleaned.replace(/\s+/g, ' ').trim() || raw.trim();
 };
 
+/// BitMidi 的文件名基本是罗马音/英文，日文假名要先转罗马音；
+/// 括号备注（「（DJ OKAWARI 版）」）在检索里只会添乱，一并去掉。
+const buildAltKeywords = (keyword: string): string[] => {
+  const alts: string[] = [];
+  const push = (value: string) => {
+    const cleaned = value.replace(/\s+/g, ' ').trim();
+    if (!cleaned) return;
+    if (cleaned.toLowerCase() === keyword.toLowerCase()) return;
+    if (!alts.includes(cleaned)) alts.push(cleaned);
+  };
+  const stripped = keyword
+    .replace(/[（(【[][^)）】]*[)）】\]]/g, ' ')
+    .replace(/\s+/g, ' ');
+  push(stripped);
+  if (/[\u3041-\u309f\u30a1-\u30ff]/.test(stripped)) {
+    push(toRomaji(katakanaToHiragana(stripped)));
+  }
+  return alts.slice(0, 2);
+};
+
+const mergeOnlineSongs = (songs: VrpianoOnlineSong[]) => {
+  if (!songs.length) return;
+  const seen = new Set(onlineResults.value.map(item => `${item.source || 'midishow'}:${item.id}`));
+  const appended: VrpianoOnlineSong[] = [];
+  for (const song of songs) {
+    const key = `${song.source || 'midishow'}:${song.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    appended.push({ ...song, title: cleanOnlineTitle(song.title) });
+  }
+  if (appended.length) onlineResults.value = [...onlineResults.value, ...appended];
+};
+
 const searchOnline = async () => {
+  // 不能用 `if (onlineLoading) return` 挡住：页面挂载时会自动浏览一次曲库，
+  // 用户紧接着回车就会被静默丢弃。过期响应由 requestId 判断负责丢弃。
   const keyword = onlineKeyword.value.trim();
-  if (!keyword || onlineLoading.value) return;
   const requestId = ++onlineSearchRequestId;
+  activeOnlineRequestId = requestId;
   onlineLoading.value = true;
   hasSearchedOnline.value = true;
   lastOnlineKeyword.value = keyword;
   onlineResults.value = [];
   onlineSearchError.value = '';
   onlineSearchNotice.value = '';
+  // 空关键词 = 浏览本地曲库 + 热门索引，没有中文兜底可等。
+  onlineChineseStatus.value = keyword ? 'searching' : 'idle';
   if (onlineSearchTimeout !== null) window.clearTimeout(onlineSearchTimeout);
   onlineSearchTimeout = window.setTimeout(() => {
     onlineSearchTimeout = null;
@@ -1221,13 +1294,18 @@ const searchOnline = async () => {
     const results = await VrpianoApi.searchMidishow({
       keyword,
       maxResults: 40,
+      altKeywords: buildAltKeywords(keyword),
+      requestId,
     });
     if (requestId !== onlineSearchRequestId) return;
     onlineResults.value = results.map(item => ({
       ...item,
       title: cleanOnlineTitle(item.title),
     }));
-    addLog(t('vrpiano.midishow_returned_results', { count: results.length }));
+    if (onlineResults.value.some(item => item.source === 'midishow')) {
+      onlineChineseStatus.value = 'done';
+    }
+    addLog(t('vrpiano.midishow_returned_results', { count: onlineResults.value.length }));
   } catch (e: any) {
     if (requestId !== onlineSearchRequestId) return;
     const msg = e instanceof Error ? e.message : String(e);
@@ -1241,6 +1319,34 @@ const searchOnline = async () => {
         onlineSearchTimeout = null;
       }
     }
+  }
+};
+
+/// 中文曲库撞上 Cloudflare 时由用户主动点一次：允许弹验证窗口，验证一次之后
+/// `cf_clearance` 留在 WebView2 profile 里，之后的搜索都能静默完成。
+const unlockChineseLibrary = async () => {
+  const keyword = onlineKeyword.value.trim();
+  if (!keyword || verifyingChineseLibrary.value) return;
+  verifyingChineseLibrary.value = true;
+  onlineChineseStatus.value = 'searching';
+  try {
+    const songs = await VrpianoApi.searchMidishowVerified({
+      keyword,
+      maxResults: 40,
+      requestId: activeOnlineRequestId,
+    });
+    mergeOnlineSongs(songs);
+    onlineChineseStatus.value = 'done';
+    if (!songs.length) {
+      onlineSearchNotice.value = t('vrpiano.online_chinese_no_results');
+    }
+  } catch (e: any) {
+    const errText = formatVrpianoError(e);
+    onlineChineseStatus.value = 'needs-verify';
+    onlineSearchNotice.value = errText;
+    addLog(t('vrpiano.online_search_failed', { error: errText }));
+  } finally {
+    verifyingChineseLibrary.value = false;
   }
 };
 
@@ -2161,6 +2267,13 @@ watch(outputMode, (newMode) => {
 // 卸载后不再注册监听器 / 启动轮询，否则定时器和监听器永久泄漏。
 let vrpianoDisposed = false;
 
+interface OnlineSearchExtraPayload {
+  request_id: number | null;
+  source: string;
+  songs: VrpianoOnlineSong[];
+  error: string | null;
+}
+
 // 演奏状态事件由 Rust 后端高频推送（自动演奏时尤其频繁）。
 // 直接每次都写日志会造成响应式更新风暴、日志列表反复重渲染，UI 越用越卡。
 // 这里做去重 + 限流：仅当事件文案变化且距上次记录超过阈值时才写入日志。
@@ -2195,12 +2308,33 @@ onMounted(async () => {
       void applyMidishowLoginStatus(event.payload);
     });
     unlistenSearchChallenge = await listen<string>('vrpiano_midishow_search_challenge', (event) => {
-      // 后台浏览器撞上 Cloudflare 人机验证：窗口已经弹出来了，这里只需要提示用户，
-      // 同时撤掉前端超时，避免把正在等用户点验证的请求提前判死。
+      // 只有用户主动点「验证并搜索中文曲库」才会走到这里：窗口已经弹出来了，
+      // 提示一句即可，同时撤掉前端超时，别把正在等用户点验证的请求提前判死。
       onlineSearchNotice.value = event.payload || '';
+      onlineChineseStatus.value = 'searching';
       if (onlineSearchTimeout !== null) {
         window.clearTimeout(onlineSearchTimeout);
         onlineSearchTimeout = null;
+      }
+    });
+    void listen<string>('vrpiano_online_search_notice', (event) => {
+      onlineSearchNotice.value = event.payload || '';
+    });
+    // 中文曲库的后台兜底结果：快路径已经先渲染，这里做增量追加。
+    void listen<OnlineSearchExtraPayload>('vrpiano_online_search_extra', (event) => {
+      const payload = event.payload;
+      if (!payload || payload.source !== 'midishow') return;
+      if (payload.request_id != null && payload.request_id !== activeOnlineRequestId) return;
+      if (payload.songs?.length) {
+        mergeOnlineSongs(payload.songs);
+        onlineChineseStatus.value = 'done';
+      } else {
+        onlineChineseStatus.value = /验证|challenge/i.test(payload.error || '') ? 'needs-verify' : 'done';
+      }
+    });
+    void listen<{ state: string; count?: number }>('vrpiano_online_index_status', (event) => {
+      if (event.payload?.state === 'ready' && typeof event.payload.count === 'number') {
+        onlineIndexCount.value = event.payload.count;
       }
     });
     unlistenModeSync = await listen<{ mode: 'keyboard' | 'midi' | 'osc' }>('vrpiano-output-mode-sync', (event) => {
@@ -2258,6 +2392,12 @@ onMounted(async () => {
   if (pollTimer === null) {
     pollTimer = window.setInterval(refreshStatus, 1500);
   }
+  // 打开钢琴页就读一次本地热门索引状态，并浏览一次曲库：
+  // 在线曲库面板不该再是「空的、等用户去搜」。
+  void VrpianoApi.bitmidiIndexStatus().then((value) => {
+    if (value && typeof value.count === 'number') onlineIndexCount.value = value.count;
+  }).catch(() => {});
+  if (!onlineResults.value.length) void searchOnline();
   // F1–F5 global hotkeys are owned by the Rust WH_KEYBOARD_LL hook (system-wide,
   // works without VRCDog being focused) — no JS keydown listener needed here.
 });
@@ -2969,13 +3109,13 @@ onUnmounted(async () => {
           <section class="online-panel">
             <div class="online-head">
               <strong>{{ t('vrpiano.online_library') }}</strong>
-              <span>{{ t('vrpiano.midishow_search_id_url_downloads_and_onl') }}</span>
+              <span>{{ t('vrpiano.online_headline') }}</span>
             </div>
 
             <div class="midishow-account">
               <div>
                 <strong>{{ defaultMidishowAccount ? t('vrpiano.signed_in_as', { username: defaultMidishowAccount.username, type: defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : '' }) : t('vrpiano.midishow_signed_out') }}</strong>
-                <span>{{ defaultMidishowAccount ? t('vrpiano.downloads_and_previews_will_use_your_acc') : t('vrpiano.sign_in_to_access_midi_downloads_and_pre') }}</span>
+                <span>{{ defaultMidishowAccount ? t('vrpiano.downloads_and_previews_will_use_your_acc') : t('vrpiano.online_login_optional') }}</span>
               </div>
               <button v-if="defaultMidishowAccount" class="account-btn ghost" :disabled="accountLoading" @click="logoutMidishow">
                 <LogOut :size="15" /> {{ t('vrpiano.sign_out') }}
@@ -3052,7 +3192,16 @@ onUnmounted(async () => {
                     <LogIn v-else :size="16" />
                     <span>{{ accountLoading ? (midishowLoginStatus.message || t('vrpiano.signing_in')) : t('vrpiano.sign_in') }}</span>
                   </button>
+                  <button type="button" class="login-link-btn" style="border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 6px;" :disabled="accountLoading" @click="openMidishowWebLogin()">
+                    <Globe :size="14" />
+                    <span>网页窗口登录</span>
+                  </button>
                   <div class="login-secondary-links">
+                    <button type="button" class="login-link-btn" :disabled="externalLinkLoading || accountLoading" @click="openMidishowWebLogin(signupUrl)">
+                      <Globe :size="13" />
+                      <span>网页注册</span>
+                    </button>
+                    <span class="link-separator">·</span>
                     <button type="button" class="login-link-btn" :disabled="externalLinkLoading || accountLoading" @click="openMidishowSignup">
                       <Loader2 v-if="externalLinkLoading" :size="13" class="spin" />
                       <ExternalLink v-else :size="13" />
@@ -3115,7 +3264,7 @@ onUnmounted(async () => {
                 <Search :size="16" />
                 <input v-model="onlineKeyword" :placeholder="t('vrpiano.search_by_title_artist_or_keyword')" @keydown.enter="searchOnline">
                 <div class="online-search-actions">
-                  <button :disabled="onlineLoading || !onlineKeyword.trim()" @click="searchOnline">
+                  <button @click="searchOnline">
                     <Loader2 v-if="onlineLoading" :size="16" class="spin" />
                     <span v-else>{{ t('vrpiano.search') }}</span>
                   </button>
@@ -3123,6 +3272,30 @@ onUnmounted(async () => {
                     <ExternalLink :size="16" />
                   </button>
                 </div>
+              </div>
+              <!-- 数据源状态：本地索引离线可用；中文曲库撞上人机验证时才需要用户点一次 -->
+              <div class="flex flex-wrap items-center gap-2 text-[11px] font-bold text-text-muted mt-1">
+                <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 border border-emerald-500/25">
+                  {{ t('vrpiano.online_index_badge', { count: onlineIndexCount }) }}
+                </span>
+                <span v-if="onlineChineseStatus === 'searching'" class="px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/25">
+                  {{ t('vrpiano.online_chinese_searching') }}
+                </span>
+                <template v-else-if="onlineChineseStatus === 'needs-verify'">
+                  <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/25">
+                    {{ t('vrpiano.online_chinese_needs_verify') }}
+                  </span>
+                  <button
+                    type="button"
+                    class="px-2 py-0.5 rounded-md border border-primary/30 text-primary hover:bg-primary/10 flex items-center gap-1"
+                    :disabled="verifyingChineseLibrary"
+                    @click="unlockChineseLibrary"
+                  >
+                    <Loader2 v-if="verifyingChineseLibrary" :size="12" class="spin" />
+                    <ShieldCheck v-else :size="12" />
+                    {{ t('vrpiano.online_unlock_chinese') }}
+                  </button>
+                </template>
               </div>
               <div class="input-row download-row">
                 <Link2 :size="16" />
@@ -3135,14 +3308,27 @@ onUnmounted(async () => {
             </div>
 
             <div class="online-results">
-              <div v-for="item in onlineResults" :key="`${item.source || 'midishow'}-${item.id}`" class="online-row">
+              <div v-if="onlineResults.length" class="flex flex-wrap items-center gap-1.5 mb-2">
+                <button
+                  v-for="chip in (['all', 'local', 'bitmidi', 'midishow'] as const)"
+                  :key="chip"
+                  type="button"
+                  class="px-2 py-0.5 rounded-md border text-[11px] font-bold transition-colors"
+                  :class="onlineFilter === chip ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border-soft text-text-muted hover:text-text'"
+                  @click="onlineFilter = chip"
+                >
+                  {{ chip === 'all' ? t('vrpiano.online_filter_all') : chip === 'local' ? t('vrpiano.online_filter_local') : chip === 'bitmidi' ? 'BitMidi' : t('vrpiano.online_filter_chinese') }}
+                  <span class="opacity-70">{{ onlineSourceCounts[chip] }}</span>
+                </button>
+              </div>
+              <div v-for="item in filteredOnlineResults" :key="`${item.source || 'midishow'}-${item.id}`" class="online-row">
                 <div class="online-meta">
                   <div class="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
                     <span
                       class="text-[10px] font-bold px-1.5 py-0.5 rounded leading-none shrink-0"
                       :class="item.source === 'bitmidi' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : item.source === 'local' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-primary/15 text-primary border border-primary/30'"
                     >
-                      {{ item.source === 'bitmidi' ? 'BitMidi' : item.source === 'local' ? '本地' : 'MidiShow' }}
+                      {{ item.source === 'bitmidi' ? 'BitMidi' : item.source === 'local' ? t('vrpiano.online_filter_local') : 'Midishow' }}
                     </span>
                     <strong class="text-[13px] text-text-strong font-medium truncate flex-1 min-w-0" :title="item.title">{{ item.title }}</strong>
                   </div>

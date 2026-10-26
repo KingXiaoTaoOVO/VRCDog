@@ -126,7 +126,11 @@ const handleImport = async () => {
       importResult.value = t('auto_1a05ef0f');
       importSuccess.value = true;
       setTimeout(() => {
-        invoke('process::restart');
+        // `process::restart` 需要 tauri-plugin-process，本项目并未安装；
+        // 之前这里静默 rejected，导入成功后应用永远不会重启。
+        invoke('update_restart').catch((err) => {
+          console.error('Restart after restore failed:', err);
+        });
       }, 2000);
     } else {
       importResult.value = t('auto_20fdb3a3');
@@ -487,7 +491,7 @@ onUnmounted(() => {
         <div class="bg-surface-hover rounded-lg p-3 border border-border-soft">
           <div class="text-text-muted mb-1">{{ t('export.db_location') || '存储位置' }}</div>
           <div class="font-mono text-text text-[11px] leading-snug break-all">
-            %APPDATA%\VRCDog\vrcdog.db
+            %APPDATA%\com.vrcenvbuilder.dev\vrcdog.db
           </div>
           <div class="text-[10px] text-text-muted mt-1">Windows · {{ t('export.db_loc_hint') || '如需手动备份可直接复制该文件。' }}</div>
         </div>

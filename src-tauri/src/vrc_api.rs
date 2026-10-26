@@ -420,6 +420,34 @@ fn parse_http_url_with_allowlist(
     ))
 }
 
+/// 本地 VRCDog 服务端专用的 URL 解析。默认 `clientServerUrl` 就是
+/// `http://127.0.0.1:11451`，而通用 `parse_http_url` 会以 SSRF 防护为由拒绝
+/// 所有 loopback，导致仪表盘、问卷门禁、角色页在默认配置下全部静默失败。
+/// 这里只放行本机地址，内网/元数据地址仍被拦截。
+fn parse_loopback_url(raw: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw).map_err(|error| format!("Invalid request URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!("Unsupported request URL scheme: {}", url.scheme()));
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "请求 URL 缺少主机名".to_string())?;
+    let normalized = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    let is_loopback = normalized == "localhost"
+        || normalized.ends_with(".localhost")
+        || normalized
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false);
+    if !is_loopback {
+        return Err(format!("本地服务端请求只允许 loopback 地址: {host}"));
+    }
+    Ok(url)
+}
+
 fn parse_http_method(raw: &str) -> Result<reqwest::Method, String> {
     reqwest::Method::from_bytes(raw.trim().to_uppercase().as_bytes())
         .map_err(|error| format!("Invalid HTTP method: {error}"))
@@ -556,8 +584,28 @@ mod cookie_tests {
 mod external_host_tests {
     use super::{
         external_host_is_blocked, host_matches_allowlist, host_resolves_to_blocked_address,
-        parse_http_url_with_allowlist,
+        parse_http_url_with_allowlist, parse_loopback_url,
     };
+
+    #[test]
+    fn local_server_url_allows_only_loopback() {
+        for allowed in [
+            "http://127.0.0.1:11451/api/ping",
+            "http://localhost:11451/api/ping",
+            "http://[::1]:11451/api/ping",
+        ] {
+            assert!(parse_loopback_url(allowed).is_ok(), "should allow {allowed}");
+        }
+        for blocked in [
+            "http://192.168.1.10:11451/api/ping",
+            "http://169.254.169.254/latest/meta-data",
+            "http://10.0.0.5:11451/",
+            "http://example.com/api/ping",
+            "file:///C:/Windows/win.ini",
+        ] {
+            assert!(parse_loopback_url(blocked).is_err(), "should block {blocked}");
+        }
+    }
 
     #[test]
     fn blocks_classic_ssrf_targets() {
@@ -726,6 +774,10 @@ pub struct RequestOptions {
     pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub allow_external_host: bool,
+    /// 仅用于本机 VRCDog 服务端（http://127.0.0.1:<port>）。与
+    /// `allow_external_host` 分开，避免通用外部请求被放开到 loopback。
+    #[serde(default)]
+    pub allow_loopback: bool,
 }
 
 #[derive(Serialize)]
@@ -745,7 +797,11 @@ pub async fn vrc_execute(
     let client = state.client.read().await.clone();
 
     let method = parse_http_method(&options.method)?;
-    let request_url = parse_http_url(&options.url, options.allow_external_host)?;
+    let request_url = if options.allow_loopback {
+        parse_loopback_url(&options.url)?
+    } else {
+        parse_http_url(&options.url, options.allow_external_host)?
+    };
 
     let mut req = client.request(method, request_url.clone());
 

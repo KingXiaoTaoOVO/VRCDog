@@ -1395,9 +1395,21 @@ export const VrpianoApi = {
       filename: params.filename || null,
     },
   }),
-  searchMidishow: (params: { keyword: string; maxResults?: number }) => safeInvoke<VrpianoOnlineSong[]>('vrpiano_search_midishow', {
+  searchMidishow: (params: { keyword: string; maxResults?: number; altKeywords?: string[]; requestId?: number }) => safeInvoke<VrpianoOnlineSong[]>('vrpiano_search_midishow', {
     keyword: params.keyword,
     maxResults: params.maxResults || 30,
+    altKeywords: params.altKeywords && params.altKeywords.length ? params.altKeywords : null,
+    requestId: params.requestId ?? null,
+  }),
+  searchMidishowVerified: (params: { keyword: string; maxResults?: number; requestId?: number }) =>
+    safeInvoke<VrpianoOnlineSong[]>('vrpiano_search_midishow_verified', {
+      keyword: params.keyword,
+      maxResults: params.maxResults || 30,
+      requestId: params.requestId ?? null,
+    }),
+  bitmidiIndexStatus: () => safeInvoke<{ count: number; syncedAtMs: number; cooldownUntilMs: number }>('vrpiano_bitmidi_index_status'),
+  bitmidiIndexSync: (params?: { force?: boolean }) => safeInvoke<number>('vrpiano_bitmidi_index_sync', {
+    force: params?.force ?? null,
   }),
   downloadMidishow: (params: {
     midiId: number;
@@ -1440,6 +1452,9 @@ export const VrpianoApi = {
       account: params.account,
       password: params.password,
     },
+  }),
+  midishowOpenWebLogin: (params?: { url?: string }) => safeInvoke<VrpianoMidishowLoginStatus>('vrpiano_midishow_open_web_login', {
+    url: params?.url || null,
   }),
   midishowImportCookie: (params: { cookie: string; accountName?: string }) => safeInvoke<VrpianoMidishowAccount>('vrpiano_midishow_import_cookie', {
     cookie: params.cookie,

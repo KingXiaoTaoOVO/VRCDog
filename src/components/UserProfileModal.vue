@@ -686,8 +686,13 @@ async function loadFriendStats() {
     let totalMs = 0;
     let earliestFriendAdd: string | null = null;
 
-    for (const log of logs) {
-      const t = (log as any).type;
+    // 后端返回的是 event_type，且按 id DESC（新→旧）。旧代码读 `type`（永远是
+    // undefined）又在倒序里配对 join/left，两者叠加导致统计恒为 0。
+    const ordered = [...logs].sort((a: any, b: any) =>
+      new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+    for (const log of ordered) {
+      const t = (log as any).event_type;
       const ts = (log as any).created_at ? new Date((log as any).created_at).getTime() : 0;
       if (!ts) continue;
 

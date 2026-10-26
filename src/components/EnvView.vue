@@ -563,7 +563,7 @@ onMounted(() => {
                 {{ t('env.launch_vcc') || 'Launch VCC' }}
               </button>
               <button
-                class="flex-1 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-white font-bold shadow-lg shadow-slate-900/30 transition-colors"
+                class="flex-1 py-2.5 rounded-xl bg-surface hover:bg-surface-hover text-text font-bold shadow-lg shadow-slate-900/30 transition-colors"
                 @click="executeLaunch('alcom')"
               >
                 {{ t('env.launch_alcom') || 'Launch ALCOM' }}

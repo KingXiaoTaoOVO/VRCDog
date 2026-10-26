@@ -47,7 +47,7 @@ const selectOption = (type: string) => {
 <template>
   <div v-if="isVisible" class="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh] px-4">
     <!-- Backdrop -->
-    <div class="absolute inset-0 bg-background/80 backdrop-blur-md/60 backdrop-blur-sm" @click="isVisible = false"></div>
+    <div class="absolute inset-0 bg-background/80 backdrop-blur-sm" @click="isVisible = false"></div>
     
     <!-- Modal -->
     <div class="relative w-full max-w-[600px] bg-surface rounded-xl shadow-2xl border-transparent overflow-hidden transform transition-all text-text-muted">
@@ -59,7 +59,7 @@ const selectOption = (type: string) => {
           v-model="searchQuery"
           type="text" 
           :placeholder="$t('auto_e5f71fc3')" 
-          class="flex-1 bg-transparent border-none outline-none text-lg text-white placeholder-slate-500"
+          class="flex-1 bg-transparent border-none outline-none text-lg text-text placeholder:text-text-muted"
           @keydown.enter="selectOption('all')"
         >
       </div>
@@ -69,44 +69,44 @@ const selectOption = (type: string) => {
         <div class="px-3 py-2 text-xs font-bold text-text-muted mb-1">{{ $t('auto_e978cbe8') }}</div>
         
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface-hover cursor-pointer transition-colors group"
           @click="selectOption('user')"
         >
           <div class="flex items-center gap-3">
-            <Users class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <Users class="w-4 h-4 text-border-strong group-hover:text-text" />
             <span class="text-sm font-medium">{{ $t('auto_59d29a36') }}</span>
           </div>
           <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_6d337922') }}</span>
         </div>
 
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface-hover cursor-pointer transition-colors group"
           @click="selectOption('avatar')"
         >
           <div class="flex items-center gap-3">
-            <Ghost class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <Ghost class="w-4 h-4 text-border-strong group-hover:text-text" />
             <span class="text-sm font-medium">{{ $t('auto_8000f187') }}</span>
           </div>
           <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_f7c19728') }}</span>
         </div>
 
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface-hover cursor-pointer transition-colors group"
           @click="selectOption('world')"
         >
           <div class="flex items-center gap-3">
-            <Globe class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <Globe class="w-4 h-4 text-border-strong group-hover:text-text" />
             <span class="text-sm font-medium">{{ $t('auto_c086b300') }}</span>
           </div>
           <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_c201c3af') }}</span>
         </div>
 
         <div 
-          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface cursor-pointer transition-colors group"
+          class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-surface-hover cursor-pointer transition-colors group"
           @click="selectOption('group')"
         >
           <div class="flex items-center gap-3">
-            <UsersRound class="w-4 h-4 text-border-strong group-hover:text-white" />
+            <UsersRound class="w-4 h-4 text-border-strong group-hover:text-text" />
             <span class="text-sm font-medium">{{ $t('auto_4b0ab7ba') }}</span>
           </div>
           <span class="text-xs text-text-muted group-hover:text-border-strong">{{ $t('auto_7bd27eb1') }}</span>

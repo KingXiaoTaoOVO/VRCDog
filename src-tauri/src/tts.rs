@@ -224,15 +224,28 @@ mod tests {
     }
 }
 
+/// 单次 TTS 响应上限。既防止恶意/故障服务端把整块内存吃满，也避免把
+/// HTTP 错误页当成音频缓存下来。
+const MAX_TTS_AUDIO_BYTES: usize = 32 * 1024 * 1024;
+
 async fn response_audio(response: reqwest::Response) -> Result<(String, Vec<u8>), String> {
     let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("audio/wav").split(';').next().unwrap_or("audio/wav").to_ascii_lowercase();
     let bytes = response.bytes().await.map_err(|error| error.to_string())?.to_vec();
+    if bytes.len() > MAX_TTS_AUDIO_BYTES {
+        return Err(format!("TTS 响应过大 ({} 字节)", bytes.len()));
+    }
     if content_type.contains("json") {
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| format!("TTS JSON 响应无效: {error}"))?;
         if let Some(url) = value.get("audio_url").or_else(|| value.get("url")).and_then(serde_json::Value::as_str) {
             let fetched = Client::new().get(url).send().await.map_err(|error| error.to_string())?;
+            if !fetched.status().is_success() {
+                return Err(format!("TTS 音频下载失败: HTTP {}", fetched.status()));
+            }
             let fetched_content_type = fetched.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("audio/wav").split(';').next().unwrap_or("audio/wav").to_string();
             let fetched_bytes = fetched.bytes().await.map_err(|error| error.to_string())?.to_vec();
+            if fetched_bytes.len() > MAX_TTS_AUDIO_BYTES {
+                return Err(format!("TTS 音频过大 ({} 字节)", fetched_bytes.len()));
+            }
             return Ok((fetched_content_type, fetched_bytes));
         }
         if let Some(encoded) = value.get("audio").or_else(|| value.get("data")).and_then(serde_json::Value::as_str) {

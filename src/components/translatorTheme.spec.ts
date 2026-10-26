@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -8,7 +8,9 @@ import { describe, expect, it } from 'vitest';
  * styles.css 里已经为同类问题把 `dark:` 变体改成显式类名触发，这里守住另一半：
  * 页面骨架的中性色与强调色必须走主题 token，语义状态色（emerald / indigo / cyan / rose / red）不受限。
  */
-const source = readFileSync(fileURLToPath(new URL('./TranslatorView.vue', import.meta.url)), 'utf-8');
+// `import.meta.url` 在 Vitest 的分叉池里不一定是 file: URL（fileURLToPath 会直接抛
+// "The URL must be of scheme file"）；用项目根 + 相对路径读源码，任何运行器下都成立。
+const source = readFileSync(resolve(process.cwd(), 'src/components/TranslatorView.vue'), 'utf-8');
 const template = source.slice(source.indexOf('<template>'));
 
 const NEUTRAL = /(?:bg|text|border|placeholder|ring|shadow|divide|from|via|to)-(?:slate|gray|zinc|neutral)-\d{2,3}/g;

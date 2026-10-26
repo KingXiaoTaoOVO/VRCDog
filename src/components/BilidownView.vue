@@ -286,7 +286,7 @@ const selectParsedItem = async (item: any, index: number) => {
     }
 };
 
-const downloadParsedItem = async (item: any) => {
+const downloadParsedItem = async (item: any): Promise<boolean> => {
     // 这里原本是一个裸 `await invoke(...)`：模板里 `@click="downloadParsedItem(item).then(loadTasks)"`
     // 没有 .catch，失败只会变成 unhandled rejection —— 用户看到的就是「点了没反应」。
     try {
@@ -298,10 +298,12 @@ const downloadParsedItem = async (item: any) => {
             cover: item.cover || '',
             sessdata: sessdata.value
         });
+        return true;
     } catch (e: any) {
         const detail = e?.message ? String(e.message) : String(e);
         errorMsg.value = t('bilidown.download_error') + detail;
         showToast(errorMsg.value, 'error');
+        return false;
     }
 };
 
@@ -312,11 +314,18 @@ const downloadAllParsed = async () => {
     downloadDetail.value = t('bilidown.prepare_download');
 
     try {
+        const total = parsedItems.value.length;
+        let added = 0;
         for (const item of parsedItems.value) {
-            await downloadParsedItem(item);
+            if (await downloadParsedItem(item)) added += 1;
         }
         await loadTasks();
-        showToast(`${parsedItems.value.length} task(s) added`, 'success');
+        // downloadParsedItem 内部会吞掉单条失败，这里必须按实际成功数汇报，
+        // 否则全失败也会弹「N 个任务已添加」。
+        showToast(
+            t('bilidown.batch_added', { added, total }),
+            added === total ? 'success' : added === 0 ? 'error' : 'info'
+        );
     } catch (e: any) {
         errorMsg.value = t('bilidown.download_error') + e.toString();
     } finally {

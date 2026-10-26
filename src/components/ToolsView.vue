@@ -341,11 +341,17 @@ const clearChatHistory = () => {
 };
 
 const toggleKeepalive = async () => {
-  chatboxKeepalive.value = !chatboxKeepalive.value;
-  if (chatboxKeepalive.value) {
-    await SysApi.startChatboxKeepalive();
-  } else {
-    await SysApi.stopChatboxKeepalive();
+  const next = !chatboxKeepalive.value;
+  chatboxKeepalive.value = next;
+  try {
+    if (next) {
+      await SysApi.startChatboxKeepalive();
+    } else {
+      await SysApi.stopChatboxKeepalive();
+    }
+  } catch (err: any) {
+    chatboxKeepalive.value = !next;
+    chatboxStatus.value = { loading: false, message: t('tools.chatbox_fail', { err: err?.message || err }), type: 'error' };
   }
 };
 

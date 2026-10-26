@@ -270,6 +270,12 @@ fn default_vr_menu_text_muted() -> String {
 fn default_merge_x() -> f32 {
     0.2
 }
+/// 日志预览用的字符安全截断：`str::len()` 是字节数，直接切片会在 CJK 文本中间
+/// 裂开（panic: byte index is not a char boundary），扫描结果日志因此整条丢失。
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
 fn default_merge_y() -> f32 {
     0.3
 }
@@ -1285,14 +1291,14 @@ fn vr_thread_main(
                                         "ovr_log",
                                         format!(
                                             "[OVR] ✅ 桌面翻译完成: {}",
-                                            &translated[..translated.len().min(50)]
+                                            truncate_chars(&translated, 50)
                                         ),
                                     );
-                                    tokio::runtime::Handle::current().block_on(async {
+                                    {
                                         let mut s = status_c.lock().await;
                                         s.last_event = "desktop_scan_result".to_string();
                                         s.overlay_visible = true;
-                                    });
+                                    }
                                     let _ = tx.send((original, translated));
                                 }
                                 Err(e) => {
@@ -2527,14 +2533,14 @@ fn vr_thread_main(
                                     "ovr_log",
                                     format!(
                                         "[OVR] ✅ 翻译完成: {}",
-                                        &translated[..translated.len().min(50)]
+                                        truncate_chars(&translated, 50)
                                     ),
                                 );
-                                tokio::runtime::Handle::current().block_on(async {
+                                {
                                     let mut s = status_c.lock().await;
                                     s.last_event = "scan_result".to_string();
                                     s.overlay_visible = true;
-                                });
+                                }
                                 let _ = tx.send((original, translated));
                             }
                             Err(e) => {
@@ -2722,14 +2728,14 @@ fn vr_thread_main(
                                 "ovr_log",
                                 format!(
                                     "[OVR] ✅ 自动翻译: {}",
-                                    &translated[..translated.len().min(40)]
+                                    truncate_chars(&translated, 40)
                                 ),
                             );
-                            tokio::runtime::Handle::current().block_on(async {
+                            {
                                 let mut s = status_c.lock().await;
                                 s.last_event = "auto_scan_result".to_string();
                                 s.overlay_visible = true;
-                            });
+                            }
                             let _ = tx.send((original, translated));
                         }
                         Err(e) => {
@@ -3090,7 +3096,7 @@ pub async fn ovr_desktop_scan_once(
                         "ovr_log",
                         format!(
                             "[OVR] ✅ 桌面翻译完成: {}",
-                            &translated[..translated.len().min(50)]
+                            truncate_chars(&translated, 50)
                         ),
                     );
                 }
@@ -3400,4 +3406,23 @@ pub async fn ovr_set_capture_quality(
         let _ = sender.send(OvrCommand::SetCaptureQuality(quality));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_chars;
+
+    #[test]
+    fn truncate_chars_never_splits_a_cjk_character() {
+        let text = "这是一段很长的中文翻译结果，用来验证截断不会落在字符中间";
+        let cut = truncate_chars(text, 10);
+        assert_eq!(cut.chars().count(), 10);
+        assert_eq!(cut, "这是一段很长的中文翻");
+    }
+
+    #[test]
+    fn truncate_chars_keeps_short_text_unchanged() {
+        assert_eq!(truncate_chars("ok", 50), "ok");
+        assert_eq!(truncate_chars("", 50), "");
+    }
 }

@@ -381,10 +381,9 @@ pub fn is_server_running() -> bool {
 
 pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Result<(), String> {
     let shutdown = CancellationToken::new();
-    // Store globally so stop_server can access it
-    if let Ok(mut lock) = SHUTDOWN_TOKEN.lock() {
-        *lock = Some(shutdown.clone());
-    }
+    // 注意：不要在这里发布 SHUTDOWN_TOKEN。端口绑定失败时旧代码已经把 token
+    // 设成 Some，is_server_running() 会撒谎、stop 也停不掉任何东西。
+    // 绑定成功后再发布（见下方 listener 之后）。
 
     let mut initial_roles = HashMap::new();
     initial_roles.insert(
@@ -526,6 +525,10 @@ pub async fn start_server(app_handle: AppHandle, host: String, port: u16) -> Res
             return Err(err_msg);
         }
     };
+
+    if let Ok(mut lock) = SHUTDOWN_TOKEN.lock() {
+        *lock = Some(shutdown.clone());
+    }
 
     let _ = app_handle.emit(
         "server_log",
@@ -1159,8 +1162,17 @@ async fn handle_admin_kick(
     State(state): State<SharedState>,
     Json(req): Json<UserIdRequest>,
 ) -> impl IntoResponse {
-    let is_banned = state.bans.lock().await.contains_key(&req.user_id);
-    let is_frozen = state.frozen.lock().await.contains_key(&req.user_id);
+    // 全局锁顺序固定为 clients → users → bans → frozen（见 cleanup 任务）。
+    // 这里必须先把 bans/frozen 读完并释放，再拿 clients，否则会和清理任务
+    // 形成 ABBA 死锁，之后所有心跳/管理请求都会永久挂起。
+    let is_banned = {
+        let bans = state.bans.lock().await;
+        bans.contains_key(&req.user_id)
+    };
+    let is_frozen = {
+        let frozen = state.frozen.lock().await;
+        frozen.contains_key(&req.user_id)
+    };
     let mut clients = state.clients.lock().await;
     let mut users = state.users.lock().await;
     if clients.remove(&req.user_id).is_some() {
@@ -1257,8 +1269,12 @@ async fn handle_admin_unban(
     State(state): State<SharedState>,
     Json(req): Json<UserIdRequest>,
 ) -> impl IntoResponse {
-    let mut bans = state.bans.lock().await;
-    if bans.remove(&req.user_id).is_some() {
+    let removed = {
+        let mut bans = state.bans.lock().await;
+        bans.remove(&req.user_id).is_some()
+    };
+    if removed {
+        // 释放 bans 后再拿 clients，保持 clients → users → bans → frozen 顺序。
         let is_online = state.clients.lock().await.contains_key(&req.user_id);
         let is_frozen = state.frozen.lock().await.contains_key(&req.user_id);
         if !is_online && !is_frozen {
@@ -1333,10 +1349,17 @@ async fn handle_admin_unfreeze(
     State(state): State<SharedState>,
     Json(req): Json<UserIdRequest>,
 ) -> impl IntoResponse {
-    let mut frozen = state.frozen.lock().await;
-    if frozen.remove(&req.user_id).is_some() {
+    let removed = {
+        let mut frozen = state.frozen.lock().await;
+        frozen.remove(&req.user_id).is_some()
+    };
+    if removed {
+        // 同上：释放 frozen 后再拿 clients，避免与清理任务互锁。
         let is_online = state.clients.lock().await.contains_key(&req.user_id);
-        let is_banned = state.bans.lock().await.contains_key(&req.user_id);
+        let is_banned = {
+            let bans = state.bans.lock().await;
+            bans.contains_key(&req.user_id)
+        };
         if !is_online && !is_banned {
             let mut users = state.users.lock().await;
             users.remove(&req.user_id);

@@ -124,6 +124,26 @@ impl DbState {
                 data TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
+            -- 世界 / Avatar 本地实体库：详情页成功请求后写入完整 JSON，
+            -- 断网或 API 抖动时回退到这里，避免名称和缩略图变成裸 ID。
+            CREATE TABLE IF NOT EXISTS world_meta (
+                world_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
+                image_url TEXT,
+                author_id TEXT,
+                author_name TEXT,
+                data_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE IF NOT EXISTS avatar_meta (
+                avatar_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
+                image_url TEXT,
+                author_id TEXT,
+                author_name TEXT,
+                data_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
             CREATE TABLE IF NOT EXISTS bili_tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bvid TEXT NOT NULL,
@@ -573,18 +593,21 @@ pub struct FriendLogRecord {
 #[tauri::command]
 pub fn db_get_friend_logs(
     state: State<'_, DbState>,
+    user_id: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<Vec<FriendLogRecord>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    // 调用方（用户详情页）一直传 userId，但旧签名把它丢掉了：个人页的
+    // 「见面次数 / 加好友时间」实际读的是所有好友的全局日志。
     let mut stmt = conn
-        .prepare("SELECT id, event_type, user_id, display_name, detail, created_at FROM friend_log ORDER BY id DESC LIMIT ?1 OFFSET ?2")
+        .prepare("SELECT id, event_type, user_id, display_name, detail, created_at FROM friend_log WHERE (?1 IS NULL OR user_id = ?1) ORDER BY id DESC LIMIT ?2 OFFSET ?3")
         .map_err(|e| e.to_string())?;
     let lim = limit.unwrap_or(200);
     let off = offset.unwrap_or(0);
 
     let logs = stmt
-        .query_map(params![lim, off], |row| {
+        .query_map(params![user_id, lim, off], |row| {
             Ok(FriendLogRecord {
                 id: row.get(0)?,
                 event_type: row.get(1)?,
@@ -735,7 +758,7 @@ pub fn db_export_all(state: State<'_, DbState>) -> Result<serde_json::Value, Str
             result.insert("notes".to_string(), v);
         }
     }
-    if let Ok(logs) = db_get_friend_logs(state.clone(), Some(10000), Some(0)) {
+    if let Ok(logs) = db_get_friend_logs(state.clone(), None, Some(10000), Some(0)) {
         if let Ok(v) = serde_json::to_value(logs) {
             result.insert("friend_logs".to_string(), v);
         }
@@ -935,11 +958,13 @@ pub fn db_save_game_logs(state: State<'_, DbState>, logs_json: String) -> Result
             )
             .map_err(|e| e.to_string())?;
         for log in &logs {
-            let res = stmt.execute(params![log.time, log.event_type, log.content]);
-            if let Ok(affected) = res {
-                if affected > 0 {
-                    count += 1;
-                }
+            // 不能让单行 SQL 失败被吞掉：旧实现会跳过该行继续提交事务，
+            // 磁盘满/库锁定时日志静默丢失，命令却返回成功。
+            let affected = stmt
+                .execute(params![log.time, log.event_type, log.content])
+                .map_err(|e| format!("写入游戏日志失败: {e}"))?;
+            if affected > 0 {
+                count += 1;
             }
         }
     }

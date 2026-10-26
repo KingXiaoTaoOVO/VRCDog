@@ -137,7 +137,7 @@ const pickFolderForConfig = async (key: string) => {
   }
 };
 
-const config = ref({
+const createDefaultSettings = () => ({
   autoCheckUpdate: true,
   autoStart: false,
   minimizeToTray: true,
@@ -241,6 +241,8 @@ const config = ref({
   friendColorVeteran: '#FF2826',
   friendColorLegend: '#7B2F2F'
 });
+
+const config = ref(createDefaultSettings());
 
 // 主题切换立即生效
 watch(() => config.value.theme, (newTheme) => {
@@ -402,10 +404,20 @@ const saveSettings = async () => {
     saved.value = true;
     setTimeout(() => { saved.value = false; }, 2000);
   } catch (err) {
-    console.warn('Failed to save settings:', err);
+    console.error('Failed to save settings:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    toast.error(t('settings.save_failed', { error: detail }));
+    saved.value = false;
   } finally {
     isSaving.value = false;
   }
+};
+
+const resetAllSettings = async () => {
+  if (!confirm(t('settings.reset_all_confirm'))) return;
+  config.value = createDefaultSettings();
+  await saveSettings();
+  toast.success(t('settings.reset_all_done'));
 };
 
 // 调试控制台开关：立即同步全局标志，无需等待保存
@@ -1816,12 +1828,15 @@ const selectInterfaceLanguage = (nextLocale: string) => {
                   <AlertTriangle :size="20" />
                 </div>
                 <div>
-                  <h2 class="text-xl font-bold text-red-400">Danger Zone</h2>
-                  <p class="text-xs text-red-400/60">Destructive actions cannot be undone</p>
+                  <h2 class="text-xl font-bold text-red-400">{{ t('settings.danger_zone') }}</h2>
+                  <p class="text-xs text-red-400/60">{{ t('settings.danger_zone_desc') }}</p>
                 </div>
               </div>
-              <button class="px-6 py-2 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-xl text-sm font-bold transition-all border border-red-500/20 active:scale-95">
-                Reset All Settings
+              <button
+                class="px-6 py-2 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-xl text-sm font-bold transition-all border border-red-500/20 active:scale-95"
+                @click="resetAllSettings"
+              >
+                {{ t('settings.reset_all_settings') }}
               </button>
             </div>
           </section>

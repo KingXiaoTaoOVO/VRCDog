@@ -151,6 +151,9 @@ const deleteImage = async (img: GalleryImage) => {
     await GalleryApi.deleteImage({ path: img.path });
     previewImage.value = null;
     images.value = images.value.filter(i => i.path !== img.path);
+    // offset 记录的是「已从服务端取到第几条」；删除后总量少了一条，
+    // 不回收 offset 会让下一次分页跳过紧随其后的那张图。
+    if (offset.value > 0) offset.value -= 1;
   } catch (err) {
     console.error('Failed to delete image:', err);
     toast.error(t('auto_282947e8'));

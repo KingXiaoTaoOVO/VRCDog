@@ -516,7 +516,13 @@
     "lang_zh": "Dog (Simplified Chinese)",
     "lang_ja": "Helmet (Japanese)",
     "compact": "Compact",
-    "normal": "Standard"
+    "normal": "Standard",
+    "save_failed": "Failed to save settings: {error}",
+    "danger_zone": "Danger Zone",
+    "danger_zone_desc": "Destructive actions cannot be undone",
+    "reset_all_settings": "Reset All Settings",
+    "reset_all_confirm": "Restore all settings to their defaults? This cannot be undone.",
+    "reset_all_done": "All settings restored to defaults"
   },
   "status_presets": {
     "title": "Status Presets",
@@ -2385,6 +2391,7 @@
     "open_fail": "Failed to open: ",
     "prepare_download": "Preparing to download...",
     "download_error": "Download error: ",
+    "batch_added": "Added {added} of {total} download tasks",
     "tab_title": "Cross-Platform Media Parser",
     "platform_bilibili": "Bilibili",
     "platform_xhs": "Xiaohongshu",
@@ -3440,6 +3447,16 @@
     "mute": "Mute",
     "solo": "Solo",
     "no_results_for_keyword": "No results for \"{keyword}\". Try another keyword, ID, or URL.",
+    "online_index_badge": "BitMidi top index: {count} songs (offline)",
+    "online_chinese_searching": "Searching the Chinese library in the background…",
+    "online_chinese_needs_verify": "Chinese library needs a one-time verification",
+    "online_unlock_chinese": "Verify & search Chinese library",
+    "online_chinese_no_results": "The Chinese library returned nothing. Retry later or paste an ID/URL.",
+    "online_filter_all": "All",
+    "online_filter_local": "Local",
+    "online_filter_chinese": "Chinese",
+    "online_headline": "Local library + BitMidi top index (offline, instant) + Midishow Chinese library. Preview, download, or paste an ID/URL.",
+    "online_login_optional": "Search and download work without signing in; login only improves the Chinese (Midishow) library.",
     "active_instrument_follow": "Follow MIDI: {instrument}",
     "active_instrument_manual": "Manual instrument: {instrument}",
     "overlay_creation_failed": "Could not create overlay: {error}",
@@ -3599,7 +3616,7 @@
     "play_settings": "Play Settings",
     "channel_controls_desc": "16-channel mute, solo, route, and volume controls",
     "sustain_pedal": "Sustain Pedal",
-    "midishow_search_timeout": "Midishow search timed out. Check your proxy, or click the browser button to open the official search."
+    "midishow_search_timeout": "Online search timed out. Check your network or proxy, or use the browser button to open the official search."
   },
   "danmaku": {
     "streamer_theme": "Streamer theme",

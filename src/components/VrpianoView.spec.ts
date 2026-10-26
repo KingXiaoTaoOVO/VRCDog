@@ -37,6 +37,12 @@ const mocks = vi.hoisted(() => {
       listSongs: vi.fn(async () => [{ id: 'song-1', name: 'Test Song', path: 'C:/songs/test.mid', size: 10, modified_ms: 1 }]),
       midishowAccounts: vi.fn(async () => []),
       midishowLoginStatus: vi.fn(async () => ({ state: 'idle', message: '', username: null })),
+      // 组件挂载时会浏览一次在线曲库并读取本地索引状态，缺这两个 mock 会变成
+      // 未处理的 Promise rejection，把整条测试链路的退出码污染掉。
+      searchMidishow: vi.fn(async () => []),
+      searchMidishowVerified: vi.fn(async () => []),
+      bitmidiIndexStatus: vi.fn(async () => ({ count: 0, syncedAtMs: 0, cooldownUntilMs: 0 })),
+      bitmidiIndexSync: vi.fn(async () => 0),
       readSongData: vi.fn(async () => {
         throw new Error('test read');
       }),

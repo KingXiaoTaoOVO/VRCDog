@@ -508,7 +508,13 @@
     "web_update_checking": "Webアップデートを確認中...",
     "web_update_available": "新しいバージョン {version} が利用可能です。クリックして再読み込み。",
     "web_update_latest": "Webは最新バージョンです",
-    "web_update_failed": "Webアップデートの確認に失敗しました: {error}"
+    "web_update_failed": "Webアップデートの確認に失敗しました: {error}",
+    "save_failed": "設定の保存に失敗しました：{error}",
+    "danger_zone": "危険ゾーン",
+    "danger_zone_desc": "以下の操作は元に戻せません",
+    "reset_all_settings": "すべての設定をリセット",
+    "reset_all_confirm": "すべての設定を既定値に戻しますか？この操作は元に戻せません。",
+    "reset_all_done": "すべての設定を既定値に戻しました"
   },
   "status_presets": {
     "title": "ステータスプリセット",
@@ -2250,6 +2256,7 @@
     "open_fail": "開けませんでした: ",
     "prepare_download": "ダウンロードの準備中...",
     "download_error": "ダウンロードエラー: ",
+    "batch_added": "{total} 件中 {added} 件のダウンロードタスクを追加しました",
     "tab_title": "クロスプラットフォームメディア解析",
     "platform_bilibili": "ビリビリ",
     "platform_xhs": "小紅書",
@@ -3267,6 +3274,16 @@
     "midishow_signin_not_completed": "Midishowへのサインインが完了していません: {error}",
     "no_matching_local_songs": "ローカル曲で「{query}」に一致するものはありません。",
     "no_results_for_keyword": "「{keyword}」の結果はありません。別のキーワード、ID、またはURLをお試しください。",
+    "online_index_badge": "BitMidi 人気インデックス {count} 曲（オフライン利用可）",
+    "online_chinese_searching": "中国語ライブラリをバックグラウンド検索中…",
+    "online_chinese_needs_verify": "中国語ライブラリは一度だけ認証が必要です",
+    "online_unlock_chinese": "認証して中国語ライブラリを検索",
+    "online_chinese_no_results": "中国語ライブラリは結果なし。後で再試行するか ID/URL を貼り付けてください。",
+    "online_filter_all": "すべて",
+    "online_filter_local": "ローカル",
+    "online_filter_chinese": "中国語",
+    "online_headline": "ローカル曲庫 + BitMidi 人気インデックス（オフライン即開）+ Midishow 中国語曲庫。試聴・ダウンロード・ID/URL 直接に対応。",
+    "online_login_optional": "ログインなしでも検索とダウンロードが可能。ログインは中国語（Midishow）曲庫の精度にのみ影響します。",
     "online_search_failed": "オンライン検索に失敗しました: {error}",
     "overlay_creation_failed": "オーバーレイを作成できませんでした: {error}",
     "play_mode_changed": "再生モード: {label}",
@@ -3342,7 +3359,7 @@
     "play_settings": "演奏モード設定",
     "channel_controls_desc": "16チャンネル ミュート/ソロ/ルーティング/音量",
     "sustain_pedal": "サステインペダル",
-    "midishow_search_timeout": "Midishow の検索がタイムアウトしました。プロキシを確認するか、ブラウザで検索を開いてください。"
+    "midishow_search_timeout": "オンライン検索がタイムアウトしました。ネットワーク/プロキシを確認するか、ブラウザで検索を開いてください。"
   },
   "danmaku": {
     "streamer_theme": "配信者テーマ",
