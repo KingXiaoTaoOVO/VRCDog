@@ -5,10 +5,20 @@ extern crate cmake;
 use std::env;
 
 fn main() {
-    let mut config = cmake::Config::new("openvr");
-    config.define("CMAKE_POLICY_VERSION_MINIMUM", "3.5");
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_pointer_width = env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap();
+
+    let manifest_dir = std::path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let prebuilt_dir = manifest_dir.join("openvr").join("bin").join("win64");
+    if target_os == "windows" && target_pointer_width == "64" && prebuilt_dir.join("openvr_api64.lib").exists() {
+        println!("cargo:rustc-link-search=native={}", prebuilt_dir.display());
+        println!("cargo:rustc-link-lib=static=openvr_api64");
+        println!("cargo:rustc-link-lib=shell32");
+        return;
+    }
+
+    let mut config = cmake::Config::new("openvr");
+    config.define("CMAKE_POLICY_VERSION_MINIMUM", "3.5");
 
     if target_os == "macos" {
         config.define("BUILD_UNIVERSAL", "OFF");
@@ -18,12 +28,6 @@ fn main() {
         config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
         // Work around broken cmake build.
         config.cxxflag("/DWIN32");
-        // Force the Visual Studio *multi-config* generator to build the Release
-        // configuration. For multi-config generators CMAKE_BUILD_TYPE is ignored,
-        // and the `cmake` crate otherwise passes `--config Debug` on `tauri dev`
-        // (cargo debug profile), producing an openvr_api64.lib linked against the
-        // debug CRT (/MDd). That conflicts with the app's release CRT and fails the
-        // final link with LNK4098 / unresolved __imp__CrtDbgReport / LNK1120.
         config.profile("Release");
     }
 

@@ -1333,8 +1333,56 @@ export interface VrpianoOnlineSong {
   page_url: string;
   /** Midishow 列表项的封面图 URL（已校验为 midishow 域或带图片后缀）。 */
   cover_url?: string | null;
-  source?: 'midishow' | 'bitmidi' | 'local' | string | null;
+  source?: 'midishow' | 'bitmidi' | 'local' | 'vrcdog_cloud' | string | null;
   download_url?: string | null;
+}
+
+export interface MidiCloudCategory {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  count: number;
+}
+
+export interface MidiCloudTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  category: string;
+  category_name: string;
+  tags: string[];
+  duration_secs: number;
+  notes_count: number;
+  difficulty: string;
+  file_size: number;
+  play_count: number;
+  download_count: number;
+  source: string;
+  source_name: string;
+  download_url: string;
+  preview_url: string;
+  description?: string;
+}
+
+export interface MidiCloudSource {
+  id: string;
+  name: string;
+  url: string;
+  source_type: string;
+  description: string;
+  enabled: boolean;
+  icon?: string;
+}
+
+export interface MidiCloudSearchResponse {
+  success: boolean;
+  total: number;
+  page: number;
+  limit: number;
+  categories: MidiCloudCategory[];
+  items: MidiCloudTrack[];
 }
 
 export interface VrpianoMidishowAccount {
@@ -1464,6 +1512,27 @@ export const VrpianoApi = {
   midishowRemoveAccount: (params: { username: string }) => safeInvoke<VrpianoMidishowAccount[]>('vrpiano_midishow_remove_account', {
     username: params.username,
   }),
+  cloudLibrarySearch: (params: {
+    keyword?: string;
+    category?: string;
+    tag?: string;
+    source?: string;
+    sort?: string;
+    page?: number;
+    limit?: number;
+  }) => safeInvoke<MidiCloudSearchResponse>('vrpiano_cloud_library_search', {
+    keyword: params.keyword || null,
+    category: params.category || null,
+    tag: params.tag || null,
+    source: params.source || null,
+    sort: params.sort || null,
+    page: params.page || null,
+    limit: params.limit || null,
+  }),
+  cloudLibraryCategories: () => safeInvoke<{ success: boolean; categories: MidiCloudCategory[]; total_tracks: number }>('vrpiano_cloud_library_categories'),
+  cloudLibrarySources: () => safeInvoke<{ success: boolean; sources: MidiCloudSource[] }>('vrpiano_cloud_library_sources'),
+  cloudSourcesGet: () => safeInvoke<MidiCloudSource[]>('vrpiano_cloud_sources_get'),
+  cloudSourcesSave: (sources: MidiCloudSource[]) => safeInvoke<void>('vrpiano_cloud_sources_save', { sources }),
   openSongsDir: () => safeInvoke<void>('vrpiano_open_songs_dir'),
   getStatus: () => safeInvoke<VrpianoStatus>('vrpiano_get_status'),
   start: (params: { songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; keyboardLayout?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start', {

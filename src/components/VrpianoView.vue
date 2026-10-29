@@ -9,10 +9,12 @@ import { songIcon, songCover, isImageIcon, useVrpianoIcons } from '../composable
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Effect, EffectState } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
+import MidiCloudLibraryModal from './MidiCloudLibraryModal.vue';
 import {
   AlertTriangle,
   CircleStop,
   Clock3,
+  Cloud,
   Copy,
   Download,
   Edit3,
@@ -145,6 +147,21 @@ const onlineChineseStatus = ref<'idle' | 'searching' | 'needs-verify' | 'done'>(
 const verifyingChineseLibrary = ref(false);
 const onlineIndexCount = ref(0);
 const onlineFilter = ref<'all' | 'local' | 'bitmidi' | 'midishow'>('all');
+const showCloudLibraryModal = ref(false);
+
+const handleCloudSongDownloaded = async (song: VrpianoSong) => {
+  await refreshSongs();
+  selectedPath.value = song.path;
+  addLog(`[云端曲库] 《${song.name}》已成功下载并收录到本地曲库`);
+};
+
+const handleCloudPlaySong = async (song: VrpianoSong) => {
+  await handleSongDblClickToPlay(song);
+};
+
+const handleCloudPreviewMidi = async (midiData: { name: string; data: string }) => {
+  await loadMidiIntoPlayer(midiData);
+};
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   state: 'idle',
@@ -2527,6 +2544,15 @@ onUnmounted(async () => {
                 <X :size="13" />
               </button>
             </div>
+            <button
+              class="cloud-lib-pill-btn"
+              type="button"
+              title="打开 VRCDog 社区与云端曲库"
+              @click="showCloudLibraryModal = true"
+            >
+              <Cloud :size="14" />
+              <span>云端曲库</span>
+            </button>
           </div>
         </div>
 
@@ -3268,6 +3294,15 @@ onUnmounted(async () => {
                     <Loader2 v-if="onlineLoading" :size="16" class="spin" />
                     <span v-else>{{ t('vrpiano.search') }}</span>
                   </button>
+                  <button
+                    class="online-cloud-btn"
+                    type="button"
+                    title="打开 VRCDog 社区与云端曲库"
+                    @click="showCloudLibraryModal = true"
+                  >
+                    <Cloud :size="16" />
+                    <span>云端曲库</span>
+                  </button>
                   <button type="button" :title="t('vrpiano.open_midishow_search_in_browser')" :disabled="onlineLoading" @click="openMidishowSearch">
                     <ExternalLink :size="16" />
                   </button>
@@ -3516,9 +3551,62 @@ onUnmounted(async () => {
       </form>
     </div>
   </div>
+
+  <!-- VRCDog 社区与云端曲库弹窗 -->
+  <MidiCloudLibraryModal
+    :show="showCloudLibraryModal"
+    :local-songs="songs"
+    @close="showCloudLibraryModal = false"
+    @play-song="handleCloudPlaySong"
+    @song-downloaded="handleCloudSongDownloaded"
+    @preview-midi="handleCloudPreviewMidi"
+  />
 </template>
 
 <style scoped>
+.cloud-lib-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #818cf8);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.cloud-lib-pill-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
+}
+
+.online-cloud-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border: none;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.online-cloud-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+}
 .vrpiano-shell {
   --vp-surface: var(--theme-surface, rgba(255, 252, 240, 0.62));
   --vp-panel: var(--theme-surface-hover, rgba(255, 252, 240, 0.82));

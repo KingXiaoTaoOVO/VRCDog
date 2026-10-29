@@ -34,6 +34,7 @@ use tracing::{error, info, warn};
 
 mod remote_assist_hub;
 mod survey;
+mod midi_library;
 
 use survey::{Survey, SurveyAnswerFile, SurveyClickEvent, SurveySettings, SurveySubmission};
 
@@ -2104,6 +2105,11 @@ fn router(state: AppState) -> Router {
         .route("/api/admin/auth", post(admin_auth))
         .route("/api/client/register", post(register))
         .route("/api/remote-assist/ws", get(remote_assist_ws))
+        .route("/api/midi/library", get(midi_library::midi_library_search))
+        .route("/api/midi/search", get(midi_library::midi_library_search))
+        .route("/api/midi/categories", get(midi_library::midi_library_categories))
+        .route("/api/midi/sources", get(midi_library::midi_library_sources))
+        .route("/api/midi/file/{id}", get(midi_library::midi_library_file))
         .merge(client_protected_routes)
         .merge(admin_routes)
         .layer(
