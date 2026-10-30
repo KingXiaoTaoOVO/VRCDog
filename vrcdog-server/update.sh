@@ -172,6 +172,21 @@ chown -R 10001:10001 "$SERVER_DIR/data" 2>/dev/null || true
 chmod -R 777 "$SERVER_DIR/data" 2>/dev/null || true
 chcon -Rt svirt_sandbox_file_t "$SERVER_DIR/data" 2>/dev/null || true
 
+# 检查是否已有 rust:1-bookworm 镜像，若缺失则通过稳定镜像源预拉取并打标，免疫 403 阻断
+if ! docker image inspect rust:1-bookworm >/dev/null 2>&1; then
+    echo " -> 尝试预拉取 Rust 构建基础镜像..."
+    for mirror_rust in \
+        "docker.m.daocloud.io/library/rust:1-bookworm" \
+        "swr.cn-north-4.myhuaweicloud.com/dockerhub/rust:1-bookworm" \
+        "mirror.baidubce.com/library/rust:1-bookworm"; do
+        if docker pull "$mirror_rust" 2>/dev/null; then
+            docker tag "$mirror_rust" rust:1-bookworm 2>/dev/null || true
+            echo " -> 成功从 $mirror_rust 拉取并标记 rust:1-bookworm"
+            break
+        fi
+    done
+fi
+
 docker compose up -d --build
 
 # 平滑重新加载 OpenResty（热重载，零停机）

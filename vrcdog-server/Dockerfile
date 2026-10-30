@@ -1,4 +1,5 @@
-FROM rust:1-bookworm AS builder
+ARG RUST_IMAGE=rust:1-bookworm
+FROM ${RUST_IMAGE} AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY src src
