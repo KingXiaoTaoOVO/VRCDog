@@ -2,6 +2,7 @@ ARG RUST_IMAGE=docker.m.daocloud.io/library/rust:1-bookworm
 ARG BASE_IMAGE=docker.m.daocloud.io/library/debian:bookworm-slim
 FROM ${RUST_IMAGE} AS builder
 WORKDIR /app
+COPY .cargo .cargo
 COPY Cargo.toml Cargo.lock* ./
 COPY src src
 RUN cargo build --release

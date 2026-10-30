@@ -10,6 +10,11 @@ set -e
 export HOME="/root"
 export PATH="/usr/local/bin:/usr/bin:/opt/node/bin:/root/.bun/bin:$PATH"
 
+# 免疫 DNS 污染与解析失败：确保 /etc/resolv.conf 包含高可用公共 DNS (阿里/腾讯)
+if ! grep -q "223.5.5.5" /etc/resolv.conf 2>/dev/null; then
+    printf "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 180.76.76.76\n" > /etc/resolv.conf 2>/dev/null || true
+fi
+
 # 免疫 DNS 污染：确保 /etc/hosts 包含稳定的 GitHub、镜像及 NPM 镜像 IP
 if ! grep -q "github.com" /etc/hosts 2>/dev/null; then
     echo "20.205.243.166 github.com" >> /etc/hosts 2>/dev/null || true
