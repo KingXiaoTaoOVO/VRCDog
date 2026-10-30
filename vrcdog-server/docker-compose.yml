@@ -8,8 +8,8 @@ services:
         - "static.crates.io:199.232.162.137"
         - "deb.debian.org:199.232.162.132"
       args:
-        RUST_IMAGE: docker.m.daocloud.io/library/rust:1-bookworm
-        BASE_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
+        RUST_IMAGE: docker.1ms.run/library/rust:1-bookworm
+        BASE_IMAGE: docker.1ms.run/library/debian:bookworm-slim
     container_name: vrcdog-server
     restart: unless-stopped
     init: true

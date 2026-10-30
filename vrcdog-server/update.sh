@@ -189,7 +189,7 @@ chmod -R 777 "$SERVER_DIR/data" 2>/dev/null || true
 chcon -Rt svirt_sandbox_file_t "$SERVER_DIR/data" 2>/dev/null || true
 
 # 预拉取构建所需基础镜像，免疫 403 阻断
-for img in "docker.m.daocloud.io/library/rust:1-bookworm" "docker.m.daocloud.io/library/debian:bookworm-slim"; do
+for img in "docker.1ms.run/library/rust:1-bookworm" "docker.1ms.run/library/debian:bookworm-slim"; do
     if ! docker image inspect "$img" >/dev/null 2>&1; then
         echo " -> 尝试预拉取基础镜像 $img..."
         docker pull "$img" || true

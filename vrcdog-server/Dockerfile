@@ -1,5 +1,5 @@
-ARG RUST_IMAGE=docker.m.daocloud.io/library/rust:1-bookworm
-ARG BASE_IMAGE=docker.m.daocloud.io/library/debian:bookworm-slim
+ARG RUST_IMAGE=docker.1ms.run/library/rust:1-bookworm
+ARG BASE_IMAGE=docker.1ms.run/library/debian:bookworm-slim
 FROM ${RUST_IMAGE} AS builder
 WORKDIR /app
 COPY .cargo .cargo
