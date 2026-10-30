@@ -105,6 +105,11 @@ if [ -d "$REPO_DIR/.git" ]; then
     git reset --hard origin/main
     # 严格保留后端数据与配置文件
     git clean -fd -e vrcdog-server/data -e vrcdog-server/.env
+    if [ -z "$_VRCDOG_RELOADED" ]; then
+        echo " -> 代码更新完成，重新载入最新部署流程..."
+        export _VRCDOG_RELOADED=1
+        exec bash "$0" "$@"
+    fi
 else
     echo " -> 当前非 Git 仓库，从官方源下载最新包替换源码..."
     TMP_ARCHIVE="/tmp/vrcdog-latest.tar.gz"
@@ -172,20 +177,13 @@ chown -R 10001:10001 "$SERVER_DIR/data" 2>/dev/null || true
 chmod -R 777 "$SERVER_DIR/data" 2>/dev/null || true
 chcon -Rt svirt_sandbox_file_t "$SERVER_DIR/data" 2>/dev/null || true
 
-# 检查是否已有 rust:1-bookworm 镜像，若缺失则通过稳定镜像源预拉取并打标，免疫 403 阻断
-if ! docker image inspect rust:1-bookworm >/dev/null 2>&1; then
-    echo " -> 尝试预拉取 Rust 构建基础镜像..."
-    for mirror_rust in \
-        "docker.m.daocloud.io/library/rust:1-bookworm" \
-        "swr.cn-north-4.myhuaweicloud.com/dockerhub/rust:1-bookworm" \
-        "mirror.baidubce.com/library/rust:1-bookworm"; do
-        if docker pull "$mirror_rust" 2>/dev/null; then
-            docker tag "$mirror_rust" rust:1-bookworm 2>/dev/null || true
-            echo " -> 成功从 $mirror_rust 拉取并标记 rust:1-bookworm"
-            break
-        fi
-    done
-fi
+# 预拉取构建所需基础镜像，免疫 403 阻断
+for img in "docker.m.daocloud.io/library/rust:1-bookworm" "docker.m.daocloud.io/library/debian:bookworm-slim"; do
+    if ! docker image inspect "$img" >/dev/null 2>&1; then
+        echo " -> 尝试预拉取基础镜像 $img..."
+        docker pull "$img" || true
+    fi
+done
 
 docker compose up -d --build
 

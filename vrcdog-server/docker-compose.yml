@@ -1,6 +1,10 @@
 services:
   vrcdog-server:
-    build: .
+    build:
+      context: .
+      args:
+        RUST_IMAGE: docker.m.daocloud.io/library/rust:1-bookworm
+        BASE_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim
     container_name: vrcdog-server
     restart: unless-stopped
     init: true
