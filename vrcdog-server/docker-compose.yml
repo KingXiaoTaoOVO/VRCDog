@@ -2,7 +2,11 @@ services:
   vrcdog-server:
     build:
       context: .
-      network: host
+      extra_hosts:
+        - "rsproxy.cn:113.24.210.25"
+        - "index.crates.io:199.232.162.137"
+        - "static.crates.io:199.232.162.137"
+        - "deb.debian.org:199.232.162.132"
       args:
         RUST_IMAGE: docker.m.daocloud.io/library/rust:1-bookworm
         BASE_IMAGE: docker.m.daocloud.io/library/debian:bookworm-slim

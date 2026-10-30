@@ -28,6 +28,11 @@ fi
 if ! grep -q "mirrors.cloud.tencent.com" /etc/hosts 2>/dev/null; then
     echo "43.141.70.120 mirrors.cloud.tencent.com" >> /etc/hosts 2>/dev/null || true
 fi
+if ! grep -q "rsproxy.cn" /etc/hosts 2>/dev/null; then
+    echo "113.24.210.25 rsproxy.cn" >> /etc/hosts 2>/dev/null || true
+    echo "199.232.162.137 index.crates.io" >> /etc/hosts 2>/dev/null || true
+    echo "199.232.162.137 static.crates.io" >> /etc/hosts 2>/dev/null || true
+fi
 
 # 1. 进程锁保护，避免多个定时任务并发冲突
 PIDFILE="/tmp/vrcdog-update.pid"
