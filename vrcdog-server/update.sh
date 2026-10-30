@@ -11,7 +11,7 @@ export HOME="/root"
 export PATH="/usr/local/bin:/usr/bin:/opt/node/bin:/root/.bun/bin:$PATH"
 
 # 免疫 DNS 污染与解析失败：确保 /etc/resolv.conf 包含高可用公共 DNS (阿里/腾讯)
-if ! grep -q "223.5.5.5" /etc/resolv.conf 2>/dev/null; then
+if [ -w /etc/resolv.conf ] && ! grep -q "223.5.5.5" /etc/resolv.conf 2>/dev/null; then
     printf "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 180.76.76.76\n" > /etc/resolv.conf 2>/dev/null || true
 fi
 
@@ -113,6 +113,7 @@ if [ -d "$REPO_DIR/.git" ]; then
     if [ -z "$_VRCDOG_RELOADED" ]; then
         echo " -> 代码更新完成，重新载入最新部署流程..."
         export _VRCDOG_RELOADED=1
+        rm -f "$PIDFILE"
         exec bash "$0" "$@"
     fi
 else
