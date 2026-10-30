@@ -385,13 +385,100 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
         { id: 10002, title: 'River Flows In You', artist: 'Yiruma', page_url: 'https://www.midishow.com/en/midi/10002.html' },
       ]) as any;
     }
+    if (cmd === 'vrpiano_cloud_library_categories') {
+      try {
+        const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
+          ? window.location.origin
+          : 'https://vrcdog.pcb.im';
+        const res = await fetch(`${base}/api/midi/categories`);
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.warn('Web categories fetch failed:', e);
+      }
+      return Promise.resolve({ success: true, categories: [], total_tracks: 0 }) as any;
+    }
+    if (cmd === 'vrpiano_cloud_library_sources') {
+      try {
+        const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
+          ? window.location.origin
+          : 'https://vrcdog.pcb.im';
+        const res = await fetch(`${base}/api/midi/sources`);
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.warn('Web sources fetch failed:', e);
+      }
+      return Promise.resolve({ success: true, sources: [] }) as any;
+    }
+    if (cmd === 'vrpiano_cloud_library_search') {
+      try {
+        const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
+          ? window.location.origin
+          : 'https://vrcdog.pcb.im';
+        const p = new URLSearchParams();
+        if (args?.keyword) p.set('keyword', String(args.keyword));
+        if (args?.category) p.set('category', String(args.category));
+        if (args?.tag) p.set('tag', String(args.tag));
+        if (args?.source) p.set('source', String(args.source));
+        if (args?.sort) p.set('sort', String(args.sort));
+        if (args?.page) p.set('page', String(args.page));
+        if (args?.limit) p.set('limit', String(args.limit));
+        const res = await fetch(`${base}/api/midi/search?${p.toString()}`);
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.warn('Web search fetch failed:', e);
+      }
+      return Promise.resolve({ success: true, total: 0, page: 1, limit: 30, items: [] }) as any;
+    }
     if (cmd === 'vrpiano_download_midishow') {
       const request = (args?.request || {}) as any;
       if (request.preview) return Promise.resolve(null) as any;
-      return Promise.resolve({ id: `midishow-${request.midi_id}`, name: request.title || `MIDI_${request.midi_id}`, path: `midishow-${request.midi_id}.mid`, size: 4096, modified_ms: Date.now() }) as any;
+      let dlUrl = request.download_url;
+      if (dlUrl && dlUrl.startsWith('/')) {
+        const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
+          ? window.location.origin
+          : 'https://vrcdog.pcb.im';
+        dlUrl = `${base}${dlUrl}`;
+      }
+      if (dlUrl && typeof document !== 'undefined') {
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = `${request.title || 'midi'}.mid`;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      return Promise.resolve({ id: `midishow-${request.midi_id}`, name: request.title || `MIDI_${request.midi_id}`, path: dlUrl || `midishow-${request.midi_id}.mid`, size: 4096, modified_ms: Date.now() }) as any;
     }
     if (cmd === 'vrpiano_midishow_preview_data') {
       const request = (args?.request || {}) as any;
+      let dlUrl = request.download_url;
+      if (dlUrl && dlUrl.startsWith('/')) {
+        const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
+          ? window.location.origin
+          : 'https://vrcdog.pcb.im';
+        dlUrl = `${base}${dlUrl}`;
+      }
+      if (dlUrl && dlUrl.startsWith('http')) {
+        try {
+          const resp = await fetch(dlUrl);
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const b64 = btoa(binary);
+            return Promise.resolve({
+              name: request.title || `MIDI_${request.midi_id}`,
+              data: b64,
+            }) as any;
+          }
+        } catch (e) {
+          console.warn('Web preview download failed:', e);
+        }
+      }
       return Promise.resolve({ name: request.title || `MIDI_${request.midi_id}`, data: 'TVRoZAAAAAYAAAABAGBNVHJrAAAAEwD/UQMHoSAAkDxkYIA8AAD/LwA=' }) as any;
     }
     if (cmd === 'vrpiano_midishow_accounts') return Promise.resolve([]) as any;

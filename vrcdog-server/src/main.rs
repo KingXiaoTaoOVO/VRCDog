@@ -2110,6 +2110,7 @@ fn router(state: AppState) -> Router {
         .route("/api/midi/categories", get(midi_library::midi_library_categories))
         .route("/api/midi/sources", get(midi_library::midi_library_sources))
         .route("/api/midi/file/{id}", get(midi_library::midi_library_file))
+        .route("/api/midi/proxy", get(midi_library::midi_proxy_file))
         .merge(client_protected_routes)
         .merge(admin_routes)
         .layer(

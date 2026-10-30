@@ -215,6 +215,18 @@ const applyHotKeyword = (kw: string) => {
   searchTracks();
 };
 
+const resolveTrackDownloadUrl = (url: string | undefined): string => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/')) {
+    if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')) {
+      return `${window.location.origin}${url}`;
+    }
+    return `https://vrcdog.pcb.im${url}`;
+  }
+  return url;
+};
+
 // 试听曲目
 const handlePreview = async (track: MidiCloudTrack) => {
   if (currentPlayingTrack.value?.id === track.id && isPlaying.value) {
@@ -224,10 +236,11 @@ const handlePreview = async (track: MidiCloudTrack) => {
 
   previewLoadingId.value = track.id;
   try {
+    const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
     const midiData = await VrpianoApi.midishowPreviewData({
       midiId: 999999,
       title: `${track.title} - ${track.artist}`,
-      downloadUrl: track.download_url,
+      downloadUrl: fullDlUrl,
       source: 'vrcdog_cloud',
     });
     currentPlayingTrack.value = track;
@@ -245,10 +258,11 @@ const handlePreview = async (track: MidiCloudTrack) => {
 const handleDownload = async (track: MidiCloudTrack) => {
   downloadLoadingId.value = track.id;
   try {
+    const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
     const downloaded = await VrpianoApi.downloadMidishow({
       midiId: 999999,
       title: `${track.title} - ${track.artist}`,
-      downloadUrl: track.download_url,
+      downloadUrl: fullDlUrl,
       source: 'vrcdog_cloud',
     });
     if (downloaded) {
@@ -268,10 +282,11 @@ const handlePlayInGame = async (track: MidiCloudTrack) => {
   if (!isDownloaded(track)) {
     downloadLoadingId.value = track.id;
     try {
+      const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
       const downloaded = await VrpianoApi.downloadMidishow({
         midiId: 999999,
         title: `${track.title} - ${track.artist}`,
-        downloadUrl: track.download_url,
+        downloadUrl: fullDlUrl,
         source: 'vrcdog_cloud',
       });
       if (downloaded) {
