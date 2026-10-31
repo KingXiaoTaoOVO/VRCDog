@@ -60,6 +60,7 @@ pub struct MidiSourceConfig {
 #[derive(Debug, Deserialize)]
 pub struct MidiSearchQuery {
     pub q: Option<String>,
+    pub keyword: Option<String>,
     pub category: Option<String>,
     pub tag: Option<String>,
     pub source: Option<String>,
@@ -151,7 +152,7 @@ impl MidiCatalog {
     }
 
     pub fn search(&self, query: &MidiSearchQuery) -> (usize, Vec<MidiTrack>) {
-        let q_raw = query.q.as_deref().unwrap_or("").trim();
+        let q_raw = query.q.as_deref().or(query.keyword.as_deref()).unwrap_or("").trim();
         let cat = query.category.as_deref().unwrap_or("all");
         let tag = query.tag.as_deref().unwrap_or("").trim().to_lowercase();
         let src = query.source.as_deref().unwrap_or("all");
@@ -246,7 +247,7 @@ pub async fn midi_library_search(
     Query(query): Query<MidiSearchQuery>,
 ) -> impl IntoResponse {
     let catalog = get_catalog();
-    let q_raw = query.q.as_deref().unwrap_or("").trim();
+    let q_raw = query.q.as_deref().or(query.keyword.as_deref()).unwrap_or("").trim();
     let src = query.source.as_deref().unwrap_or("all");
     let page = query.page.unwrap_or(1).max(1);
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
