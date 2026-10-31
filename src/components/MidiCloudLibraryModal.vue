@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { useI18n } from 'vue-i18n';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import {
   Search,
   Cloud,
@@ -9,10 +9,10 @@ import {
   Pause,
   Download,
   RotateCcw,
-  SlidersHorizontal,
   ExternalLink,
   Volume2,
   Check,
+  ShieldCheck,
   Loader2,
   Music,
   Mic,
@@ -22,36 +22,46 @@ import {
   Disc,
   Film,
   BookOpen,
-  Plus,
-  Trash2,
   Globe,
   Radio,
   Library,
   HelpCircle,
   AlertCircle,
   Info,
+  ChevronDown,
+  User,
 } from 'lucide-vue-next';
 import {
   VrpianoApi,
   type MidiCloudTrack,
   type MidiCloudCategory,
   type MidiCloudSource,
+  type MidiCloudSourceStatus,
   type VrpianoSong,
 } from '../api';
+import { katakanaToHiragana, toRomaji } from '../utils/transliteration';
 
 const props = defineProps<{
   show: boolean;
   localSongs?: VrpianoSong[];
+  /** 父页面内置播放器当前挂载的云端曲目 id；空串/未定义表示播放器里不是云端曲目。 */
+  previewTrackId?: string | null;
+  /** 父页面内置播放器是否正在出声，暂停/继续按钮的状态以此为准。 */
+  previewPlaying?: boolean;
+  playerPositionMs?: number;
+  playerDurationMs?: number;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'play-song', song: VrpianoSong): void;
   (e: 'song-downloaded', song: VrpianoSong): void;
-  (e: 'preview-midi', data: { name: string; data: string }): void;
+  (e: 'preview-midi', data: { id: string; name: string; data: string }): void;
+  (e: 'preview-toggle'): void;
+  (e: 'preview-seek', positionMs: number): void;
+  (e: 'open-midishow-login'): void;
+  (e: 'midishow-session', state: 'signed_in' | 'expired'): void;
 }>();
-
-const { t } = useI18n();
 
 // 搜索与筛选状态
 const searchQuery = ref('');
@@ -66,13 +76,151 @@ const categories = ref<MidiCloudCategory[]>([]);
 const sources = ref<MidiCloudSource[]>([]);
 const loading = ref(false);
 const errorMsg = ref('');
+// 逐源检索结果：不显示这个的话，「8 个数据源」里其实只有一个在干活，用户无从察觉。
+const sourceStatuses = ref<MidiCloudSourceStatus[]>([]);
+
+// 原生 select 的弹层由系统绘制（白底 + 灰高亮），和主题完全脱节，改成自绘菜单。
+const sourceMenuOpen = ref(false);
+const sortMenuOpen = ref(false);
+const sourceMenuRef = ref<HTMLElement | null>(null);
+const sortMenuRef = ref<HTMLElement | null>(null);
+const sortOptions: Array<{ id: 'hot' | 'latest' | 'title' | 'notes'; label: string }> = [
+  { id: 'hot', label: '按热度排序' },
+  { id: 'latest', label: '按最新收录' },
+  { id: 'title', label: '按歌名拼音' },
+  { id: 'notes', label: '按音符数量' },
+];
 
 // 试听播放器状态
 const currentPlayingTrack = ref<MidiCloudTrack | null>(null);
-const isPlaying = ref(false);
+// 真正发声的是父页面的 WebAudio 播放器：这里只镜像它的状态。
+// 之前 isPlaying 是弹窗自己的 ref，暂停时只改了按钮图标，音乐照旧在放。
+const isPlaying = computed(() => Boolean(
+  props.previewPlaying
+  && currentPlayingTrack.value
+  && props.previewTrackId === currentPlayingTrack.value.id,
+));
 const previewLoadingId = ref<string | null>(null);
 const downloadLoadingId = ref<string | null>(null);
 const downloadedIds = ref<Set<string>>(new Set());
+
+// Midishow 账号状态管理
+const midishowAccount = ref<string | null>(null);
+const midishowLoginModalOpen = ref(false);
+const midishowCookieInput = ref('');
+const midishowAccountInput = ref('');
+const midishowAuthLoading = ref(false);
+
+const checkMidishowAccount = async () => {
+  try {
+    const accounts = await VrpianoApi.midishowAccounts();
+    const active = accounts.find((a) => Boolean(a.username));
+    if (active) {
+      midishowAccount.value = active.username;
+      emit('midishow-session', 'signed_in');
+    } else {
+      const status = await VrpianoApi.midishowLoginStatus();
+      if (status.state === 'signed_in' && status.username) {
+        midishowAccount.value = status.username;
+        emit('midishow-session', 'signed_in');
+      } else {
+        midishowAccount.value = null;
+      }
+    }
+  } catch {
+    midishowAccount.value = null;
+  }
+};
+
+const handleMidishowWebLogin = async () => {
+  midishowAuthLoading.value = true;
+  try {
+    await VrpianoApi.midishowOpenWebLogin();
+    showToast('已打开 Midishow 网页登录窗口，请在弹出窗口中完成登录', 'info');
+    let attempts = 0;
+    const pollTimer = window.setInterval(async () => {
+      attempts++;
+      const status = await VrpianoApi.midishowLoginStatus();
+      if (status.state === 'signed_in' && status.username) {
+        window.clearInterval(pollTimer);
+        midishowAccount.value = status.username;
+        midishowAuthLoading.value = false;
+        midishowLoginModalOpen.value = false;
+        emit('midishow-session', 'signed_in');
+        showToast(`Midishow 账号 ${status.username} 登录成功！`, 'success');
+        searchTracks();
+      } else if (attempts > 60 || status.state === 'failed') {
+        window.clearInterval(pollTimer);
+        midishowAuthLoading.value = false;
+      }
+    }, 1500);
+  } catch (e: any) {
+    midishowAuthLoading.value = false;
+    showToast(`打开登录窗口失败: ${e.message || String(e)}`, 'error');
+  }
+};
+
+const handleImportMidishowCookie = async () => {
+  const cookie = midishowCookieInput.value.trim();
+  if (!cookie) {
+    showToast('请粘贴 Midishow 网站的 Cookie 或 _identity 值', 'error');
+    return;
+  }
+  midishowAuthLoading.value = true;
+  try {
+    const acc = await VrpianoApi.midishowImportCookie({
+      cookie,
+      accountName: midishowAccountInput.value.trim() || undefined,
+    });
+    midishowAccount.value = acc.username;
+    midishowAuthLoading.value = false;
+    midishowLoginModalOpen.value = false;
+    midishowCookieInput.value = '';
+    emit('midishow-session', 'signed_in');
+    showToast(`成功导入 Midishow 会话账号：${acc.username}`, 'success');
+    searchTracks();
+  } catch (e: any) {
+    midishowAuthLoading.value = false;
+    showToast(`Cookie 导入失败: ${e.message || String(e)}`, 'error');
+  }
+};
+
+const handleLogoutMidishow = async () => {
+  if (midishowAccount.value) {
+    try {
+      await VrpianoApi.midishowRemoveAccount({ username: midishowAccount.value });
+      midishowAccount.value = null;
+      emit('midishow-session', 'expired');
+      showToast('已退出 Midishow 账号', 'info');
+    } catch (e: any) {
+      showToast(`退出失败: ${e.message || String(e)}`, 'error');
+    }
+  }
+};
+
+// 全曲试听进度与拖拽跳转
+const playbackTotalDurationMs = computed(() => {
+  if (props.playerDurationMs && props.playerDurationMs > 0) return props.playerDurationMs;
+  if (currentPlayingTrack.value?.duration_secs) return currentPlayingTrack.value.duration_secs * 1000;
+  return 180000;
+});
+
+const playbackProgressPercent = computed(() => {
+  const total = playbackTotalDurationMs.value;
+  if (total <= 0) return 0;
+  const current = props.playerPositionMs || 0;
+  return Math.min(100, Math.max(0, (current / total) * 100));
+});
+
+const handleSeekProgress = (event: MouseEvent) => {
+  const bar = event.currentTarget as HTMLElement;
+  const rect = bar.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  const targetMs = Math.round(ratio * playbackTotalDurationMs.value);
+  emit('preview-seek', targetMs);
+};
+
 
 // Toast 状态提示（取代原生系统弹窗）
 const toastMessage = ref('');
@@ -91,30 +239,20 @@ const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => 
   }, 3200);
 };
 
-// 数据源管理弹窗
-const showSourceManager = ref(false);
-const newSourceName = ref('');
-const newSourceUrl = ref('');
-const newSourceDesc = ref('');
-const addingSource = ref(false);
-const sourceAddError = ref('');
-
-// 热门搜索词
+// 热门词都经过 BitMidi / Tuneonmusic / MIDIWorld 实际检索验证，点开必有结果。
 const hotKeywords = [
-  '晴天',
-  '周杰伦',
-  '稻香',
-  '千本樱',
-  '原神',
-  '晨曦酒庄',
-  '卡农',
+  'Canon',
+  'Clair de Lune',
+  'Für Elise',
+  'Gurenge',
+  'Megalovania',
   'Bad Apple',
-  'Faded',
-  '极乐净土',
-  '恋爱循环',
-  '孤勇者',
-  'Summer',
-  '天空之城',
+  'Shape of You',
+  'Hanon',
+  'Jingle Bells',
+  'Toccata',
+  'Kiss the Rain',
+  'Pachelbel',
 ];
 
 const categoryIconMap: Record<string, any> = {
@@ -134,10 +272,36 @@ const getCategoryIcon = (id: string) => {
 
 // 检查是否已经在本地曲库中
 const isDownloaded = (track: MidiCloudTrack) => {
+  if (track.source === 'local') return true;
   if (downloadedIds.value.has(track.id)) return true;
   if (!props.localSongs) return false;
   const titleLower = track.title.toLowerCase();
   return props.localSongs.some((s) => s.name.toLowerCase().includes(titleLower));
+};
+
+// 本地曲库条目的 download_url 就是磁盘上的绝对路径，不能当作网络直链。
+const localSongPath = (track: MidiCloudTrack) =>
+  track.source === 'local' ? track.download_url : (track.page_url || track.download_url);
+
+const findLocalSong = (track: MidiCloudTrack) =>
+  props.localSongs?.find((s) => s.path === track.download_url)
+  || props.localSongs?.find((s) => s.name.includes(track.title));
+
+// BitMidi 等英文源用罗马音/英文命名，中文与日文关键词必须先给出发音变体，
+// 否则「残酷な天使のテーゼ」这类查询在英文源上恒为 0 结果。
+const buildAltKeywords = (keyword: string): string[] => {
+  const alts: string[] = [];
+  const push = (value: string) => {
+    const cleaned = value.replace(/\s+/g, ' ').trim();
+    if (!cleaned || cleaned.toLowerCase() === keyword.toLowerCase()) return;
+    if (!alts.includes(cleaned)) alts.push(cleaned);
+  };
+  const stripped = keyword.replace(/[（(【[][^)）】\]]*[)）】\]]/g, ' ');
+  push(stripped);
+  if (/[ぁ-ゟァ-ヿ]/.test(stripped)) {
+    push(toRomaji(katakanaToHiragana(stripped)));
+  }
+  return alts.slice(0, 2);
 };
 
 // 获取分类与数据源
@@ -163,19 +327,31 @@ const loadCategoriesAndSources = async () => {
 
 // 检索曲目
 let searchDebounceTimer: number | null = null;
+// 各源耗时差异很大（Midishow 隐藏窗口最长 7 秒），慢请求不能覆盖新请求的结果。
+let searchSeq = 0;
 
 const searchTracks = async () => {
+  // 输入防抖已经排了一次检索，用户随即回车时不能再发第二次：两次并发会让
+  // 隐藏 WebView2 的固定 label 冲突（第二个 Midishow 检索直接失败）。
+  if (searchDebounceTimer !== null) {
+    window.clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
+  const seq = ++searchSeq;
   loading.value = true;
   errorMsg.value = '';
   try {
+    const keyword = searchQuery.value.trim();
     const res = await VrpianoApi.cloudLibrarySearch({
-      keyword: searchQuery.value.trim() || undefined,
+      keyword: keyword || undefined,
+      altKeywords: buildAltKeywords(keyword),
       category: activeCategory.value === 'all' ? undefined : activeCategory.value,
       source: activeSource.value === 'all' ? undefined : activeSource.value,
       sort: activeSort.value,
       page: currentPage.value,
       limit: pageSize.value,
     });
+    if (seq !== searchSeq) return;
     if (res && res.items) {
       tracks.value = res.items;
       totalTracks.value = res.total;
@@ -183,11 +359,13 @@ const searchTracks = async () => {
       tracks.value = [];
       totalTracks.value = 0;
     }
+    sourceStatuses.value = res?.sources || [];
   } catch (e: any) {
+    if (seq !== searchSeq) return;
     errorMsg.value = e.message || String(e);
     tracks.value = [];
   } finally {
-    loading.value = false;
+    if (seq === searchSeq) loading.value = false;
   }
 };
 
@@ -227,10 +405,12 @@ const resolveTrackDownloadUrl = (url: string | undefined): string => {
   return url;
 };
 
-// 试听曲目
+// 试听曲目：所有真实音源都会给出直链 .mid，本地条目直接读磁盘。
 const handlePreview = async (track: MidiCloudTrack) => {
-  if (currentPlayingTrack.value?.id === track.id && isPlaying.value) {
-    isPlaying.value = false;
+  // 同一首已经载入父页面播放器：让父页面真正暂停/继续，而不是重新拉一遍从头播。
+  if (props.previewTrackId && props.previewTrackId === track.id) {
+    currentPlayingTrack.value = track;
+    emit('preview-toggle');
     return;
   }
 
@@ -238,40 +418,63 @@ const handlePreview = async (track: MidiCloudTrack) => {
   try {
     const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
     const midiData = await VrpianoApi.midishowPreviewData({
-      midiId: 999999,
-      title: `${track.title} - ${track.artist}`,
+      midiId: track.midi_id || 0,
+      title: track.title,
       downloadUrl: fullDlUrl,
-      source: 'vrcdog_cloud',
+      pageUrl: localSongPath(track),
+      source: track.source,
     });
     currentPlayingTrack.value = track;
-    isPlaying.value = true;
-    emit('preview-midi', midiData);
+    emit('preview-midi', { ...midiData, id: track.id });
+    reportMidishowSession(track);
     showToast(`正在试听《${track.title}》`, 'info');
   } catch (e: any) {
-    showToast(`试听解析失败: ${e.message || String(e)}`, 'error');
+    reportMidishowSession(track, e.message || String(e));
+    showToast(`试听失败: ${describePlaybackError(e.message || String(e))}`, 'error');
   } finally {
     previewLoadingId.value = null;
   }
 };
 
+// 双击整行试听；按钮自带 click.stop，但 dblclick 仍会冒泡到行，
+// 连点播放键会触发两次 toggle（播完立刻被暂停），这里直接忽略来自按钮的双击。
+const handleRowDblClick = (track: MidiCloudTrack, event: MouseEvent) => {
+  if ((event.target as HTMLElement | null)?.closest('button')) return;
+  void handlePreview(track);
+};
+
+// 关闭弹窗时顺手暂停云端试听：用户关窗后音乐还在响会显得「关不掉」。
+const closeModal = () => {
+  closeMenus();
+  if (isPlaying.value) emit('preview-toggle');
+  emit('close');
+};
+
 // 一键下载到本地曲库
 const handleDownload = async (track: MidiCloudTrack) => {
+  if (isDownloaded(track)) {
+    showToast(`《${track.title}》已在本地曲库`, 'info');
+    return;
+  }
   downloadLoadingId.value = track.id;
   try {
     const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
     const downloaded = await VrpianoApi.downloadMidishow({
-      midiId: 999999,
-      title: `${track.title} - ${track.artist}`,
+      midiId: track.midi_id || 0,
+      title: track.title,
       downloadUrl: fullDlUrl,
-      source: 'vrcdog_cloud',
+      pageUrl: track.page_url,
+      source: track.source,
     });
     if (downloaded) {
       downloadedIds.value.add(track.id);
       emit('song-downloaded', downloaded);
+      reportMidishowSession(track);
       showToast(`《${track.title}》已成功收录至本地钢琴曲库`, 'success');
     }
   } catch (e: any) {
-    showToast(`下载失败: ${e.message || String(e)}`, 'error');
+    reportMidishowSession(track, e.message || String(e));
+    showToast(`下载失败: ${describePlaybackError(e.message || String(e))}`, 'error');
   } finally {
     downloadLoadingId.value = null;
   }
@@ -279,33 +482,39 @@ const handleDownload = async (track: MidiCloudTrack) => {
 
 // 立即弹奏
 const handlePlayInGame = async (track: MidiCloudTrack) => {
-  if (!isDownloaded(track)) {
-    downloadLoadingId.value = track.id;
-    try {
-      const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
-      const downloaded = await VrpianoApi.downloadMidishow({
-        midiId: 999999,
-        title: `${track.title} - ${track.artist}`,
-        downloadUrl: fullDlUrl,
-        source: 'vrcdog_cloud',
-      });
-      if (downloaded) {
-        downloadedIds.value.add(track.id);
-        emit('song-downloaded', downloaded);
-        emit('play-song', downloaded);
-        emit('close');
-      }
-    } catch (e: any) {
-      showToast(`准备弹奏失败: ${e.message || String(e)}`, 'error');
-    } finally {
-      downloadLoadingId.value = null;
-    }
-  } else {
-    const found = props.localSongs?.find((s) => s.name.includes(track.title));
+  if (track.source === 'local' || isDownloaded(track)) {
+    const found = findLocalSong(track);
     if (found) {
       emit('play-song', found);
       emit('close');
+    } else {
+      showToast('本地曲库中找不到这首曲目，请重新下载', 'error');
     }
+    return;
+  }
+
+  downloadLoadingId.value = track.id;
+  try {
+    const fullDlUrl = resolveTrackDownloadUrl(track.download_url);
+    const downloaded = await VrpianoApi.downloadMidishow({
+      midiId: track.midi_id || 0,
+      title: track.title,
+      downloadUrl: fullDlUrl,
+      pageUrl: track.page_url,
+      source: track.source,
+    });
+    if (downloaded) {
+      downloadedIds.value.add(track.id);
+      emit('song-downloaded', downloaded);
+      reportMidishowSession(track);
+      emit('play-song', downloaded);
+      emit('close');
+    }
+  } catch (e: any) {
+    reportMidishowSession(track, e.message || String(e));
+    showToast(`准备弹奏失败: ${describePlaybackError(e.message || String(e))}`, 'error');
+  } finally {
+    downloadLoadingId.value = null;
   }
 };
 
@@ -322,62 +531,159 @@ const onSourceChange = () => {
   searchTracks();
 };
 
-// 保存自定义数据源
-const addCustomSource = async () => {
-  if (!newSourceName.value.trim() || !newSourceUrl.value.trim()) {
-    sourceAddError.value = '请填写源名称与接口地址';
+const selectedSourceLabel = computed(() => (
+  activeSource.value === 'all'
+    ? '全部分源'
+    : sources.value.find((s) => s.id === activeSource.value)?.name || '全部分源'
+));
+const activeSortLabel = computed(
+  () => sortOptions.find((o) => o.id === activeSort.value)?.label || '按热度排序',
+);
+const sourceCountOf = (id: string) => {
+  const status = sourceStatuses.value.find((s) => s.id === id);
+  return status ? status.count : null;
+};
+
+const toggleSourceMenu = () => {
+  sortMenuOpen.value = false;
+  sourceMenuOpen.value = !sourceMenuOpen.value;
+};
+const toggleSortMenu = () => {
+  sourceMenuOpen.value = false;
+  sortMenuOpen.value = !sortMenuOpen.value;
+};
+const pickSource = (id: string) => {
+  sourceMenuOpen.value = false;
+  if (activeSource.value === id) return;
+  activeSource.value = id;
+  onSourceChange();
+};
+const pickSort = (id: 'hot' | 'latest' | 'title' | 'notes') => {
+  sortMenuOpen.value = false;
+  if (activeSort.value === id) return;
+  activeSort.value = id;
+  currentPage.value = 1;
+  searchTracks();
+};
+const closeMenus = () => {
+  sourceMenuOpen.value = false;
+  sortMenuOpen.value = false;
+};
+const onGlobalPointerDown = (event: PointerEvent) => {
+  if (!sourceMenuOpen.value && !sortMenuOpen.value) return;
+  const target = event.target as Node;
+  if (sourceMenuRef.value?.contains(target) || sortMenuRef.value?.contains(target)) return;
+  closeMenus();
+};
+const onGlobalKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') closeMenus();
+};
+
+// Midishow 是中文流行曲唯一真实可用的来源，但会被 Cloudflare 拦在门外。
+// 用户主动点「解锁」时弹出验证窗口完成一次人机验证，之后 cf_clearance
+// 留在 WebView2 profile 里，后续搜索就能静默拿到结果。
+const midishowStatus = computed(() => sourceStatuses.value.find((item) => item.id === 'midishow'));
+// 需要人机验证，或后台检索失败（隐藏 WebView2 超时/被拦）时，都要给用户
+// 一个主动解锁的入口，不能把错误只藏在 chip 的 title 里。
+const midishowNeedsUnlock = computed(() => {
+  const state = midishowStatus.value?.state;
+  if (state === 'needs-verify' || state === 'failed') return Boolean(searchQuery.value.trim());
+  return false;
+});
+// 中文关键词在英文源上必为 0，这不是故障；空结果页要把每个源的真实状态写清楚。
+const cjkQuery = computed(() => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(searchQuery.value));
+const sourceStateText = (item: MidiCloudSourceStatus) => {
+  if (item.count > 0) return `${item.count} 首`;
+  switch (item.state) {
+    case 'needs-verify':
+      return '需要一次人机验证';
+    case 'failed':
+      return item.message || '检索失败';
+    case 'idle':
+      return item.message || '当前条件不检索该源';
+    case 'empty':
+      return item.message || '该源没有收录此关键词';
+    default:
+      return item.message || '无结果';
+  }
+};
+// Midishow 未登录时下载接口返回 403，原始 HTTP 文案对用户没有意义。
+const describePlaybackError = (message: string) => {
+  if (/midishow/i.test(message) && /登录已失效|需要重新登录/.test(message)) {
+    return 'Midishow 登录已失效：请到 VRPiano 主面板重新登录 Midishow 账号，或先在官网下载再导入';
+  }
+  if (/midishow/i.test(message) && /\b403\b/.test(message)) {
+    return 'Midishow 曲目需要登录后才能试听/下载：请先在 VRPiano 主面板登录 Midishow 账号，或在官网下载后导入';
+  }
+  if (/midishow/i.test(message) && message.includes('人机验证')) {
+    return 'Midishow 需要一次人机验证，请点上方「解锁 Midishow 中文曲库」';
+  }
+  return message;
+};
+
+// 把真实的 Midishow 会话结果回报给主面板：直接探测会被 Cloudflare 拦，
+// 只有真实请求的成败才能证明 Cookie 是否还有效。
+const reportMidishowSession = (track: MidiCloudTrack, message?: string) => {
+  if ((track.source || 'midishow') !== 'midishow') return;
+  if (message !== undefined) {
+    if (/登录已失效|需要重新登录|登录后才能/.test(message)) emit('midishow-session', 'expired');
     return;
   }
-  sourceAddError.value = '';
-  addingSource.value = true;
+  // 直链下载不经过 Midishow 登录，成功不能证明会话有效。
+  if (!track.download_url) emit('midishow-session', 'signed_in');
+};
+const midishowVerifying = ref(false);
+
+const verifyMidishow = async () => {
+  const keyword = searchQuery.value.trim();
+  if (!keyword) {
+    showToast('请先输入要搜索的曲名（如「逆战」），再解锁 Midishow', 'info');
+    return;
+  }
+  midishowVerifying.value = true;
   try {
-    const existing = await VrpianoApi.cloudSourcesGet();
-    const newSrc: MidiCloudSource = {
-      id: `custom_${Date.now()}`,
-      name: newSourceName.value.trim(),
-      url: newSourceUrl.value.trim(),
-      source_type: 'custom',
-      description: newSourceDesc.value.trim() || '用户自定义源',
-      enabled: true,
-      icon: 'Globe',
-    };
-    const updated = [...existing, newSrc];
-    await VrpianoApi.cloudSourcesSave(updated);
-    sources.value = updated;
-    newSourceName.value = '';
-    newSourceUrl.value = '';
-    newSourceDesc.value = '';
-    showSourceManager.value = false;
-    showToast('自定义数据源已添加', 'success');
+    const songs = await VrpianoApi.searchMidishowVerified({ keyword, maxResults: pageSize.value });
+    await searchTracks();
+    showToast(
+      songs.length
+        ? `Midishow 已解锁，检索到 ${songs.length} 首曲目`
+        : '验证已通过，但 Midishow 没有收录该关键词',
+      songs.length ? 'success' : 'info',
+    );
   } catch (e: any) {
-    sourceAddError.value = e.message || String(e);
+    showToast(`Midishow 解锁失败: ${e.message || String(e)}`, 'error');
   } finally {
-    addingSource.value = false;
+    midishowVerifying.value = false;
   }
 };
 
-// 删除自定义数据源
-const removeCustomSource = async (id: string) => {
-  try {
-    const existing = await VrpianoApi.cloudSourcesGet();
-    const updated = existing.filter((s) => s.id !== id);
-    await VrpianoApi.cloudSourcesSave(updated);
-    sources.value = updated;
-    if (activeSource.value === id) {
-      activeSource.value = 'all';
-      searchTracks();
-    }
-    showToast('数据源已删除', 'info');
-  } catch (e: any) {
-    showToast(`删除失败: ${e.message || String(e)}`, 'error');
-  }
-};
-
-onMounted(() => {
+// 解锁时后端会把验证窗口弹到前台，这里提示一句，用户才知道要去点那一下。
+let stopChallengeListener: (() => void) | null = null;
+onMounted(async () => {
+  document.addEventListener('pointerdown', onGlobalPointerDown, true);
+  document.addEventListener('keydown', onGlobalKeydown);
   if (props.show) {
     loadCategoriesAndSources();
     searchTracks();
   }
+  try {
+    void checkMidishowAccount();
+    stopChallengeListener = await listen<string>('vrpiano_midishow_search_challenge', (event) => {
+      showToast(
+        event.payload || 'Midishow 需要一次人机验证，请在弹出的窗口里点「请验证您是真人」',
+        'info',
+      );
+    });
+  } catch {
+    // 非 Tauri 环境没有事件通道
+  }
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onGlobalPointerDown, true);
+  document.removeEventListener('keydown', onGlobalKeydown);
+  stopChallengeListener?.();
+  stopChallengeListener = null;
 });
 
 watch(
@@ -385,6 +691,7 @@ watch(
   (val) => {
     if (val) {
       loadCategoriesAndSources();
+      void checkMidishowAccount();
       searchTracks();
     }
   }
@@ -392,7 +699,7 @@ watch(
 </script>
 
 <template>
-  <div v-if="show" class="midi-cloud-modal-backdrop" @click.self="emit('close')">
+  <div v-if="show" class="midi-cloud-modal-backdrop" @click.self="closeModal">
     <div class="midi-cloud-window">
       <!-- 浮动通知 Toast -->
       <transition name="toast-fade">
@@ -410,33 +717,82 @@ watch(
           <div class="brand-badge">
             <Cloud :size="20" class="brand-icon" />
             <div class="brand-titles">
-              <div class="brand-name">VRCDog 社区与云端曲库</div>
-              <div class="brand-sub">海量精选曲目 · 官方服务器直连 · 支持自定义第三方音源</div>
+              <div class="brand-name">VRCDog 云端曲库</div>
+              <div class="brand-sub">BitMidi · Tuneonmusic · MIDIWorld · Internet Archive · Midishow · 本地曲库，全部为真实 MIDI 直链</div>
             </div>
           </div>
         </div>
 
         <div class="header-actions">
-          <div class="source-selector">
-            <Globe :size="14" class="source-icon" />
-            <select v-model="activeSource" @change="onSourceChange">
-              <option value="all">全部分源</option>
-              <option v-for="s in sources" :key="s.id" :value="s.id">
-                {{ s.name }}
-              </option>
-            </select>
+          <div ref="sourceMenuRef" class="source-selector" :class="{ open: sourceMenuOpen }">
+            <button
+              type="button"
+              class="source-trigger"
+              :aria-expanded="sourceMenuOpen"
+              aria-haspopup="listbox"
+              @click="toggleSourceMenu"
+            >
+              <Globe :size="14" class="source-icon" />
+              <span class="source-trigger-label">{{ selectedSourceLabel }}</span>
+              <ChevronDown :size="12" class="source-caret" :class="{ open: sourceMenuOpen }" />
+            </button>
+            <transition name="drop-fade">
+              <div v-if="sourceMenuOpen" class="source-menu" role="listbox" aria-label="选择数据源">
+                <button
+                  type="button"
+                  role="option"
+                  :aria-selected="activeSource === 'all'"
+                  class="source-option"
+                  :class="{ active: activeSource === 'all' }"
+                  @click="pickSource('all')"
+                >
+                  <span class="source-option-text">
+                    <span class="source-option-name">全部分源</span>
+                    <span class="source-option-desc">同时检索下面列出的全部真实音源</span>
+                  </span>
+                  <Check v-if="activeSource === 'all'" :size="13" class="source-option-check" />
+                </button>
+                <button
+                  v-for="s in sources"
+                  :key="s.id"
+                  type="button"
+                  role="option"
+                  :aria-selected="activeSource === s.id"
+                  class="source-option"
+                  :class="{ active: activeSource === s.id }"
+                  @click="pickSource(s.id)"
+                >
+                  <span class="source-option-text">
+                    <span class="source-option-name">{{ s.name }}</span>
+                    <span class="source-option-desc">
+                      {{ s.searchable === false ? '仅官网跳转，不可检索' : s.description }}
+                    </span>
+                  </span>
+                  <span v-if="sourceCountOf(s.id) !== null" class="source-option-count">
+                    {{ sourceCountOf(s.id) }}
+                  </span>
+                  <Check v-if="activeSource === s.id" :size="13" class="source-option-check" />
+                </button>
+              </div>
+            </transition>
           </div>
 
-          <button
-            class="header-btn"
-            title="管理数据源"
-            @click="showSourceManager = true"
-          >
-            <SlidersHorizontal :size="14" />
-            <span>数据源管理</span>
-          </button>
+          <!-- Midishow 账号与登录状态 -->
+          <div class="midishow-account-badge">
+            <button
+              type="button"
+              class="account-status-btn"
+              :class="{ logged: Boolean(midishowAccount) }"
+              :title="midishowAccount ? `当前已登录 Midishow 账号: ${midishowAccount}` : '点击登录 Midishow 或导入 Cookie，解锁海量华语流行 MIDI'"
+              @click="midishowLoginModalOpen = true"
+            >
+              <User :size="13" />
+              <span class="account-name-text">{{ midishowAccount ? midishowAccount : 'Midishow: 未登录' }}</span>
+              <span class="account-tag">{{ midishowAccount ? '已认证' : '点击登录' }}</span>
+            </button>
+          </div>
 
-          <button class="close-btn" @click="emit('close')" title="关闭">
+          <button class="close-btn" @click="closeModal" title="关闭">
             <X :size="16" />
           </button>
         </div>
@@ -464,7 +820,7 @@ watch(
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="搜索歌名、艺术家、原神、周杰伦、动漫或标签..."
+            placeholder="搜索曲名或艺术家，如 Canon、Gurenge、Clair de Lune..."
             @input="onSearchInput"
             @keyup.enter="searchTracks"
           />
@@ -490,14 +846,62 @@ watch(
           </button>
         </div>
 
+        <!-- 逐源检索结果：哪个源出了多少条、哪个源挂了，一目了然 -->
+        <div v-if="sourceStatuses.length" class="source-status-row">
+          <span
+            v-for="status in sourceStatuses"
+            :key="status.id"
+            class="source-status-chip"
+            :class="status.state"
+            :title="status.message || ''"
+          >
+            {{ status.label }} · {{ status.count }}
+          </span>
+          <button
+            v-if="midishowNeedsUnlock"
+            class="verify-midishow-btn"
+            :disabled="midishowVerifying"
+            :title="midishowStatus?.message || '完成一次人机验证后即可检索 Midishow 中文曲库'"
+            @click="verifyMidishow"
+          >
+            <Loader2 v-if="midishowVerifying" :size="11" class="spin" />
+            <ShieldCheck v-else :size="11" />
+            <span>{{ midishowVerifying ? '等待验证窗口…' : '解锁 Midishow 中文曲库' }}</span>
+          </button>
+        </div>
+
         <!-- 排序方式 -->
-        <div class="sort-selector">
-          <select v-model="activeSort" @change="searchTracks">
-            <option value="hot">按热度排序</option>
-            <option value="latest">按最新收录</option>
-            <option value="title">按歌名拼音</option>
-            <option value="notes">按音符数量</option>
-          </select>
+        <div ref="sortMenuRef" class="sort-selector">
+          <button
+            type="button"
+            class="sort-trigger"
+            :class="{ open: sortMenuOpen }"
+            :aria-expanded="sortMenuOpen"
+            aria-haspopup="listbox"
+            @click="toggleSortMenu"
+          >
+            <span>{{ activeSortLabel }}</span>
+            <ChevronDown :size="12" class="source-caret" :class="{ open: sortMenuOpen }" />
+          </button>
+          <transition name="drop-fade">
+            <div v-if="sortMenuOpen" class="source-menu sort-menu" role="listbox" aria-label="选择排序方式">
+              <button
+                v-for="opt in sortOptions"
+                :key="opt.id"
+                type="button"
+                role="option"
+                :aria-selected="activeSort === opt.id"
+                class="source-option"
+                :class="{ active: activeSort === opt.id }"
+                @click="pickSort(opt.id)"
+              >
+                <span class="source-option-text">
+                  <span class="source-option-name">{{ opt.label }}</span>
+                </span>
+                <Check v-if="activeSort === opt.id" :size="13" class="source-option-check" />
+              </button>
+            </div>
+          </transition>
         </div>
       </div>
 
@@ -518,6 +922,23 @@ watch(
           <Music :size="34" class="icon-center" />
           <p>未找到符合条件的曲目</p>
           <div class="empty-hint">您可以尝试输入其他关键词，或在上方切换至其他数据源</div>
+          <div v-if="midishowNeedsUnlock" class="empty-hint empty-verify-hint">
+            中文流行曲目（如《逆战》）收录在 Midishow，点击上方「解锁 Midishow 中文曲库」完成一次人机验证即可检索
+          </div>
+          <div v-else-if="cjkQuery" class="empty-hint empty-verify-hint">
+            BitMidi / Tuneonmusic / MIDIWORLD / Internet Archive 按英文、日文曲名收录，中文曲名通常只在 Midishow 命中
+          </div>
+          <div v-if="sourceStatuses.length" class="empty-source-list">
+            <div
+              v-for="item in sourceStatuses"
+              :key="item.id"
+              class="empty-source-row"
+              :class="item.state"
+            >
+              <span class="empty-source-name">{{ item.label }}</span>
+              <span class="empty-source-state">{{ sourceStateText(item) }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- 歌曲表格 -->
@@ -540,7 +961,7 @@ watch(
                 :key="track.id"
                 class="track-row"
                 :class="{ 'is-playing': currentPlayingTrack?.id === track.id }"
-                @dblclick="handlePreview(track)"
+                @dblclick="handleRowDblClick(track, $event)"
               >
                 <!-- 序号 / 试听播放按钮 -->
                 <td class="col-num">
@@ -562,6 +983,7 @@ watch(
                   <div class="title-cell">
                     <span class="track-title-text">{{ track.title }}</span>
                     <span
+                      v-if="track.difficulty"
                       class="difficulty-badge"
                       :class="track.difficulty === '简单' ? 'easy' : track.difficulty === '大师' ? 'master' : 'medium'"
                     >
@@ -584,15 +1006,15 @@ watch(
                   <span class="category-tag">{{ track.category_name }}</span>
                 </td>
 
-                <!-- 时长 / 音符数 -->
+                <!-- 时长 / 音符数：来源没给元数据时显示占位，不能编造 00:00 -->
                 <td class="col-duration">
-                  <div class="duration-text">{{ formatDuration(track.duration_secs) }}</div>
-                  <div class="notes-sub">{{ track.notes_count }} 音符</div>
+                  <div class="duration-text">{{ track.duration_secs > 0 ? formatDuration(track.duration_secs) : '—' }}</div>
+                  <div v-if="track.notes_count > 0" class="notes-sub">{{ track.notes_count }} 音符</div>
                 </td>
 
                 <!-- 音源标签 -->
                 <td class="col-source">
-                  <span class="source-badge" :class="track.source === 'official' ? 'official' : 'third-party'">
+                  <span class="source-badge" :class="`src-${track.source}`">
                     {{ track.source_name }}
                   </span>
                 </td>
@@ -644,19 +1066,37 @@ watch(
         </div>
 
         <div class="player-center">
-          <button
-            class="ctrl-btn play-pause-btn"
-            @click="handlePreview(currentPlayingTrack)"
-          >
-            <Pause v-if="isPlaying" :size="15" />
-            <Play v-else :size="15" />
-          </button>
-          <div class="playing-indicator" v-if="isPlaying">
-            <span class="bar bar1"></span>
-            <span class="bar bar2"></span>
-            <span class="bar bar3"></span>
+          <div class="player-center-controls">
+            <button
+              class="ctrl-btn play-pause-btn"
+              :title="isPlaying ? '暂停试听' : '继续试听'"
+              @click="handlePreview(currentPlayingTrack)"
+            >
+              <Pause v-if="isPlaying" :size="15" />
+              <Play v-else :size="15" />
+            </button>
+            <div class="playing-indicator" v-if="isPlaying">
+              <span class="bar bar1"></span>
+              <span class="bar bar2"></span>
+              <span class="bar bar3"></span>
+            </div>
+            <span class="playing-state-text">{{ isPlaying ? '试听播放中' : '已暂停' }}</span>
           </div>
-          <span class="playing-state-text">{{ isPlaying ? '正在试听中' : '试听暂停' }}</span>
+          <!-- 试听进度条与全曲时长 -->
+          <div class="player-timeline">
+            <span class="time-label current">{{ formatDuration(Math.floor((props.playerPositionMs || 0) / 1000)) }}</span>
+            <div class="progress-bar-track" @click="handleSeekProgress">
+              <div
+                class="progress-bar-fill"
+                :style="{ width: `${playbackProgressPercent}%` }"
+              ></div>
+              <div
+                class="progress-bar-thumb"
+                :style="{ left: `${playbackProgressPercent}%` }"
+              ></div>
+            </div>
+            <span class="time-label total">{{ formatDuration(Math.floor(playbackTotalDurationMs / 1000)) }}</span>
+          </div>
         </div>
 
         <div class="player-right">
@@ -680,66 +1120,81 @@ watch(
           </button>
         </div>
       </div>
-    </div>
 
-    <!-- 数据源管理弹窗 -->
-    <div v-if="showSourceManager" class="source-modal-overlay" @click.self="showSourceManager = false">
-      <div class="source-modal-card">
-        <div class="source-modal-header">
-          <div class="title">数据源与第三方接口配置</div>
-          <button class="close-icon" @click="showSourceManager = false">
-            <X :size="16" />
-          </button>
-        </div>
+      <!-- Midishow 登录/认证窗口 -->
+      <transition name="fade">
+        <div v-if="midishowLoginModalOpen" class="midishow-login-dialog-overlay" @click.self="midishowLoginModalOpen = false">
+          <div class="midishow-login-card">
+            <div class="login-card-header">
+              <div class="login-card-title">
+                <User :size="16" />
+                <span>Midishow 账号登录与认证</span>
+              </div>
+              <button class="close-card-btn" @click="midishowLoginModalOpen = false">
+                <X :size="14" />
+              </button>
+            </div>
 
-        <div class="source-modal-body">
-          <div class="source-list-section">
-            <div class="section-title">内置与已配置数据源</div>
-            <div class="source-items">
-              <div v-for="s in sources" :key="s.id" class="source-item">
-                <div class="source-info">
-                  <div class="name-row">
-                    <span class="s-name">{{ s.name }}</span>
-                    <span class="s-type" :class="s.source_type">{{ s.source_type }}</span>
-                  </div>
-                  <div class="s-url">{{ s.url }}</div>
-                  <div class="s-desc">{{ s.description }}</div>
-                </div>
-                <div class="source-actions" v-if="s.source_type === 'custom'">
-                  <button class="delete-btn" title="删除自定义源" @click="removeCustomSource(s.id)">
-                    <Trash2 :size="14" />
+            <div class="login-card-body">
+              <p class="login-tip">
+                Midishow 是中文曲库的主要来源。真实登录后可直接检索海量华语流行曲目并试听完整真实钢琴音效。
+              </p>
+
+              <div class="login-methods">
+                <!-- 方式1: 网页窗口直接登录 -->
+                <div class="login-method-box">
+                  <div class="method-title">方式一：网页窗口快捷登录 (推荐)</div>
+                  <div class="method-desc">在内置安全窗口中完成登录，自动通过 Cloudflare 人机验证并同步会话凭证。</div>
+                  <button
+                    type="button"
+                    class="btn-primary web-login-btn"
+                    :disabled="midishowAuthLoading"
+                    @click="handleMidishowWebLogin"
+                  >
+                    <Loader2 v-if="midishowAuthLoading" :size="14" class="spin" />
+                    <Globe v-else :size="14" />
+                    <span>打开 Midishow 网页快捷登录</span>
                   </button>
                 </div>
+
+                <!-- 方式2: 粘贴 Cookie 凭据 -->
+                <div class="login-method-box">
+                  <div class="method-title">方式二：直接导入 Cookie / 会话凭据</div>
+                  <div class="method-desc">在浏览器登录 midishow.com 后，复制 Cookie 中的 _identity 或完整 Cookie 字符串粘贴至下方：</div>
+                  <input
+                    v-model="midishowCookieInput"
+                    type="text"
+                    class="login-input"
+                    placeholder="例如: _identity=xxxx; 或完整 Cookie"
+                  />
+                  <div class="cookie-actions">
+                    <input
+                      v-model="midishowAccountInput"
+                      type="text"
+                      class="login-input name-input"
+                      placeholder="备注账号名 (选填)"
+                    />
+                    <button
+                      type="button"
+                      class="btn-secondary import-btn"
+                      :disabled="midishowAuthLoading || !midishowCookieInput.trim()"
+                      @click="handleImportMidishowCookie"
+                    >
+                      <Check :size="13" />
+                      <span>导入并保存</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="midishowAccount" class="current-account-info">
+                <span>当前已登录账号：<strong>{{ midishowAccount }}</strong></span>
+                <button class="btn-text danger" @click="handleLogoutMidishow">退出此账号</button>
               </div>
             </div>
           </div>
-
-          <!-- 添加自定义第三方源 -->
-          <div class="add-source-section">
-            <div class="section-title">添加自定义第三方源接口</div>
-            <div class="form-row">
-              <label>源名称</label>
-              <input v-model="newSourceName" placeholder="例如：我的自建曲库 / 朋友的 MIDI 源" />
-            </div>
-            <div class="form-row">
-              <label>接口 URL</label>
-              <input v-model="newSourceUrl" placeholder="https://example.com/api/midi/search" />
-            </div>
-            <div class="form-row">
-              <label>源描述 (可选)</label>
-              <input v-model="newSourceDesc" placeholder="支持标准 JSON 格式或直链下载列表" />
-            </div>
-            <div v-if="sourceAddError" class="form-error">{{ sourceAddError }}</div>
-            <div class="form-submit">
-              <button class="add-btn" :disabled="addingSource" @click="addCustomSource">
-                <Loader2 v-if="addingSource" :size="14" class="spin" />
-                <Plus v-else :size="14" />
-                <span>保存并添加数据源</span>
-              </button>
-            </div>
-          </div>
         </div>
-      </div>
+      </transition>
     </div>
   </div>
 </template>
@@ -830,26 +1285,153 @@ watch(
 }
 
 .source-selector {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
   height: 30px;
-  border-radius: 7px;
+  border-radius: 8px;
   border: 1px solid var(--vp-border);
   background: var(--vp-surface);
   color: var(--vp-muted);
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 
-.source-selector select {
+.source-selector:hover,
+.source-selector.open {
+  border-color: var(--vp-border-strong);
+  background: var(--vp-panel);
+}
+
+.source-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 10px 0 9px;
   border: none;
+  border-radius: 8px;
   background: transparent;
-  outline: none;
   color: var(--vp-text);
+  font-family: inherit;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  padding: 0;
+}
+
+.source-icon {
+  color: var(--vp-primary);
+  flex: none;
+}
+
+.source-trigger-label {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-caret {
+  color: var(--vp-dim);
+  flex: none;
+  transition: transform 0.16s ease;
+}
+
+.source-caret.open {
+  transform: rotate(180deg);
+}
+
+/* 自绘下拉菜单：跟随主题变量，原生 select 的系统弹层做不到这一点 */
+.source-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 300px;
+  max-height: 362px;
+  overflow-y: auto;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid var(--vp-border-strong);
+  background: var(--vp-panel);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 16px 38px rgba(69, 26, 3, 0.18), 0 2px 8px rgba(69, 26, 3, 0.08);
+}
+
+.sort-menu {
+  width: 176px;
+}
+
+.source-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--vp-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s ease;
+}
+
+.source-option:hover {
+  background: var(--vp-hover);
+}
+
+.source-option.active {
+  background: color-mix(in srgb, var(--vp-primary) 12%, transparent);
+}
+
+.source-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.source-option-name {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.source-option-desc {
+  font-size: 10.5px;
+  color: var(--vp-dim);
+  line-height: 1.35;
+}
+
+.source-option-count {
+  flex: none;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vp-primary) 12%, transparent);
+  color: var(--vp-primary);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.source-option-check {
+  color: var(--vp-primary);
+  flex: none;
+}
+
+.drop-fade-enter-active,
+.drop-fade-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.drop-fade-enter-from,
+.drop-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 .header-btn {
@@ -1054,16 +1636,40 @@ watch(
   border-color: var(--vp-primary);
 }
 
-.sort-selector select {
+.sort-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sort-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 30px;
-  border-radius: 6px;
+  padding: 0 10px;
+  border-radius: 7px;
   border: 1px solid var(--vp-border);
   background: var(--vp-surface);
   color: var(--vp-text);
+  font-family: inherit;
   font-size: 11px;
-  padding: 0 8px;
-  outline: none;
+  font-weight: 600;
   cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.sort-trigger:hover,
+.sort-trigger.open {
+  border-color: var(--vp-border-strong);
+  background: var(--vp-panel);
+}
+
+/* 键盘操作（如 Esc 关闭菜单）后浏览器会画默认黑框，换成主题色细环。 */
+.source-trigger:focus-visible,
+.sort-trigger:focus-visible {
+  outline: 2px solid var(--vp-primary);
+  outline-offset: 1px;
 }
 
 /* 列表主内容区 */
@@ -1206,9 +1812,9 @@ watch(
 }
 
 .difficulty-badge.master {
-  background: color-mix(in srgb, #8b5cf6 14%, transparent);
-  color: #7c3aed;
-  border: 1px solid color-mix(in srgb, #8b5cf6 30%, transparent);
+  background: color-mix(in srgb, var(--vp-text) 10%, transparent);
+  color: var(--vp-text);
+  border: 1px solid var(--vp-border-strong);
 }
 
 .tags-row {
@@ -1254,6 +1860,11 @@ watch(
 }
 
 .source-badge {
+  display: inline-block;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
@@ -1262,10 +1873,40 @@ watch(
   color: var(--vp-muted);
 }
 
-.source-badge.official {
+.source-badge.src-bitmidi {
   background: color-mix(in srgb, var(--vp-primary) 10%, var(--vp-panel));
   color: var(--vp-primary);
   border-color: color-mix(in srgb, var(--vp-primary) 25%, transparent);
+}
+
+.source-badge.src-tuneon {
+  background: color-mix(in srgb, #16a34a 10%, var(--vp-panel));
+  color: #15803d;
+  border-color: color-mix(in srgb, #16a34a 25%, transparent);
+}
+
+.source-badge.src-midiworld {
+  background: color-mix(in srgb, #a16207 10%, var(--vp-panel));
+  color: #a16207;
+  border-color: color-mix(in srgb, #a16207 28%, transparent);
+}
+
+.source-badge.src-local {
+  background: color-mix(in srgb, #475569 8%, var(--vp-panel));
+  color: #475569;
+  border-color: color-mix(in srgb, #475569 22%, transparent);
+}
+
+.source-badge.src-archive {
+  background: color-mix(in srgb, #0e7490 10%, var(--vp-panel));
+  color: #0e7490;
+  border-color: color-mix(in srgb, #0e7490 25%, transparent);
+}
+
+.source-badge.src-midishow {
+  background: color-mix(in srgb, #be123c 10%, var(--vp-panel));
+  color: #be123c;
+  border-color: color-mix(in srgb, #be123c 25%, transparent);
 }
 
 /* 操作按钮列：固定宽度与统一尺寸 */
@@ -1515,186 +2156,6 @@ watch(
   transform: translate(-50%, -10px);
 }
 
-/* 数据源管理弹窗 */
-.source-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.source-modal-card {
-  width: 100%;
-  max-width: 600px;
-  max-height: 85vh;
-  background: var(--vp-surface);
-  border: 1px solid var(--vp-border-strong);
-  border-radius: 10px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.source-modal-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--vp-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--vp-panel);
-}
-
-.source-modal-header .title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--vp-text);
-}
-
-.close-icon {
-  background: none;
-  border: none;
-  color: var(--vp-muted);
-  cursor: pointer;
-  padding: 4px;
-}
-
-.close-icon:hover {
-  color: var(--vp-text);
-}
-
-.source-modal-body {
-  padding: 16px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.section-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--vp-text);
-  margin-bottom: 8px;
-}
-
-.source-items {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.source-item {
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--vp-border);
-  background: var(--vp-panel);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.s-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--vp-text);
-}
-
-.s-type {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 6px;
-  background: color-mix(in srgb, var(--vp-primary) 12%, transparent);
-  color: var(--vp-primary);
-}
-
-.s-url {
-  font-size: 11px;
-  color: var(--vp-muted);
-  margin-top: 2px;
-  word-break: break-all;
-}
-
-.s-desc {
-  font-size: 11px;
-  color: var(--vp-dim);
-  margin-top: 2px;
-}
-
-.delete-btn {
-  background: none;
-  border: none;
-  color: #ef4444;
-  cursor: pointer;
-  padding: 4px;
-}
-
-.add-source-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--vp-border);
-}
-
-.form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.form-row label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--vp-muted);
-}
-
-.form-row input {
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 6px;
-  border: 1px solid var(--vp-border);
-  background: var(--vp-panel);
-  color: var(--vp-text);
-  font-size: 12px;
-  outline: none;
-}
-
-.form-row input:focus {
-  border-color: var(--vp-primary);
-}
-
-.form-error {
-  color: #ef4444;
-  font-size: 11px;
-}
-
-.add-btn {
-  height: 32px;
-  padding: 0 16px;
-  border-radius: 6px;
-  border: none;
-  background: var(--vp-primary);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  margin-top: 6px;
-}
-
-.add-btn:hover:not(:disabled) {
-  background: var(--vp-primary-hover);
-}
-
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -1703,4 +2164,363 @@ watch(
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* 逐源检索状态 */
+.source-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.source-status-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--vp-border);
+  background: var(--vp-panel);
+  color: var(--vp-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.source-status-chip.ok {
+  border-color: var(--vp-accent, var(--vp-border));
+  color: var(--vp-text);
+}
+.source-status-chip.failed {
+  border-style: dashed;
+  color: var(--vp-danger, #b45309);
+}
+.source-status-chip.empty {
+  opacity: 0.65;
+}
+.source-status-chip.idle {
+  opacity: 0.55;
+}
+.source-status-chip.needs-verify {
+  border-style: dashed;
+  border-color: color-mix(in srgb, #b45309 45%, transparent);
+  color: #b45309;
+}
+
+.verify-midishow-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 9px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--vp-primary) 10%, var(--vp-panel));
+  color: var(--vp-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.verify-midishow-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vp-primary) 18%, var(--vp-panel));
+  border-color: color-mix(in srgb, var(--vp-primary) 55%, transparent);
+}
+.verify-midishow-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.empty-verify-hint {
+  margin-top: 6px;
+  color: var(--vp-primary);
+  opacity: 0.85;
+}
+
+.empty-source-list {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(420px, 100%);
+}
+
+.empty-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--vp-primary) 5%, transparent);
+  color: var(--vp-muted);
+  font-size: 11px;
+}
+
+.empty-source-name {
+  font-weight: 600;
+}
+
+.empty-source-state {
+  font-size: 10.5px;
+  color: var(--vp-dim);
+  text-align: right;
+}
+
+.empty-source-row.needs-verify .empty-source-state,
+.empty-source-row.failed .empty-source-state {
+  color: var(--vp-primary);
+}
 </style>
+
+
+/* Midishow 账号状态徽章 */
+.midishow-account-badge {
+  display: flex;
+  align-items: center;
+}
+.account-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--vp-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 28%, transparent);
+  color: var(--vp-primary);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.account-status-btn:hover {
+  background: color-mix(in srgb, var(--vp-primary) 18%, transparent);
+  border-color: var(--vp-primary);
+}
+.account-status-btn.logged {
+  background: color-mix(in srgb, #10b981 12%, transparent);
+  border-color: color-mix(in srgb, #10b981 32%, transparent);
+  color: #10b981;
+}
+.account-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* 底部播放进度条 */
+.player-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 280px;
+  flex: 1;
+  max-width: 520px;
+}
+.player-center-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.player-timeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.time-label {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+  min-width: 34px;
+}
+.time-label.current {
+  text-align: right;
+}
+.time-label.total {
+  text-align: left;
+}
+.progress-bar-track {
+  position: relative;
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--vp-primary);
+  pointer-events: none;
+}
+.progress-bar-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.progress-bar-track:hover .progress-bar-thumb {
+  opacity: 1;
+}
+
+/* Midishow 登录弹窗 */
+.midishow-login-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.midishow-login-card {
+  width: 100%;
+  max-width: 480px;
+  background: color-mix(in srgb, var(--vp-modal-bg) 95%, #000);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 35%, transparent);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.login-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+.login-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vp-primary);
+}
+.close-card-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.close-card-btn:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.login-card-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-tip {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.75;
+  margin: 0;
+}
+.login-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-method-box {
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.method-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vp-primary);
+}
+.method-desc {
+  font-size: 11px;
+  opacity: 0.65;
+  line-height: 1.4;
+}
+.web-login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--vp-primary);
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.web-login-btn:hover {
+  opacity: 0.9;
+}
+.login-input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  color: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.login-input:focus {
+  border-color: var(--vp-primary);
+}
+.cookie-actions {
+  display: flex;
+  gap: 8px;
+}
+.name-input {
+  flex: 1;
+}
+.import-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--vp-primary) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 35%, transparent);
+  color: var(--vp-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.current-account-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 12px;
+}
+.btn-text.danger {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 12px;
+}

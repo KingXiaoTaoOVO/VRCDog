@@ -1,3 +1,5 @@
+import { AcousticGrandPianoEngine } from './acousticGrandPiano';
+
 export type MidiNote = {
   timeMs: number;
   durationMs: number;
@@ -335,11 +337,84 @@ const FAMILY_PROFILES: SynthProfile[] = [
 
 const midiNoteFrequency = (note: number) => 440 * Math.pow(2, (note - 69) / 12);
 
+// 钢琴不是「一个三角波 + 指数衰减」能糊过去的：真钢的音色来自
+// ① 逐分音衰减（高音分音先消失，所以余音会越听越暗）、
+// ② 非谐性 f_n = f·n·√(1+B·n²)（弦有刚度，泛音略偏高，这是钢琴区别于风琴的关键）、
+// ③ 击锤噪声暂态（决定「叮」的那一下）、
+// ④ 力度同时决定音量和亮度、
+// ⑤ 松键后制音器 80ms 内切掉余音。
+// 之前所有钢琴 MIDI 都是 program 0 → 同一个两层振荡器音色，所以「每首都一样」。
+const PIANO_PARTIALS_BY_NOTE: Array<[number, number]> = [
+  [36, 12], [48, 10], [60, 8], [72, 6], [84, 4], [128, 3],
+];
+
+const pianoPartialCount = (note: number) => {
+  for (const [limit, count] of PIANO_PARTIALS_BY_NOTE) {
+    if (note < limit) return count;
+  }
+  return 3;
+};
+
+/** 低音弦长、余音久；高音弦短、余音快。A0 约 20s，C8 约 0.6s。 */
+const pianoBaseDecay = (note: number) => Math.max(0.55, 19 * Math.pow(0.9655, note));
+
+/** 弦刚度导致的非谐性系数，随音高上升。 */
+const pianoInharmonicity = (note: number) => 0.000016 + Math.max(0, note - 24) * 0.0000042;
+
 export class GeneralMidiSynth {
   private readonly scheduledNodes = new Set<AudioNode>();
   private noiseBuffer: AudioBuffer | null = null;
+  private reverbInput: AudioNode | null = null;
+  private activeVoices = 0;
+  private static readonly MAX_VOICES = 140;
 
-  constructor(private readonly context: AudioContext, private readonly output: AudioNode) {}
+  constructor(private readonly context: AudioContext, private readonly output: AudioNode) {
+    try {
+      AcousticGrandPianoEngine.getInstance().preloadCommonOctaves(this.context);
+    } catch {
+      // AudioContext preloading ignored in mocked/test environments
+    }
+  }
+
+  /** 公共混响总线：钢琴干声直接听是「电子琴」，加一点厅堂尾巴才像琴。 */
+  private ensureReverb(): AudioNode | null {
+    if (this.reverbInput) return this.reverbInput;
+    try {
+      const convolver = this.context.createConvolver();
+      const seconds = 1.6;
+      const length = Math.floor(this.context.sampleRate * seconds);
+      const impulse = this.context.createBuffer(2, length, this.context.sampleRate);
+      for (let channel = 0; channel < 2; channel += 1) {
+        const data = impulse.getChannelData(channel);
+        for (let index = 0; index < length; index += 1) {
+          const t = index / length;
+          // 噪声 + 指数衰减，并掐掉最前面 3ms 避免和干声打架。
+          data[index] = (index < this.context.sampleRate * 0.003 ? 0 : (Math.random() * 2 - 1))
+            * Math.pow(1 - t, 2.6);
+        }
+      }
+      convolver.buffer = impulse;
+      const wet = this.context.createGain();
+      wet.gain.value = 0.16;
+      convolver.connect(wet).connect(this.output);
+      this.reverbInput = convolver;
+      return convolver;
+    } catch {
+      return null;
+    }
+  }
+
+  private voiceDestination(voiceGain: GainNode, send: number) {
+    voiceGain.connect(this.output);
+    if (send > 0) {
+      const reverb = this.ensureReverb();
+      if (reverb) {
+        const sendGain = this.context.createGain();
+        sendGain.gain.value = send;
+        voiceGain.connect(sendGain).connect(reverb);
+      }
+    }
+  }
 
   stopAll() {
     for (const node of this.scheduledNodes) {
@@ -352,11 +427,108 @@ export class GeneralMidiSynth {
       }
     }
     this.scheduledNodes.clear();
+    this.activeVoices = 0;
   }
 
   schedule(note: MidiNote, startAt: number, duration: number, overrideProgram: number | null) {
-    if (note.channel === 9) this.scheduleDrum(note, startAt);
-    else this.scheduleInstrument(note, startAt, duration, overrideProgram ?? note.program);
+    if (note.channel === 9) {
+      this.scheduleDrum(note, startAt);
+      return;
+    }
+    const program = Math.min(127, Math.max(0, overrideProgram ?? note.program));
+    if (program < 8) {
+      if (
+        AcousticGrandPianoEngine.getInstance().scheduleSampledNote(
+          this.context,
+          this.output,
+          note.note,
+          note.velocity,
+          startAt,
+          duration,
+          (node) => this.scheduledNodes.add(node),
+        )
+      ) {
+        return;
+      }
+      this.schedulePiano(note, startAt, duration, program);
+      return;
+    }
+    this.scheduleInstrument(note, startAt, duration, program);
+  }
+
+  private schedulePiano(note: MidiNote, startAt: number, duration: number, program: number) {
+    const velocity = Math.min(1, Math.max(0.08, note.velocity));
+    // 0=大钢琴，1=亮钢琴，7=谐波琴：用亮度与分音包络区分，而不是换一套完全不同的音色。
+    const brightness = Math.min(1.25, (0.34 + velocity * 0.66) * (program === 1 ? 1.22 : program === 7 ? 1.1 : 1));
+    const frequency = midiNoteFrequency(note.note);
+    const partials = pianoPartialCount(note.note);
+    const baseDecay = pianoBaseDecay(note.note);
+    const inharmonicity = pianoInharmonicity(note.note);
+    const damperAt = startAt + Math.max(duration, 0.12) + 0.08;
+    const nyquist = this.context.sampleRate * 0.45;
+    const oscillatorNodes: OscillatorNode[] = [];
+    const partialGains: GainNode[] = [];
+
+    let createdPartials = 0;
+    for (let index = 1; index <= partials; index += 1) {
+      const partialFrequency = frequency * index * Math.sqrt(1 + inharmonicity * index * index);
+      if (partialFrequency > nyquist) break;
+      if (this.activeVoices >= GeneralMidiSynth.MAX_VOICES) break;
+      // 高次分音既更轻、也衰减更快 —— 这就是「余音越听越暗」。
+      const amplitude = Math.pow(index, -(1.15 + (1.15 - brightness))) / (1 + (index - 1) * 0.05);
+      const partialDecay = baseDecay / (1 + (index - 1) * (0.42 + brightness * 0.35));
+      const oscillator = this.context.createOscillator();
+      const gain = this.context.createGain();
+      const peak = Math.max(0.0006, amplitude * velocity * 0.5);
+      // 时间轴必须单调递增：先算出「衰减落点」，再在制音器落下时收掉，
+      // 否则 exponentialRamp 的排程会互相打架、音符会突然爆音。
+      const decayEnd = Math.max(
+        startAt + 0.05,
+        Math.min(damperAt - 0.01, startAt + partialDecay),
+      );
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(partialFrequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.linearRampToValueAtTime(peak, startAt + 0.004);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak * 0.015), decayEnd);
+      gain.gain.exponentialRampToValueAtTime(0.0001, damperAt);
+      oscillator.connect(gain);
+      oscillator.start(startAt);
+      oscillator.stop(damperAt + 0.02);
+      this.activeVoices += 1;
+      createdPartials += 1;
+      oscillatorNodes.push(oscillator);
+      partialGains.push(gain);
+    }
+
+    // 击锤暂态：短噪声 + 带通，决定「叮」的那一下；力度越大越明显。
+    const hammer = this.context.createBufferSource();
+    hammer.buffer = this.getNoiseBuffer();
+    const hammerFilter = this.context.createBiquadFilter();
+    hammerFilter.type = 'bandpass';
+    hammerFilter.frequency.setValueAtTime(Math.min(6500, 900 + frequency * 2.2), startAt);
+    hammerFilter.Q.value = 0.9;
+    const hammerGain = this.context.createGain();
+    hammerGain.gain.setValueAtTime(0.0001, startAt);
+    hammerGain.gain.linearRampToValueAtTime(0.05 * velocity * brightness, startAt + 0.002);
+    hammerGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.06);
+    hammer.connect(hammerFilter).connect(hammerGain);
+    hammer.start(startAt, Math.random() * 1.5, 0.08);
+
+    const bus = this.context.createGain();
+    bus.gain.value = 0.9;
+    for (const gainNode of partialGains) gainNode.connect(bus);
+    hammerGain.connect(bus);
+    this.voiceDestination(bus, 0.5);
+    const cleanupNodes: AudioNode[] = [...oscillatorNodes, ...partialGains, hammer, hammerFilter, hammerGain, bus];
+    for (const node of cleanupNodes) this.scheduledNodes.add(node);
+    hammer.addEventListener('ended', () => {
+      this.activeVoices = Math.max(0, this.activeVoices - createdPartials);
+      for (const node of cleanupNodes) {
+        this.scheduledNodes.delete(node);
+        try { node.disconnect(); } catch { /* Already disconnected. */ }
+      }
+    }, { once: true });
   }
 
   private trackSource(source: AudioScheduledSourceNode, nodes: AudioNode[]) {
@@ -392,7 +564,8 @@ export class GeneralMidiSynth {
     voiceGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak * profile.sustain), decayEnd);
     voiceGain.gain.setValueAtTime(Math.max(0.0001, peak * profile.sustain), releaseStart);
     voiceGain.gain.exponentialRampToValueAtTime(0.0001, endAt);
-    voiceGain.connect(filter).connect(panner).connect(this.output);
+    this.voiceDestination(voiceGain, 0.28);
+    voiceGain.connect(filter).connect(panner);
 
     const sources: OscillatorNode[] = [];
     const frequency = midiNoteFrequency(note.note);

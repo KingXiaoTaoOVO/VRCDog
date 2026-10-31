@@ -637,8 +637,6 @@ pub fn run() {
             vrpiano::vrpiano_cloud_library_search,
             vrpiano::vrpiano_cloud_library_categories,
             vrpiano::vrpiano_cloud_library_sources,
-            vrpiano::vrpiano_cloud_sources_get,
-            vrpiano::vrpiano_cloud_sources_save,
             vrpiano::vrpiano_open_songs_dir,
             vrpiano::vrpiano_get_status,
             vrpiano::vrpiano_start,

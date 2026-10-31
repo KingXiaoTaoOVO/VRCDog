@@ -146,7 +146,7 @@ const onlineSearchNotice = ref('');
 const onlineChineseStatus = ref<'idle' | 'searching' | 'needs-verify' | 'done'>('idle');
 const verifyingChineseLibrary = ref(false);
 const onlineIndexCount = ref(0);
-const onlineFilter = ref<'all' | 'local' | 'bitmidi' | 'midishow'>('all');
+const onlineFilter = ref<'all' | 'local' | 'bitmidi' | 'tuneon' | 'midiworld' | 'midishow'>('all');
 const showCloudLibraryModal = ref(false);
 
 const handleCloudSongDownloaded = async (song: VrpianoSong) => {
@@ -159,8 +159,14 @@ const handleCloudPlaySong = async (song: VrpianoSong) => {
   await handleSongDblClickToPlay(song);
 };
 
-const handleCloudPreviewMidi = async (midiData: { name: string; data: string }) => {
-  await loadMidiIntoPlayer(midiData);
+// 云端曲库试听：把曲目 id 一起记下来，弹窗才能知道「当前播放器里挂的是哪一首」，
+// 从而把暂停/继续交给本页的真实播放器，而不是只改自己按钮的图标。
+const cloudPreviewTrackId = ref<string | null>(null);
+const handleCloudPreviewMidi = async (midiData: { id?: string; name: string; data: string }) => {
+  await loadMidiIntoPlayer(midiData, midiData.id ?? null);
+};
+const handleCloudPreviewToggle = async () => {
+  await togglePlayer();
 };
 const midishowLoginOpen = ref(false);
 const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
@@ -168,6 +174,10 @@ const midishowLoginStatus = ref<VrpianoMidishowLoginStatus>({
   message:t('vrpiano.waiting_to_sign_in'),
   username: null,
 });
+// 保存了 Cookie 不等于会话还活着。Midishow 的直连会被 Cloudflare 拦截，
+// 无法可靠地主动探测；只在真实试听/下载成功或收到「需要登录」时更新，
+// 绝不凭账号记录本身显示「已登录」。
+const midishowSession = ref<'unknown' | 'signed_in' | 'expired'>('unknown');
 const accountLoading = ref(false);
 const externalLinkLoading = ref(false);
 const loginError = ref('');
@@ -304,20 +314,40 @@ const filteredSongs = computed(() => {
 const heroTrackRef = ref<HTMLElement | null>(null);
 const heroSeekPreviewMs = ref<number | null>(null);
 const heroSeekDragging = ref(false);
-const canSeekPlayback = computed(() => Boolean(status.value.running && status.value.duration_ms > 0));
+// 顶部进度条要同时服务两种播放源：F1 自动演奏读 Rust 状态，内置试听读 WebAudio 播放器。
+// 只读 status 时试听已经在发声，进度条却停在 0:00/0:00，用户会以为试听没播。
+const builtInPlayerLoaded = computed(() => (
+  !status.value.running
+  && parsedPlayerNotes.value.length > 0
+  && Number.isFinite(playerDurationMs.value)
+  && playerDurationMs.value > 0
+));
+const heroDurationMs = computed(() => (
+  builtInPlayerLoaded.value ? playerDurationMs.value : status.value.duration_ms
+));
+const canSeekPlayback = computed(() => Boolean(
+  (status.value.running && status.value.duration_ms > 0)
+  || (builtInPlayerLoaded.value && heroDurationMs.value > 0),
+));
 const heroRatio = computed(() => {
+  const duration = Math.max(1, heroDurationMs.value);
   if (heroSeekPreviewMs.value !== null) {
-    const duration = Math.max(1, status.value.duration_ms);
     return Math.min(1, Math.max(0, heroSeekPreviewMs.value / duration));
+  }
+  if (builtInPlayerLoaded.value) {
+    return Math.min(1, Math.max(0, playerPositionMs.value / duration));
   }
   return Math.min(1, Math.max(0, Number(status.value.progress) || 0));
 });
 const progressPercent = computed(() => Math.round(heroRatio.value * 100));
-const heroElapsedMs = computed(() => (heroSeekPreviewMs.value !== null ? heroSeekPreviewMs.value : status.value.elapsed_ms));
+const heroElapsedMs = computed(() => {
+  if (heroSeekPreviewMs.value !== null) return heroSeekPreviewMs.value;
+  return builtInPlayerLoaded.value ? playerPositionMs.value : status.value.elapsed_ms;
+});
 
 const heroSeekTargetFromClientX = (clientX: number) => {
   const el = heroTrackRef.value;
-  const duration = status.value.duration_ms;
+  const duration = heroDurationMs.value;
   if (!el || !duration) return 0;
   const rect = el.getBoundingClientRect();
   if (rect.width <= 0) return 0;
@@ -327,7 +357,12 @@ const heroSeekTargetFromClientX = (clientX: number) => {
 
 const commitHeroSeek = async (positionMs: number) => {
   if (!canSeekPlayback.value) return;
-  const target = Math.min(status.value.duration_ms, Math.max(0, Math.round(positionMs)));
+  const target = Math.min(heroDurationMs.value, Math.max(0, Math.round(positionMs)));
+  if (builtInPlayerLoaded.value) {
+    playerPositionMs.value = target;
+    if (playerPlaying.value) await schedulePlayer(target);
+    return;
+  }
   try {
     status.value = await VrpianoApi.seek({ positionMs: target });
   } catch (e: any) {
@@ -410,9 +445,9 @@ const playbackActionLabel = computed(() => {
 });
 const speedText = computed(() => `${clampSpeed(speed.value).toFixed(2)}x`);
 const defaultMidishowAccount = computed(() => midishowAccounts.value[0] || null);
-const defaultMidishowLoginTypeText = computed(() => (
-  defaultMidishowAccount.value?.login_type ?t('vrpiano.signed_in_session') : ''
-));
+// 账号文件里存着 Cookie ≠ 服务器还认这个会话。
+const midishowSessionExpired = computed(() => Boolean(defaultMidishowAccount.value) && midishowSession.value === 'expired');
+const midishowSessionVerified = computed(() => midishowSession.value === 'signed_in');
 const canTogglePlayer = computed(() => Boolean(parsedPlayerNotes.value.length || selectedSong.value) && !playerLoading.value);
 const onlineEmptyText = computed(() => {
   // 搜索进行中：显示"正在搜索"，而不是"未找到"——避免请求未完成时就
@@ -428,13 +463,22 @@ const filteredOnlineResults = computed(() => {
   return onlineResults.value.filter(item => (item.source || 'midishow') === onlineFilter.value);
 });
 const onlineSourceCounts = computed(() => {
-  const counts = { all: onlineResults.value.length, local: 0, bitmidi: 0, midishow: 0 };
+  const counts = { all: onlineResults.value.length, local: 0, bitmidi: 0, tuneon: 0, midiworld: 0, midishow: 0 };
   for (const item of onlineResults.value) {
-    const key = (item.source || 'midishow') as 'local' | 'bitmidi' | 'midishow';
+    const key = (item.source || 'midishow') as keyof typeof counts;
     if (key in counts) counts[key] += 1;
   }
   return counts;
 });
+const onlineSourceLabel = (source?: string | null) => {
+  switch (source) {
+    case 'bitmidi': return 'BitMidi';
+    case 'local': return t('vrpiano.online_filter_local');
+    case 'tuneon': return 'Tuneonmusic';
+    case 'midiworld': return 'MIDIWORLD';
+    default: return 'Midishow';
+  }
+};
 const playerProgressPercent = computed(() => {
   if (!playerDurationMs.value) return 0;
   return Math.round(Math.min(1, playerPositionMs.value / playerDurationMs.value) * 100);
@@ -610,7 +654,10 @@ const togglePlayer = async () => {
   if (playerPlaying.value) {
     pausePlayer();
   } else {
-    await schedulePlayer(playerPositionMs.value);
+    // 播到结尾后位置停在总时长上：直接继续会「点了没反应」，此时从 0 重播。
+    const atEnd = playerDurationMs.value > 0
+      && playerPositionMs.value >= playerDurationMs.value - 250;
+    await schedulePlayer(atEnd ? 0 : playerPositionMs.value);
   }
 };
 
@@ -700,19 +747,22 @@ const toggleVrpianoOverlay = async () => {
   });
 };
 
-const loadMidiIntoPlayer = async (midi: VrpianoMidiData) => {
+const loadMidiIntoPlayer = async (midi: VrpianoMidiData, cloudTrackId: string | null = null) => {
   playerLoading.value = true;
   error.value = '';
   try {
     const parsed = parseGeneralMidi(base64ToBytes(midi.data));
     pausePlayer();
+    // 任何一次装载都会更换播放器内容；云端 id 只在装的是云端曲目时才有值。
+    cloudPreviewTrackId.value = cloudTrackId;
     parsedPlayerNotes.value = parsed.notes;
     sourcePrograms.value = parsed.programs;
     sourceHasPercussion.value = parsed.hasPercussion;
     sourceHasSustainPedal.value = parsed.hasSustainPedal;
     playerTitle.value = midi.name;
     playerPositionMs.value = 0;
-    playerDurationMs.value = Math.ceil(Math.max(...parsed.notes.map((note) => note.timeMs + note.durationMs)));
+    const totalMs = parsed.notes.reduce((max, note) => Math.max(max, note.timeMs + note.durationMs), 0);
+    playerDurationMs.value = Math.max(0, Math.ceil(totalMs));
     await schedulePlayer(0);
     const pedalHint = parsed.hasSustainPedal ? ` · ${t('vrpiano.sustain_pedal')}` : '';
     addLog(`${t('vrpiano.builtin_player_preview_started', { name: midi.name, instrument: activeInstrumentText.value })}${pedalHint}`);
@@ -787,6 +837,13 @@ const handleSongIconFile = (event: Event) => {
   reader.readAsDataURL(file);
 };
 
+const markMidishowSession = (state: 'signed_in' | 'expired') => {
+  midishowSession.value = state;
+};
+
+const isMidishowSessionExpiredError = (message: string) => /midishow/i.test(message)
+  && /登录已失效|需要重新登录|登录后才能/.test(message);
+
 const loadMidishowAccounts = async () => {
   try {
     midishowAccounts.value = await VrpianoApi.midishowAccounts();
@@ -859,6 +916,7 @@ const applyMidishowLoginStatus = async (next: VrpianoMidishowLoginStatus) => {
   stopMidishowLoginPolling();
   midishowPassword.value = '';
   await loadMidishowAccounts();
+  midishowSession.value = 'signed_in';
   midishowLoginOpen.value = false;
   accountLoading.value = false;
   if (!alreadySignedIn) {
@@ -976,6 +1034,7 @@ const logoutMidishow = async () => {
   error.value = '';
   try {
     midishowAccounts.value = await VrpianoApi.midishowRemoveAccount({ username: defaultMidishowAccount.value.username });
+    midishowSession.value = 'unknown';
     addLog(t('vrpiano.signed_out_of_midishow'));
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -1377,9 +1436,11 @@ const previewOnline = async (song: VrpianoOnlineSong) => {
       pageUrl: song.page_url || null,
       downloadUrl: song.download_url || null,
     });
+    if ((song.source || 'midishow') === 'midishow' && !song.download_url) markMidishowSession('signed_in');
     await loadMidiIntoPlayer(midi);
   } catch (e: any) {
     const errText = formatVrpianoError(e);
+    if (isMidishowSessionExpiredError(errText)) markMidishowSession('expired');
     onlineSearchError.value = errText;
     addLog(t('vrpiano.preview_failed', { error: errText }));
   } finally {
@@ -1400,12 +1461,14 @@ const downloadOnline = async (song: VrpianoOnlineSong) => {
       downloadUrl: song.download_url || null,
     });
     if (downloaded) {
+      if ((song.source || 'midishow') === 'midishow' && !song.download_url) markMidishowSession('signed_in');
       await refreshSongs();
       selectedPath.value = downloaded.path;
       addLog(t('vrpiano.midishow_download_completed', { name: downloaded.name }));
     }
   } catch (e: any) {
     const errText = formatVrpianoError(e);
+    if (isMidishowSessionExpiredError(errText)) markMidishowSession('expired');
     onlineSearchError.value = errText;
     addLog(t('vrpiano.download_failed', { error: errText }));
   } finally {
@@ -2640,7 +2703,7 @@ onUnmounted(async () => {
             <div class="hero-song-meta">
               <span v-if="selectedSong" class="meta-tag">{{ formatBytes(selectedSong.size) }}</span>
               <span v-if="status.total_notes > 0" class="meta-tag">{{ t('vrpiano.notes_count', { played: status.played_notes, total: status.total_notes }) }}</span>
-              <span class="meta-tag duration-tag"><Clock3 :size="11" /> {{ formatTime(status.duration_ms) }}</span>
+              <span class="meta-tag duration-tag"><Clock3 :size="11" /> {{ formatTime(heroDurationMs) }}</span>
             </div>
           </div>
 
@@ -2716,9 +2779,9 @@ onUnmounted(async () => {
               tabindex="0"
               :aria-label="t('vrpiano.seek_progress')"
               :aria-valuemin="0"
-              :aria-valuemax="status.duration_ms || 0"
+              :aria-valuemax="heroDurationMs || 0"
               :aria-valuenow="Math.round(heroElapsedMs)"
-              :aria-valuetext="`${formatTime(heroElapsedMs)} / ${formatTime(status.duration_ms)}`"
+              :aria-valuetext="`${formatTime(heroElapsedMs)} / ${formatTime(heroDurationMs)}`"
               :aria-disabled="!canSeekPlayback"
               @pointerdown="onHeroSeekPointerDown"
               @pointermove="onHeroSeekPointerMove"
@@ -2734,7 +2797,7 @@ onUnmounted(async () => {
             <div class="hero-progress-labels">
               <span>{{ formatTime(heroElapsedMs) }}</span>
               <span class="hero-event-desc">{{ status.last_event || t('vrpiano.ready') }}</span>
-              <span>{{ formatTime(status.duration_ms) }}</span>
+              <span>{{ formatTime(heroDurationMs) }}</span>
             </div>
           </div>
 
@@ -3138,12 +3201,20 @@ onUnmounted(async () => {
               <span>{{ t('vrpiano.online_headline') }}</span>
             </div>
 
-            <div class="midishow-account">
+            <div class="midishow-account" :class="{ 'is-expired': midishowSessionExpired }">
               <div>
-                <strong>{{ defaultMidishowAccount ? t('vrpiano.signed_in_as', { username: defaultMidishowAccount.username, type: defaultMidishowLoginTypeText ? `（${defaultMidishowLoginTypeText}）` : '' }) : t('vrpiano.midishow_signed_out') }}</strong>
-                <span>{{ defaultMidishowAccount ? t('vrpiano.downloads_and_previews_will_use_your_acc') : t('vrpiano.online_login_optional') }}</span>
+                <strong v-if="midishowSessionExpired">{{ t('vrpiano.midishow_session_expired') }}</strong>
+                <strong v-else-if="defaultMidishowAccount && midishowSessionVerified">{{ t('vrpiano.signed_in_as', { username: defaultMidishowAccount.username, type: '' }) }}</strong>
+                <strong v-else-if="defaultMidishowAccount">{{ t('vrpiano.midishow_signed_in_unverified', { username: defaultMidishowAccount.username }) }}</strong>
+                <strong v-else>{{ t('vrpiano.midishow_signed_out') }}</strong>
+                <span v-if="midishowSessionExpired">{{ t('vrpiano.midishow_session_expired_hint') }}</span>
+                <span v-else-if="defaultMidishowAccount">{{ midishowSessionVerified ? t('vrpiano.downloads_and_previews_will_use_your_acc') : t('vrpiano.midishow_session_unverified_hint') }}</span>
+                <span v-else>{{ t('vrpiano.online_login_optional') }}</span>
               </div>
-              <button v-if="defaultMidishowAccount" class="account-btn ghost" :disabled="accountLoading" @click="logoutMidishow">
+              <button v-if="midishowSessionExpired" class="account-btn" @click="toggleMidishowLogin">
+                <LogIn :size="15" /> {{ midishowLoginOpen ? t('vrpiano.hide') : t('vrpiano.sign_in') }}
+              </button>
+              <button v-else-if="defaultMidishowAccount" class="account-btn ghost" :disabled="accountLoading" @click="logoutMidishow">
                 <LogOut :size="15" /> {{ t('vrpiano.sign_out') }}
               </button>
               <button v-else class="account-btn" @click="toggleMidishowLogin">
@@ -3151,7 +3222,7 @@ onUnmounted(async () => {
               </button>
             </div>
 
-            <div v-if="midishowLoginOpen && !defaultMidishowAccount" class="midishow-login-wrapper">
+            <div v-if="midishowLoginOpen && (!defaultMidishowAccount || midishowSessionExpired)" class="midishow-login-wrapper">
               <div class="login-tabs">
                 <button
                   type="button"
@@ -3345,14 +3416,14 @@ onUnmounted(async () => {
             <div class="online-results">
               <div v-if="onlineResults.length" class="flex flex-wrap items-center gap-1.5 mb-2">
                 <button
-                  v-for="chip in (['all', 'local', 'bitmidi', 'midishow'] as const)"
+                  v-for="chip in (['all', 'local', 'bitmidi', 'tuneon', 'midiworld', 'midishow'] as const)"
                   :key="chip"
                   type="button"
                   class="px-2 py-0.5 rounded-md border text-[11px] font-bold transition-colors"
                   :class="onlineFilter === chip ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border-soft text-text-muted hover:text-text'"
                   @click="onlineFilter = chip"
                 >
-                  {{ chip === 'all' ? t('vrpiano.online_filter_all') : chip === 'local' ? t('vrpiano.online_filter_local') : chip === 'bitmidi' ? 'BitMidi' : t('vrpiano.online_filter_chinese') }}
+                  {{ chip === 'all' ? t('vrpiano.online_filter_all') : onlineSourceLabel(chip) }}
                   <span class="opacity-70">{{ onlineSourceCounts[chip] }}</span>
                 </button>
               </div>
@@ -3361,9 +3432,9 @@ onUnmounted(async () => {
                   <div class="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
                     <span
                       class="text-[10px] font-bold px-1.5 py-0.5 rounded leading-none shrink-0"
-                      :class="item.source === 'bitmidi' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : item.source === 'local' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-primary/15 text-primary border border-primary/30'"
+                      :class="item.source === 'local' ? 'bg-surface-hover text-text-muted border border-border-soft' : 'bg-primary/10 text-primary border border-primary/25'"
                     >
-                      {{ item.source === 'bitmidi' ? 'BitMidi' : item.source === 'local' ? t('vrpiano.online_filter_local') : 'Midishow' }}
+                      {{ onlineSourceLabel(item.source) }}
                     </span>
                     <strong class="text-[13px] text-text-strong font-medium truncate flex-1 min-w-0" :title="item.title">{{ item.title }}</strong>
                   </div>
@@ -3556,56 +3627,46 @@ onUnmounted(async () => {
   <MidiCloudLibraryModal
     :show="showCloudLibraryModal"
     :local-songs="songs"
+    :preview-track-id="cloudPreviewTrackId"
+    :preview-playing="playerPlaying"
+    :player-position-ms="playerPositionMs"
+    :player-duration-ms="playerDurationMs"
     @close="showCloudLibraryModal = false"
     @play-song="handleCloudPlaySong"
     @song-downloaded="handleCloudSongDownloaded"
     @preview-midi="handleCloudPreviewMidi"
+    @preview-toggle="handleCloudPreviewToggle"
+    @preview-seek="commitHeroSeek"
+    @open-midishow-login="openMidishowWebLogin()"
+    @midishow-session="markMidishowSession"
   />
 </template>
 
 <style scoped>
-.cloud-lib-pill-btn {
+/* 「云端曲库」入口必须跟随当前主题色，不能再用写死的蓝紫渐变。 */
+.cloud-lib-pill-btn,
+.online-cloud-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 6px 12px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #818cf8);
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  color: #fff;
+  background: color-mix(in srgb, var(--vp-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vp-primary) 30%, transparent);
+  color: var(--vp-primary);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
   transition: all 0.2s ease;
   white-space: nowrap;
 }
 
-.cloud-lib-pill-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
-}
-
-.online-cloud-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  border: none;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
+.cloud-lib-pill-btn:hover,
 .online-cloud-btn:hover {
+  background: color-mix(in srgb, var(--vp-primary) 20%, transparent);
+  border-color: color-mix(in srgb, var(--vp-primary) 45%, transparent);
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--vp-primary) 22%, transparent);
 }
 .vrpiano-shell {
   --vp-surface: var(--theme-surface, rgba(255, 252, 240, 0.62));
@@ -6379,6 +6440,15 @@ select option:hover {
   box-shadow: inset 0 0 0 1px var(--vp-border);
 }
 
+.midishow-account.is-expired {
+  background: color-mix(in srgb, var(--vp-primary) 8%, var(--vp-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vp-primary) 45%, transparent);
+}
+
+.midishow-account.is-expired strong {
+  color: var(--vp-primary);
+}
+
 .midishow-account div {
   min-width: 0;
   max-width: 100%;
@@ -6688,7 +6758,7 @@ select option:hover {
 
 .online-row:hover {
   background: color-mix(in srgb, var(--vp-surface) 95%, transparent);
-  border-color: color-mix(in srgb, var(--vp-primary, #6366f1) 40%, transparent);
+  border-color: color-mix(in srgb, var(--vp-primary, #d97706) 40%, transparent);
 }
 
 .online-meta {
@@ -6730,9 +6800,9 @@ select option:hover {
 }
 
 .online-actions button.download-btn:hover:not(:disabled) {
-  color: var(--vp-primary, #6366f1);
-  background: color-mix(in srgb, var(--vp-primary, #6366f1) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vp-primary, #6366f1) 40%, transparent);
+  color: var(--vp-primary, #d97706);
+  background: color-mix(in srgb, var(--vp-primary, #d97706) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vp-primary, #d97706) 40%, transparent);
 }
 
 .log-pane {

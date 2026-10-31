@@ -1434,6 +1434,8 @@ export interface MidiCloudCategory {
 
 export interface MidiCloudTrack {
   id: string;
+  /** Midishow 曲目 id：只有 Midishow 条目的下载/试听需要它（无直链时按 id 解析）。 */
+  midi_id?: number;
   title: string;
   artist: string;
   album?: string;
@@ -1450,6 +1452,8 @@ export interface MidiCloudTrack {
   source_name: string;
   download_url: string;
   preview_url: string;
+  /** 曲目详情页；本地曲库没有该字段，试听时用 download_url 里的绝对路径。 */
+  page_url?: string;
   description?: string;
 }
 
@@ -1461,6 +1465,18 @@ export interface MidiCloudSource {
   description: string;
   enabled: boolean;
   icon?: string;
+  /** 该源是否真的有可查询接口；false 时界面必须说明「仅跳转官网」，不能冒充已检索。 */
+  searchable?: boolean;
+  unsearchable_note?: string;
+}
+
+export interface MidiCloudSourceStatus {
+  id: string;
+  label: string;
+  /** needs-verify：源本身可达，但被 Cloudflare 人机验证拦住，需要用户点一次解锁。 */
+  state: 'ok' | 'empty' | 'failed' | 'idle' | 'needs-verify';
+  count: number;
+  message?: string | null;
 }
 
 export interface MidiCloudSearchResponse {
@@ -1470,6 +1486,7 @@ export interface MidiCloudSearchResponse {
   limit: number;
   categories: MidiCloudCategory[];
   items: MidiCloudTrack[];
+  sources?: MidiCloudSourceStatus[];
 }
 
 export interface VrpianoMidishowAccount {
@@ -1607,8 +1624,10 @@ export const VrpianoApi = {
     sort?: string;
     page?: number;
     limit?: number;
+    altKeywords?: string[];
   }) => safeInvoke<MidiCloudSearchResponse>('vrpiano_cloud_library_search', {
     keyword: params.keyword || null,
+    altKeywords: params.altKeywords && params.altKeywords.length ? params.altKeywords : null,
     category: params.category || null,
     tag: params.tag || null,
     source: params.source || null,
@@ -1618,8 +1637,6 @@ export const VrpianoApi = {
   }),
   cloudLibraryCategories: () => safeInvoke<{ success: boolean; categories: MidiCloudCategory[]; total_tracks: number }>('vrpiano_cloud_library_categories'),
   cloudLibrarySources: () => safeInvoke<{ success: boolean; sources: MidiCloudSource[] }>('vrpiano_cloud_library_sources'),
-  cloudSourcesGet: () => safeInvoke<MidiCloudSource[]>('vrpiano_cloud_sources_get'),
-  cloudSourcesSave: (sources: MidiCloudSource[]) => safeInvoke<void>('vrpiano_cloud_sources_save', { sources }),
   openSongsDir: () => safeInvoke<void>('vrpiano_open_songs_dir'),
   getStatus: () => safeInvoke<VrpianoStatus>('vrpiano_get_status'),
   start: (params: { songPath: string; delaySecs: number; speed: number; outputMode?: 'keyboard' | 'midi' | 'osc'; midiDeviceId?: string; keyboardLayout?: string }) => safeInvoke<VrpianoStatus>('vrpiano_start', {
