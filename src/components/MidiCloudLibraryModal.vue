@@ -30,6 +30,7 @@ import {
   Info,
   ChevronDown,
   User,
+  LogIn,
 } from 'lucide-vue-next';
 import {
   VrpianoApi,
@@ -846,6 +847,18 @@ watch(
           </button>
         </div>
 
+        <!-- Midishow 真实登录提示栏 -->
+        <div v-if="!midishowAccount && (activeSource === 'midishow' || cjkQuery)" class="midishow-auth-banner">
+          <div class="banner-left">
+            <User :size="15" class="banner-icon" />
+            <span>{{ activeSource === 'midishow' ? '提示：Midishow 中文曲库需真实登录账号后方可搜索与下载曲目资源。' : '提示：Midishow 拥有海量华语流行与 ACG 曲谱，需真实登录 Midishow 账号后方可同步搜索。' }}</span>
+          </div>
+          <button class="banner-login-btn" type="button" @click="midishowLoginModalOpen = true">
+            <LogIn :size="13" />
+            <span>立即登录 Midishow</span>
+          </button>
+        </div>
+
         <!-- 逐源检索结果：哪个源出了多少条、哪个源挂了，一目了然 -->
         <div v-if="sourceStatuses.length" class="source-status-row">
           <span
@@ -924,6 +937,13 @@ watch(
           <div class="empty-hint">您可以尝试输入其他关键词，或在上方切换至其他数据源</div>
           <div v-if="midishowNeedsUnlock" class="empty-hint empty-verify-hint">
             中文流行曲目（如《逆战》）收录在 Midishow，点击上方「解锁 Midishow 中文曲库」完成一次人机验证即可检索
+          </div>
+          <div v-else-if="!midishowAccount && (activeSource === 'midishow' || cjkQuery)" class="empty-midishow-card">
+            <p>Midishow 需要登录真实账号后方可搜索并试听海量华语流行曲目</p>
+            <button class="empty-login-btn" type="button" @click="midishowLoginModalOpen = true">
+              <User :size="14" />
+              <span>登录 Midishow 真实账号</span>
+            </button>
           </div>
           <div v-else-if="cjkQuery" class="empty-hint empty-verify-hint">
             BitMidi / Tuneonmusic / MIDIWORLD / Internet Archive 按英文、日文曲名收录，中文曲名通常只在 Midishow 命中
@@ -2268,7 +2288,6 @@ watch(
 .empty-source-row.failed .empty-source-state {
   color: var(--vp-primary);
 }
-</style>
 
 
 /* Midishow 账号状态徽章 */
@@ -2524,3 +2543,83 @@ watch(
   cursor: pointer;
   font-size: 12px;
 }
+
+/* Midishow 认证提示栏与空态引导卡片 */
+.midishow-auth-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent);
+  color: #fbbf24;
+  font-size: 12px;
+  margin-bottom: 10px;
+  animation: fadeIn 0.2s ease;
+}
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+.banner-icon {
+  flex-shrink: 0;
+  color: #f59e0b;
+}
+.banner-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #f59e0b;
+  color: #0f172a;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+.banner-login-btn:hover {
+  background: #fbbf24;
+  transform: translateY(-1px);
+}
+.empty-midishow-card {
+  margin-top: 14px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #f59e0b 10%, transparent);
+  border: 1px dashed color-mix(in srgb, #f59e0b 40%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.empty-midishow-card p {
+  margin: 0;
+  font-size: 13px;
+  color: #fbbf24;
+}
+.empty-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: #f59e0b;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.empty-login-btn:hover {
+  background: #fbbf24;
+  transform: translateY(-1px);
+}
+</style>

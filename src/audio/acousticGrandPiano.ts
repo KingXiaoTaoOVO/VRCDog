@@ -40,7 +40,10 @@ export class AcousticGrandPianoEngine {
 
       // 2. 动态加载脚本文件
       if (typeof document !== 'undefined') {
-        const scriptUrl = '/soundfont/acoustic_grand_piano-mp3.js';
+        const baseUrl = (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.BASE_URL)
+          ? String((import.meta as any).env.BASE_URL)
+          : '/';
+        const scriptUrl = `${baseUrl.replace(/\/$/, '')}/soundfont/acoustic_grand_piano-mp3.js`;
         const loaded = await new Promise<boolean>((resolve) => {
           const script = document.createElement('script');
           script.src = scriptUrl;
@@ -71,20 +74,23 @@ export class AcousticGrandPianoEngine {
   }
 
   public preloadCommonOctaves(context: AudioContext): void {
-    // 预解码中央区域 C3(48) 到 C6(84)，覆盖 90% 流行曲与古典曲核心音区
+    const doPreload = () => {
+      // 核心区域 C3(48) 到 C6(84) 步长 2 密集预热
+      for (let note = 48; note <= 84; note += 2) {
+        void this.getNoteBuffer(context, note);
+      }
+      // 全音域 88 键 (A0=21 到 C8=108) 步长 3 覆盖，确保任意按键在偏移 <=2 范围内必有就绪样本
+      for (let note = 21; note <= 108; note += 3) {
+        void this.getNoteBuffer(context, note);
+      }
+    };
     if (!this.soundfontData) {
       void this.ensureLoaded().then((ready) => {
-        if (ready) {
-          for (let note = 48; note <= 84; note += 2) {
-            void this.getNoteBuffer(context, note);
-          }
-        }
+        if (ready) doPreload();
       });
       return;
     }
-    for (let note = 48; note <= 84; note += 2) {
-      void this.getNoteBuffer(context, note);
-    }
+    doPreload();
   }
 
   public async getNoteBuffer(context: AudioContext, midiNote: number): Promise<AudioBuffer | null> {

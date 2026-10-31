@@ -26,6 +26,7 @@ import { toCleanBase64 } from './utils';
 import { normalizeTwoFactorMethod } from './twoFactor';
 import type { SurveyAnswerAttachment } from '../types/survey';
 import { ServerApi } from './serverClient';
+import { generateStandardMidiBase64 } from '../audio/standardMidiGenerator';
 
 const SENSITIVE_ARG_KEYS = /^(?:password|passwd|pwd|cookie|cookies|authcookie|authorization|sessdata|bili_jct|csrf|csrf_token|buvid3|stream_key|token|access[_-]?token|refresh[_-]?token|secret)$/i;
 
@@ -452,16 +453,20 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     }
     if (cmd === 'vrpiano_midishow_preview_data') {
       const request = (args?.request || {}) as any;
+      const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
+        ? window.location.origin
+        : 'https://vrcdog.pcb.im';
       let dlUrl = request.download_url;
       if (dlUrl && dlUrl.startsWith('/')) {
-        const base = typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost') && !window.location.origin.includes('tauri')
-          ? window.location.origin
-          : 'https://vrcdog.pcb.im';
         dlUrl = `${base}${dlUrl}`;
       }
       if (dlUrl && dlUrl.startsWith('http')) {
         try {
-          const resp = await fetch(dlUrl);
+          let targetUrl = dlUrl;
+          if (typeof window !== 'undefined' && window.location && !targetUrl.includes(window.location.host) && !targetUrl.includes('vrcdog.pcb.im')) {
+            targetUrl = `${base}/api/midi/proxy?url=${encodeURIComponent(dlUrl)}`;
+          }
+          const resp = await fetch(targetUrl);
           if (resp.ok) {
             const buf = await resp.arrayBuffer();
             const bytes = new Uint8Array(buf);
@@ -479,7 +484,11 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
           console.warn('Web preview download failed:', e);
         }
       }
-      return Promise.resolve({ name: request.title || `MIDI_${request.midi_id}`, data: 'TVRoZAAAAAYAAAABAGBNVHJrAAAAEwD/UQMHoSAAkDxkYIA8AAD/LwA=' }) as any;
+      const fallbackBase64 = generateStandardMidiBase64(
+        String(request.midi_id || request.title || 'cloud'),
+        request.title || 'MIDI Preview',
+      );
+      return Promise.resolve({ name: request.title || `MIDI_${request.midi_id}`, data: fallbackBase64 }) as any;
     }
     if (cmd === 'vrpiano_midishow_accounts') return Promise.resolve([]) as any;
     if (cmd === 'vrpiano_midishow_login') {

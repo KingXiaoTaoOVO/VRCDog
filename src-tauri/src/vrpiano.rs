@@ -1798,6 +1798,36 @@ fn cloud_source_status(
     })
 }
 
+async fn collect_official_songs(
+    kw: &str,
+    cat: &str,
+    limit: usize,
+) -> (Vec<serde_json::Value>, Option<String>) {
+    let mut url = format!("https://vrcdog.pcb.im/api/midi/search?limit={limit}");
+    if !kw.trim().is_empty() {
+        url.push_str(&format!("&keyword={}", urlencode_query(kw.trim())));
+    }
+    if !cat.is_empty() && cat != "all" {
+        url.push_str(&format!("&category={}", urlencode_query(cat)));
+    }
+    let client = match reqwest::Client::builder().timeout(Duration::from_secs(4)).build() {
+        Ok(c) => c,
+        Err(e) => return (Vec::new(), Some(e.to_string())),
+    };
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(items) = json.get("items").and_then(|v| v.as_array()) {
+                    return (items.clone(), None);
+                }
+            }
+            (Vec::new(), None)
+        }
+        Ok(resp) => (Vec::new(), Some(format!("HTTP {}", resp.status()))),
+        Err(e) => (Vec::new(), Some(e.to_string())),
+    }
+}
+
 /// 真正的联邦检索：官方云端 + 内置目录 + BitMidi + 本地曲库。
 ///
 /// 之前这个接口只请求自家服务器，失败就退回内置目录，界面上列的 8 个「数据源」
@@ -1816,6 +1846,7 @@ async fn federated_cloud_search(
 ) -> serde_json::Value {
     let _ = tag;
     let mut statuses = Vec::new();
+    let want_official = src == "all" || src.is_empty() || src == "official";
     let want_bitmidi = src == "all" || src.is_empty() || src == "bitmidi";
     let want_tuneon = src == "all" || src.is_empty() || src == "tuneon" || src == "tuneonmusic";
     let want_midiworld = src == "all" || src.is_empty() || src == "midiworld";
@@ -1844,12 +1875,20 @@ async fn federated_cloud_search(
     // 所有真实音源并行检索。自建服务器与内置目录不再参与：它们在缺少真实文件时
     // 只会生成占位 MIDI —— 那就是「每首都一样、音乐完全不对」的根因。
     let (
+        (official_items, official_error),
         bitmidi_songs,
         (tuneon_entries, tuneon_error),
         (midiworld_songs, midiworld_error),
         (archive_songs, archive_error),
         midishow_result,
     ) = tokio::join!(
+        async {
+            if want_official {
+                collect_official_songs(kw, cat, limit).await
+            } else {
+                (Vec::new(), None)
+            }
+        },
         async {
             if want_bitmidi && !category_filter {
                 collect_bitmidi_songs(app, &keywords, limit).await
@@ -1899,6 +1938,24 @@ async fn federated_cloud_search(
             }
         }
     );
+
+    let mut official_items_mapped = Vec::new();
+    if want_official {
+        official_items_mapped = official_items;
+        statuses.push(cloud_source_status(
+            "official",
+            "VRCDog 官方精选",
+            if official_error.is_some() {
+                "failed"
+            } else if official_items_mapped.is_empty() {
+                "empty"
+            } else {
+                "ok"
+            },
+            official_items_mapped.len(),
+            official_error,
+        ));
+    }
 
     let mut bitmidi_items: Vec<serde_json::Value> = Vec::new();
     if want_bitmidi {
@@ -2061,6 +2118,7 @@ async fn federated_cloud_search(
     // 用户看到清一色「本地曲库」就以为平台搜不到。
     let mut merged = merge_cloud_sources_round_robin(vec![
         local_items,
+        official_items_mapped,
         tuneon_items,
         bitmidi_items,
         midiworld_items,
@@ -2208,6 +2266,7 @@ fn get_default_sources_json() -> serde_json::Value {
     serde_json::json!({
         "success": true,
         "sources": [
+            { "id": "official", "name": "VRCDog 官方精选", "url": "https://vrcdog.pcb.im/api/midi/search", "source_type": "official", "searchable": true, "description": "官方精选高质量完整钢琴曲目，直连秒播", "enabled": true, "icon": "Sparkles" },
             { "id": "bitmidi", "name": "BitMidi 全球曲库", "url": "https://bitmidi.com/", "source_type": "bitmidi", "searchable": true, "description": "免登录 JSON 接口，直链 .mid 实时校验", "enabled": true, "icon": "Cpu" },
             { "id": "tuneon", "name": "Tuneonmusic 钢琴曲库", "url": "https://tuneonmusic.com/midi-files/", "source_type": "tuneon", "searchable": true, "description": "动漫/古典/游戏/影视钢琴改编，直链 MIDI", "enabled": true, "icon": "Music2" },
             { "id": "midiworld", "name": "MIDIWORLD 经典曲库", "url": "https://www.midiworld.com/", "source_type": "midiworld", "searchable": true, "description": "古典、流行、爵士与电影原声，搜索即得直链 MIDI", "enabled": true, "icon": "Compass" },
@@ -5686,8 +5745,19 @@ async fn search_midishow_webview(
 })();
 "#;
 
-    let page_script = extract_script.to_string();
-    let page_script_for_load = extract_script.to_string();
+    let cookie_injection = if let Ok(Some(acc)) = default_midishow_account(app) {
+        if !acc.cookie.trim().is_empty() {
+            let cookie_json = serde_json::to_string(&acc.cookie).unwrap_or_default();
+            format!("try {{ {cookie_json}.split(';').forEach(c => {{ const part = c.trim(); if (part) document.cookie = part + '; path=/; domain=.midishow.com'; }}); }} catch(e) {{}}")
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    let combined_script = format!("{}\n{}", cookie_injection, extract_script);
+    let page_script = combined_script.clone();
+    let page_script_for_load = combined_script;
     // Tauri/wry 不会把 document.title 同步到原生窗口标题，只有注册了
     // on_document_title_changed 才拿得到。远程页面只能在标题里回传结果，
     // 所以必须用回调接标题——早期轮询 window.title() 永远读到窗口自己的
