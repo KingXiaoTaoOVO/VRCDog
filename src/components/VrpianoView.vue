@@ -1757,6 +1757,7 @@ const restartPlayback = async () => {
 };
 
 let statusRefreshing = false;
+let lastMidiPollTick = 0;
 
 const refreshStatus = async () => {
   // 在 KeepAlive 下组件不会卸载，避免窗口/标签页不可见时仍每 1.5s 打后端
@@ -1780,6 +1781,14 @@ const refreshStatus = async () => {
     }
     if (status.value.running && status.value.song_path && songs.value.some((song) => song.path === status.value.song_path)) {
       selectedPath.value = status.value.song_path;
+    }
+    // 当处于 MIDI 模式且未连接或虚拟端口未就绪时，后台自动温和探测（每 2 秒一次），用户在 loopMIDI 新建端口后秒级自动识别并对接
+    if (outputMode.value === 'midi' && (!midiOutputState.value.connected || !loopMidiStatus.value?.has_virtual_port)) {
+      const now = Date.now();
+      if (now - lastMidiPollTick >= 2000) {
+        lastMidiPollTick = now;
+        void refreshLoopMidiStatus();
+      }
     }
   } catch {
     // Backend may be unavailable in browser preview.
@@ -2084,27 +2093,42 @@ watch(playlist, (newList) => {
   }
 }, { deep: true });
 
+const isVirtualMidiName = (name: string): boolean => {
+  return /loopmidi|virtual|vrc|loopback|tevirtualmidi/i.test(name);
+};
+
 const refreshMidiDevices = async () => {
   if (!isTauri()) return;
   try {
     midiDevices.value = await VrpianoApi.listMidiDevices();
     midiOutputState.value = await VrpianoApi.getMidiOutputState();
 
-    const loopDevice = midiDevices.value.find(d => /loopmidi|virtual|vrc/i.test(d.name));
+    const loopDevice = midiDevices.value.find(d => isVirtualMidiName(d.name));
     if (loopDevice) {
       const currentSelectedIsLoop = midiDevices.value.some(
-        d => d.id === selectedMidiDevice.value && /loopmidi|virtual|vrc/i.test(d.name)
+        d => d.id === selectedMidiDevice.value && isVirtualMidiName(d.name)
       );
       if (!currentSelectedIsLoop || !selectedMidiDevice.value) {
         selectedMidiDevice.value = loopDevice.id;
       }
-      if (!midiOutputState.value.connected || (midiOutputState.value.device_id && !/loopmidi|virtual|vrc/i.test(midiOutputState.value.device_name || ''))) {
+      if (!midiOutputState.value.connected || (midiOutputState.value.device_id && !isVirtualMidiName(midiOutputState.value.device_name || ''))) {
         void connectMidiDevice();
       }
-    } else if (midiOutputState.value.device_id) {
-      selectedMidiDevice.value = midiOutputState.value.device_id;
-    } else if (!selectedMidiDevice.value && midiDevices.value.length > 0) {
-      selectedMidiDevice.value = midiDevices.value[0].id;
+    } else if (midiDevices.value.length > 0) {
+      const exists = midiDevices.value.some(d => d.id === selectedMidiDevice.value);
+      if (!exists) {
+        selectedMidiDevice.value = midiDevices.value[0].id;
+      }
+      if (!midiOutputState.value.connected && selectedMidiDevice.value) {
+        void connectMidiDevice();
+      }
+    } else {
+      selectedMidiDevice.value = '';
+    }
+
+    // 自动清除由于旧设备索引失效导致的顶部错误横幅
+    if (error.value && error.value.includes('MIDI 设备未找到')) {
+      error.value = '';
     }
   } catch (e: any) {
     error.value = e.message || String(e);
@@ -2116,6 +2140,9 @@ const connectMidiDevice = async () => {
   try {
     midiOutputState.value = await VrpianoApi.connectMidiDevice({ deviceId: selectedMidiDevice.value });
     addLog(t('vrpiano.connected_midi_device', { device: midiOutputState.value.device_name || selectedMidiDevice.value }));
+    if (error.value && error.value.includes('MIDI 设备未找到')) {
+      error.value = '';
+    }
   } catch (e: any) {
     error.value = e.message || String(e);
   }
@@ -2140,7 +2167,7 @@ const refreshLoopMidiStatus = async () => {
       loopMidiAutostart.value = Boolean(res.autostart);
       await refreshMidiDevices();
       if (res.has_virtual_port) {
-        const loopDevice = midiDevices.value.find(d => /loopmidi|virtual|vrc/i.test(d.name));
+        const loopDevice = midiDevices.value.find(d => isVirtualMidiName(d.name));
         if (loopDevice) {
           if (selectedMidiDevice.value !== loopDevice.id || !midiOutputState.value.connected) {
             selectedMidiDevice.value = loopDevice.id;

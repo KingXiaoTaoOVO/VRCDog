@@ -2850,13 +2850,36 @@ fn start_playback(
                 }
 
                 let target_dev = if let Some(target_id) = requested_id {
-                    devices.into_iter().find(|d| d.id == target_id).ok_or_else(|| {
+                    // 1. 尝试按 exact ID 匹配
+                    devices.iter().find(|d| d.id == target_id).cloned().or_else(|| {
+                        // 2. 尝试按名称匹配（无论传入的是 ID 还是名称）
+                        let id_lower = target_id.to_lowercase();
+                        devices.iter().find(|d| {
+                            let name_lower = d.name.to_lowercase();
+                            name_lower == id_lower || id_lower.contains(&name_lower) || name_lower.contains(&id_lower)
+                        }).cloned()
+                    }).or_else(|| {
+                        // 3. 容错回退：寻找任何 loopMIDI / virtual / loopback / vrc 虚拟端口
+                        devices.iter().find(|d| {
+                            let name_lower = d.name.to_lowercase();
+                            name_lower.contains("loopmidi")
+                                || name_lower.contains("virtual")
+                                || name_lower.contains("vrc")
+                                || name_lower.contains("loopback")
+                        }).cloned()
+                    }).or_else(|| {
+                        // 4. 容错回退：使用首个可用设备
+                        devices.first().cloned()
+                    }).ok_or_else(|| {
                         format!("指定的 MIDI 设备未找到: {target_id}")
                     })?
                 } else {
                     let loopmidi_dev = devices.iter().find(|d| {
                         let name_lower = d.name.to_lowercase();
-                        name_lower.contains("loopmidi") || name_lower.contains("virtual") || name_lower.contains("vrc")
+                        name_lower.contains("loopmidi")
+                            || name_lower.contains("virtual")
+                            || name_lower.contains("vrc")
+                            || name_lower.contains("loopback")
                     }).cloned();
                     loopmidi_dev.unwrap_or_else(|| devices[0].clone())
                 };

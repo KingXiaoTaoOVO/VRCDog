@@ -225,7 +225,11 @@ pub fn get_active_loopmidi_ports() -> Vec<String> {
         .into_iter()
         .filter(|d| {
             let name_lower = d.name.to_lowercase();
-            name_lower.contains("loopmidi") || name_lower.contains("virtual") || name_lower.contains("vrc")
+            name_lower.contains("loopmidi")
+                || name_lower.contains("virtual")
+                || name_lower.contains("vrc")
+                || name_lower.contains("loopback")
+                || name_lower.contains("tevirtualmidi")
         })
         .map(|d| d.name)
         .collect()
