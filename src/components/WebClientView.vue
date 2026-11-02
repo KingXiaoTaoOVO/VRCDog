@@ -42,7 +42,7 @@ const connect = async () => {
       params: {
         user_id: currentUser.value?.id || currentUser.value?.displayName,
         display_name: currentUser.value?.displayName || '',
-        avatar_url: currentUser.value?.currentAvatarThumbnailImageUrl || '',
+        avatar_url: currentUser.value?.iconUrl || currentUser.value?.currentAvatarThumbnailImageUrl || '',
       },
       timeoutMs: 5000,
       maxRetries: 1,

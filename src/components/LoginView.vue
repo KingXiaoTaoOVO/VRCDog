@@ -116,7 +116,7 @@ async function saveCurrentAccount(user: any, cookie: string) {
     userId: user.id,
     displayName: user.displayName || user.display_name || user.username || 'Unknown',
     username: accountUsername,
-    avatarUrl: user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || existingAcc?.avatarUrl || '',
+    avatarUrl: user.iconUrl || user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || existingAcc?.avatarUrl || '',
     authCookie: cookie,
     savedPassword: saveCredentials.value ? pwdToSave : undefined,
     updatedAt: Date.now(),
@@ -222,7 +222,7 @@ async function loginWithSavedAccount(account: SavedAccount) {
       if (idx >= 0) {
         savedAccounts.value[idx].displayName = loggedUser.displayName || loggedUser.display_name || account.displayName;
         savedAccounts.value[idx].username = account.username || loggedUser.username || account.displayName;
-        savedAccounts.value[idx].avatarUrl = loggedUser.currentAvatarThumbnailImageUrl || loggedUser.currentAvatarImageUrl || account.avatarUrl;
+        savedAccounts.value[idx].avatarUrl = loggedUser.iconUrl || loggedUser.currentAvatarThumbnailImageUrl || loggedUser.currentAvatarImageUrl || account.avatarUrl;
         savedAccounts.value[idx].authCookie = freshCookie || savedAccounts.value[idx].authCookie;
         savedAccounts.value[idx].updatedAt = Date.now();
         await persistSavedAccounts();

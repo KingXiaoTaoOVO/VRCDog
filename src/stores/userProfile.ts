@@ -14,7 +14,9 @@ export interface VrcUser {
   id: string;
   displayName: string;
   username?: string;
+  iconUrl?: string;
   userIcon?: string;
+  bannerUrl?: string;
   profilePicOverride?: string;
   bio?: string;
   bioLinks?: string[];

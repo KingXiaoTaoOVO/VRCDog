@@ -89,7 +89,7 @@ function mapInstanceUser(raw: any): Player | null {
       ...raw,
       id,
       displayName,
-      currentAvatarThumbnailImageUrl: raw?.currentAvatarThumbnailImageUrl || raw?.profilePicOverride || raw?.userIcon || raw?.avatarUrl,
+      currentAvatarThumbnailImageUrl: raw?.iconUrl || raw?.currentAvatarThumbnailImageUrl || raw?.profilePicOverride || raw?.userIcon || raw?.avatarUrl,
     },
     loadingData: false,
   };
@@ -313,7 +313,7 @@ function applyResolvedData(playerName: string, userData: any) {
     ...userData,
     id: userData.id,
     displayName: userData.displayName || playerName,
-    currentAvatarThumbnailImageUrl: userData.currentAvatarThumbnailImageUrl || userData.profilePicOverride || userData.currentAvatarImageUrl || userData.userIcon,
+    currentAvatarThumbnailImageUrl: userData.iconUrl || userData.currentAvatarThumbnailImageUrl || userData.profilePicOverride || userData.currentAvatarImageUrl || userData.userIcon,
   };
   target.userId = userData.id;
   target.loadingData = false;

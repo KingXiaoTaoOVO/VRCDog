@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useEntityModalStore } from '../stores/entityModal';
 import { useUserProfileStore } from '../stores/userProfile';
 import { Globe, Home, Lock, Moon, Plane } from 'lucide-vue-next';
+import vrchatImg from '../assets/vrchat.png';
 
 const props = defineProps<{
   friend: any;
@@ -96,7 +97,7 @@ const handleWorldClick = (event: MouseEvent) => {
     <div class="relative shrink-0 overflow-visible">
       <div class="w-12 h-12 rounded-[18px] overflow-hidden border-[3px] border-border-soft group-hover:border-primary/50 transition-colors shadow-sm bg-[var(--theme-surface)]">
         <img 
-          :src="friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl || friend.profilePicOverride || 'https://via.placeholder.com/150'" 
+          :src="friend.iconUrl || friend.currentAvatarThumbnailImageUrl || friend.currentAvatarImageUrl || friend.profilePicOverride || friend.userIcon || vrchatImg" 
           class="w-full h-full object-cover transition-transform duration-500" 
           :class="{ 'grayscale opacity-60': isOffline }"
         />

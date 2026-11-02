@@ -44,7 +44,10 @@ const errorText = (err: unknown) => String((err as any)?.message || err || 'unkn
 
 const getAvatarUrl = (user: any) => {
   if (!user) return '';
-  return user.userIcon
+  // VRChat 新版用户对象（/users/:id、/mutuals/friends）只下发 iconUrl，
+  // 旧的 userIcon / profilePicOverride / currentAvatar* 字段已不再返回。
+  return user.iconUrl
+    || user.userIcon
     || user.profilePicOverrideThumbnail
     || user.profilePicOverride
     || user.thumbnailUrl

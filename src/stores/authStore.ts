@@ -227,7 +227,7 @@ export const useAuthStore = defineStore('auth', () => {
       const payload: any = {
         user_id: user.id || user.displayName,
         display_name: user.displayName || '',
-        avatar_url: user.currentAvatarThumbnailImageUrl || ''
+        avatar_url: user.iconUrl || user.currentAvatarThumbnailImageUrl || ''
       };
       const savedCookie = await DbApi.getAuth();
       if (savedCookie) {

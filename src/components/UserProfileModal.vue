@@ -1271,6 +1271,7 @@ const statusColor = computed(() => {
 });
 
 const avatarImageUrl = computed(() =>
+  profileStore.baseInfo?.iconUrl ||
   profileStore.baseInfo?.profilePicOverride ||
   profileStore.baseInfo?.currentAvatarImageUrl ||
   profileStore.baseInfo?.currentAvatarThumbnailImageUrl || ""
@@ -1835,7 +1836,7 @@ watch(activeTab, (tab) => {
 
           <!-- ── HERO BANNER (VRChat / VRCX Profile Cosmetics) ── -->
           <div v-if="userBannerUrl" class="w-full h-32 relative overflow-hidden shrink-0 border-b border-border-soft">
-            <img :src="userBannerUrl" class="w-full h-full object-cover" loading="lazy" />
+            <img :src="userBannerUrl" class="w-full h-full object-cover" loading="lazy" referrerpolicy="no-referrer" />
             <div class="absolute inset-0 bg-gradient-to-t from-[var(--theme-surface)]/90 via-transparent to-transparent" />
             <div v-if="userCosmetics?.profileEffect" class="absolute top-2 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/25 text-purple-300 border border-purple-500/40 backdrop-blur-md flex items-center gap-1">
               <Sparkles :size="10" /> {{ userCosmetics.profileEffect }}
@@ -1851,7 +1852,7 @@ watch(activeTab, (tab) => {
                 :class="{ 'ring-2 ring-amber-400 ring-offset-2 ring-offset-[var(--theme-bg-main)] shadow-lg shadow-amber-400/20': userIconFrame }"
                 style="width:160px; height:120px; border-radius:12px; overflow:hidden; background: var(--theme-surface);"
               >
-                <img v-if="avatarImageUrl" :src="avatarImageUrl" class="w-full h-full object-cover" loading="lazy" />
+                <img v-if="avatarImageUrl" :src="avatarImageUrl" class="w-full h-full object-cover" loading="lazy" referrerpolicy="no-referrer" />
                 <div v-else class="w-full h-full flex items-center justify-center" style="color: var(--theme-text-muted);">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
                 </div>

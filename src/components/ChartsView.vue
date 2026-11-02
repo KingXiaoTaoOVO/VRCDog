@@ -176,7 +176,7 @@ const openRecentUser = (log: FriendLog) => {
 const eventAvatar = (log: FriendLog): string => {
   if (!log.user_id) return '';
   const f = allFriends.value.find((item) => item.id === log.user_id);
-  return (f?.currentAvatarThumbnailImageUrl || f?.profilePicOverride || f?.userIcon || '') as string;
+  return (f?.iconUrl || f?.currentAvatarThumbnailImageUrl || f?.profilePicOverride || f?.userIcon || '') as string;
 };
 
 const eventLabel = (eventType: string) => {

@@ -452,7 +452,7 @@ const handleWorldUpload = async (e: Event) => {
             <div class="flex items-center gap-3">
               <VrcAvatar
                 :user="member.user"
-                :url="member.user?.profilePicOverride || member.user?.thumbnailUrl || member.user?.currentAvatarThumbnailImageUrl"
+                :url="member.user?.iconUrl || member.user?.profilePicOverride || member.user?.thumbnailUrl || member.user?.currentAvatarThumbnailImageUrl"
                 custom-class="w-10 h-10 rounded-full"
               />
               <div>
@@ -496,7 +496,7 @@ const handleWorldUpload = async (e: Event) => {
             <div class="flex items-center gap-3">
               <VrcAvatar
                 :user="req.user"
-                :url="req.user?.profilePicOverride || req.user?.thumbnailUrl || req.user?.currentAvatarThumbnailImageUrl"
+                :url="req.user?.iconUrl || req.user?.profilePicOverride || req.user?.thumbnailUrl || req.user?.currentAvatarThumbnailImageUrl"
                 custom-class="w-10 h-10 rounded-full"
               />
               <div>

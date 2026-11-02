@@ -8,6 +8,7 @@ export interface VrcUser {
   last_login?: string;
   bio?: string;
   bioLinks?: string[];
+  iconUrl?: string;
   currentAvatarImageUrl?: string;
   currentAvatarThumbnailImageUrl?: string;
   location?: string;

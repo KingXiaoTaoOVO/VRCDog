@@ -23,7 +23,7 @@ const imageError = ref(false);
 const imageUrl = computed(() => {
   if (imageError.value) return ''; // fallback to placeholder
   if (props.isUser || props.type === 'user') {
-     return props.data.currentAvatarImageUrl || props.data.profilePicOverride || props.data.currentAvatarThumbnailImageUrl || '';
+     return props.data.iconUrl || props.data.currentAvatarImageUrl || props.data.profilePicOverride || props.data.currentAvatarThumbnailImageUrl || '';
   }
   if (props.type === 'group') {
      return props.data.bannerUrl || props.data.iconUrl || '';
