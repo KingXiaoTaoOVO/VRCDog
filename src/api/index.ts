@@ -1195,9 +1195,21 @@ export const GalleryApi = {
   waitForNewImage: (params?: { timeoutSeconds?: number }) => safeInvoke<string>('gallery_wait_for_new_image', params || {}),
 };
 
+export interface RuntimeModelStatus {
+  name: string;
+  installed: boolean;
+  valid: boolean;
+  path: string;
+  sha256?: string;
+  size: number;
+}
+
 export const ModelRuntimeApi = {
-  getStatus: () => safeInvoke<{ name: string; installed: boolean; valid: boolean; path: string; sha256?: string; size: number }>('model_get_status'),
-  downloadSilero: () => safeInvoke<{ name: string; installed: boolean; valid: boolean; path: string; sha256?: string; size: number }>('model_download_silero'),
+  getStatus: () => safeInvoke<RuntimeModelStatus>('model_get_status'),
+  downloadSilero: () => safeInvoke<RuntimeModelStatus>('model_download_silero'),
+  /** U²-Netp 抠图权重（按需下载，4.6MB）。绘画工作台用它把启发式抠图换成真模型。 */
+  getMattingStatus: () => safeInvoke<RuntimeModelStatus>('model_get_matting_status'),
+  downloadMatting: () => safeInvoke<RuntimeModelStatus>('model_download_matting'),
   calibrateVad: (params: { source: 'mic' | 'speaker'; observedLevels: number[] }) => safeInvoke<{ source: string; suggestedThreshold: number; minThreshold: number; maxThreshold: number; guidance: string }>('model_calibrate_vad', params),
 };
 
@@ -1463,6 +1475,8 @@ export interface MidiCloudTrack {
   preview_url: string;
   /** 曲目详情页；本地曲库没有该字段，试听时用 download_url 里的绝对路径。 */
   page_url?: string;
+  /** 官方封面：http(s) 直链，或本地曲库的磁盘绝对路径（前端需转 asset://）。 */
+  cover_url?: string | null;
   description?: string;
 }
 
@@ -1572,6 +1586,11 @@ export const VrpianoApi = {
   bitmidiIndexSync: (params?: { force?: boolean }) => safeInvoke<number>('vrpiano_bitmidi_index_sync', {
     force: params?.force ?? null,
   }),
+  /** 给本地曲库里没有封面的歌批量补官方封面（先认领孤儿，再 BitMidi 索引/远端）。 */
+  fillMissingCovers: (params?: { limit?: number }) =>
+    safeInvoke<{ scanned: number; filled: number; recovered: number; unresolved: number; failed: number }>('vrpiano_fill_missing_covers', {
+      limit: params?.limit ?? null,
+    }),
   downloadMidishow: (params: {
     midiId: number;
     title?: string;
@@ -1762,10 +1781,14 @@ export interface DrawingConfig {
   lift_speed: number;
   pen_settle_ms: number;
   canvas_size_px: number;
+  /** 屏幕选区宽高（像素）：非零时按每轴映射，优先于 canvas_size_px。 */
+  canvas_width_px: number;
+  canvas_height_px: number;
   min_button_down_ms: number;
   two_opt_path: boolean;
   remove_background: boolean;
   bg_tolerance: number;
+  curve_fit: boolean;
 }
 
 export interface PreparedDrawing {
@@ -1795,11 +1818,14 @@ export interface DrawingStatus {
 }
 
 export const DrawingApi = {
-  prepare: (params: { sourcePath: string; config: DrawingConfig }) => safeInvoke<PreparedDrawing>('vrdrawing_prepare', {
+  prepare: (params: { sourcePath: string; config: DrawingConfig; maskPng?: string }) => safeInvoke<PreparedDrawing>('vrdrawing_prepare', {
     sourcePath: params.sourcePath,
     config: params.config,
+    maskPng: params.maskPng ?? null,
   }),
   getPlan: () => safeInvoke<PreparedDrawing | null>('vrdrawing_get_plan'),
+  /** 冻结一帧主显示器画面，供全屏选区覆盖层拖框（DXGI 被占用时会报错）。 */
+  captureScreen: () => safeInvoke<{ width: number; height: number; dataUrl: string }>('vrdrawing_capture_screen'),
   getStatus: () => safeInvoke<DrawingStatus>('vrdrawing_get_status'),
   setConfig: (params: { config: DrawingConfig }) => safeInvoke<DrawingStatus>('vrdrawing_set_config', params),
   start: () => safeInvoke<DrawingStatus>('vrdrawing_start'),

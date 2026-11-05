@@ -31,6 +31,7 @@ pub mod vrc_api;
 pub mod pipeline_ws;
 pub mod vrct;
 pub mod vrdrawing;
+pub mod vrvector;
 pub mod vrpiano;
 pub mod xiaohongshu;
 
@@ -497,6 +498,8 @@ pub fn run() {
             audio_capture::vrct_get_audio_capture_status,
             model_runtime::model_get_status,
             model_runtime::model_download_silero,
+            model_runtime::model_get_matting_status,
+            model_runtime::model_download_matting,
             model_runtime::model_calibrate_vad,
             translation_runtime::translation_runtime_get,
             translation_runtime::translation_runtime_update,
@@ -635,6 +638,7 @@ pub fn run() {
             vrpiano::vrpiano_midishow_login_status,
             vrpiano::vrpiano_midishow_remove_account,
             vrpiano::vrpiano_cloud_library_search,
+            vrpiano::vrpiano_fill_missing_covers,
             vrpiano::vrpiano_cloud_library_categories,
             vrpiano::vrpiano_cloud_library_sources,
             vrpiano::vrpiano_open_songs_dir,
@@ -681,6 +685,7 @@ pub fn run() {
             vrpiano::vrpiano_transcribe_audio,
             vrpiano::vrpiano_synthesize_speech,
             vrdrawing::vrdrawing_prepare,
+            vrdrawing::vrdrawing_capture_screen,
             vrdrawing::vrdrawing_get_plan,
             vrdrawing::vrdrawing_get_status,
             vrdrawing::vrdrawing_set_config,

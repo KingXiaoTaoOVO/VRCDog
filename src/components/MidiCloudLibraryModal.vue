@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { listen } from '@tauri-apps/api/event';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import {
   Search,
   Cloud,
@@ -526,6 +527,25 @@ const formatDuration = (secs: number) => {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
+/**
+ * 封面地址：BitMidi/Midishow 给的是 http(s) 直链，本地曲库给的是磁盘绝对路径
+ * （必须转 asset:// 才能被 webview 加载）。取不到返回空串，模板退回占位块，
+ * 绝不拿别的歌的图凑数。
+ */
+const trackCover = (track: MidiCloudTrack): string => {
+  const raw = (track.cover_url || '').trim();
+  if (!raw) return '';
+  const looksLikePath = track.source === 'local' || /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\') || (raw.startsWith('/') && !raw.startsWith('//'));
+  if (looksLikePath) {
+    try {
+      return convertFileSrc(raw);
+    } catch {
+      return '';
+    }
+  }
+  return raw;
+};
+
 // 切换数据源
 const onSourceChange = () => {
   currentPage.value = 1;
@@ -1001,6 +1021,10 @@ watch(
                 <!-- 歌曲名称 -->
                 <td class="col-title">
                   <div class="title-cell">
+                    <span class="track-cover">
+                      <img v-if="trackCover(track)" :src="trackCover(track)" alt="" loading="lazy" referrerpolicy="no-referrer">
+                      <Music v-else :size="13" />
+                    </span>
                     <span class="track-title-text">{{ track.title }}</span>
                     <span
                       v-if="track.difficulty"
@@ -1804,6 +1828,27 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 封面缩略图：没有官方图时保留同尺寸的渐变占位，行高不塌陷。 */
+.track-cover {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--vp-primary), color-mix(in srgb, var(--vp-primary) 45%, #22c55e));
+}
+
+.track-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: var(--vp-panel);
 }
 
 .track-title-text {

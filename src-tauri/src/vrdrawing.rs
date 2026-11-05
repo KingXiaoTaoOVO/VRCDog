@@ -13,7 +13,7 @@ use tauri::{Emitter, Manager};
 const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CANVAS_DIMENSION: u32 = 768;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DrawingPoint {
     pub x: f32,
     pub y: f32,
@@ -60,6 +60,10 @@ pub struct DrawingConfig {
     /// mapped 1:1 to the real VRChat drawing canvas. 0 keeps the legacy sensitivity-only
     /// behavior for backwards compatibility.
     pub canvas_size_px: u32,
+    /// 屏幕选区宽高（像素）。用户在游戏里截图框出来的区域就是这个尺寸，
+    /// 非零时按**每轴**换算缩放，比单一 `canvas_size_px` 更贴近「选多大画多大」。
+    pub canvas_width_px: u32,
+    pub canvas_height_px: u32,
     /// 两次「落笔点击」之间的最小间隔。VRChat 的画笔是**点击切换**式的，
     /// 快速连点会被当成橡皮擦（抬笔后立刻再落笔尤其容易触发）。
     /// 之前这个值是硬编码的 550ms；VRC-Draw 用的是 600ms 且可配置，这里对齐。
@@ -73,12 +77,18 @@ pub struct DrawingConfig {
     pub remove_background: bool,
     /// Background detection tolerance (0.1 to 0.9, default 0.45).
     pub bg_tolerance: f32,
+    /// 用「带墨迹门禁的三次贝塞尔拟合」替代纯 RDP 折线简化。
+    /// 关掉它 = 旧行为（滑窗平滑 + RDP + 墨迹退回），用于 A/B 对比。
+    pub curve_fit: bool,
 }
 
 impl Default for DrawingConfig {
     fn default() -> Self {
         Self {
-            mode: "anime".into(),
+            // 默认走本地神经网络线稿：样张实测「局部阈值 + 挖空厚块」在立绘/照片上
+            // 产出断线和块状轮廓（眼睛周围一圈六边形假线），PiDiNet + 方向性 NMS
+            // 给出的是完整 1px 结构线。模型/Python 缺失时会自动退回 anime_sketch。
+            mode: "ai".into(),
             max_dimension: 512,
             threshold: 150,
             blur: 0.8,
@@ -98,17 +108,20 @@ impl Default for DrawingConfig {
             start_delay_ms: 1500,
             focus_vrchat: true,
             hotkeys_enabled: true,
-            ai_model: "image-to-line".into(),
+            ai_model: "anime2sketch".into(),
             contrast: 1.0,
             artifact_removal: 0.6,
             model_size: 512,
             lift_speed: 1.0,
             pen_settle_ms: 15,
             canvas_size_px: 0,
+            canvas_width_px: 0,
+            canvas_height_px: 0,
             min_button_down_ms: 600,
             two_opt_path: true,
             remove_background: true,
             bg_tolerance: 0.45,
+            curve_fit: true,
         }
     }
 }
@@ -141,6 +154,8 @@ impl DrawingConfig {
         self.lift_speed = finite_or(self.lift_speed, 1.0).clamp(0.2, 3.0);
         self.pen_settle_ms = self.pen_settle_ms.min(300);
         self.canvas_size_px = self.canvas_size_px.min(8192);
+        self.canvas_width_px = self.canvas_width_px.min(16384);
+        self.canvas_height_px = self.canvas_height_px.min(16384);
         // 0 = 关闭防双击保护（留给「画笔不是切换式」的世界），上限 3 秒足够保守。
         self.min_button_down_ms = self.min_button_down_ms.min(3_000);
         self
@@ -149,6 +164,29 @@ impl DrawingConfig {
 
 fn finite_or(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
+}
+
+/// 图像像素 → 鼠标位移单位的**每轴**缩放。
+///
+/// 优先级：屏幕选区宽高（「选多大画多大」）> 旧的单一 `canvas_size_px` > 1:1。
+/// 展平容差和回放缩放必须共用这一个函数，否则曲线密度和实际画出来的尺寸会脱节。
+fn canvas_scale(config: &DrawingConfig, plan_width: u32, plan_height: u32) -> (f32, f32) {
+    if plan_width == 0 || plan_height == 0 {
+        return (1.0, 1.0);
+    }
+    if config.canvas_width_px > 0 && config.canvas_height_px > 0 {
+        return (
+            config.canvas_width_px as f32 / plan_width as f32,
+            config.canvas_height_px as f32 / plan_height as f32,
+        );
+    }
+    if config.canvas_size_px > 0 {
+        return (
+            config.canvas_size_px as f32 / plan_width as f32,
+            config.canvas_size_px as f32 / plan_height as f32,
+        );
+    }
+    (1.0, 1.0)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -248,15 +286,19 @@ pub async fn vrdrawing_prepare(
     state: tauri::State<'_, VrDrawingState>,
     source_path: String,
     config: DrawingConfig,
+    // 用户在预览上涂抹/橡皮/魔棒/框选出来的保留区遮罩（data-URL 或裸 base64 PNG）。
+    // 传空或非法串 = 无遮罩，走自动抠图。
+    mask_png: Option<String>,
 ) -> Result<PreparedDrawing, String> {
     let path = validate_source_path(&source_path)?;
     let config = config.normalized();
     let source_path_for_task = path.clone();
     let config_for_task = config.clone();
+    let mask_for_task = mask_png.filter(|value| !value.trim().is_empty());
     let app_for_task = app.clone();
     let state_for_task = state.inner().clone();
     let plan = tauri::async_runtime::spawn_blocking(move || {
-        process_image(&app_for_task, &state_for_task, &source_path_for_task, &config_for_task)
+        process_image(&app_for_task, &state_for_task, &source_path_for_task, &config_for_task, mask_for_task.as_deref())
     })
     .await
     .map_err(|error| format!("Drawing processor stopped unexpectedly: {error}"))??;
@@ -367,10 +409,95 @@ pub fn vr_status_lines() -> (String, String) {
     )
 }
 
+/// 抓一张主显示器全屏快照，返回 PNG data URL + 屏幕像素尺寸。
+///
+/// 用途：绘画工作台的「从屏幕选区」——把 VRChat 当前画面冻在全屏覆盖层上，
+/// 用户拖一个矩形，那个矩形的屏幕像素尺寸就是画布尺寸（选多大画多大）。
+/// DXGI Desktop Duplication 同一时刻只能有一个持有者：远程协助正在推流时
+/// 这里会失败，前端必须退回手动输入尺寸，不能把整个绘画功能拖死。
+#[tauri::command]
+pub async fn vrdrawing_capture_screen(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let _ = app;
+    let (width, height, png) = tauri::async_runtime::spawn_blocking(capture_screen_png)
+        .await
+        .map_err(|error| format!("屏幕捕获任务中断: {error}"))??;
+    use base64::Engine as _;
+    Ok(serde_json::json!({
+        "width": width,
+        "height": height,
+        "dataUrl": format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png)),
+    }))
+}
+
+fn capture_screen_png() -> Result<(u32, u32, Vec<u8>), String> {
+    use crate::remote_assist::capture::{CaptureError, ScreenCapturer};
+
+    let mut capturer = ScreenCapturer::new()?;
+    let (width, height) = capturer.dimensions();
+    if width == 0 || height == 0 {
+        return Err("屏幕尺寸无效".to_string());
+    }
+
+    let mut last_error = String::from("屏幕捕获没有产出帧");
+    for _ in 0..20 {
+        match capturer.capture_frame() {
+            Ok(frame) => return encode_bgra_to_png(&frame, width, height),
+            Err(CaptureError::WouldBlock) => thread::sleep(Duration::from_millis(50)),
+            Err(CaptureError::NotInitialized) => return Err("屏幕捕获未初始化".to_string()),
+            Err(CaptureError::Failed(error)) => {
+                last_error = error;
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+    Err(last_error)
+}
+
+/// BGRA（带 stride）→ PNG。与远程协助的编码器同一套行距处理逻辑。
+fn encode_bgra_to_png(bgra: &[u8], width: u32, height: u32) -> Result<(u32, u32, Vec<u8>), String> {
+    let row_stride = bgra
+        .len()
+        .checked_div(height as usize)
+        .ok_or_else(|| "捕获帧行距无效".to_string())?;
+    if row_stride < width as usize * 4 {
+        return Err("捕获帧行距小于宽度".to_string());
+    }
+    let mut rgba: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height as usize {
+        let row = &bgra[y * row_stride..y * row_stride + width as usize * 4];
+        for pixel in row.chunks_exact(4) {
+            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+        }
+    }
+    let mut image = image::RgbaImage::from_raw(width, height, rgba).ok_or_else(|| "快照组装失败".to_string())?;
+    // 2560×1440 的无损 PNG base64 能有 10 MB，走 IPC 会把选区窗口卡住好几秒。
+    // 选区只需要「看得清画布边界」，长边压到 1920 足够，且矩形换算是按
+    // 物理像素比例做的，缩放显示图不影响最终尺寸精度。
+    const MAX_SNAPSHOT_EDGE: u32 = 1920;
+    if width.max(height) > MAX_SNAPSHOT_EDGE {
+        let scale = MAX_SNAPSHOT_EDGE as f32 / width.max(height) as f32;
+        let resized = image::imageops::resize(
+            &image,
+            ((width as f32 * scale).round() as u32).max(1),
+            ((height as f32 * scale).round() as u32).max(1),
+            image::imageops::FilterType::Lanczos3,
+        );
+        image = resized;
+    }
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut buffer, image::ImageFormat::Png)
+        .map_err(|error| format!("快照编码 PNG 失败: {error}"))?;
+    Ok((width, height, buffer.into_inner()))
+}
+
 fn validate_source_path(raw: &str) -> Result<std::path::PathBuf, String> {
     let path = std::path::PathBuf::from(raw.trim());
     if !path.is_file() {
-        return Err("Please select a valid image file".into());
+        // 这句话是「记住的上一张图已经不在了」，不是「你选了个非法文件」——
+        // 绘画页挂载时会用 localStorage 里的旧路径自动重试一次，
+        // 文件被移动/改名就会撞上这里，前端据此清掉失效路径并提示重选。
+        return Err("The selected image file no longer exists".into());
     }
     let size = std::fs::metadata(&path).map_err(|error| format!("Unable to inspect image: {error}"))?.len();
     if size > MAX_SOURCE_BYTES {
@@ -739,37 +866,52 @@ fn resolve_python_runtime(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "Embedded Python runtime not found".to_string())
 }
 
-fn resolve_lineart_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+/// 在资源目录 / cwd / exe 同级目录里找 `src-python/<file_name>`。
+/// 线稿桥和抠图桥共用同一套查找规则，打包后目录层级差一层也会命中。
+fn resolve_python_script(app: &tauri::AppHandle, file_name: &str) -> Result<PathBuf, String> {
     let mut candidates = Vec::new();
 
     if let Ok(resource_dir) = app.path().resource_dir() {
         candidates.extend([
-            resource_dir.join("_up_").join("src-python").join("vrcdog_lineart.py"),
-            resource_dir.join("src-python").join("vrcdog_lineart.py"),
-            resource_dir.join("vrcdog_lineart.py"),
+            resource_dir.join("_up_").join("src-python").join(file_name),
+            resource_dir.join("src-python").join(file_name),
+            resource_dir.join(file_name),
         ]);
     }
 
     if let Ok(cwd) = std::env::current_dir() {
         candidates.extend([
-            cwd.join("src-tauri").join("src-python").join("vrcdog_lineart.py"),
-            cwd.join("src-python").join("vrcdog_lineart.py"),
+            cwd.join("src-tauri").join("src-python").join(file_name),
+            cwd.join("src-python").join(file_name),
         ]);
     }
 
     if let Ok(executable) = std::env::current_exe() {
         if let Some(exe_dir) = executable.parent() {
             candidates.extend([
-                exe_dir.join("src-python").join("vrcdog_lineart.py"),
-                exe_dir.join("_up_").join("src-python").join("vrcdog_lineart.py"),
+                exe_dir.join("src-python").join(file_name),
+                exe_dir.join("_up_").join("src-python").join(file_name),
             ]);
         }
     }
 
     candidates
         .into_iter()
-        .find(|p| p.is_file())
-        .ok_or_else(|| "Bridge script not found: vrcdog_lineart.py".to_string())
+        .find(|path| path.is_file())
+        .ok_or_else(|| format!("Bridge script not found: {file_name}"))
+}
+
+fn resolve_lineart_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    resolve_python_script(app, "vrcdog_lineart.py")
+}
+
+/// UI 的「阈值」(10..245) → PiDiNet 滞后连接的弱阈值。
+///
+/// 新的 Python 后处理是「方向性 NMS + 双阈值滞后」，弱阈值只需要 0.02~0.30：
+/// 0.06 在三张样张上给出 2~3.6% 墨迹且线条完整，而旧映射的 0.12 会把细节砍掉
+/// （avatar 在 0.12 时发丝和衣纹明显断裂）。
+fn ai_nms_threshold(ui_threshold: u8) -> f32 {
+    (ui_threshold as f32 / 150.0 * 0.06).clamp(0.02, 0.30)
 }
 
 fn run_ai_lineart(
@@ -790,8 +932,7 @@ fn run_ai_lineart(
 
     let max_dim_str = config.model_size.to_string();
     let contrast_str = config.contrast.to_string();
-    let thresh_val = ((config.threshold as f32 / 150.0) * 0.12).clamp(0.04, 0.35);
-    let thresh_str = format!("{thresh_val:.3}");
+    let thresh_str = format!("{:.3}", ai_nms_threshold(config.threshold));
 
     let mut cmd = Command::new(&python);
     cmd.arg(&script)
@@ -895,7 +1036,123 @@ fn run_ai_lineart(
     Ok(binary_mask)
 }
 
-fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, config: &DrawingConfig) -> Result<PreparedDrawing, String> {
+/// 解码用户手画的保留区遮罩。
+///
+/// 接受 `data:image/png;base64,...` 或裸 base64；任意尺寸都会被最近邻缩放到
+/// 当前处理尺寸（遮罩是「区域选择」，不是像素级图层，最近邻不会吞掉细线）。
+/// 解码失败一律当作「没有遮罩」处理，绝不让绘画因为一张坏遮罩而整体失败。
+fn decode_user_mask(raw: &str, width: usize, height: usize) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || width == 0 || height == 0 { return None; }
+    let payload = trimmed.split_once(',').map(|(_, rest)| rest).unwrap_or(trimmed);
+    let bytes = base64::engine::general_purpose::STANDARD.decode(payload.as_bytes()).ok()?;
+    let decoded = image::load_from_memory(&bytes).ok()?;
+    let luma = decoded.to_luma8();
+    let resized = image::imageops::resize(
+        &luma,
+        width as u32,
+        height as u32,
+        image::imageops::FilterType::Nearest,
+    );
+    Some(resized.into_raw().into_iter().map(|value| u8::from(value > 128)).collect())
+}
+
+/// 跑一次 Python 桥接子进程并等待其结束（带超时与 kill），成功返回 stdout。
+/// 线稿桥自己还有一版内联实现；抠图桥走这个通用版本，避免再抄一遍 60 行。
+fn run_python_bridge(python: &Path, arguments: &[String], timeout_secs: u64) -> Result<(), String> {
+    let mut cmd = Command::new(python);
+    for argument in arguments { cmd.arg(argument); }
+    cmd.env("PYTHONNOUSERSITE", "1")
+        .env("PYTHONUTF8", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let mut child = cmd.spawn().map_err(|error| format!("Failed to spawn python bridge: {error}"))?;
+    // 用 Instant 而不是 SystemTime：桥接超时必须按真实流逝时间算，
+    // 用户改系统时间不该让一次推理被判成超时或永远不超时。
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let _ = child.wait();
+                if !status.success() {
+                    return Err(format!("Python bridge exited with {status}"));
+                }
+                return Ok(());
+            }
+            Ok(None) => {
+                if started.elapsed() >= Duration::from_secs(timeout_secs) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("Python bridge timeout after {timeout_secs}s"));
+                }
+                thread::sleep(Duration::from_millis(40));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Failed waiting for python bridge: {error}"));
+            }
+        }
+    }
+}
+
+/// U²-Netp 抠图桥：图片 → 同尺寸 alpha PNG → 处理尺寸下的二值前景掩码。
+///
+/// 模型没下载、Python 运行时缺失、推理失败都返回 `Err`，调用方退回启发式抠图，
+/// 绝不让「装了但没下模型」的用户画不出图。
+fn run_ai_matte(app: &tauri::AppHandle, input_path: &Path, target_w: usize, target_h: usize) -> Result<Vec<u8>, String> {
+    let model = crate::model_runtime::matting_model_file(app).ok_or_else(|| "Matting model not downloaded".to_string())?;
+    let python = resolve_python_runtime(app)?;
+    let script = resolve_python_script(app, "vrcdog_matte.py")?;
+    let temp_out = std::env::temp_dir().join(format!(
+        "vrcdog_matte_{}_{}.png",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()
+    ));
+
+    let arguments = vec![
+        script.to_string_lossy().to_string(),
+        "--input".to_string(),
+        input_path.to_string_lossy().to_string(),
+        "--output".to_string(),
+        temp_out.to_string_lossy().to_string(),
+        "--model".to_string(),
+        model.to_string_lossy().to_string(),
+    ];
+
+    let result = run_python_bridge(&python, &arguments, 25);
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&temp_out);
+        return Err(error);
+    }
+
+    let matte = match image::open(&temp_out) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = std::fs::remove_file(&temp_out);
+            return Err(format!("Failed to read matting output: {error}"));
+        }
+    };
+    let _ = std::fs::remove_file(&temp_out);
+
+    let resized = if matte.width() as usize != target_w || matte.height() as usize != target_h {
+        matte.resize_exact(target_w as u32, target_h as u32, image::imageops::FilterType::Triangle)
+    } else {
+        matte
+    };
+    Ok(resized.to_luma8().into_raw().into_iter().map(|value| u8::from(value > 127)).collect())
+}
+
+fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, config: &DrawingConfig, mask_png: Option<&str>) -> Result<PreparedDrawing, String> {
     report_stage(state, app, "decode", 0.05);
     let image = image::open(path).map_err(|error| format!("Unable to decode image: {error}"))?;
     let dimension = if config.mode == "ai" { config.model_size } else { config.max_dimension };
@@ -907,11 +1164,27 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
     }
     let (w, h) = (width as usize, height as usize);
 
-    let subject_mask = if config.remove_background {
-        report_stage(state, app, "isolate_subject", 0.15);
-        compute_subject_mask(&rgba, w, h, config.bg_tolerance)
+    // 用户手画遮罩优先于启发式抠图：涂抹过的就是要画，橡皮挖掉的就是不画。
+    let user_mask = decode_user_mask(mask_png.unwrap_or(""), w, h);
+    let subject_mask: Option<Vec<u8>> = if user_mask.is_some() {
+        report_stage(state, app, "apply_selection", 0.15);
+        user_mask
+    } else if config.remove_background {
+        // 优先用 U²-Netp 真模型做语义分割；模型没下载 / 桥接失败就退回原来的
+        // 「边框取色 + 中心先验 + 最大连通块」启发式，功能不倒退，只是精度降级。
+        match run_ai_matte(app, path, w, h) {
+            Ok(mask) => {
+                report_stage(state, app, "isolate_subject_model", 0.22);
+                Some(mask)
+            }
+            Err(error) => {
+                eprintln!("Matting bridge fallback ({error}): using heuristic subject mask");
+                report_stage(state, app, "isolate_subject", 0.15);
+                Some(compute_subject_mask(&rgba, w, h, config.bg_tolerance))
+            }
+        }
     } else {
-        vec![1u8; w * h]
+        None
     };
 
     let mut gray = resized.to_luma8();
@@ -932,9 +1205,9 @@ fn process_image(app: &tauri::AppHandle, state: &VrDrawingState, path: &Path, co
         build_ink_mask(&raw, w, h, config)
     };
 
-    // Apply subject mask: eliminate all background noise outside the central subject
-    if config.remove_background {
-        for (b, &fg) in binary.iter_mut().zip(subject_mask.iter()) {
+    // 套用前景遮罩：抹掉所有不在主体/选区内的噪声。
+    if let Some(mask) = &subject_mask {
+        for (b, &fg) in binary.iter_mut().zip(mask.iter()) {
             if fg == 0 {
                 *b = 0;
             }
@@ -1002,14 +1275,22 @@ fn assemble_strokes(
         // Dithering means dots, not centre lines: thinning would erase them all.
         dots(&mask, w, h)
     } else {
-        let depth = (w.min(h) / 128).clamp(2, 5);
-        mask = hollow_thick_regions(&mask, w, h, depth);
+        // AI 分支（方向性 NMS + 滞后连接）和纯线稿输入本来就是 1px 线。
+        // 对这种输入再「挖空厚块 + 细化」只会引入断点和毛刺，所以按墨迹团块的
+        // 内切半径判断：≤2px 就直接跳过这两步。
+        let thin_input = max_ink_radius(&mask, w, h) <= 2.0;
+        if !thin_input {
+            let depth = (w.min(h) / 128).clamp(2, 5);
+            mask = hollow_thick_regions(&mask, w, h, depth);
+        }
         // 门禁基准取「挖空之后、细化之前」：细化会原地把 `mask` 削成 1px 中线，
         // 拿它当判据太严；而挖掉的块心本就不该再被当成合法落点。
         let ink = mask.clone();
-        skeletonize(&mut mask, w, h);
-        if config.prune_length > 0 {
-            prune_spurs(&mut mask, w, h, config.prune_length);
+        if !thin_input {
+            skeletonize(&mut mask, w, h);
+            if config.prune_length > 0 {
+                prune_spurs(&mut mask, w, h, config.prune_length);
+            }
         }
         progress("extract", 0.8);
         let mut strokes = extract_strokes(&mask, w, h, config.min_stroke_length);
@@ -1020,8 +1301,30 @@ fn assemble_strokes(
                 points = smooth_points(&points, config.smooth_window);
             }
             let smoothed = points.clone();
-            if config.simplify_epsilon > 0.0 {
-                points = simplify_points(&points, config.simplify_epsilon);
+            let simplified = if config.simplify_epsilon > 0.0 {
+                simplify_points(&smoothed, config.simplify_epsilon)
+            } else {
+                smoothed.clone()
+            };
+            if config.curve_fit {
+                // 拟合跑在**稠密骨架点**上：RDP 之后的稀疏折线已经「无段可省」，
+                // 门禁 `segments < points-1` 必然拒绝，等于空操作（A/B 实测点数和偏差一模一样）。
+                // 拒绝时退回 RDP 结果，绝不退回未简化的骨架点——那会把落点数放大 4~7 倍，
+                // 精度换了、绘制时间也炸了。
+                let execution_scale = config.sensitivity
+                    * canvas_scale(config, w as u32, h as u32).0;
+                // 展平容差用「执行像素」表达（= 路径简化 epsilon），除以尺度换回图像像素。
+                // 实测三档（helmet 样张）：0.25px → 5237 点（时间炸）、epsilon/2 → 1171 点
+                // （+67%，超出预算）、epsilon → 861 点（+23%，偏差反而更低）。
+                // 想更精细就把「路径简化」调小，这一档就是时间/精度的平衡点。
+                let flattening = (config.simplify_epsilon.max(0.3) / execution_scale.max(0.25)).clamp(0.25, 6.0);
+                let options = crate::vrvector::VectorFitOptions {
+                    flattening_tolerance: flattening,
+                    ..crate::vrvector::VectorFitOptions::default()
+                };
+                points = crate::vrvector::fit_stroke(&smoothed, &ink, w, h, &options).unwrap_or(simplified);
+            } else {
+                points = simplified;
             }
             // 滑窗均值和纯几何 RDP 都可能把笔画「拉出」原图的墨迹（曲率大处尤其明显，
             // 表现为线条脱离轮廓）。这里逐级退回：简化结果越界 → 退回平滑结果 →
@@ -1053,11 +1356,11 @@ fn assemble_strokes(
     }
     progress("optimize", 0.95);
     if config.optimize_path {
-        order_strokes(strokes)
+        order_strokes(strokes, config.max_step_px)
     } else if config.two_opt_path {
         // Even without nearest-neighbour ordering, a 2-opt pass over the raw extract order
         // can noticeably reduce aerial travel on complex images.
-        two_opt_pass(strokes, 2)
+        two_opt_pass(strokes, 2, config.max_step_px)
     } else {
         strokes
     }
@@ -1482,6 +1785,19 @@ fn distance_transform(mask: &[u8], width: usize, height: usize) -> Vec<f32> {
     dist
 }
 
+/// 墨迹团块的内切半径（= 最粗处的半宽）。
+/// 1px 线条恒为 1，实心方块是边长的一半；用来判断「这张二值图还需不需要细化」。
+fn max_ink_radius(mask: &[u8], width: usize, height: usize) -> f32 {
+    if mask.iter().all(|&value| value == 0) {
+        return 0.0;
+    }
+    let distance = distance_transform(mask, width, height);
+    distance
+        .iter()
+        .cloned()
+        .fold(0.0f32, |acc, value| if value.is_finite() { acc.max(value) } else { acc })
+}
+
 fn dots(data: &[u8], width: usize, height: usize) -> Vec<DrawingStroke> {
     const MAX_DOTS: usize = 4096;
     let mut visited = vec![false; data.len()];
@@ -1875,6 +2191,17 @@ fn all_on_ink(points: &[DrawingPoint], mask: &[u8], width: usize, height: usize)
 
 fn point_distance(a: &DrawingPoint, b: &DrawingPoint) -> f32 { (a.x - b.x).hypot(a.y - b.y) }
 
+/// 提笔代价 = 这段空笔**实际会发出的鼠标命令数**，不是欧氏距离。
+///
+/// `SendInput` 的相对移动是切比雪夫式的：一步之内 dx、dy 各自独立生效，
+/// 所以命令数取决于 `max(|dx|, |dy|)` 而不是斜边长度。用斜边排序会让
+/// 「45° 斜穿」看起来比「横平竖直的等时移动」更便宜，路径重排因此偏向
+/// 实际上更慢的走法（对齐 VRC-Draw `PenUpMoveCost`）。
+fn pen_up_cost(a: &DrawingPoint, b: &DrawingPoint, max_step_px: f32) -> f32 {
+    let chebyshev = (a.x - b.x).abs().max((a.y - b.y).abs());
+    (chebyshev / max_step_px.max(1.0)).ceil()
+}
+
 /// 端点靠近到这个程度以内就认为是同一个交叉点（骨架像素最多相距 1.414）。
 const JUNCTION_TOL: f32 = 1.6;
 
@@ -2254,7 +2581,7 @@ fn stroke_join_is_smooth(left: &DrawingStroke, right: &DrawingStroke, reverse_le
     left_dir.0 * gap.0 + left_dir.1 * gap.1 >= MIN_COSINE
         && right_dir.0 * gap.0 + right_dir.1 * gap.1 >= MIN_COSINE
 }
-fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
+fn order_strokes(strokes: Vec<DrawingStroke>, max_step_px: f32) -> Vec<DrawingStroke> {
     let mut strokes: Vec<DrawingStroke> = strokes.into_iter().filter(|s| !s.points.is_empty()).collect();
     if strokes.len() <= 1 { return strokes; }
     // Nearest-neighbour routing is quadratic; skip it for dither-scale counts.
@@ -2269,7 +2596,7 @@ fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
         let current = ordered.last().unwrap().points.last().unwrap();
         let mut best = (f32::MAX, 0usize, false);
         for (index, stroke) in strokes.iter().enumerate() {
-            for (distance, reverse) in [(point_distance(current, stroke.points.first().unwrap()), false), (point_distance(current, stroke.points.last().unwrap()), true)] {
+            for (distance, reverse) in [(pen_up_cost(current, stroke.points.first().unwrap(), max_step_px), false), (pen_up_cost(current, stroke.points.last().unwrap(), max_step_px), true)] {
                 if distance < best.0 { best = (distance, index, reverse); }
             }
         }
@@ -2279,12 +2606,12 @@ fn order_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
     }
     // Two-opt improvement: cap at 3 passes; empirically enough for image-sized stroke
     // counts and bounded so we never spend more than a few ms on routing.
-    two_opt_pass(ordered, 3)
+    two_opt_pass(ordered, 3, max_step_px)
 }
 
 /// Reverses segments of the tour when doing so reduces the total endpoint-to-endpoint
 /// pen travel. Operates in place; `max_passes` caps iterations to keep the cost bounded.
-fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize) -> Vec<DrawingStroke> {
+fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize, max_step_px: f32) -> Vec<DrawingStroke> {
     tour.retain(|s| !s.points.is_empty());
     // Bounded so a dither-scale stroke count can never turn this into a stall.
     if tour.len() < 4 || tour.len() > 1500 { return tour; }
@@ -2301,13 +2628,13 @@ fn two_opt_pass(mut tour: Vec<DrawingStroke>, max_passes: usize) -> Vec<DrawingS
                 // the new boundary is: prev -> (old j's last), (old i's first) -> next.
                 let new_first = tour[j].points.last().unwrap().clone();
                 let new_last = tour[i].points.first().unwrap().clone();
-                let mut before = point_distance(&prev_end, &cur_first);
-                let mut after = point_distance(&prev_end, &new_first);
+                let mut before = pen_up_cost(&prev_end, &cur_first, max_step_px);
+                let mut after = pen_up_cost(&prev_end, &new_first, max_step_px);
                 if let Some(next) = next_first {
-                    before += point_distance(&cur_last, &next);
-                    after += point_distance(&new_last, &next);
+                    before += pen_up_cost(&cur_last, &next, max_step_px);
+                    after += pen_up_cost(&new_last, &next, max_step_px);
                 }
-                if after + 1e-3 < before {
+                if after + 0.5 < before {
                     for k in i..=j {
                         tour[k].points.reverse();
                     }
@@ -2412,12 +2739,8 @@ fn run_drawing(app: tauri::AppHandle, state: VrDrawingState, plan: PreparedDrawi
         // Optional explicit canvas size: when set, derive scale so 1 image pixel maps to
         // (canvas_size_px / plan.dim) screen pixels. The user still controls the fine-tune
         // via `sensitivity` and `vertical_stretch`. canvas_size_px == 0 keeps the legacy
-        // sensitivity-only behaviour.
-        let (scale_x, scale_y) = if config.canvas_size_px > 0 && plan.width > 0 && plan.height > 0 {
-            let sx = config.canvas_size_px as f32 / plan.width as f32;
-            let sy = config.canvas_size_px as f32 / plan.height as f32;
-            (sx, sy)
-        } else { (1.0, 1.0) };
+        // sensitivity-only behaviour. 屏幕选区给出的是每轴尺寸，优先于旧的单一边长。
+        let (scale_x, scale_y) = canvas_scale(&config, plan.width, plan.height);
         let mut last_pen_down = std::time::Instant::now()
             .checked_sub(Duration::from_millis(1000))
             .unwrap_or_else(std::time::Instant::now);
@@ -2722,8 +3045,146 @@ mod tests {
             DrawingStroke { points: vec![DrawingPoint { x: 0.0, y: 0.0 }, DrawingPoint { x: 10.0, y: 0.0 }] },
             DrawingStroke { points: vec![DrawingPoint { x: 30.0, y: 0.0 }, DrawingPoint { x: 12.0, y: 0.0 }] },
         ];
-        let ordered = order_strokes(strokes);
+        let ordered = order_strokes(strokes, 4.0);
         assert_eq!(ordered[1].points[0].x, 12.0);
+    }
+
+    /// 用户遮罩必须能吃下 `canvas.toDataURL()` 的 data-URL，也能吃裸 base64；
+    /// 半个人为「无遮罩」，非法串不能把整条 prepare 打断。
+    #[test]
+    fn decodes_user_selection_mask_from_data_url_and_bare_base64() {
+        use base64::Engine as _;
+        let mut source = image::GrayImage::from_pixel(4, 2, image::Luma([255u8]));
+        source.put_pixel(0, 0, image::Luma([0u8]));
+        source.put_pixel(1, 0, image::Luma([0u8]));
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        source.write_to(&mut buffer, image::ImageFormat::Png).expect("encode mask png");
+        let raw = base64::engine::general_purpose::STANDARD.encode(buffer.into_inner());
+
+        let from_data_url = decode_user_mask(&format!("data:image/png;base64,{raw}"), 4, 2).expect("data-url mask");
+        let from_base64 = decode_user_mask(&raw, 4, 2).expect("bare base64 mask");
+        assert_eq!(from_data_url, from_base64);
+        assert_eq!(from_data_url[0], 0, "左上角被排除");
+        assert_eq!(from_data_url[1], 0, "第二个像素被排除");
+        assert_eq!(from_data_url[4], 1, "第二行仍然要画");
+
+        assert!(decode_user_mask("", 4, 2).is_none(), "空串就是没有遮罩");
+        assert!(decode_user_mask("not base64 at all!!", 4, 2).is_none(), "非法串必须当成没有遮罩");
+        // 尺寸不符时缩放到处理尺寸，不能直接报错。
+        let scaled = decode_user_mask(&raw, 8, 4).expect("scaled mask");
+        assert_eq!(scaled.len(), 32);
+    }
+
+    /// 细化前置判断：1px 线必须被认成「已经够细」，团块必须被认成「需要挖空」。
+    /// 判错方向会导致 AI 线稿被二次细化（断点），或立绘色块被直接描中线（假线）。
+    #[test]
+    fn ink_radius_separates_thin_lines_from_blobs() {
+        let width = 32usize;
+        let height = 32usize;
+        let mut lines = vec![0u8; width * height];
+        for x in 4..28 { lines[10 * width + x] = 1; }
+        for y in 4..28 { lines[y * width + 20] = 1; }
+        assert!(max_ink_radius(&lines, width, height) <= 2.0, "1px 十字线不该触发挖空/细化");
+
+        let mut blob = vec![0u8; width * height];
+        for y in 10..20 {
+            for x in 10..20 { blob[y * width + x] = 1; }
+        }
+        assert!(max_ink_radius(&blob, width, height) > 2.0, "10x10 色块必须触发挖空/细化");
+        assert_eq!(max_ink_radius(&vec![0u8; width * height], width, height), 0.0, "空图半径为 0");
+    }
+
+    /// UI 阈值 → 滞后弱阈值的映射必须留在「细节完整但不吃噪点」的区间。
+    /// 0.06 是样张实测点（avatar 墨迹 12.2%→3.4%，线条仍连续）。
+    #[test]
+    fn ai_threshold_maps_into_the_detail_band() {
+        assert!((ai_nms_threshold(150) - 0.06).abs() < 1e-6, "默认阈值要落在 0.06");
+        assert!(ai_nms_threshold(10) >= 0.02, "最低端不能被夹到 0 以下");
+        assert!(ai_nms_threshold(245) <= 0.30, "最高端不能冲进噪点区");
+        assert!(ai_nms_threshold(245) > ai_nms_threshold(10), "映射必须单调");
+    }
+
+    /// 选区宽高优先于旧的单一边长；两者都为 0 时必须保持 1:1（旧行为）。
+    /// 展平密度和回放缩放共用这个函数，任何一侧改动都必须同步。
+    #[test]
+    fn canvas_scale_prefers_the_screen_selection() {
+        let mut config = DrawingConfig::default();
+        assert_eq!(canvas_scale(&config, 512, 512), (1.0, 1.0), "没给尺寸就是 1:1");
+        assert_eq!(canvas_scale(&config, 0, 0), (1.0, 1.0), "空 plan 不能除零");
+
+        config.canvas_size_px = 1024;
+        let legacy = canvas_scale(&config, 512, 256);
+        assert_eq!((legacy.0, legacy.1), (2.0, 4.0), "旧字段按各自边长换算");
+
+        config.canvas_width_px = 800;
+        config.canvas_height_px = 400;
+        let selected = canvas_scale(&config, 400, 200);
+        assert_eq!((selected.0, selected.1), (2.0, 2.0), "选区宽高必须压过旧的单一边长");
+
+        // 只给宽不给高 → 视为无效选区，退回旧字段，避免画布被拉成非等比。
+        config.canvas_height_px = 0;
+        let partial = canvas_scale(&config, 512, 256);
+        assert_eq!((partial.0, partial.1), (2.0, 4.0), "半套选区参数不能生效");
+    }
+
+    /// 端到端渲染「AI 分支产出的掩码」：把 Python 桥输出的线稿掩码 PNG 直接喂进
+    /// `assemble_strokes`，结果写到 `target/lineart-check/`。
+    /// 只在设置了 `VRCDOG_AI_MASK_DIR` 时执行，避免把 Python 依赖拖进常规测试。
+    /// 这是唯一能在不启动 GUI 的情况下验证「默认走 AI 之后画出来长什么样」的路径。
+    #[test]
+    fn renders_ai_mask_samples_through_the_real_assembly_path() {
+        let Some(dir) = std::env::var_os("VRCDOG_AI_MASK_DIR") else { return };
+        let root = std::path::Path::new(&dir);
+        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("lineart-check");
+        std::fs::create_dir_all(&out_dir).expect("create output directory");
+        let mut config = DrawingConfig::default();
+        config.mode = "ai".to_string();
+
+        let mut rendered = 0usize;
+        let entries = match std::fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() { continue; }
+            if !matches!(path.extension().and_then(|v| v.to_str()), Some("png") | Some("jpg") | Some("jpeg")) { continue; }
+            let Ok(opened) = image::open(&path) else { continue };
+            let resized = opened.resize(512, 512, image::imageops::FilterType::Nearest);
+            let luma = resized.to_luma8();
+            let (width, height) = luma.dimensions();
+            let (w, h) = (width as usize, height as usize);
+            let mask: Vec<u8> = luma.into_raw().into_iter().map(|value| u8::from(value > 128)).collect();
+            let ink_before = mask.iter().filter(|&&value| value != 0).count();
+            // 与 process_image 相同的两步前处理，再进真实组装路径。
+            let mut mask = mask;
+            if config.bridge_gaps {
+                mask = erode_plus(&dilate_plus(&mask, w, h), w, h);
+            }
+            despeckle(&mut mask, w, h, config.artifact_removal);
+            let thin = max_ink_radius(&mask, w, h) <= 2.0;
+            let strokes = assemble_strokes(mask, w, h, &config, |_, _| {});
+            let points: usize = strokes.iter().map(|stroke| stroke.points.len()).sum();
+            println!(
+                "  DIAG AI {}: 墨迹 {:.2}% 细线={} 笔画 {} 点 {}",
+                path.file_name().and_then(|v| v.to_str()).unwrap_or("?"),
+                100.0 * ink_before as f32 / (w * h) as f32,
+                thin,
+                strokes.len(),
+                points
+            );
+            let mut canvas = image::RgbImage::from_pixel(width, height, image::Rgb([255, 253, 247]));
+            for stroke in &strokes {
+                for index in 1..stroke.points.len() {
+                    draw_line(&mut canvas, stroke.points[index - 1].x, stroke.points[index - 1].y, stroke.points[index].x, stroke.points[index].y);
+                }
+            }
+            let name = path.file_stem().and_then(|v| v.to_str()).unwrap_or("sample").replace('.', "_");
+            canvas.save(out_dir.join(format!("ai-{name}.png")).with_extension("png")).expect("save ai render");
+            assert!(strokes.len() >= 5, "{}: AI 掩码应该产出足够多的笔画", name);
+            rendered += 1;
+        }
+        assert!(rendered > 0, "VRCDOG_AI_MASK_DIR 下没有找到掩码样张");
     }
 
     #[test]
@@ -2733,6 +3194,119 @@ mod tests {
             DrawingStroke { points: vec![DrawingPoint { x: 10.5, y: 0.0 }, DrawingPoint { x: 10.5, y: 10.0 }] },
         ];
         assert_eq!(merge_nearby_strokes(strokes, 2.0).len(), 2);
+    }
+
+    /// 路径点到最近墨迹的平均距离（越小越贴线）。用反相的距离场，
+    /// `distance_transform` 本身算的是「到最近背景」，反一下就得到「到最近墨迹」。
+    fn mean_ink_deviation(strokes: &[DrawingStroke], mask: &[u8], width: usize, height: usize) -> f32 {
+        let inverted: Vec<u8> = mask.iter().map(|&value| u8::from(value == 0)).collect();
+        let distance = distance_transform(&inverted, width, height);
+        let mut total = 0.0f32;
+        let mut samples = 0usize;
+        for stroke in strokes {
+            for index in 1..stroke.points.len() {
+                let a = stroke.points[index - 1];
+                let b = stroke.points[index];
+                let steps = ((b.x - a.x).hypot(b.y - a.y) / 2.0).ceil().max(1.0) as usize;
+                for step in 0..=steps {
+                    let ratio = step as f32 / steps as f32;
+                    let x = (a.x + (b.x - a.x) * ratio).round() as i64;
+                    let y = (a.y + (b.y - a.y) * ratio).round() as i64;
+                    if x < 0 || y < 0 || x >= width as i64 || y >= height as i64 { continue; }
+                    total += distance[(y as usize) * width + x as usize].min(8.0);
+                    samples += 1;
+                }
+            }
+        }
+        if samples == 0 { return 0.0; }
+        total / samples as f32
+    }
+
+    /// 多复杂度样张 A/B 基准：贝塞尔拟合必须比 RDP 折线更贴线，且越界率 ≤ 1%。
+    /// 样张来自两处：`src/assets`（头像/照片/线稿）与 `references/VRC-Draw/sample`
+    /// （立绘、截图、复杂渐变等），覆盖「简单线稿 → 复杂照片」整条难度轴。
+    #[test]
+    fn curve_fit_hugs_the_ink_better_than_rdp_on_every_sample() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("assets");
+        let extras = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("references").join("VRC-Draw").join("sample");
+        let mut paths: Vec<std::path::PathBuf> = ["helmet.jpeg", "dog.jpg", "main.png", "unknown.jpeg", "mono.jpeg", "avatar.png"]
+            .iter()
+            .map(|name| assets.join(name))
+            .collect();
+        if extras.is_dir() {
+            let mut found: Vec<std::path::PathBuf> = std::fs::read_dir(&extras)
+                .map(|entries| {
+                    entries
+                        .filter_map(|entry| entry.ok().map(|item| item.path()))
+                        .filter(|path| {
+                            if !path.is_file() { return false; }
+                            let Some(extension) = path.extension().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase()) else { return false; };
+                            matches!(extension.as_str(), "png" | "jpg" | "jpeg")
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            found.sort();
+            found.truncate(8);
+            paths.extend(found);
+        }
+
+        let mut measured = 0usize;
+        let mut fitted_worse = 0usize;
+        for path in paths {
+            if !path.is_file() { continue; }
+            let Ok(opened) = image::open(&path) else { continue };
+            let resized = opened.resize(512, 512, image::imageops::FilterType::Triangle);
+            let gray = image::imageops::blur(&resized.to_luma8(), 0.8);
+            let (width, height) = gray.dimensions();
+            let (w, h) = (width as usize, height as usize);
+            let base_config = DrawingConfig::default();
+            let mask = build_ink_mask(&gray.to_vec(), w, h, &base_config);
+
+            let mut fitted_config = base_config.clone();
+            fitted_config.curve_fit = true;
+            let mut rdp_config = base_config.clone();
+            rdp_config.curve_fit = false;
+
+            let fitted = assemble_strokes(mask.clone(), w, h, &fitted_config, |_, _| {});
+            let rdp = assemble_strokes(mask.clone(), w, h, &rdp_config, |_, _| {});
+            let fitted_points: usize = fitted.iter().map(|stroke| stroke.points.len()).sum();
+            let rdp_points: usize = rdp.iter().map(|stroke| stroke.points.len()).sum();
+            let fitted_deviation = mean_ink_deviation(&fitted, &mask, w, h);
+            let rdp_deviation = mean_ink_deviation(&rdp, &mask, w, h);
+            let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("?");
+            println!(
+                "  DIAG {name}: RDP {rdp_points} 点 偏差 {rdp_deviation:.3}px | 贝塞尔 {fitted_points} 点 偏差 {fitted_deviation:.3}px | 提笔 {} → {}",
+                rdp.len(), fitted.len()
+            );
+            // 越界率：贝塞尔结果离开墨迹（3×3 容差）的采样占比必须 ≤ 1%。
+            let supported = |point: &DrawingPoint| -> bool {
+                let x = point.x.round() as i64;
+                let y = point.y.round() as i64;
+                for offset_y in -1..=1i64 {
+                    for offset_x in -1..=1i64 {
+                        let cx = x + offset_x;
+                        let cy = y + offset_y;
+                        if cx < 0 || cy < 0 || cx >= w as i64 || cy >= h as i64 { continue; }
+                        if mask[(cy as usize) * w + cx as usize] != 0 { return true; }
+                    }
+                }
+                false
+            };
+            let outside = fitted.iter().map(|stroke| {
+                stroke.points.iter().filter(|point| !supported(point)).count()
+            }).sum::<usize>() as f32 / (fitted_points.max(1) as f32);
+            assert!(outside <= 0.01, "{name}: 贝塞尔路径越出墨迹 {:.2}%（上限 1%）", outside * 100.0);
+            if fitted_deviation > rdp_deviation + 0.02 { fitted_worse += 1; }
+            // 精度不能拿时间换：落点数最多允许比 RDP 多 60%（点间隔是绘制时间的主项）。
+            assert!(
+                fitted_points <= (rdp_points as f32 * 1.6) as usize + 40,
+                "{name}: 贝塞尔展平把落点数从 {rdp_points} 放大到 {fitted_points}，绘制时间会跟着炸"
+            );
+            measured += 1;
+        }
+        assert!(measured >= 5, "样张不足，无法做 A/B 基准：{measured}");
+        assert_eq!(fitted_worse, 0, "{fitted_worse} 张样张上贝塞尔拟合反而比 RDP 更偏离墨迹");
     }
 
     /// Bresenham helper used only by the sample renderer below.

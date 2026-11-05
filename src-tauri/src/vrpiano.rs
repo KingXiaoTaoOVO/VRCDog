@@ -857,6 +857,44 @@ pub async fn vrpiano_import_song(
     Ok(song_from_path(&target)?)
 }
 
+/// 与 MIDI 同目录同名的封面旁挂文件（`<stem>.cover.jpg|png|webp|gif`）。
+///
+/// 重命名/删除必须一起处理：实测用户把「晴天 Happy_153056 •」改成
+/// 「【周杰伦】晴天 - 原琴」之后，那张 `.cover.jpg` 成了孤儿，
+/// 列表里又变回默认图标 —— 看起来就像「封面功能根本没生效」。
+fn cover_sidecar_paths(midi_path: &Path) -> Vec<PathBuf> {
+    let Some(stem) = midi_path.file_stem().and_then(|value| value.to_str()) else {
+        return Vec::new();
+    };
+    let Some(parent) = midi_path.parent() else {
+        return Vec::new();
+    };
+    ["jpg", "jpeg", "png", "webp", "gif"]
+        .iter()
+        .map(|ext| parent.join(format!("{stem}.cover.{ext}")))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+/// 把封面跟着 MIDI 一起改名；单个失败不影响重命名本身（宁可留下孤儿也不要丢谱）。
+fn move_cover_sidecars(source: &Path, target: &Path) {
+    let Some(stem) = target.file_stem().and_then(|value| value.to_str()) else { return; };
+    let Some(parent) = target.parent() else { return; };
+    for cover in cover_sidecar_paths(source) {
+        let Some(ext) = cover.extension().and_then(|value| value.to_str()) else { continue; };
+        let destination = parent.join(format!("{stem}.cover.{ext}"));
+        if let Err(error) = fs::rename(&cover, &destination) {
+            eprintln!("[vrpiano] cover follow-rename failed for {}: {error}", cover.display());
+        }
+    }
+}
+
+fn remove_cover_sidecars(midi_path: &Path) {
+    for cover in cover_sidecar_paths(midi_path) {
+        let _ = fs::remove_file(&cover);
+    }
+}
+
 #[tauri::command]
 pub async fn vrpiano_rename_song(
     app: tauri::AppHandle,
@@ -881,8 +919,11 @@ pub async fn vrpiano_rename_song(
             return Err("A song with this name already exists".to_string());
         }
         fs::remove_file(&target).map_err(|e| format!("Failed to overwrite existing song: {e}"))?;
+        // 被覆盖那首的旧封面不能留下来，否则它会冒充新谱的封面。
+        remove_cover_sidecars(&target);
     }
     fs::rename(&source, &target).map_err(|e| format!("Failed to rename song: {e}"))?;
+    move_cover_sidecars(&source, &target);
     Ok(song_from_path(&target)?)
 }
 
@@ -891,6 +932,7 @@ pub async fn vrpiano_delete_song(app: tauri::AppHandle, song_path: String) -> Re
     let songs_dir = ensure_songs_dir(&app)?;
     let source = resolve_song_path(&songs_dir, &song_path)?;
     fs::remove_file(&source).map_err(|e| format!("Failed to delete song: {e}"))?;
+    remove_cover_sidecars(&source);
     Ok(())
 }
 
@@ -1729,6 +1771,9 @@ fn bitmidi_song_to_cloud_item(song: &VrpianoOnlineSong) -> serde_json::Value {
         "download_url": download_url.clone(),
         "preview_url": download_url,
         "page_url": song.page_url.clone(),
+        // 云端曲库表格同样要能显示封面，否则在线面板有图、云库面板没图，
+        // 同一个源在两个界面表现不一致。
+        "cover_url": song.cover_url.clone(),
         "description": "BitMidi 开放曲库，下载后可在内置播放器试听"
     })
 }
@@ -1752,6 +1797,8 @@ fn local_song_to_cloud_item(song: &VrpianoOnlineSong) -> serde_json::Value {
         "source_name": "本地曲库",
         "download_url": song.page_url.clone(),
         "preview_url": song.page_url.clone(),
+        // 本地条目这里是磁盘绝对路径，前端需要走 asset:// 才能显示。
+        "cover_url": song.cover_url.clone(),
         "description": "已在本地曲库，可直接试听与演奏"
     })
 }
@@ -5697,6 +5744,39 @@ async fn search_midishow_webview(
     return text.split(/[•·]/)[0].trim();
   };
 
+  // 封面提取：Midishow 结果卡片里可能是 <img>（含懒加载 data-src），
+  // 也可能是容器的 background-image。这里只认「像封面」的 URL：
+  // 排除 data: 内联图与 naturalWidth < 48 的小图标，并要求命中图片后缀或
+  // /images/ /uploads/ /thumbs/ 路径。取不到就返回 null —— 绝不编造封面。
+  const absolutize = (src) => {
+    if (!src || src.startsWith('data:')) return '';
+    if (src.startsWith('http')) return src;
+    return 'https://www.midishow.com' + (src.startsWith('/') ? src : '/' + src);
+  };
+  const looksLikeCover = (url) => Boolean(url)
+    && (/\.(jpg|jpeg|png|webp|gif)([?#]|$)/i.test(url) || /\/images\/|\/uploads\/|\/thumbs\//i.test(url));
+  const coverOf = (anchor) => {
+    const card = (anchor.closest && anchor.closest('li, article, .card, [class*="item"], [class*="midi"]')) || anchor.parentElement || anchor;
+    for (const img of [...anchor.querySelectorAll('img'), ...card.querySelectorAll('img')]) {
+      const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-lazy-src') || '';
+      const url = absolutize(src.trim());
+      if (!looksLikeCover(url)) continue;
+      const width = img.naturalWidth || 0;
+      if (width && width < 48) continue;
+      return url;
+    }
+    const styles = [anchor, card].filter(Boolean)
+      .concat(Array.from(card.querySelectorAll ? card.querySelectorAll('[style*="background-image"]') : []))
+      .map(el => (el.getAttribute && el.getAttribute('style')) || '');
+    for (const style of styles) {
+      const match = style.match(/url\(['"]?([^'")]+)['"]?\)/);
+      if (!match) continue;
+      const url = absolutize((match[1] || '').trim());
+      if (looksLikeCover(url)) return url;
+    }
+    return '';
+  };
+
   const collect = () => {
     const list = [];
     const seen = new Set();
@@ -5714,7 +5794,7 @@ async fn search_midishow_webview(
         title,
         artist,
         page_url: href.startsWith('http') ? href : ('https://www.midishow.com' + href),
-        cover_url: null,
+        cover_url: coverOf(anchor) || null,
         source: 'midishow',
         download_url: null,
       });
@@ -5745,7 +5825,12 @@ async fn search_midishow_webview(
     if (done) return;
     const list = collect();
     if (list.length > 0) {
-      const compact = list.map(item => `${item.id}\t${encodeURIComponent(item.title)}\t${encodeURIComponent(item.artist)}`).join('\n');
+      // 只有真的拿到封面时才多带第 4 列：document.title 是这条链路的唯一回传通道，
+      // 无谓地加长载荷会让整批结果有被截断的风险。
+      const compact = list.map(item => {
+        const base = `${item.id}\t${encodeURIComponent(item.title)}\t${encodeURIComponent(item.artist)}`;
+        return item.cover_url ? `${base}\t${encodeURIComponent(item.cover_url)}` : base;
+      }).join('\n');
       finish(DONE + encodeURIComponent(compact));
       return;
     }
@@ -5884,12 +5969,17 @@ async fn search_midishow_webview(
                             .and_then(|s| urlencoding::decode(s).ok())
                             .map(|s| s.into_owned())
                             .unwrap_or_default();
+                        let cover_url = parts
+                            .get(3)
+                            .and_then(|s| urlencoding::decode(s).ok())
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty());
                         items.push(VrpianoOnlineSong {
                             id,
                             title,
                             artist,
                             page_url: format!("https://www.midishow.com/en/midi/{id}.html"),
-                            cover_url: None,
+                            cover_url,
                             source: Some("midishow".to_string()),
                             download_url: None,
                         });
@@ -6022,6 +6112,14 @@ async fn search_bitmidi(
 /// 解析 BitMidi 的 `result.results`。抽成纯函数是为了能用真实抓取的响应做回归测试：
 /// 这个接口同时给 `url`（详情页）和 `downloadUrl`（`/uploads/{id}.mid` 直链），
 /// 少了直链时试听/下载会退化成再抓一次 HTML。
+fn bitmidi_absolute_cover(value: Option<&str>) -> Option<String> {
+    let trimmed = value.map(str::trim).filter(|value| !value.is_empty())?;
+    if trimmed.starts_with("http") {
+        return Some(trimmed.to_string());
+    }
+    Some(format!("https://bitmidi.com/{}", trimmed.trim_start_matches('/')))
+}
+
 fn parse_bitmidi_search_items(value: &serde_json::Value, limit: usize) -> Vec<VrpianoOnlineSong> {
     let items = value
         .get("result")
@@ -6071,12 +6169,17 @@ fn parse_bitmidi_search_items(value: &serde_json::Value, limit: usize) -> Vec<Vr
                 }
             });
 
+        // BitMidi 的搜索结果里带 `image`（实测 `/api/midi/search?q=III` 返回
+        // `"image":"/img/covers/kingdomhearts.jpg"`），是相对路径，必须补成绝对 URL。
+        // 没有 image 的条目就是真的没封面（BitMidi 只为有官方美术的作品配图）。
+        let cover_url = bitmidi_absolute_cover(item.get("image").and_then(|value| value.as_str()));
+
         results.push(VrpianoOnlineSong {
             id,
             title,
             artist: "BitMidi 全球曲库".to_string(),
             page_url,
-            cover_url: None,
+            cover_url,
             source: Some("bitmidi".to_string()),
             download_url,
         });
@@ -6143,6 +6246,10 @@ struct BitmidiIndexEntry {
     plays: u64,
     #[serde(default)]
     views: u64,
+    /// BitMidi 只为有官方美术的作品返回 `image`（实测 5 条里 1 条有），
+    /// 相对路径如 `/img/covers/kingdomhearts.jpg`。
+    #[serde(default)]
+    image: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -6267,7 +6374,7 @@ fn bitmidi_entry_to_song(entry: BitmidiIndexEntry) -> VrpianoOnlineSong {
         } else {
             format!("https://bitmidi.com/{}", entry.slug)
         },
-        cover_url: None,
+        cover_url: bitmidi_absolute_cover(entry.image.as_deref()),
         source: Some("bitmidi".to_string()),
         download_url: Some(format!("https://bitmidi.com/uploads/{}.mid", entry.id)),
     }
@@ -7161,6 +7268,7 @@ fn parse_bitmidi_index_entry(item: &serde_json::Value) -> Option<BitmidiIndexEnt
         alternate_names,
         plays: item.get("plays").and_then(|value| value.as_u64()).unwrap_or(0),
         views: item.get("views").and_then(|value| value.as_u64()).unwrap_or(0),
+        image: item.get("image").and_then(|value| value.as_str()).map(str::to_string),
     })
 }
 
@@ -8978,9 +9086,16 @@ async fn download_cover_for_song(
     let parent = midi_path.parent().unwrap_or_else(|| Path::new("."));
 
     let client = midishow_client(app)?;
+    // Referer 必须跟着封面所在站点：Midishow 的图要 midishow 来源，
+    // BitMidi 的 `/img/covers/*` 是静态资源，用错来源只会白白吃 403。
+    let referer = if cover_url.contains("bitmidi.com") {
+        "https://bitmidi.com/"
+    } else {
+        "https://www.midishow.com/"
+    };
     let response = client
         .get(cover_url)
-        .header(reqwest::header::REFERER, "https://www.midishow.com/")
+        .header(reqwest::header::REFERER, referer)
         .send()
         .await
         .map_err(|e| format!("Failed to fetch cover: {e}"))?;
@@ -9737,6 +9852,258 @@ fn open_file(path: &Path) -> Result<(), String> {
             .map_err(|e| format!("Failed to open MIDI preview: {e}"))?;
     }
     Ok(())
+}
+
+/// 归一化后判断两个标题是否指同一首曲子（批量补封面时的保守匹配）。
+/// 原则是**宁可漏也不认错**：挂错封面对曲库的伤害比没封面更大。
+fn titles_likely_match(left: &str, right: &str) -> bool {
+    let normalize = |value: &str| -> String {
+        value
+            .to_lowercase()
+            .chars()
+            .filter(|ch| ch.is_alphanumeric())
+            .collect::<String>()
+    };
+    // "Für Elise" 与 "Fur Elise" 必须算同一首，所以先折叠拉丁变音；
+    // 中日韩标题原样保留（它们是 alphanumeric，不会被过滤掉）。
+    let a = fold_accents(&normalize(left));
+    let b = fold_accents(&normalize(right));
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a == b {
+        return true;
+    }
+    let (short, long) = if a.len() <= b.len() { (&a, &b) } else { (&b, &a) };
+    // 用「包含」而不是「前缀」：本地文件名常带《》【】和歌手前缀
+    // （"【周杰伦】晴天" vs "晴天"），前缀匹配会把这类全部判成不匹配。
+    // 6 个字节的下限仍然拦住 "love" / "canon" 这种公共短词。
+    short.len() >= 6 && long.contains(short.as_str())
+}
+
+/// 字符级变音折叠：不引入 unicode-normalization 依赖，只覆盖 MIDI 标题里常见的拉丁字母。
+fn fold_accents(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            'à' | 'á' | 'â' | 'ä' | 'ã' | 'å' => 'a',
+            'è' | 'é' | 'ê' | 'ë' => 'e',
+            'ì' | 'í' | 'î' | 'ï' => 'i',
+            'ò' | 'ó' | 'ô' | 'ö' | 'õ' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' => 'u',
+            'ñ' => 'n',
+            'ç' => 'c',
+            'ß' => 's',
+            'ý' => 'y',
+            other => other,
+        })
+        .collect()
+}
+
+/// 找出「孤儿封面」：`<stem>.cover.<ext>` 但同目录已经没有对应 `<stem>.mid` 的文件。
+/// 主要来源就是旧版重命名没带走封面旁挂文件留下的历史遗留。
+fn orphan_cover_files(songs_dir: &Path) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    let Ok(entries) = fs::read_dir(songs_dir) else { return result };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() { continue; }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else { continue };
+        let Some(stem) = name.strip_suffix(".cover.jpg")
+            .or_else(|| name.strip_suffix(".cover.jpeg"))
+            .or_else(|| name.strip_suffix(".cover.png"))
+            .or_else(|| name.strip_suffix(".cover.webp"))
+            .or_else(|| name.strip_suffix(".cover.gif")) else { continue };
+        if stem == name { continue; }
+        // 同名 MIDI 还在，就不是孤儿，交给 find_local_cover_path 正常识别。
+        if path_with_any_midi_ext(songs_dir, stem) {
+            continue;
+        }
+        result.push(path);
+    }
+    result
+}
+
+/// 孤儿封面认领专用的宽松匹配：比较两边的中日韩字符**集合**。
+///
+/// `titles_likely_match` 要求一方是另一方的连续子串，这对改名场景太严：
+/// 「【周杰伦】晴天 - 原琴」和「晴天 Happy_153056 •」互相都不是子串，
+/// 但那正是用户改名后留下的同一首。这里只要求较少一侧的 CJK 字（≥2 个）
+/// 全部出现在另一侧 —— 集合关系比子串关系更适合「加了歌手前缀/后缀」的改名。
+/// 联网找封面不用这个，那个仍然走保守的包含式匹配，避免挂错别人的图。
+fn titles_share_cjk_core(left: &str, right: &str) -> bool {
+    let core = |value: &str| -> Vec<char> {
+        let mut chars: Vec<char> = value
+            .chars()
+            .filter(|ch| matches!(*ch as u32, 0x3040..=0x30ff | 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xac00..=0xd7af | 0xf900..=0xfaff))
+            .collect();
+        chars.sort_unstable();
+        chars.dedup();
+        chars
+    };
+    let a = core(left);
+    let b = core(right);
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let (small, large) = if a.len() <= b.len() { (&a, &b) } else { (&b, &a) };
+    // 少于 2 个 CJK 字不足以判定同一首（"晴" 这种单字会命中一堆歌）。
+    small.len() >= 2 && small.iter().all(|ch| large.contains(ch))
+}
+
+/// `<stem>.cover.<ext>` → `<stem>`（不是这个形状时返回整个 file_stem）。
+fn cover_stem(cover: &Path) -> String {
+    let Some(name) = cover.file_name().and_then(|value| value.to_str()) else {
+        return String::new();
+    };
+    let cut = name.find(".cover.").unwrap_or(usize::MAX);
+    if cut == usize::MAX {
+        return Path::new(name)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_string();
+    }
+    name[..cut].to_string()
+}
+
+fn path_with_any_midi_ext(dir: &Path, stem: &str) -> bool {
+    ["mid", "midi", "MID", "MIDI"]
+        .iter()
+        .any(|ext| dir.join(format!("{stem}.{ext}")).is_file())
+}
+
+/// 给本地曲库里缺封面的歌批量补官方封面。
+///
+/// 解析顺序（成本从低到高）：
+/// 1. 本地 BitMidi 热门索引 —— 离线、零请求，且索引条目现在带 `image`；
+/// 2. BitMidi 远端 search —— 命中即用，处于限速冷却时直接跳过；
+/// 3. Midishow 不做批量：它要冷启动隐藏 WebView2 过一次 Cloudflare，
+///    逐首付 6~9 秒不现实，改由「单首下载」自然带封面。
+///
+/// 找不到就如实计入 `unresolved`，绝不拿别的图的 URL 凑数。
+#[tauri::command]
+pub async fn vrpiano_fill_missing_covers(
+    app: tauri::AppHandle,
+    limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let songs_dir = ensure_songs_dir(&app)?;
+    let cap = limit.unwrap_or(300).clamp(1, 1000);
+
+    let mut pending: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&songs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_midi_file(&path) {
+                continue;
+            }
+            if find_local_cover_path(&path).is_some() {
+                continue;
+            }
+            pending.push(path);
+            if pending.len() >= cap {
+                break;
+            }
+        }
+    }
+
+    let index = load_bitmidi_index(&app);
+    // 先认领历史孤儿封面（旧版重命名留下的），再考虑联网查找。
+    let mut orphans: Vec<PathBuf> = orphan_cover_files(&songs_dir);
+    let mut filled = 0usize;
+    let mut recovered = 0usize;
+    let mut unresolved = 0usize;
+    let mut failed = 0usize;
+
+    for (processed, path) in pending.iter().enumerate() {
+        let stem = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let keyword = clean_search_text(&stem);
+        if keyword.trim().is_empty() {
+            unresolved += 1;
+            continue;
+        }
+
+        // 第一优先：目录里已经有一张用户自己的封面，只是名字对不上。
+        if let Some(position) = orphans
+            .iter()
+            .position(|cover| titles_share_cjk_core(&stem, &cover_stem(cover)))
+        {
+            let cover = orphans.remove(position);
+            let extension = cover
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("jpg")
+                .to_ascii_lowercase();
+            let destination = path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(format!("{stem}.cover.{extension}"));
+            if let Err(error) = fs::rename(&cover, &destination) {
+                eprintln!("[vrpiano] orphan cover adopt failed: {error}");
+                failed += 1;
+                continue;
+            }
+            recovered += 1;
+            filled += 1;
+            continue;
+        }
+
+        let mut cover_url: Option<String> = None;
+        if let Some(current) = index.as_ref() {
+            for hit in search_bitmidi_index(current, &keyword, 3) {
+                if hit.cover_url.is_some() && titles_likely_match(&keyword, &hit.title) {
+                    cover_url = hit.cover_url;
+                    break;
+                }
+            }
+        }
+        if cover_url.is_none() && !bitmidi_in_cooldown() {
+            if let Ok(hits) = search_bitmidi(&app, &keyword, 5).await {
+                for hit in hits {
+                    if hit.cover_url.is_some() && titles_likely_match(&keyword, &hit.title) {
+                        cover_url = hit.cover_url;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let Some(url) = cover_url else {
+            unresolved += 1;
+            continue;
+        };
+        match download_cover_for_song(Some(&app), path, &url).await {
+            Ok(()) => filled += 1,
+            Err(error) => {
+                eprintln!("[vrpiano] backfill cover failed for {stem}: {error}");
+                failed += 1;
+            }
+        }
+
+        let _ = app.emit(
+            "vrpiano_cover_backfill",
+            serde_json::json!({
+                "processed": processed + 1,
+                "total": pending.len(),
+                "filled": filled,
+                "recovered": recovered,
+                "unresolved": unresolved,
+                "failed": failed,
+            }),
+        );
+    }
+
+    Ok(serde_json::json!({
+        "scanned": pending.len(),
+        "filled": filled,
+        "recovered": recovered,
+        "unresolved": unresolved,
+        "failed": failed,
+    }))
 }
 
 fn ensure_songs_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -10906,15 +11273,46 @@ mod vrpiano_search_tests {
 #[cfg(test)]
 mod vrpiano_online_search_tests {
     use super::{
-        bitmidi_entry_to_song, bitmidi_index_page_query, bitmidi_search_query, build_search_keywords,
-        normalize_search_text, online_search_cache_key, parse_bitmidi_index_entry,
-        parse_bitmidi_search_items, search_bitmidi_index, BitmidiIndex, BitmidiIndexEntry,
+        bitmidi_absolute_cover, bitmidi_entry_to_song, bitmidi_index_page_query, bitmidi_search_query,
+        build_search_keywords, normalize_search_text, online_search_cache_key, parse_bitmidi_index_entry,
+        parse_bitmidi_search_items, search_bitmidi_index, titles_likely_match, BitmidiIndex,
+        BitmidiIndexEntry,
     };
 
     /// 2026-10-27 真实抓取的 BitMidi JSON 响应，锁定字段口径：
     /// 必须同时给出详情页 `url` 与 `/uploads/{id}.mid` 直链，
     /// 否则试听/下载会退化成再抓一次 SPA 空壳页面。
     const BITMIDI_SEARCH_JSON: &str = include_str!("../tests/fixtures/bitmidi_search_real.json");
+
+    /// 批量补封面的匹配必须保守：错挂别人的封面比留空更糟。
+    #[test]
+    fn title_match_is_conservative() {
+        // 变音折叠：Für / Fur 必须算同一首。
+        assert!(titles_likely_match("Fur Elise", "Für Elise  Bagatelle No.25"));
+        assert!(titles_likely_match("furelise", "FurElise"));
+        assert!(titles_likely_match("River Flows in You", "River Flows In You.mid"));
+        // 本地文件名带《》【】和歌手前缀时也要能命中（包含式匹配）。
+        assert!(titles_likely_match("晴天", "【周杰伦】晴天 - 原琴"));
+        // 太短的公共词根不能算命中（"love"/"canon" 会命中一整排歌）。
+        assert!(!titles_likely_match("Love", "Love Story Theme"));
+        assert!(!titles_likely_match("Canon", "Canon Rock Version 2"));
+        assert!(!titles_likely_match("", "Fur Elise"));
+        assert!(!titles_likely_match("Fur Elise", "Symphony No.9"));
+        assert!(!titles_likely_match("致爱丽丝", "Moonlight Sonata"));
+    }
+
+    #[test]
+    fn bitmidi_covers_flow_into_index_songs() {
+        let mut hit = entry(1, "Kingdom Hearts III - Dearly Beloved III.mid", "kh3", 10);
+        hit.image = Some("/img/covers/kingdomhearts.jpg".to_string());
+        let song = bitmidi_entry_to_song(hit);
+        assert_eq!(
+            song.cover_url.as_deref(),
+            Some("https://bitmidi.com/img/covers/kingdomhearts.jpg")
+        );
+        // 索引里没有 image 的条目必须保持「无封面」。
+        assert_eq!(bitmidi_entry_to_song(entry(2, "X.mid", "x", 1)).cover_url, None);
+    }
 
     fn entry(id: u64, name: &str, slug: &str, plays: u64) -> BitmidiIndexEntry {
         BitmidiIndexEntry {
@@ -10924,7 +11322,57 @@ mod vrpiano_online_search_tests {
             alternate_names: Vec::new(),
             plays,
             views: plays * 2,
+            image: None,
         }
+    }
+
+    /// 真实抓取的 BitMidi 响应（5 条里只有 Kingdom Hearts III 带官方美术），
+    /// 用来锁死「封面字段必须被读出来并补成绝对 URL」这条链路。
+    const BITMIDI_SEARCH_JSON_WITH_COVERS: &str =
+        include_str!("../tests/fixtures/bitmidi_search_real_with_covers.json");
+
+    #[test]
+    fn bitmidi_covers_are_read_and_absolutized() {
+        let value: serde_json::Value =
+            serde_json::from_str(BITMIDI_SEARCH_JSON_WITH_COVERS).expect("fixture json");
+        let songs = parse_bitmidi_search_items(&value, 10);
+        assert_eq!(songs.len(), 5, "样张应有 5 条结果");
+
+        let with_cover = songs
+            .iter()
+            .filter(|song| song.cover_url.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(with_cover.len(), 1, "样张里只有 1 条带官方封面");
+        assert_eq!(
+            with_cover[0].cover_url.as_deref(),
+            Some("https://bitmidi.com/img/covers/kingdomhearts.jpg"),
+            "相对路径必须补成绝对 URL"
+        );
+
+        // 其余条目确实没有封面，不能凭空造一个。
+        assert!(songs
+            .iter()
+            .filter(|song| song.cover_url.is_none())
+            .count()
+            >= 4);
+    }
+
+    #[test]
+    fn bitmidi_absolute_cover_helper_handles_shapes() {
+        assert_eq!(
+            bitmidi_absolute_cover(Some("/img/covers/a.jpg")).as_deref(),
+            Some("https://bitmidi.com/img/covers/a.jpg")
+        );
+        assert_eq!(
+            bitmidi_absolute_cover(Some("img/covers/a.jpg")).as_deref(),
+            Some("https://bitmidi.com/img/covers/a.jpg")
+        );
+        assert_eq!(
+            bitmidi_absolute_cover(Some("https://cdn.bitmidi.com/a.jpg")).as_deref(),
+            Some("https://cdn.bitmidi.com/a.jpg")
+        );
+        assert_eq!(bitmidi_absolute_cover(Some("   ")), None, "空白串等于没有封面");
+        assert_eq!(bitmidi_absolute_cover(None), None);
     }
 
     fn sample_index() -> BitmidiIndex {
@@ -11749,4 +12197,75 @@ pub fn generate_song_standard_midi(id: &str, title: &str) -> Vec<u8> {
     out.extend_from_slice(&track_bytes);
 
     out
+}
+
+#[cfg(test)]
+mod vrpiano_cover_sidecar_tests {
+    use super::{cover_stem, move_cover_sidecars, orphan_cover_files, titles_share_cjk_core};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "vrcdog-cover-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("create temp dir");
+        base
+    }
+
+    #[test]
+    fn cover_stem_strips_the_sidecar_suffix() {
+        assert_eq!(
+            cover_stem(Path::new("晴天 Happy_153056 •.cover.jpg")),
+            "晴天 Happy_153056 •"
+        );
+        assert_eq!(cover_stem(Path::new("Rush E.cover.png")), "Rush E");
+        assert_eq!(cover_stem(Path::new("no-sidecar-here.mid")), "no-sidecar-here");
+    }
+
+    #[test]
+    fn renaming_a_song_moves_its_cover_sidecar() {
+        let dir = temp_dir("rename");
+        let source = dir.join("晴天 Happy_153056 •.mid");
+        let cover = dir.join("晴天 Happy_153056 •.cover.jpg");
+        fs::write(&source, b"MThd").unwrap();
+        fs::write(&cover, b"\xff\xd8\xff").unwrap();
+
+        let target = dir.join("【周杰伦】晴天 - 原琴.mid");
+        fs::rename(&source, &target).unwrap();
+        move_cover_sidecars(&source, &target);
+
+        assert!(dir.join("【周杰伦】晴天 - 原琴.cover.jpg").is_file(), "封面必须跟着改名");
+        assert!(!cover.exists(), "旧封面路径不能留下孤儿");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn orphan_covers_are_detected_only_when_the_midi_is_gone() {
+        let dir = temp_dir("orphan");
+        fs::write(dir.join("a.mid"), b"MThd").unwrap();
+        fs::write(dir.join("a.cover.jpg"), b"\xff\xd8\xff").unwrap();
+        fs::write(dir.join("b.cover.png"), b"\x89PNG").unwrap();
+
+        let orphans = orphan_cover_files(&dir);
+        assert_eq!(orphans.len(), 1, "只有 b.cover.png 是孤儿：{orphans:?}");
+        assert_eq!(cover_stem(&orphans[0]), "b");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 孤儿认领比较的是 CJK 字符集合：改名后加了歌手前缀、去掉了上传者后缀，
+    /// 子串关系已经不成立，但「晴天」这两个字必须能把封面认回来。
+    #[test]
+    fn orphan_adoption_matches_the_renamed_title() {
+        assert!(titles_share_cjk_core(
+            "【周杰伦】晴天 - 原琴",
+            "晴天 Happy_153056 •"
+        ));
+        assert!(!titles_share_cjk_core("卡农（D）", "晴天 Happy_153056 •"));
+        // 单字不足以判定同一首，否则「晴」「花」这类会互相认领。
+        assert!(!titles_share_cjk_core("晴", "花"));
+        assert!(!titles_share_cjk_core("Rush E", "River Flows In You"));
+    }
 }

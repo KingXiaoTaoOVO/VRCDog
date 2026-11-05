@@ -4,6 +4,7 @@ import { useStorage } from '@vueuse/core';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
+import { useDrawingMask } from './useDrawingMask';
 import {
   DrawingApi,
   type DrawingConfig,
@@ -12,7 +13,7 @@ import {
 } from '../api';
 
 const defaultConfig: DrawingConfig = {
-  mode: 'anime',
+  mode: 'ai',
   max_dimension: 512,
   threshold: 150,
   blur: 0.8,
@@ -32,17 +33,20 @@ const defaultConfig: DrawingConfig = {
   start_delay_ms: 1500,
   focus_vrchat: true,
   hotkeys_enabled: true,
-  ai_model: 'image-to-line',
+  ai_model: 'anime2sketch',
   contrast: 1,
   artifact_removal: 0.6,
   model_size: 512,
   lift_speed: 1,
   pen_settle_ms: 15,
   canvas_size_px: 0,
+  canvas_width_px: 0,
+  canvas_height_px: 0,
   min_button_down_ms: 600,
   two_opt_path: true,
   remove_background: true,
   bg_tolerance: 0.45,
+  curve_fit: true,
 };
 
 const emptyStatus = (): DrawingStatus => ({
@@ -68,11 +72,12 @@ const processingSectionKeys: (keyof DrawingConfig)[] = [
   'ai_model', 'contrast', 'artifact_removal', 'model_size', 'remove_background', 'bg_tolerance',
 ];
 const strokeSectionKeys: (keyof DrawingConfig)[] = [
-  'min_stroke_length', 'smooth_window', 'simplify_epsilon', 'merge_distance', 'optimize_path', 'two_opt_path',
+  'min_stroke_length', 'smooth_window', 'simplify_epsilon', 'merge_distance', 'optimize_path', 'two_opt_path', 'curve_fit',
 ];
 const executionSectionKeys: (keyof DrawingConfig)[] = [
   'sensitivity', 'vertical_stretch', 'max_step_px', 'point_delay_ms', 'lift_delay_ms',
   'start_delay_ms', 'focus_vrchat', 'hotkeys_enabled', 'lift_speed', 'pen_settle_ms', 'canvas_size_px',
+  'canvas_width_px', 'canvas_height_px',
   'min_button_down_ms',
 ];
 
@@ -102,10 +107,30 @@ export function useDrawing() {
   });
   const stageLabel = computed(() => (status.value.stage ? t(`drawing.stage_${status.value.stage}`) : ''));
 
+  const mask = useDrawingMask(sourceUrl, plan);
+  // 预览的 CSS 像素 → 图像像素变换，笔画渲染、遮罩叠加层和指针映射必须共用同一套，
+  // 否则「涂在猫身上、实际排除的是背景」。
+  const previewTransform = computed(() => {
+    const target = canvasEl.value;
+    const drawing = plan.value;
+    const cssWidth = Math.max(320, target?.clientWidth || 640);
+    const cssHeight = Math.max(260, target?.clientHeight || 480);
+    if (!drawing) return { offsetX: 0, offsetY: 0, scale: 1, cssWidth, cssHeight };
+    const padding = 24;
+    const scale = Math.min((cssWidth - padding * 2) / drawing.width, (cssHeight - padding * 2) / drawing.height) * previewZoom.value;
+    return {
+      scale,
+      offsetX: (cssWidth - drawing.width * scale) / 2,
+      offsetY: (cssHeight - drawing.height * scale) / 2,
+      cssWidth,
+      cssHeight,
+    };
+  });
+
   const cleanConfig = (): DrawingConfig => {
     const raw = (config.value || {}) as any;
     return {
-      mode: (['anime', 'lineart', 'edges', 'dither', 'ai'].includes(raw.mode) ? raw.mode : 'anime') as DrawingConfig['mode'],
+      mode: (['anime', 'lineart', 'edges', 'dither', 'ai'].includes(raw.mode) ? raw.mode : 'ai') as DrawingConfig['mode'],
       max_dimension: Number(raw.max_dimension) || 512,
       threshold: Number(raw.threshold) || 150,
       blur: Number(raw.blur) || 0.8,
@@ -125,17 +150,20 @@ export function useDrawing() {
       start_delay_ms: Number(raw.start_delay_ms) || 1500,
       focus_vrchat: Boolean(raw.focus_vrchat),
       hotkeys_enabled: Boolean(raw.hotkeys_enabled),
-      ai_model: String(raw.ai_model || 'image-to-line'),
+      ai_model: String(raw.ai_model || 'anime2sketch'),
       contrast: Number(raw.contrast) || 1,
       artifact_removal: Number(raw.artifact_removal) || 0.6,
       model_size: Number(raw.model_size) || 512,
       lift_speed: Number(raw.lift_speed) || 1,
       pen_settle_ms: Number(raw.pen_settle_ms) || 15,
       canvas_size_px: Number(raw.canvas_size_px) || 0,
+      canvas_width_px: Number(raw.canvas_width_px) || 0,
+      canvas_height_px: Number(raw.canvas_height_px) || 0,
       min_button_down_ms: Number(raw.min_button_down_ms) || 600,
       two_opt_path: Boolean(raw.two_opt_path),
       remove_background: raw.remove_background !== undefined ? Boolean(raw.remove_background) : true,
       bg_tolerance: Number(raw.bg_tolerance) || 0.45,
+      curve_fit: raw.curve_fit !== undefined ? Boolean(raw.curve_fit) : true,
     };
   };
 
@@ -159,10 +187,7 @@ export function useDrawing() {
     context.fillStyle = '#fffdf7';
     context.fillRect(0, 0, cssWidth, cssHeight);
     if (!drawing) return;
-    const padding = 24;
-    const scale = Math.min((cssWidth - padding * 2) / drawing.width, (cssHeight - padding * 2) / drawing.height) * previewZoom.value;
-    const offsetX = (cssWidth - drawing.width * scale) / 2;
-    const offsetY = (cssHeight - drawing.height * scale) / 2;
+    const { scale, offsetX, offsetY } = previewTransform.value;
     context.strokeStyle = '#54240f';
     context.lineCap = 'round';
     context.lineJoin = 'round';
@@ -184,6 +209,8 @@ export function useDrawing() {
         context.moveTo(offsetX + curr.x * scale, offsetY + curr.y * scale);
       }
     }
+    // 选区遮罩叠在最上层：被排除的区域压暗，用户一眼看出「这里不会画」。
+    mask.renderOverlay(context, { offsetX, offsetY, scale });
   };
 
   const chooseImage = async () => {
@@ -203,7 +230,7 @@ export function useDrawing() {
     busy.value = true;
     error.value = '';
     try {
-      plan.value = await DrawingApi.prepare({ sourcePath: sourcePath.value, config: cleanConfig() });
+      plan.value = await DrawingApi.prepare({ sourcePath: sourcePath.value, config: cleanConfig(), maskPng: mask.exportPng() });
       status.value = await DrawingApi.getStatus();
       needsPrepare.value = false;
       await nextTick();
@@ -254,6 +281,13 @@ export function useDrawing() {
 
   watch(previewZoom, renderPlan);
   watch(plan, () => nextTick(renderPlan));
+  // 遮罩改一笔就要重算路径：提笔数、笔画集合都会变。
+  watch([() => mask.version.value, () => mask.enabled.value], () => {
+    // 刚打开开关时先建好同尺寸遮罩，否则压暗层要等用户第一笔才出现。
+    if (mask.enabled.value) mask.ensureMask();
+    needsPrepare.value = Boolean(plan.value);
+    void nextTick(renderPlan);
+  });
   watch(config, () => {
     needsPrepare.value = Boolean(plan.value);
     if (configTimer !== null) window.clearTimeout(configTimer);
@@ -331,5 +365,7 @@ export function useDrawing() {
     resetConfig,
     resetSection,
     renderPlan,
+    previewTransform,
+    mask,
   };
 }

@@ -61,39 +61,137 @@ def locate_model(model_name: str, custom_dir: str = None) -> Path:
     raise FileNotFoundError(f"Model file '{base_name}' not found in candidate paths.")
 
 
+def directional_nms(x: np.ndarray) -> np.ndarray:
+    """
+    沿概率图自身梯度方向做局部极大值抑制（line-NMS 的 numpy 版）。
+
+    旧实现是「4 个轴向里任一方向是峰值就保留」，那是 OR 语义：一条 3px 宽的粗脊
+    在水平方向上三个像素全都 `>=` 左右邻居，于是整条脊都被留下 —— 实测
+    PiDiNet base 在 0.12 阈值下墨迹占比 12%，画出来就是毛边和双线。
+    这里按梯度把每个像素**唯一**分到 4 个法向之一，只跟该方向的两个邻居比，
+    并要求一侧严格大于（打破平台区），粗脊就被压成 1px 中心线。
+    """
+    h, w = x.shape
+    interior = np.zeros((h, w), dtype=bool)
+    interior[1:-1, 1:-1] = True
+
+    gx = np.zeros_like(x)
+    gy = np.zeros_like(x)
+    gx[:, 1:-1] = x[:, 2:] - x[:, :-2]
+    gy[1:-1, :] = x[2:, :] - x[:-2, :]
+    abs_x = np.abs(gx)
+    abs_y = np.abs(gy)
+
+    # 边缘的梯度方向就是它的法向；法向分成 4 个互斥扇区。
+    sector_h = interior & (abs_x >= abs_y * 2.4142)          # 法向≈水平
+    sector_v = interior & (abs_y >= abs_x * 2.4142)          # 法向≈垂直
+    sector_d1 = interior & ~(sector_h | sector_v) & (abs_x >= abs_y)   # 法向≈45°（左上-右下）
+    sector_d2 = interior & ~(sector_h | sector_v | sector_d1)          # 法向≈135°
+
+    out = np.zeros((h, w), dtype=bool)
+
+    left = np.zeros_like(x); left[:, 1:-1] = x[:, :-2]
+    right = np.zeros_like(x); right[:, 1:-1] = x[:, 2:]
+    out |= sector_h & (x > left) & (x >= right)
+
+    up = np.zeros_like(x); up[1:-1, :] = x[:-2, :]
+    down = np.zeros_like(x); down[1:-1, :] = x[2:, :]
+    out |= sector_v & (x > up) & (x >= down)
+
+    a = np.zeros_like(x); a[1:-1, 1:-1] = x[:-2, :-2]
+    b = np.zeros_like(x); b[1:-1, 1:-1] = x[2:, 2:]
+    out |= sector_d1 & (x > a) & (x >= b)
+
+    c = np.zeros_like(x); c[1:-1, 1:-1] = x[2:, :-2]
+    d = np.zeros_like(x); d[1:-1, 1:-1] = x[:-2, 2:]
+    out |= sector_d2 & (x > c) & (x >= d)
+
+    return out
+
+
+def hysteresis_connect(peaks: np.ndarray, x: np.ndarray, low: float, high: float) -> np.ndarray:
+    """
+    双阈值滞后连接：>high 的强边缘作为种子，只保留能从种子可达的 >low 弱边缘。
+
+    单一硬阈值的问题是二选一：调高丢细节（发丝、衣纹断成截），调低把屏幕摩尔纹
+    和阴影噪点全收进来。滞后连接两头都要：弱边缘只有连在真线上才保留。
+    """
+    strong = peaks & (x >= high)
+    weak = peaks & (x >= low) & ~strong
+    result = strong.copy()
+    # 最多迭代 512 次（约等于图的对角线长度），提前收敛就退出。
+    for _ in range(512):
+        grown = np.zeros_like(result)
+        grown[1:, :] |= result[:-1, :]
+        grown[:-1, :] |= result[1:, :]
+        grown[:, 1:] |= result[:, :-1]
+        grown[:, :-1] |= result[:, 1:]
+        # 45° 也允许连通，否则斜线会在滞后阶段被截断。
+        grown[1:, 1:] |= result[:-1, :-1]
+        grown[:-1, :-1] |= result[1:, 1:]
+        grown[1:, :-1] |= result[:-1, 1:]
+        grown[:-1, 1:] |= result[1:, :-1]
+        new = grown & weak & ~result
+        if not new.any():
+            break
+        result |= new
+    return result
+
+
+def close_gaps(mask: np.ndarray, radius: int = 2) -> np.ndarray:
+    """
+    形态学闭运算桥接断点：先膨胀 radius 步再腐蚀 radius 步（4 邻域）。
+
+    方向性 NMS + 滞后连接会把弱边缘全部丢掉，线稿因此干净但碎：实测 dog.jpg
+    出 396 段，而旧管线只 227 段。VRChat 每次重新落笔都要等 min_button_down
+    （默认 600ms）防双击橡皮，段数就是绘制时长的硬下限，所以必须把 2~4px 的
+    小缺口接起来。闭运算只在缺口处留下连接丝，原有线宽基本不变。
+    """
+    if radius <= 0:
+        return mask
+    result = mask.astype(bool).copy()
+    for _ in range(radius):
+        grown = result.copy()
+        grown[1:, :] |= result[:-1, :]
+        grown[:-1, :] |= result[1:, :]
+        grown[:, 1:] |= result[:, :-1]
+        grown[:, :-1] |= result[:, 1:]
+        result = grown
+    for _ in range(radius):
+        shrunk = result.copy()
+        shrunk[1:, :] &= result[:-1, :]
+        shrunk[:-1, :] &= result[1:, :]
+        shrunk[:, 1:] &= result[:, :-1]
+        shrunk[:, :-1] &= result[:, 1:]
+        # 边界像素会被腐蚀直接抹掉，这里把外圈还原，避免贴边的轮廓线被啃短。
+        shrunk[0, :] = result[0, :]
+        shrunk[-1, :] = result[-1, :]
+        shrunk[:, 0] = result[:, 0]
+        shrunk[:, -1] = result[:, -1]
+        result = shrunk
+    return result.astype(np.uint8)
+
+
 def nms_numpy(edge_float: np.ndarray, threshold: float = 0.12, blur_radius: float = 0.5) -> np.ndarray:
-    """
-    4-directional Non-Maximum Suppression (NMS) to thin edge gradients into
-    single-pixel crisp lines while suppressing noise.
-    """
+    """方向性 NMS + 双阈值滞后连接 + 闭运算桥接，输出 1px 干净且连续的线稿。"""
     h, w = edge_float.shape
     if h < 3 or w < 3:
         return (edge_float > threshold).astype(np.uint8) * 255
 
-    # Optional Gaussian smoothing before local peak picking
     if blur_radius > 0.05:
         pil_tmp = Image.fromarray((np.clip(edge_float, 0.0, 1.0) * 255.0).astype(np.uint8))
         pil_tmp = pil_tmp.filter(ImageFilter.GaussianBlur(radius=blur_radius))
         x = np.asarray(pil_tmp, dtype=np.float32) / 255.0
     else:
-        x = edge_float
+        x = edge_float.astype(np.float32)
 
-    c = x[1:-1, 1:-1]
-    # Direction 1: horizontal (left, right)
-    m1 = (c >= x[1:-1, :-2]) & (c >= x[1:-1, 2:])
-    # Direction 2: vertical (up, down)
-    m2 = (c >= x[:-2, 1:-1]) & (c >= x[2:, 1:-1])
-    # Direction 3: diagonal top-left to bottom-right
-    m3 = (c >= x[:-2, :-2]) & (c >= x[2:, 2:])
-    # Direction 4: diagonal top-right to bottom-left
-    m4 = (c >= x[:-2, 2:]) & (c >= x[2:, :-2])
-
-    is_peak = m1 | m2 | m3 | m4
-    valid = is_peak & (c > threshold)
-
-    out = np.zeros_like(x, dtype=np.uint8)
-    out[1:-1, 1:-1][valid] = 255
-    return out
+    peaks = directional_nms(x)
+    low = float(np.clip(threshold, 0.01, 0.6))
+    high = float(np.clip(low * 2.2, low + 0.02, 0.85))
+    kept = hysteresis_connect(peaks, x, low, high)
+    # 半径 2 能接住 ~4px 的缺口；半径 3 开始把相邻的细线粘在一起（样张实测）。
+    kept = close_gaps(kept, radius=2)
+    return kept.astype(np.uint8) * 255
 
 
 def main():

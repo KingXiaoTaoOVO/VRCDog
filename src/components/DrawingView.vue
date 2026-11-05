@@ -3,6 +3,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import {
   CircleStop,
+  Eraser,
   FolderOpen,
   Gauge,
   Headset,
@@ -15,8 +16,10 @@ import {
   ScanLine,
   Sparkles,
 } from 'lucide-vue-next';
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import { useDrawing } from '../composables/useDrawing';
+import { ModelRuntimeApi, type RuntimeModelStatus } from '../api';
 
 const {
   config,
@@ -39,9 +42,134 @@ const {
   stop,
   resetConfig,
   resetSection,
+  previewTransform,
+  mask,
 } = useDrawing();
 
+type MaskPoint = { x: number; y: number };
+
+// 顶层 ref 才会在模板里自动解包，这里显式取名，模板就能写 v-model="maskBrush" 而不是 .value。
+const maskEnabled = mask.enabled;
+const maskTool = mask.tool;
+const maskBrush = mask.brushSize;
+const maskTolerance = mask.tolerance;
+
+const painting = ref(false);
+const lastMaskPoint = ref<MaskPoint | null>(null);
+const rectStart = ref<MaskPoint | null>(null);
+
+// 指针坐标 → 图像像素坐标，和笔画渲染共用同一个变换，涂哪里就排除哪里。
+const toImagePoint = (event: PointerEvent): MaskPoint => {
+  const canvas = canvasEl.value;
+  if (!canvas) return { x: 0, y: 0 };
+  const rect = canvas.getBoundingClientRect();
+  const transform = previewTransform.value;
+  if (!transform.scale) return { x: 0, y: 0 };
+  return {
+    x: (event.clientX - rect.left - transform.offsetX) / transform.scale,
+    y: (event.clientY - rect.top - transform.offsetY) / transform.scale,
+  };
+};
+
+const onMaskPointerDown = async (event: PointerEvent) => {
+  if (!mask.enabled.value || status.value.running || !plan.value) return;
+  event.preventDefault();
+  const point = toImagePoint(event);
+  const tool = mask.tool.value;
+  painting.value = true;
+  lastMaskPoint.value = point;
+  rectStart.value = point;
+  if (tool === 'keep' || tool === 'erase') mask.paintCircle(point.x, point.y, tool === 'keep');
+  else if (tool === 'wand-erase' || tool === 'wand-keep') {
+    await mask.wandPick(point.x, point.y, tool === 'wand-keep');
+    painting.value = false;
+  }
+};
+
+const onMaskPointerMove = (event: PointerEvent) => {
+  if (!painting.value || !lastMaskPoint.value) return;
+  const tool = mask.tool.value;
+  if (tool !== 'keep' && tool !== 'erase') return;
+  const point = toImagePoint(event);
+  mask.paintLine(lastMaskPoint.value, point, tool === 'keep');
+  lastMaskPoint.value = point;
+};
+
+const onMaskPointerUp = (event: PointerEvent) => {
+  if (!painting.value) return;
+  painting.value = false;
+  const tool = mask.tool.value;
+  if ((tool === 'rect-keep' || tool === 'rect-erase') && rectStart.value) {
+    mask.paintRect(rectStart.value, toImagePoint(event), tool === 'rect-keep');
+  }
+  rectStart.value = null;
+  lastMaskPoint.value = null;
+};
+
 const overlayOpen = ref(false);
+const regionOpen = ref(false);
+let unlistenRegion: (() => void) | null = null;
+
+/**
+ * 打开全屏冻结选区：抓一帧桌面 → 拖框 → 选区的物理像素就是画布尺寸。
+ * 截图失败（DXGI 被远程协助占用等）由选区窗口自己提示并允许重试，
+ * 这里只负责把窗口拉起来。
+ */
+const openRegionPicker = async () => {
+  if (!isTauri()) return;
+  const label = 'drawing-region';
+  try {
+    const existing = await WebviewWindow.getByLabel(label);
+    if (existing) {
+      await existing.setFocus();
+      return;
+    }
+  } catch { /* ignore */ }
+  const query = plan.value ? `&pw=${plan.value.width}&ph=${plan.value.height}` : '';
+  const win = new WebviewWindow(label, {
+    url: `/?mode=drawing-region${query}`,
+    title: 'VRCDog Region Picker',
+    fullscreen: true,
+    decorations: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+  });
+  win.once('tauri://created', () => { regionOpen.value = true; });
+  win.once('tauri://error', () => { regionOpen.value = false; });
+  win.once('tauri://destroyed', () => { regionOpen.value = false; });
+};
+
+const clearRegion = () => {
+  config.value.canvas_width_px = 0;
+  config.value.canvas_height_px = 0;
+  needsPrepare.value = Boolean(plan.value);
+};
+
+// U²-Netp 抠图权重不打进安装包：这里查状态、按需下载，下载完标记需要重新生成。
+const matting = ref<RuntimeModelStatus | null>(null);
+const mattingBusy = ref(false);
+
+const refreshMatting = async () => {
+  if (!isTauri()) return;
+  try {
+    matting.value = await ModelRuntimeApi.getMattingStatus();
+  } catch {
+    matting.value = null;
+  }
+};
+
+const downloadMatting = async () => {
+  mattingBusy.value = true;
+  try {
+    matting.value = await ModelRuntimeApi.downloadMatting();
+    if (plan.value) needsPrepare.value = true;
+  } catch (value) {
+    error.value = String((value as any)?.message || value);
+  } finally {
+    mattingBusy.value = false;
+  }
+};
 
 // 组件重挂载时（用户切走再切回来）overlay 窗口可能仍然存在。
 // 不同步状态的话 overlayOpen 恒为 false，再次点击会因 label 冲突触发 tauri://error。
@@ -49,7 +177,26 @@ onMounted(async () => {
   if (!isTauri()) return;
   try {
     overlayOpen.value = Boolean(await WebviewWindow.getByLabel('drawing-overlay'));
+    regionOpen.value = Boolean(await WebviewWindow.getByLabel('drawing-region'));
   } catch { /* ignore */ }
+  void refreshMatting();
+  try {
+    const unlisten = await listen<{ width: number; height: number }>('drawing_region_selected', (event) => {
+      const width = Math.round(event.payload?.width || 0);
+      const height = Math.round(event.payload?.height || 0);
+      if (width < 16 || height < 16) return;
+      config.value.canvas_width_px = width;
+      config.value.canvas_height_px = height;
+      // 画布尺寸变了 → 展平密度和落点都要重算，标记成需要重新生成。
+      needsPrepare.value = Boolean(plan.value);
+    });
+    unlistenRegion = unlisten;
+  } catch { /* 非 Tauri 预览模式下没有事件总线 */ }
+});
+
+onUnmounted(() => {
+  unlistenRegion?.();
+  unlistenRegion = null;
 });
 
 const openVrOverlay = () => {
@@ -114,7 +261,14 @@ const openVrOverlay = () => {
           </div>
         </div>
 
-        <div class="preview-stage" :class="{ empty: !plan }">
+        <div
+          class="preview-stage"
+          :class="{ empty: !plan, masking: maskEnabled && !status.running }"
+          @pointerdown="onMaskPointerDown"
+          @pointermove="onMaskPointerMove"
+          @pointerup="onMaskPointerUp"
+          @pointercancel="onMaskPointerUp"
+        >
           <img v-if="sourceUrl && !plan" :src="sourceUrl" alt="" class="source-preview">
           <canvas ref="canvasEl" />
           <div v-if="!sourcePath" class="empty-state">
@@ -189,6 +343,57 @@ const openVrOverlay = () => {
               <label><input v-model="config.bridge_gaps" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.bridge_gaps') }}</span></label>
               <label><input v-model="config.optimize_path" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.optimize_path') }}</span></label>
             </div>
+
+            <div v-if="config.remove_background" class="matting-row">
+              <span class="matting-state" :class="{ ok: matting?.valid }">
+                <Sparkles :size="12" />
+                {{ matting?.valid ? $t('drawing.matting_ready') : $t('drawing.matting_model') }}
+              </span>
+              <button v-if="!matting?.valid" class="secondary-button" :disabled="mattingBusy || status.running" @click="downloadMatting">
+                <RefreshCcw :size="14" :class="{ spin: mattingBusy }" />
+                {{ mattingBusy ? $t('drawing.matting_downloading') : $t('drawing.matting_missing') }}
+              </button>
+            </div>
+          </section>
+
+          <section class="control-section">
+            <div class="control-heading">
+              <Eraser :size="17" /><strong>{{ $t('drawing.mask_section') }}</strong>
+              <button class="section-reset" :title="$t('drawing.reset_section')" :disabled="status.running" @click="mask.resetMask()">
+                <RotateCw :size="14" />
+              </button>
+            </div>
+            <div class="toggle-row" style="margin-top: 0; margin-bottom: 12px;">
+              <label><input v-model="maskEnabled" type="checkbox" :disabled="status.running || !plan"><span>{{ $t('drawing.mask_enable') }}</span></label>
+            </div>
+            <template v-if="maskEnabled && plan">
+              <div class="tool-grid">
+                <button
+                  v-for="entry in ([
+                    ['keep', $t('drawing.mask_tool_keep')],
+                    ['erase', $t('drawing.mask_tool_erase')],
+                    ['wand-erase', $t('drawing.mask_tool_wand_erase')],
+                    ['wand-keep', $t('drawing.mask_tool_wand_keep')],
+                    ['rect-keep', $t('drawing.mask_tool_rect_keep')],
+                    ['rect-erase', $t('drawing.mask_tool_rect_erase')],
+                  ] as const)"
+                  :key="entry[0]"
+                  class="tool-button"
+                  :class="{ active: maskTool === entry[0] }"
+                  @click="maskTool = entry[0]"
+                >{{ entry[1] }}</button>
+              </div>
+              <div class="field-grid" style="margin-top: 13px;">
+                <label class="field"><span>{{ $t('drawing.mask_brush') }} <b>{{ maskBrush }}</b></span><input v-model.number="maskBrush" type="range" min="2" max="120" step="2" :disabled="status.running"></label>
+                <label class="field"><span>{{ $t('drawing.mask_tolerance') }} <b>{{ Math.round(maskTolerance * 100) }}%</b></span><input v-model.number="maskTolerance" type="range" min="0.02" max="0.9" step="0.02" :disabled="status.running"></label>
+              </div>
+              <div class="toggle-row">
+                <button class="secondary-button" :disabled="status.running" @click="mask.invertMask()">{{ $t('drawing.mask_invert') }}</button>
+                <button class="secondary-button" :disabled="status.running" @click="mask.resetMask()">{{ $t('drawing.mask_clear') }}</button>
+                <button v-if="needsPrepare" class="secondary-button" :disabled="busy || status.running" @click="prepare()">{{ $t('drawing.regenerate') }}</button>
+              </div>
+              <p class="mask-hint">{{ $t('drawing.mask_hint') }}</p>
+            </template>
           </section>
 
           <section class="control-section">
@@ -205,6 +410,7 @@ const openVrOverlay = () => {
               <label class="field"><span>{{ $t('drawing.merge') }} <b>{{ config.merge_distance.toFixed(1) }}</b></span><input v-model.number="config.merge_distance" type="range" min="0" max="12" step="0.5" :disabled="status.running"></label>
             </div>
             <div class="toggle-row">
+              <label><input v-model="config.curve_fit" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.curve_fit') }}</span></label>
               <label><input v-model="config.two_opt_path" type="checkbox" :disabled="status.running"><span>{{ $t('drawing.two_opt_path') }}</span></label>
             </div>
           </section>
@@ -226,6 +432,20 @@ const openVrOverlay = () => {
               <label class="field"><span>{{ $t('drawing.pen_settle') }} <b>{{ config.pen_settle_ms }} ms</b></span><input v-model.number="config.pen_settle_ms" type="range" min="0" max="120" step="1" :disabled="status.running"></label>
               <label class="field"><span>{{ $t('drawing.min_button_down') }} <b>{{ config.min_button_down_ms }} ms</b></span><input v-model.number="config.min_button_down_ms" type="range" min="0" max="3000" step="50" :disabled="status.running"></label>
             </div>
+
+            <div class="region-row">
+              <button class="secondary-button" :disabled="status.running" @click="openRegionPicker">
+                <ScanLine :size="15" /> {{ $t('drawing.region_pick') }}
+              </button>
+              <span class="region-readout">
+                <template v-if="config.canvas_width_px > 0 && config.canvas_height_px > 0">
+                  {{ $t('drawing.region_active', { width: config.canvas_width_px, height: config.canvas_height_px }) }}
+                  <button class="link-button" :disabled="status.running" @click="clearRegion">{{ $t('drawing.region_clear') }}</button>
+                </template>
+                <span v-else class="region-none">{{ $t('drawing.region_none') }}</span>
+              </span>
+            </div>
+            <p class="region-note">{{ $t('drawing.region_note') }}</p>
             <div class="toggle-row">
               <label><input v-model="config.focus_vrchat" type="checkbox"><span>{{ $t('drawing.focus_vrchat') }}</span></label>
               <label><input v-model="config.hotkeys_enabled" type="checkbox"><span>{{ $t('drawing.hotkeys') }}</span></label>
@@ -297,6 +517,20 @@ h1 { margin: 3px 0 1px; font-size: 22px; line-height: 1.2; letter-spacing: 0; co
 .progress-track { height: 5px; margin-top: 8px; overflow: hidden; border-radius: 3px; background: var(--theme-border-soft, #eadfc8); }
 .progress-track span { display: block; height: 100%; background: var(--theme-primary, #df7600); transition: width .2s ease; }
 .error-banner { margin-top: 8px; padding: 9px 12px; border: 1px solid #fecaca; border-radius: 6px; background: #fff1f2; color: #b42318; font-size: 12px; }
+.tool-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.tool-button { min-height: 32px; padding: 0 10px; border: 1px solid var(--theme-border-soft, #eadfc8); border-radius: 6px; background: var(--theme-bg-main, #fff9eb); color: var(--theme-text-soft, #846251); font-size: 11px; font-weight: 800; }
+.tool-button:hover { color: var(--theme-primary, #df7600); border-color: var(--theme-primary, #df7600); }
+.tool-button.active { border-color: var(--theme-primary, #df7600); background: var(--theme-primary, #df7600); color: white; }
+.mask-hint { margin: 12px 0 0; font-size: 11px; line-height: 1.5; color: var(--theme-text-muted, #a58a79); }
+.preview-stage.masking { cursor: crosshair; touch-action: none; }
+.matting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.region-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.region-readout { font-size: 11px; font-weight: 700; color: var(--theme-text-soft, #846251); font-family: ui-monospace, monospace; }
+.region-readout .region-none { font-weight: 600; color: var(--theme-text-muted, #a58a79); font-family: inherit; }
+.link-button { border: 0; background: none; padding: 0 2px; font-size: 11px; font-weight: 800; color: var(--theme-primary, #df7600); text-decoration: underline; cursor: pointer; }
+.region-note { margin: 8px 0 0; font-size: 11px; line-height: 1.55; color: var(--theme-text-muted, #a58a79); }
+.matting-state { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--theme-text-muted, #a58a79); }
+.matting-state.ok { color: #16a34a; }
 .control-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--theme-surface, #fffdf7); }
 .panel-scroll { min-height: 0; flex: 1; overflow-y: auto; }
 .control-section { padding: 17px 20px; border-bottom: 1px solid var(--theme-border-soft, #eadfc8); }

@@ -95,6 +95,7 @@ const DanmakuView = lazyView('DanmakuView', () => import('./components/DanmakuVi
 const VrpianoView = lazyView('VrpianoView', () => import('./components/VrpianoView.vue'));
 const DrawingView = lazyView('DrawingView', () => import('./components/DrawingView.vue'));
 const DrawingOverlayView = lazyView('DrawingOverlayView', () => import('./components/DrawingOverlayView.vue'));
+const DrawingRegionView = lazyView('DrawingRegionView', () => import('./components/DrawingRegionView.vue'));
 const ToolsView = lazyView('ToolsView', () => import('./components/ToolsView.vue'));
 const TranslatorView = lazyView('TranslatorView', () => import('./components/TranslatorView.vue'));
 const OvrTranslatorView = lazyView('OvrTranslatorView', () => import('./components/OvrTranslatorView.vue'));
@@ -122,7 +123,8 @@ const overlayMode = new URLSearchParams(window.location.search).get('mode');
 const isTranslationOverlayMode = overlayMode === 'overlay';
 const isVrpianoOverlayMode = overlayMode === 'vrpiano-overlay';
 const isDrawingOverlayMode = overlayMode === 'drawing-overlay';
-const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode || isDrawingOverlayMode;
+const isDrawingRegionMode = overlayMode === 'drawing-region';
+const isOverlayMode = isTranslationOverlayMode || isVrpianoOverlayMode || isDrawingOverlayMode || isDrawingRegionMode;
 let ovrAutoInitTimer: number | null = null;
 let ovrAutoInitInFlight = false;
 let ovrWaitingLogged = false;
@@ -591,6 +593,7 @@ if (typeof window !== 'undefined') {
   <OverlayView v-if="isTranslationOverlayMode" />
   <VrpianoOverlayView v-else-if="isVrpianoOverlayMode" />
   <DrawingOverlayView v-else-if="isDrawingOverlayMode" />
+  <DrawingRegionView v-else-if="isDrawingRegionMode" />
 
   <div
     v-else-if="!isTauri() && !webBackendOk && webBackendChecked"

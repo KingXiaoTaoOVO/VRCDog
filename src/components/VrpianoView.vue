@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import { emit, listen } from '@tauri-apps/api/event';
-import { isTauri } from '@tauri-apps/api/core';
+import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { katakanaToHiragana, toRomaji } from '../utils/transliteration';
 import { songIcon, songCover, isImageIcon, useVrpianoIcons } from '../composables/useVrpianoIcons';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -479,6 +479,26 @@ const onlineSourceLabel = (source?: string | null) => {
     default: return 'Midishow';
   }
 };
+/**
+ * 在线结果的封面地址。
+ * - `local` 源给的是磁盘绝对路径，必须走 asset:// 协议才能被 webview 加载；
+ * - 其它源是 http(s) 直链（BitMidi 的 `/img/covers/...` 已在 Rust 侧补成绝对 URL）；
+ * - 取不到就返回空串，由模板退回 Music 图标 —— 绝不伪造封面。
+ */
+const onlineCover = (item: { cover_url?: string | null; source?: string | null }) => {
+  const raw = (item.cover_url || '').trim();
+  if (!raw) return '';
+  const isLocalPath = item.source === 'local' || raw.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\');
+  if (isLocalPath) {
+    try {
+      return convertFileSrc(raw);
+    } catch {
+      return '';
+    }
+  }
+  return raw;
+};
+
 const playerProgressPercent = computed(() => {
   if (!playerDurationMs.value) return 0;
   return Math.round(Math.min(1, playerPositionMs.value / playerDurationMs.value) * 100);
@@ -1040,6 +1060,28 @@ const logoutMidishow = async () => {
     error.value = e.message || String(e);
   } finally {
     accountLoading.value = false;
+  }
+};
+
+const coverBackfillBusy = ref(false);
+
+/**
+ * 给本地曲库里没有封面的歌批量补官方封面。
+ * 只接受「标题保守匹配 + 源站真的给了图」的结果；查不到就计入 unresolved，
+ * 不会拿别的歌的图凑数（那比留空更糟）。
+ */
+const fillMissingCovers = async () => {
+  if (coverBackfillBusy.value) return;
+  coverBackfillBusy.value = true;
+  error.value = '';
+  try {
+    const result = await VrpianoApi.fillMissingCovers({ limit: 300 });
+    status.value = { ...status.value, last_event: t('vrpiano.covers_fill_result', result) };
+    await refreshSongs();
+  } catch (value) {
+    error.value = `${t('vrpiano.covers_fill_failed')} ${String((value as any)?.message || value)}`;
+  } finally {
+    coverBackfillBusy.value = false;
   }
 };
 
@@ -2617,6 +2659,15 @@ onUnmounted(async () => {
               <Upload :size="14" />
               <span>{{ t('vrpiano.import_midi') }}</span>
             </button>
+            <button
+              class="icon-btn-sm"
+              :title="coverBackfillBusy ? t('vrpiano.filling_missing_covers') : t('vrpiano.fill_missing_covers')"
+              :disabled="coverBackfillBusy || loading"
+              @click="fillMissingCovers"
+            >
+              <Loader2 v-if="coverBackfillBusy" :size="14" class="spin" />
+              <ImagePlus v-else :size="14" />
+            </button>
             <div class="library-search">
               <Search :size="14" />
               <input
@@ -3455,6 +3506,10 @@ onUnmounted(async () => {
                 </button>
               </div>
               <div v-for="item in filteredOnlineResults" :key="`${item.source || 'midishow'}-${item.id}`" class="online-row">
+                <div class="online-cover">
+                  <img v-if="onlineCover(item)" :src="onlineCover(item)" :alt="''" loading="lazy" referrerpolicy="no-referrer">
+                  <Music v-else :size="15" />
+                </div>
                 <div class="online-meta">
                   <div class="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
                     <span
@@ -3777,6 +3832,28 @@ onUnmounted(async () => {
   width: 44px;
   height: 44px;
   border-radius: 8px;
+}
+
+/* 在线结果封面：和本地曲库的 .title-icon 同一套视觉，没封面时退回渐变底 + Music 字形，
+   保证行高与左边缘对齐，不会出现「有的有图有的塌一行」。 */
+.online-cover {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  color: white;
+  background: linear-gradient(135deg, var(--vp-primary), color-mix(in srgb, var(--vp-primary) 45%, #22c55e));
+}
+
+.online-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: var(--vp-panel);
 }
 
 h1,
